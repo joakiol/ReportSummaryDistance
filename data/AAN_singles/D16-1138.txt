@@ -1,0 +1,297 @@
+Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, pages 1307?1316,Austin, Texas, November 1-5, 2016. c?2016 Association for Computational LinguisticsOnline Segment to Segment Neural TransductionLei Yu1, Jan Buys1 and Phil Blunsom1,21University of Oxford2DeepMind{lei.yu, jan.buys, phil.blunsom}@cs.ox.ac.ukAbstractWe introduce an online neural sequence to se-quence model that learns to alternate betweenencoding and decoding segments of the inputas it is read.
+By independently tracking the en-coding and decoding representations our algo-rithm permits exact polynomial marginaliza-tion of the latent segmentation during train-ing, and during decoding beam search is em-ployed to find the best alignment path to-gether with the predicted output sequence.Our model tackles the bottleneck of vanillaencoder-decoders that have to read and mem-orize the entire input sequence in their fixed-length hidden states before producing any out-put.
+It is different from previous attentivemodels in that, instead of treating the at-tention weights as output of a deterministicfunction, our model assigns attention weightsto a sequential latent variable which can bemarginalized out and permits online gener-ation.
+Experiments on abstractive sentencesummarization and morphological inflectionshow significant performance gains over thebaseline encoder-decoders.1 IntroductionThe problem of mapping from one sequence to an-other is an importance challenge of natural languageprocessing.
+Common applications include machinetranslation and abstractive sentence summarisation.Traditionally this type of problem has been tackledby a combination of hand-crafted features, align-ment models, segmentation heuristics, and languagemodels, all of which are tuned separately.The recently introduced encoder-decoderparadigm has proved very successful for machinetranslation, where an input sequence is encodedinto a fixed-length vector and an output sequenceis then decoded from said vector (Kalchbrennerand Blunsom, 2013; Sutskever et al, 2014; Choet al, 2014).
+This architecture is appealing, as itmakes it possible to tackle the problem of sequence-to-sequence mapping by training a large neuralnetwork in an end-to-end fashion.
+However it isdifficult for a fixed-length vector to memorize allthe necessary information of an input sequence,especially for long sequences.
+Often a very largeencoding needs to be employed in order to capturethe longest sequences, which invariably wastescapacity and computation for short sequences.While the attention mechanism of Bahdanau et al(2015) goes some way to address this issue, it stillrequires the full input to be seen before any outputcan be produced.In this paper we propose an architecture to tacklethe limitations of the vanilla encoder-decoder model,a segment to segment neural transduction model(SSNT) that learns to generate and align simul-taneously.
+Our model is inspired by the HMMword alignment model proposed for statistical ma-chine translation (Vogel et al, 1996; Tillmann etal., 1997); we impose a monotone restriction on thealignments but incorporate recurrent dependencieson the input which enable rich locally non-monotonealignments to be captured.
+This is similar to the se-quence transduction model of Graves (2012), but wepropose alignment distributions which are parame-terised separately, making the model more flexible1307and allowing online inference.Our model introduces a latent segmentation whichdetermines correspondences between tokens of theinput sequence and those of the output sequence.The aligned hidden states of the encoder and de-coder are used to predict the next output token and tocalculate the transition probability of the alignment.We carefully design the input and output RNNs suchthat they independently update their respective hid-den states.
+This enables us to derive an exact dy-namic programme to marginalize out the hiddensegmentation during training and an efficient beamsearch to generate online the best alignment path to-gether with the output sequence during decoding.Unlike previous recurrent segmentation models thatonly capture dependencies in the input (Graves et al,2006; Kong et al, 2016), our segmentation modelis able to capture unbounded dependencies in boththe input and output sequences while still permittingpolynomial inference.While attentive models treat the attention weightsas output of a deterministic function, our model as-signs attention weights to a sequential latent variablewhich can be marginalized out.
+Our model is gen-eral and could be incorporated into any RNN-basedencoder-decoder architecture, such as Neural TuringMachines (Graves et al, 2014), memory networks(Weston et al, 2015; Kumar et al, 2016) or stack-based networks (Grefenstette et al, 2015), enablingsuch models to process data online.We conduct experiments on two different trans-duction tasks, abstractive sentence summarisation(sequence to sequence mapping at word level) andmorphological inflection generation (sequence to se-quence mapping at character level).
+We evaluateour proposed algorithms in both the online setting,where the input is encoded with a unidirectionalLSTM, and where the whole input is available suchthat it can be encoded with a bidirectional network.The experimental results demonstrate the effective-ness of SSNT ?
+it consistently output performsthe baseline encoder-decoder approach while requir-ing significantly smaller hidden layers, thus show-ing that the segmentation model is able to learn tobreak one large transduction task into a series ofsmaller encodings and decodings.
+When bidirec-tional encodings are used the segmentation modeloutperforms an attention-based benchmark.
+Quali-</s>.yearnewlunartheforthursdayclosemarketsfinancialchinesechinesemarkets closed for publicholiday .
+</s>Figure 1: Example output of our recurrent segmenta-tion model on the task of abstractive sentence sum-marisation.
+The path highlighted is the alignmentfound by the model during decoding.tative analysis shows that the alignments found byour model are highly intuitive and demonstrates thatthe model learns to read ahead the required numberof tokens before producing output.2 ModelLet xI1 be the input sequence of length I and yJ1 theoutput sequence of length J .
+Let yj denote the j-th token of y.
+Our goal is to model the conditionaldistributionp(y|x) =J?j=1p(yj |yj?11 ,x).
+(1)We introduce a hidden alignment sequence aJ1where each aj = i corresponds to an input positioni ?
+{1, .
+.
+.
+, I} that we want to focus on when gener-ating yj .
+Then p(y|x) is calculated by marginalizingover all the hidden alignments,1308p(y|x) =?a p(y,a|x) (2)?
+?a?Jj=1 p(aj |aj?1,yj?11 ,x)?
+??
+?transition probability?p(yj |yj?11 , aj ,x).?
+??
+?word predictionFigure 1 illustrates the model graphically.
+Eachpath from the top left node to the right-most columnin the graph corresponds to an alignment.
+We con-strain the alignments to be monotone, i.e.
+only for-ward and downward transitions are permitted at eachpoint in the grid.
+This constraint enables the modelto learn to perform online generation.
+Additionally,the model learns to align input and output segments,which means that it can learn local reorderings bymemorizing phrases.
+Another possible constraint onthe alignments would be to ensure that the entire in-put sequence is consumed before last output word isemitted, i.e.
+all valid alignment paths have to end inthe bottom right corner of the grid.
+However, we donot enforce this constraint in our setup.The probability contributed by an alignment is ob-tained by accumulating the probability of word pre-dictions at each point on the path and the transitionprobability between points.
+The transition probabil-ities and the word output probabilities are modeledby neural networks, which are described in detail inthe following sub-sections.2.1 Probabilities of Output Word PredictionsThe input sentence x is encoded with a Recur-rent Neural Network (RNN), in particular an LSTM(Hochreiter and Schmidhuber, 1997).
+The encodercan either be a unidirectional or bidirectional LSTM.If a unidirectional encoder is used the model is ableto read input and generate output symbols online.The hidden state vectors are computed ash?i = RNN(h?i?1, v(e)(xi)), (3)h?i = RNN(h?i+1, v(e)(xi)), (4)where v(e)(xi) denotes the vector representation ofthe token x, and h?i and h?i are the forward andbackward hidden states, respectively.
+For a bidi-rectional encoder, they are concatenated as hi =[h?i ;h?i ]; and for unidirectional encoder hi = h?i .The hidden state sj of the RNN for the output se-quence y is computed assj = RNN(sj?1, v(d)(yj?1)), (5)where v(d)(yj?1) is the encoded vector of the pre-viously generated output word yj?1.
+That is, sj en-codes yj?11 .To calculate the probability of the next word, weconcatenate the aligned hidden state vectors sj andhaj and feed the result into a softmax layer,p(yj = l|yj?11 , aj ,x)= p(yj = l|haj , sj)= softmax(Ww[haj ; sj ] + bw)l.(6)The word output distribution in Graves (2012) is pa-rameterised in similar way.Figure 2 illustrates the model structure.
+Note thatthe hidden states of the input and output decoders arekept independent to permit tractable inference, whilethe output distributions are conditionally dependenton both.2.2 Transition ProbabilitiesAs the alignments are constrained to be monotone,we can treat the transition from timestep j to j+1 asa sequence of shift and emit operations.
+Specif-ically, at each input position, a decision of shiftor emit is made by the model; if the operation isemit then the next output word is generated; other-wise, the model will shift to the next input word.While the multinomial distribution is an alternativefor parameterising alignments, the shift/emit param-eterisation does not place an upper limit on the jumpsize, as a multinomial distribution would, and biasesthe model towards shorter jump sizes, which a multi-nomial model would have to learn.We describe two methods for modelling the align-ment transition probability.
+The first approach is in-dependent of the input or output words.
+To parame-terise the alignment distribution in terms of shift andemit operations we use a geometric distribution,p(aj |aj?1) = (1?
+e)aj?aj?1e, (7)where e is the emission probability.
+This transitionprobability only has one parameter e, which can be1309x3x2x1s1h1<s> y1 y2 y3y1Figure 2: The structure of our model.
+(x1, x2, x3)and (y1, y2, y3) denote the input and output se-quences, respectively.
+The points, e.g.
+(i, j), inthe grid represent an alignment between xi and yj .For each column j, the concatenation of the hiddenstates [hi, sj ] is used to predict yj .estimated directly by maximum likelihood ase =?n Jn?n In +?n Jn, (8)where In and Jn are the lengths of the input and out-put sequences of training example n, respectively.For the second method we model the transitionprobability with a neural network,p(a1 = i) =i?1?d=1(1?
+p(ed,1))p(ei,1),p(aj = i|aj?1 = k) =i?1?d=k(1?
+p(ed,j))p(ei,j),(9)where p(ei,j) denotes the probability of emit forthe alignment aj = i.
+This probability is obtained byfeeding [hi; sj ] into a feed forward neural network,p(ei,j) = ?
+(MLP(Wt[hi; sj ] + bt)).
+(10)For simplicity, p(aj = i|aj?1 = k, sj ,hik) is abbre-viated as p(aj = i|aj?1 = k).3 Training and DecodingSince there are an exponential number of possi-ble alignments, it is computationally intractable toexplicitly calculate every p(y,a|x) and then sumthem to get the conditional probability p(y|x).
+Weinstead approach the problem using a dynamic-programming algorithm similar to the forward-backward algorithm for HMMs (Rabiner, 1989).3.1 TrainingFor an input x and output y, the forward variable?
+(i, j) = p(aj = i,yj1|x).
+The value of ?
+(i, j) iscomputed by summing over the probabilities of ev-ery path that could lead to this cell.
+Formally, ?
+(i, j)is defined as follows:For i ?
+[1, I]:?
+(i, 1) = p(a1 = i)p(y1|hi, s1).
+(11)For j ?
+[2, J ], i ?
+[1, I]:?
+(i, j) = p(yj |hi, sj)?
+(12)i?k=1?
+(k, j ?
+1)p(aj = i|aj?1 = k).The backward variables, defined as ?
+(i, j) =p(yJj+1|aj = i,yj1,x), are computed as:For i ?
+[1, I]:?
+(i, J) = 1.
+(13)For j ?
+[1, J ?
+1], i ?
+[1, I]:?
+(i, j) =I?k=ip(aj+1 = k|aj = i)?
+(k, j + 1)?p(yj+1|hk, sj+1).
+(14)During training we estimate the parameters byminimizing the negative log likelihood of the train-ing set S:L(?)
+= ??
+(x,y)?Slog p(y|x;?
+)= ??(x,y)?SlogI?i=1?
+(i, J).
+(15)Let ?j be the neural network parameters w.r.t.
+themodel output at position j.
+The gradient is computedas:?
+log p(y|x;?)??
+=J?j=1I?i=1?
+log p(y|x;?)??
+(i, j)??
+(i, j)??j.
+(16)1310The derivative w.r.t.
+the forward weights is?
+log p(y|x;?)??
+(i, j) =?
+(i, j)p(y|x;?)
+.
+(17)The derivative of the forward weights w.r.t.
+themodel parameters at position j is??
+(i, j)?
+?j= ?p(yj |hi, sj)??j?
+(i, j)p(yj |hi, sj)+ p(yj |hi, sj)i?k=1?
+(j ?
+1, k) ???jp(aj=i|aj?1=k).
+(18)For the geometric distribution transition probabil-ity model ??
+?j p(aj = i|aj?1 = k) = 0.3.2 DecodingAlgorithm 1 DP search algorithmInput: source sentence xOutput: best output sentence y?Initialization: Q ?
+RI?Jmax , bp ?
+NI?Jmax ,W ?
+NI?Jmax , Iend, Jend.for i ?
+[1, I] doQ[i, 1]?
+maxy?V p(a1 = i)p(y|hi, s1)bp[i, 1]?
+0W [i, 1]?
+argmaxy?V p(a1 = i)p(y|hi, s1)end forfor j ?
+[2, Jmax] dofor i ?
+[1, I] doQ[i, j]?
+maxy?V,k?
+[1,i]Q[k, j ?
+1]?p(aj = i|aj?1 = k)p(y|hi, sj)bp[i, j],W [i, j]?
+argmaxy?V,k?
+[1,i] ?Q[k, j ?
+1]p(aj = i|aj?1 = k)p(y|hi, sj)end forIend ?
+argmaxiQ[i, j]if W [Iend, j] = EOS thenJend ?
+jbreakend ifend forreturn a sequence of words stored in W by fol-lowing backpointers starting from (Iend, Jend).For decoding, we aim to find the best output se-quence y?
+for a given input sequence x:y?
+= argmaxyp(y|x) (19)The search algorithm is based on dynamic program-ming (Tillmann et al, 1997).
+The main idea is tocreate a path probability matrix Q, and fill each cellQ[i, j] by recursively taking the most probable paththat could lead to this cell.
+We present the greedysearch algorithm in Algorithm 1.
+We also imple-mented a beam search that tracks the k best partialsequences at position (i, j).
+The notation bp refersto backpointers, W stores words to be predicted, Vdenotes the output vocabulary, Jmax is the maximumlength of the output sequences that the model is al-lowed to predict.4 ExperimentsWe evaluate the effectiveness of our model on tworepresentative natural language processing tasks,sentence compression and morphological inflection.The primary aim of this evaluation is to assesswhether our proposed architecture is able to outper-form the baseline encoder-decoder model by over-coming its encoding bottleneck.
+We further bench-mark our results against an attention model in orderto determine whether our alternative alignment strat-egy is able to provide similar benefits while process-ing the input online.4.1 Abstractive Sentence SummarisationSentence summarisation is the task of generatinga condensed version of a sentence while preserv-ing its meaning.
+In abstractive sentence summari-sation, summaries are generated from the given vo-cabulary without the constraint of copying words inthe input sentence.
+Rush et al (2015) compiled adata set for this task from the annotated Gigaworddata set (Graff et al, 2003; Napoles et al, 2012),where sentence-summary pairs are obtained by pair-ing the headline of each article with its first sentence.Rush et al (2015) use the splits of 3.8m/190k/381kfor training, validation and testing.
+In previouswork on this dataset, Rush et al (2015) proposedan attention-based model with feed-forward neuralnetworks, and Chopra et al (2016) proposed anattention-based recurrent encoder-decoder, similarto one of our baselines.Due to computational constraints we place the fol-lowing restrictions on the training and validation set:1.
+The maximum lengths for the input sentences1311Model ROUGE-1 ROUGE-2 ROUGE-LSeq2seq 25.16 9.09 23.06Attention 29.25 12.85 27.32uniSSNT 26.96 10.54 24.59biSSNT 27.05 10.62 24.64uniSSNT+ 30.15 13.59 27.88biSSNT+ 30.27 13.68 27.91Table 1: ROUGE F1 scores on the sentence sum-marisation test set.
+Seq2seq refers to the vanillaencoder-decoder and attention denotes the attention-based model.
+SSNT denotes our model with align-ment transition probability modelled as geometricdistribution.
+SSNT+ refers to our model with tran-sition probability modelled using neural networks.The prefixes uni- and bi- denote using unidirectionaland bidirectional encoder LSTMs, respectively.and summaries are 50 and 25, respectively.2.
+For each sentence-summary pair, the productof the input and output lengths should be nogreater than 500.We use the filtered 172k pairs for validation andsample 1m pairs for training.
+While this training setis smaller than that used in previous work (and there-fore our results cannot be compared directly againstreported results), it serves our purpose for evaluat-ing our algorithm against sequence to sequence andattention-based approaches under identical data con-ditions.
+Following from previous work (Rush et al,2015; Chopra et al, 2016; Gu?lc?ehre et al, 2016),we report results on a randomly sampled test setof 2000 sentence-summary pairs.
+The quality ofthe generated summaries are evaluated by three ver-sions of ROUGE for different match lengths, namelyROUGE-1 (unigrams), ROUGE-2 (bigrams), andROUGE-L (longest-common substring).For training, we use Adam (Kingma and Ba,2015) for optimization, with an initial learning rateof 0.001.
+The mini-batch size is set to 32.
+Thenumber of hidden units H is set to 256 for both ourmodel and the baseline models, and dropout of 0.2 isapplied to the input of LSTMs.
+All hyperparameterswere optimised via grid search on the perplexity ofthe validation set.
+We use greedy decoding to gener-ate summaries.Model Configuration PerplexitySeq2seqH = 128, L = 1 48.5H = 256, L = 1 35.6H = 256, L = 2 32.1H = 256, L = 3 31.0biSSNT+ H = 128, L = 1 26.7H = 256, L = 1 22.6Table 2: Perplexity on the validation set with 172ksentence-summary pairs.Table 1 displays the ROUGE-F1 scores of ourmodels on the test set, together with baseline mod-els, including the attention-based model.
+Ourmodels achieve significantly better results thanthe vanilla encoder-decoder and outperform theattention-based model.
+The fact that SSNT+ per-forms better is in line with our expectations, as theneural network-parameterised alignment model ismore expressive than that modelled by geometricdistribution.To make further comparison, we experimentedwith different sizes of hidden units and adding morelayers to the baseline encoder-decoder.
+Table 2 liststhe configurations of different models and their cor-responding perplexities on the validation set.
+We cansee that the vanilla encoder-decoder tends to get bet-ter results by adding more hidden units and stackingmore layers.
+This is due to the limitation of com-pressing information into a fixed-size vector.
+It hasto use larger vectors and deeper structure in order tomemorize more information.
+By contrast, our modelcan do well with smaller networks.
+In fact, even with1 layer and 128 hidden units, our model works muchbetter than the vanilla encoder-decoder with 3 layersand 256 hidden units per layer.4.2 Morphological InflectionMorphological inflection generation is the task ofpredicting the inflected form of a given lexical itembased on a morphological attribute.
+The transforma-tion from a base form to an inflected form usually in-cludes concatenating it with a prefix or a suffix andsubstituting some characters.
+For example, the in-flected form of a German stem abgang is abga?ngenwhen the case is dative and the number is plural.In our experiments, we use the same dataset as1312Model Avg.
+accuracySeq2Seq 79.08Seq2Seq w/ Attention 95.64Adapted-seq2seq (FTND16) 96.20uniSSNT+ 87.85biSSNT+ 95.32Table 3: Average accuracy over all the morpho-logical inflection datasets.
+The baseline results forSeq2Seq variants are taken from (Faruqui et al,2016).Faruqui et al (2016).
+This dataset was originallycreated by Durrett and DeNero (2013) from Wik-tionary, containing inflections for German nouns(de-N), German verbs (de-V), Spanish verbs (es-V), Finnish noun and adjective (fi-NA), and Finnishverbs (fi-V).
+It was further expanded by Nicolai etal.
+(2015) by adding Dutch verbs (nl-V) and Frenchverbs (fr-V).
+The number of inflection types for eachlanguage ranges from 8 to 57.
+The number of baseforms, i.e.
+the number of instances in each dataset,ranges from 2000 to 11200.
+The predefined split is200/200 for dev and test sets, and the rest of the datafor training.Our model is trained separately for each type ofinflection, the same setting as the factored modeldescribed in Faruqui et al (2016).
+The model istrained to predict the character sequence of the in-flected form given that of the stem.
+The output isevaluated by accuracies of string matching.
+For allthe experiments on this task we use 128 hidden unitsfor the LSTMs and apply dropout of 0.5 on the inputand output of the LSTMs.
+We use Adam (Kingmaand Ba, 2015) for optimisation with initial learningrate of 0.001.
+During decoding, beam search is em-ployed with beam size of 30.Table 3 gives the average accuracy of theuniSSNT+, biSSNT+, vanilla encoder-decoder, andattention-based models.
+The model with the bestprevious average result ?
+denoted as adapted-seq2seq (FTND16) (Faruqui et al, 2016) ?
+is alsoincluded for comparison.
+Our biSSNT+ model out-performs the vanilla encoder-decoder by a largemargin and almost matches the state-of-the-art resulton this task.
+As mentioned earlier, a characteristicof these datasets is that the stems and their corre-Dataset DDN13 NCK15 FTND16 biSSNT+de-N 88.31 88.60 88.12 87.50de-V 94.76 97.50 97.72 92.11es-V 99.61 99.80 99.81 99.52fi-NA 92.14 93.00 95.44 95.48fi-V 97.23 98.10 97.81 98.10fr-V 98.80 99.20 98.82 98.65nl-V 90.50 96.10 96.71 95.90Avg.
+94.47 96.04 96.20 95.32Table 4: Comparison of the performance of ourmodel (biSSNT+) against the previous state-of-the-art on each morphological inflection dataset.sponding inflected forms mostly overlap.
+Compareto the vanilla encoder-decoder, our model is better atcopying and finding correspondences between pre-fix, stem and suffix segments.Table 4 compares the results of biSSNT+ and pre-vious models on each individual dataset.
+DDN13and NCK15 denote the models of Durrett and DeN-ero (2013) and Nicolai et al (2015), respectively.Both models tackle the task by feature engineering.FTND16 (Faruqui et al, 2016) adapted the vanillaencoder-decoder by feeding the i-th character of theencoded string as an extra input into the i-th positionof the decoder.
+It can be considered as a special caseof our model by forcing a fixed diagonal alignmentbetween input and output sequences.
+Our modelachieves comparable results to these models on allthe datasets.
+Notably it outperforms other models onthe Finnish noun and adjective, and verbs datasets,whose stems and inflected forms are the longest.5 Alignment QualityFigure 3 presents visualisations of segment align-ments generated by our model for sample instancesfrom both tasks.
+We see that the model is able tolearn the correct correspondences between segmentsof the input and output sequences.
+For instance, thealignment follows a nearly diagonal path for the ex-ample in Figure 3c, where the input and output se-quences are identical.
+In Figure 3b, it learns to addthe prefix ?ge?
+at the start of the sequence and replace?en?
+with ?t?
+after copying ?zock?.
+We observe thatthe model is robust on long phrasal mappings.
+As1313</s>.,directormanagingnewaappointedhas,dailybusinessus-basedtheofeditionasianthe,asiajournalstreetwallthewallstreetjournalasianamesnew managingdirector</s>...(a)</s>nekcozg e z o c k t </s>(b)</s>itnyymsunnelaa l e n n u s m y y n t i </s>(c)Figure 3: Example alignments found by BiSSNT+.
+Highlighted grid cells represent the correspondencebetween the input and output tokens.shown in Figure 3a, the mapping between ?the wallstreet journal asia, the asian edition of the us-basedbusiness daily?
+and ?wall street journal asia?
+demon-strates that our model learns to ignore phrasal mod-ifiers containing additional information.
+We alsofind some examples of word reordering, e.g., thephrase ?industrial production in france?
+is reorderedas ?france industrial output?
+in the model?s predictedoutput.6 Related WorkOur work is inspired by the seminal HMM align-ment model (Vogel et al, 1996; Tillmann et al,1997) proposed for machine translation.
+In contrastto that work, when predicting a target word we addi-tionally condition on all previously generated words,which is enabled by the recurrent neural models.This means that the model also functions as a con-ditional language model.
+It can therefore be applieddirectly, while traditional models have to be com-bined with a language model through a noisy chan-nel in order to be effective.
+Additionally, instead ofEM training on the most likely alignments at eachiteration, our model is trained with direct gradientdescent, marginalizing over all the alignments.Latent variables have been employed in neuralnetwork-based models for sequence labelling tasksin the past.
+Examples include connectionist tem-poral classification (CTC) (Graves et al, 2006) forspeech recognition and the more recent segmentalrecurrent neural networks (SRNNs) (Kong et al,2016), with applications on handwriting recogni-tion and part-of-speech tagging.
+Weighted finite-state transducers (WFSTs) have also been aug-mented to encode input sequences with bidirectionalLSTMs (Rastogi et al, 2016), permitting exact in-ference over all possible output strings.
+While thesemodels have been shown to achieve appealing per-formance on different applications, they have com-mon limitations in terms of modelling dependenciesbetween labels.
+It is not possible for CTCs to modelexplicit dependencies.
+SRNNs and neural WFSTsmodel fixed-length dependencies, making it is diffi-cult to carry out effective inference as the dependen-cies become longer.Our model shares the property of the sequence1314transduction model of Graves (2012) in being ableto model unbounded dependencies between outputtokens via an output RNN.
+This property makes itpossible to apply our model to tasks like summarisa-tion and machine translation that require the tokensin the output sequence to be modelled highly depen-dently.
+Graves (2012) models the joint distributionover outputs and alignments by inserting null sym-bols (representing shift operations) into the outputsequence.
+During training the model uses dynamicprogramming to marginalize over permutations ofthe null symbols, while beam search is employedduring decoding.
+In contrast our model defines aseparate latent alignment variable, which adds flex-ibility to the way the alignment distribution can bedefined (as a geometric distribution or parameterisedby a neural network) and how the alignments canbe constrained, without redefining the dynamic pro-gram.
+In addition to marginalizing during training,our decoding algorithm also makes use of dynamicprogramming, allowing us to use either no beam orsmall beam sizes.Our work is also related to the attention-based models first introduced for machine transla-tion (Bahdanau et al, 2015).
+Luong et al (2015)proposed two alternative attention mechanisms: aglobal method that attends all words in the input sen-tence, and a local one that points to parts of the inputwords.
+Another variation on this theme are pointernetworks (Vinyals et al, 2015), where the outputsare pointers to elements of the variable-length in-put, predicted by the attention distribution.
+Jaitly etal.
+(2016) propose an online sequence to sequencemodel with attention that conditions on fixed-sizedblocks of the input sequence and emits output tokenscorresponding to each block.
+The model is trainedwith alignment information to generate supervisedsegmentations.Although our model shares the same idea of jointtraining and aligning with the attention-based mod-els, our design has fundamental differences and ad-vantages.
+While attention-based models treat the at-tention weights as output of a deterministic func-tion (soft-alignment), in our model the attentionweights correspond to a hidden variable, that can bemarginalized out using dynamic programming.
+Fur-ther, our model?s inherent online nature permits itthe flexibility to use its capacity to chose how muchinput to encode before decoding each segment.7 ConclusionWe have proposed a novel segment to segment neu-ral transduction model that tackles the limitations ofvanilla encoder-decoders that have to read and mem-orize an entire input sequence in a fixed-length con-text vector before producing any output.
+By intro-ducing a latent segmentation that determines corre-spondences between tokens of the input and outputsequences, our model learns to generate and alignjointly.
+During training, the hidden alignment ismarginalized out using dynamic programming, andduring decoding the best alignment path is gener-ated alongside the predicted output sequence.
+Byemploying a unidirectional LSTM as encoder, ourmodel is capable of doing online generation.
+Exper-iments on two representative natural language pro-cessing tasks, abstractive sentence summarisationand morphological inflection generation, showedthat our model significantly outperforms encoder-decoder baselines while requiring much smaller hid-den layers.
+For future work we would like to incor-porate attention-based models to our framework toenable such models to process data online.AcknowledgmentsWe thank Chris Dyer, Karl Moritz Hermann, Ed-ward Grefenstette, Toma?s?
+Ko?cisky?, Gabor Melis,Yishu Miao and many others for their helpful com-ments.
+The first author is funded by EPSRC.ReferencesDzmitry Bahdanau, Kyunghyun Cho, and Yoshua Ben-gio.
+2015.
+Neural machine translation by jointlylearning to align and translate.
+In Proceedings ofICLR.Kyunghyun Cho, Bart van Merrienboer, C?aglar Gu?lc?ehre,Dzmitry Bahdanau, Fethi Bougares, Holger Schwenk,and Yoshua Bengio.
+2014.
+Learning phrase represen-tations using RNN encoder-decoder for statistical ma-chine translation.
+In Proceedings of EMNLP.Sumit Chopra, Michael Auli, and Alexander M. Rush.2016.
+Abstractive sentence summarization with at-tentive recurrent neural networks.
+In Proceedings ofNAACL.1315Greg Durrett and John DeNero.
+2013.
+Supervised learn-ing of complete morphological paradigms.
+In Pro-ceedings of HLT-NAACL.Manaal Faruqui, Yulia Tsvetkov, Graham Neubig, andChris Dyer.
+2016.
+Morphological inflection genera-tion using character sequence to sequence learning.
+InProceedings of NAACL.David Graff, Junbo Kong, Ke Chen, and Kazuaki Maeda.2003.
+English gigaword.
+Linguistic Data Consortium,Philadelphia.Alex Graves, Santiago Ferna?ndez, Faustino Gomez, andJu?rgen Schmidhuber.
+2006.
+Connectionist temporalclassification: labelling unsegmented sequence datawith recurrent neural networks.
+In Proceedings ofICML.Alex Graves, Greg Wayne, and Ivo Danihelka.
+2014.Neural turing machines.
+CoRR, abs/1410.5401.Alex Graves.
+2012.
+Sequence transduction with recur-rent neural networks.
+arXiv preprint arXiv:1211.3711.Edward Grefenstette, Karl Moritz Hermann, Mustafa Su-leyman, and Phil Blunsom.
+2015.
+Learning to trans-duce with unbounded memory.
+In Proceedings ofNIPS, pages 1819?1827.C?aglar Gu?lc?ehre, Sungjin Ahn, Ramesh Nallapati,Bowen Zhou, and Yoshua Bengio.
+2016.
+Pointing theunknown words.
+CoRR, abs/1603.08148.Sepp Hochreiter and Ju?rgen Schmidhuber.
+1997.
+Longshort-term memory.
+Neural computation, 9(8):1735?1780.Navdeep Jaitly, David Sussillo, Quoc V. Le, OriolVinyals, Ilya Sutskever, and Samy Bengio.
+2016.
+Aneural transducer.
+In Proceedings of NIPS.Nal Kalchbrenner and Phil Blunsom.
+2013.
+Recur-rent continuous translation models.
+In Proceedings ofEMNLP.Diederik P. Kingma and Jimmy Ba.
+2015.
+Adam: Amethod for stochastic optimization.
+In Proceedings ofICIR.Lingpeng Kong, Chris Dyer, and Noah A Smith.
+2016.Segmental recurrent neural networks.
+In Proceedingsof ICLR.Ankit Kumar, Ozan Irsoy, Jonathan Su, James Bradbury,Robert English, Brian Pierce, Peter Ondruska, IshaanGulrajani, and Richard Socher.
+2016.
+Ask me any-thing: Dynamic memory networks for natural lan-guage processing.
+In Proceedings of ICML.Thang Luong, Hieu Pham, and Christopher D. Manning.2015.
+Effective approaches to attention-based neuralmachine translation.
+In Proceedings of EMNLP.Courtney Napoles, Matthew Gormley, and BenjaminVan Durme.
+2012.
+Annotated gigaword.
+In Proceed-ings of the Joint Workshop on Automatic KnowledgeBase Construction and Web-scale Knowledge Extrac-tion.Garrett Nicolai, Colin Cherry, and Grzegorz Kondrak.2015.
+Inflection generation as discriminative stringtransduction.
+In Proceedings of NAACL.Lawrence R Rabiner.
+1989.
+A tutorial on hidden markovmodels and selected applications in speech recogni-tion.
+Proceedings of the IEEE, 77(2):257?286.Pushpendre Rastogi, Ryan Cotterell, and Jason Eisner.2016.
+Weighting finite-state transductions with neuralcontext.
+In Proceedings of NAACL.Alexander M. Rush, Sumit Chopra, and Jason Weston.2015.
+A neural attention model for abstractive sen-tence summarization.
+In Proceedings of EMNLP.Ilya Sutskever, Oriol Vinyals, and Quoc V Le.
+2014.
+Se-quence to sequence learning with neural networks.
+InProceedings of NIPS.Christoph Tillmann, Stephan Vogel, Hermann Ney, andAlex Zubiaga.
+1997.
+A DP-based search using mono-tone alignments in statistical translation.
+In Proceed-ings of EACL.Oriol Vinyals, Meire Fortunato, and Navdeep Jaitly.2015.
+Pointer networks.
+In Proceedings of NIPS.Stephan Vogel, Hermann Ney, and Christoph Tillmann.1996.
+HMM-based word alignment in statistical trans-lation.
+In Proceedings of COLING.Jason Weston, Sumit Chopra, and Antoine Bordes.
+2015.Memory networks.
+In Proceedings of ICLR.1316

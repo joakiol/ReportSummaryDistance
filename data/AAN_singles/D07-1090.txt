@@ -1,0 +1,245 @@
+Proceedings of the 2007 Joint Conference on Empirical Methods in Natural Language Processing and ComputationalNatural Language Learning, pp.
+858?867, Prague, June 2007. c?2007 Association for Computational LinguisticsLarge Language Models in Machine TranslationThorsten Brants Ashok C. Popat Peng Xu Franz J. Och Jeffrey DeanGoogle, Inc.1600 Amphitheatre ParkwayMountain View, CA 94303, USA{brants,popat,xp,och,jeff}@google.comAbstractThis paper reports on the benefits of large-scale statistical language modeling in ma-chine translation.
+A distributed infrastruc-ture is proposed which we use to train onup to 2 trillion tokens, resulting in languagemodels having up to 300 billion n-grams.
+Itis capable of providing smoothed probabil-ities for fast, single-pass decoding.
+We in-troduce a new smoothing method, dubbedStupid Backoff, that is inexpensive to trainon large data sets and approaches the qualityof Kneser-Ney Smoothing as the amount oftraining data increases.1 IntroductionGiven a source-language (e.g., French) sentence f ,the problem of machine translation is to automati-cally produce a target-language (e.g., English) trans-lation e?.
+The mathematics of the problem were for-malized by (Brown et al, 1993), and re-formulatedby (Och and Ney, 2004) in terms of the optimizatione?
+= arg maxeM?m=1?mhm(e, f) (1)where {hm(e, f)} is a set of M feature functions and{?m} a set of weights.
+One or more feature func-tions may be of the form h(e, f) = h(e), in whichcase it is referred to as a language model.We focus on n-gram language models, which aretrained on unlabeled monolingual text.
+As a generalrule, more data tends to yield better language mod-els.
+Questions that arise in this context include: (1)How might one build a language model that allowsscaling to very large amounts of training data?
+(2)How much does translation performance improve asthe size of the language model increases?
+(3) Is therea point of diminishing returns in performance as afunction of language model size?This paper proposes one possible answer to thefirst question, explores the second by providinglearning curves in the context of a particular statis-tical machine translation system, and hints that thethird may yet be some time in answering.
+In particu-lar, it proposes a distributed language model trainingand deployment infrastructure, which allows directand efficient integration into the hypothesis-searchalgorithm rather than a follow-on re-scoring phase.While it is generally recognized that two-pass de-coding can be very effective in practice, single-passdecoding remains conceptually attractive because iteliminates a source of potential information loss.2 N -gram Language ModelsTraditionally, statistical language models have beendesigned to assign probabilities to strings of words(or tokens, which may include punctuation, etc.
+).Let wL1 = (w1, .
+.
+.
+, wL) denote a string of L tokensover a fixed vocabulary.
+An n-gram language modelassigns a probability to wL1 according toP (wL1 ) =L?i=1P (wi|wi?11 ) ?L?i=1P?
+(wi|wi?1i?n+1)(2)where the approximation reflects a Markov assump-tion that only the most recent n ?
+1 tokens are rele-vant when predicting the next word.858For any substring wji of wL1 , let f(wji ) denote thefrequency of occurrence of that substring in anothergiven, fixed, usually very long target-language stringcalled the training data.
+The maximum-likelihood(ML) probability estimates for the n-grams are givenby their relative frequenciesr(wi|wi?1i?n+1) =f(wii?n+1)f(wi?1i?n+1).
+(3)While intuitively appealing, Eq.
+(3) is problematicbecause the denominator and / or numerator mightbe zero, leading to inaccurate or undefined probabil-ity estimates.
+This is termed the sparse data prob-lem.
+For this reason, the ML estimate must be mod-ified for use in practice; see (Goodman, 2001) for adiscussion of n-gram models and smoothing.In principle, the predictive accuracy of the lan-guage model can be improved by increasing the or-der of the n-gram.
+However, doing so further exac-erbates the sparse data problem.
+The present workaddresses the challenges of processing an amountof training data sufficient for higher-order n-grammodels and of storing and managing the resultingvalues for efficient use by the decoder.3 Related Work on Distributed LanguageModelsThe topic of large, distributed language models isrelatively new.
+Recently a two-pass approach hasbeen proposed (Zhang et al, 2006), wherein a lower-order n-gram is used in a hypothesis-generationphase, then later the K-best of these hypotheses arere-scored using a large-scale distributed languagemodel.
+The resulting translation performance wasshown to improve appreciably over the hypothesisdeemed best by the first-stage system.
+The amountof data used was 3 billion words.More recently, a large-scale distributed languagemodel has been proposed in the contexts of speechrecognition and machine translation (Emami et al,2007).
+The underlying architecture is similar to(Zhang et al, 2006).
+The difference is that they in-tegrate the distributed language model into their ma-chine translation decoder.
+However, they don?t re-port details of the integration or the efficiency of theapproach.
+The largest amount of data used in theexperiments is 4 billion words.Both approaches differ from ours in that they storecorpora in suffix arrays, one sub-corpus per worker,and serve raw counts.
+This implies that all work-ers need to be contacted for each n-gram request.In our approach, smoothed probabilities are storedand served, resulting in exactly one worker beingcontacted per n-gram for simple smoothing tech-niques, and in exactly two workers for smoothingtechniques that require context-dependent backoff.Furthermore, suffix arrays require on the order of 8bytes per token.
+Directly storing 5-grams is moreefficient (see Section 7.2) and allows applying countcutoffs, further reducing the size of the model.4 Stupid BackoffState-of-the-art smoothing uses variations of con-text-dependent backoff with the following scheme:P (wi|wi?1i?k+1) ={?
+(wii?k+1) if (wii?k+1) is found?
+(wi?1i?k+1)P (wii?k+2) otherwise(4)where ?(?)
+are pre-computed and stored probabili-ties, and ?(?)
+are back-off weights.
+As examples,Kneser-Ney Smoothing (Kneser and Ney, 1995),Katz Backoff (Katz, 1987) and linear interpola-tion (Jelinek and Mercer, 1980) can be expressed inthis scheme (Chen and Goodman, 1998).
+The recur-sion ends at either unigrams or at the uniform distri-bution for zero-grams.We introduce a similar but simpler scheme,named Stupid Backoff 1 , that does not generate nor-malized probabilities.
+The main difference is thatwe don?t apply any discounting and instead directlyuse the relative frequencies (S is used instead ofP to emphasize that these are not probabilities butscores):S(wi|wi?1i?k+1) =????
+?f(wii?k+1)f(wi?1i?k+1)if f(wii?k+1) > 0?S(wi|wi?1i?k+2) otherwise(5)1The name originated at a time when we thought that sucha simple scheme cannot possibly be good.
+Our view of thescheme changed, but the name stuck.859In general, the backoff factor ?
+may be made to de-pend on k. Here, a single value is used and heuris-tically set to ?
+= 0.4 in all our experiments2 .
+Therecursion ends at unigrams:S(wi) =f(wi)N (6)with N being the size of the training corpus.Stupid Backoff is inexpensive to calculate in a dis-tributed environment while approaching the qualityof Kneser-Ney smoothing for large amounts of data.The lack of normalization in Eq.
+(5) does not affectthe functioning of the language model in the presentsetting, as Eq.
+(1) depends on relative rather than ab-solute feature-function values.5 Distributed TrainingWe use the MapReduce programming model (Deanand Ghemawat, 2004) to train on terabytes of dataand to generate terabytes of language models.
+In thisprogramming model, a user-specified map functionprocesses an input key/value pair to generate a set ofintermediate key/value pairs, and a reduce functionaggregates all intermediate values associated withthe same key.
+Typically, multiple map tasks oper-ate independently on different machines and on dif-ferent parts of the input data.
+Similarly, multiple re-duce tasks operate independently on a fraction of theintermediate data, which is partitioned according tothe intermediate keys to ensure that the same reducersees all values for a given key.
+For additional details,such as communication among machines, data struc-tures and application examples, the reader is referredto (Dean and Ghemawat, 2004).Our system generates language models in threemain steps, as described in the following sections.5.1 Vocabulary GenerationVocabulary generation determines a mapping ofterms to integer IDs, so n-grams can be stored us-ing IDs.
+This allows better compression than theoriginal terms.
+We assign IDs according to term fre-quency, with frequent terms receiving small IDs forefficient variable-length encoding.
+All words that2The value of 0.4 was chosen empirically based on goodresults in earlier experiments.
+Using multiple values dependingon the n-gram order slightly improves results.occur less often than a pre-determined threshold aremapped to a special id marking the unknown word.The vocabulary generation map function readstraining text as input.
+Keys are irrelevant; values aretext.
+It emits intermediate data where keys are termsand values are their counts in the current sectionof the text.
+A sharding function determines whichshard (chunk of data in the MapReduce framework)the pair is sent to.
+This ensures that all pairs withthe same key are sent to the same shard.
+The re-duce function receives all pairs that share the samekey and sums up the counts.
+Simplified, the map,sharding and reduce functions do the following:Map(string key, string value) {// key=docid, ignored; value=documentarray words = Tokenize(value);hash_map<string, int> histo;for i = 1 .. #wordshisto[words[i]]++;for iter in histoEmit(iter.first, iter.second);}int ShardForKey(string key, int nshards) {return Hash(key) % nshards;}Reduce(string key, iterator values) {// key=term; values=countsint sum = 0;for each v in valuessum += ParseInt(v);Emit(AsString(sum));}Note that the Reduce function emits only the aggre-gated value.
+The output key is the same as the inter-mediate key and automatically written by MapRe-duce.
+The computation of counts in the map func-tion is a minor optimization over the alternative ofsimply emitting a count of one for each tokenizedword in the array.
+Figure 1 shows an example for3 input documents and 2 reduce shards.
+Which re-ducer a particular term is sent to is determined by ahash function, indicated by text color.
+The exact par-titioning of the keys is irrelevant; important is that allpairs with the same key are sent to the same reducer.5.2 Generation of n-GramsThe process of n-gram generation is similar to vo-cabulary generation.
+The main differences are thatnow words are converted to IDs, and we emit n-grams up to some maximum order instead of single860Figure 1: Distributed vocabulary generation.words.
+A simplified map function does the follow-ing:Map(string key, string value) {// key=docid, ignored; value=documentarray ids = ToIds(Tokenize(value));for i = 1 .. #idsfor j = 0 .. maxorder-1Emit(ids[i-j .. i], "1");}Again, one may optimize the Map function by firstaggregating counts over some section of the data andthen emit the aggregated counts instead of emitting?1?
+each time an n-gram is encountered.The reduce function is the same as for vocabu-lary generation.
+The subsequent step of languagemodel generation will calculate relative frequenciesr(wi|wi?1i?k+1) (see Eq.
+3).
+In order to make that stepefficient we use a sharding function that places thevalues needed for the numerator and denominatorinto the same shard.Computing a hash function on just the first wordsof n-grams achieves this goal.
+The required n-grams wii?n+1 and wi?1i?n+1 always share the samefirst word wi?n+1, except for unigrams.
+For that weneed to communicate the total count N to all shards.Unfortunately, sharding based on the first wordonly may make the shards very imbalanced.
+Someterms can be found at the beginning of a huge num-ber of n-grams, e.g.
+stopwords, some punctuationmarks, or the beginning-of-sentence marker.
+As anexample, the shard receiving n-grams starting withthe beginning-of-sentence marker tends to be severaltimes the average size.
+Making the shards evenlysized is desirable because the total runtime of theprocess is determined by the largest shard.The shards are made more balanced by hashingbased on the first two words:int ShardForKey(string key, int nshards) {string prefix = FirstTwoWords(key);return Hash(prefix) % nshards;}This requires redundantly storing unigram counts inall shards in order to be able to calculate relative fre-quencies within shards.
+That is a relatively smallamount of information (a few million entries, com-pared to up to hundreds of billions of n-grams).5.3 Language Model GenerationThe input to the language model generation step isthe output of the n-gram generation step: n-gramsand their counts.
+All information necessary to calcu-late relative frequencies is available within individ-ual shards because of the sharding function.
+That iseverything we need to generate models with StupidBackoff.
+More complex smoothing methods requireadditional steps (see below).Backoff operations are needed when the full n-gram is not found.
+If r(wi|wi?1i?n+1) is not found,then we will successively look for r(wi|wi?1i?n+2),r(wi|wi?1i?n+3), etc.
+The language model generationstep shards n-grams on their last two words (withunigrams duplicated), so all backoff operations canbe done within the same shard (note that the requiredn-grams all share the same last word wi).5.4 Other Smoothing MethodsState-of-the-art techniques like Kneser-NeySmoothing or Katz Backoff require additional,more expensive steps.
+At runtime, the client needsto additionally request up to 4 backoff factors foreach 5-gram requested from the servers, therebymultiplying network traffic.
+We are not aware ofa method that always stores the history backofffactors on the same shard as the longer n-gramwithout duplicating a large fraction of the entries.This means one needs to contact two shards pern-gram instead of just one for Stupid Backoff.Training requires additional iterations over the data.861Step 0 Step 1 Step 2context counting unsmoothed probs and interpol.
+weights interpolated probabilitiesInput key wii?n+1 (same as Step 0 output) (same as Step 1 output)Input value f(wii?n+1) (same as Step 0 output) (same as Step 1 output)Intermediate key wii?n+1 wi?1i?n+1 wi?n+1iSharding wii?n+1 wi?1i?n+1 wi?n+2i?n+1 , unigrams duplicatedIntermediate value fKN (wii?n+1) wi,fKN (wii?n+1)fKN (wii?n+1)?DfKN (wi?1i?n+1),?
+(wi?1i?n+1)Output value fKN (wii?n+1) wi,fKN (wii?n+1)?DfKN (wi?1i?n+1),?
+(wi?1i?n+1) PKN (wi|wi?1i?n+1), ?
+(wi?1i?n+1)Table 1: Extra steps needed for training Interpolated Kneser-Ney SmoothingKneser-Ney Smoothing counts lower-order n-grams differently.
+Instead of the frequency of the(n?
+1)-gram, it uses the number of unique singleword contexts the (n?1)-gram appears in.
+We usefKN(?)
+to jointly denote original frequencies for thehighest order and context counts for lower orders.After the n-gram counting step, we process the n-grams again to produce these quantities.
+This canbe done similarly to the n-gram counting using aMapReduce (Step 0 in Table 1).The most commonly used variant of Kneser-Neysmoothing is interpolated Kneser-Ney smoothing,defined recursively as (Chen and Goodman, 1998):PKN (wi|wi?1i?n+1) =max(fKN(wii?n+1) ?
+D, 0)fKN(wi?1i?n+1)+ ?
+(wi?1i?n+1)PKN (wi|wi?1i?n+2),where D is a discount constant and {?
+(wi?1i?n+1)} areinterpolation weights that ensure probabilities sumto one.
+Two additional major MapReduces are re-quired to compute these values efficiently.
+Table 1describes their input, intermediate and output keysand values.
+Note that output keys are always thesame as intermediate keys.The map function of MapReduce 1 emits n-gramhistories as intermediate keys, so the reduce func-tion gets all n-grams with the same history at thesame time, generating unsmoothed probabilities andinterpolation weights.
+MapReduce 2 computes theinterpolation.
+Its map function emits reversed n-grams as intermediate keys (hence we use wi?n+1iin the table).
+All unigrams are duplicated in ev-ery reduce shard.
+Because the reducer function re-ceives intermediate keys in sorted order it can com-pute smoothed probabilities for all n-gram orderswith simple book-keeping.Katz Backoff requires similar additional steps.The largest models reported here with Kneser-NeySmoothing were trained on 31 billion tokens.
+ForStupid Backoff, we were able to use more than 60times of that amount.6 Distributed ApplicationOur goal is to use distributed language models in-tegrated into the first pass of a decoder.
+This mayyield better results than n-best list or lattice rescor-ing (Ney and Ortmanns, 1999).
+Doing that for lan-guage models that reside in the same machine as thedecoder is straight-forward.
+The decoder accessesn-grams whenever necessary.
+This is inefficient in adistributed system because network latency causes aconstant overhead on the order of milliseconds.
+On-board memory is around 10,000 times faster.We therefore implemented a new decoder archi-tecture.
+The decoder first queues some number ofrequests, e.g.
+1,000 or 10,000 n-grams, and thensends them together to the servers, thereby exploit-ing the fact that network requests with large numbersof n-grams take roughly the same time to completeas requests with single n-grams.The n-best search of our machine translation de-coder proceeds as follows.
+It maintains a graph ofthe search space up to some point.
+It then extendseach hypothesis by advancing one word position inthe source language, resulting in a candidate exten-sion of the hypothesis of zero, one, or more addi-tional target-language words (accounting for the factthat variable-length source-language fragments cancorrespond to variable-length target-language frag-ments).
+In a traditional setting with a local languagemodel, the decoder immediately obtains the nec-essary probabilities and then (together with scores862Figure 2: Illustration of decoder graph and batch-querying of the language model.from other features) decides which hypotheses tokeep in the search graph.
+When using a distributedlanguage model, the decoder first tentatively extendsall current hypotheses, taking note of which n-gramsare required to score them.
+These are queued up fortransmission as a batch request.
+When the scores arereturned, the decoder re-visits all of these tentativehypotheses, assigns scores, and re-prunes the searchgraph.
+It is then ready for the next round of exten-sions, again involving queuing the n-grams, waitingfor the servers, and pruning.The process is illustrated in Figure 2 assuming atrigram model and a decoder policy of pruning tothe four most promising hypotheses.
+The four ac-tive hypotheses (indicated by black disks) at time tare: There is, There may, There are, and There were.The decoder extends these to form eight new nodesat time t + 1.
+Note that one of the arcs is labeled ,indicating that no target-language word was gener-ated when the source-language word was consumed.The n-grams necessary to score these eight hypothe-ses are There is lots, There is many, There may be,There are lots, are lots of, etc.
+These are queued upand their language-model scores requested in a batchmanner.
+After scoring, the decoder prunes this set asindicated by the four black disks at time t + 1, thenextends these to form five new nodes (one is shared)at time t + 2.
+The n-grams necessary to score thesehypotheses are lots of people, lots of reasons, Thereare onlookers, etc.
+Again, these are sent to the servertogether, and again after scoring the graph is prunedto four active (most promising) hypotheses.The alternating processes of queuing, waiting andscoring/pruning are done once per word position ina source sentence.
+The average sentence length inour test data is 22 words (see section 7.1), thus wehave 23 rounds3 per sentence on average.
+The num-ber of n-grams requested per sentence depends onthe decoder settings for beam size, re-ordering win-dow, etc.
+As an example for larger runs reported inthe experiments section, we typically request around150,000 n-grams per sentence.
+The average net-work latency per batch is 35 milliseconds, yield-ing a total latency of 0.8 seconds caused by the dis-tributed language model for an average sentence of22 words.
+If a slight reduction in translation qual-ity is allowed, then the average network latency perbatch can be brought down to 7 milliseconds by re-ducing the number of n-grams requested per sen-tence to around 10,000.
+As a result, our system canefficiently use the large distributed language modelat decoding time.
+There is no need for a second passnor for n-best list rescoring.We focused on machine translation when describ-ing the queued language model access.
+However,it is general enough that it may also be applicableto speech decoders and optical character recognitionsystems.7 ExperimentsWe trained 5-gram language models on amounts oftext varying from 13 million to 2 trillion tokens.The data is divided into four sets; language mod-els are trained for each set separately4 .
+For eachtraining data size, we report the size of the result-ing language model, the fraction of 5-grams fromthe test data that is present in the language model,and the BLEU score (Papineni et al, 2002) obtainedby the machine translation system.
+For smaller train-ing sizes, we have also computed test-set perplexityusing Kneser-Ney Smoothing, and report it for com-parison.7.1 Data SetsWe compiled four language model training data sets,listed in order of increasing size:3One additional round for the sentence end marker.4Experience has shown that using multiple, separatelytrained language models as feature functions in Eq (1) yieldsbetter results than using a single model trained on all data.8631e+071e+081e+091e+101e+111e+1210  100  1000  10000  100000  1e+060.11101001000Number of n-gramsApprox.
+LMsizeinGBLM training data size in million tokensx1.8/x2x1.8/x2x1.8/x2x1.6/x2target+ldcnews+webnews+webFigure 3: Number of n-grams (sum of unigrams to5-grams) for varying amounts of training data.target: The English side of Arabic-English paralleldata provided by LDC5 (237 million tokens).ldcnews: This is a concatenation of several Englishnews data sets provided by LDC6 (5 billion tokens).webnews: Data collected over several years, up toDecember 2005, from web pages containing pre-dominantly English news articles (31 billion to-kens).web: General web data, which was collected in Jan-uary 2006 (2 trillion tokens).For testing we use the ?NIST?
+part of the 2006Arabic-English NIST MT evaluation set, which isnot included in the training data listed above7.
+Itconsists of 1797 sentences of newswire, broadcastnews and newsgroup texts with 4 reference transla-tions each.
+The test set is used to calculate transla-tion BLEU scores.
+The English side of the set is alsoused to calculate perplexities and n-gram coverage.7.2 Size of the Language ModelsWe measure the size of language models in totalnumber of n-grams, summed over all orders from1 to 5.
+There is no frequency cutoff on the n-grams.5http://www.nist.gov/speech/tests/mt/doc/LDCLicense-mt06.pdf contains a list of parallel resourcesprovided by LDC.6The bigger sets included are LDC2005T12 (Gigaword,2.5B tokens), LDC93T3A (Tipster, 500M tokens) andLDC2002T31 (Acquaint, 400M tokens), plus many smallersets.7The test data was generated after 1-Feb-2006; all trainingdata was generated before that date.target webnews web# tokens 237M 31G 1.8Tvocab size 200k 5M 16M# n-grams 257M 21G 300GLM size (SB) 2G 89G 1.8Ttime (SB) 20 min 8 hours 1 daytime (KN) 2.5 hours 2 days ?# machines 100 400 1500Table 2: Sizes and approximate training times for3 language models with Stupid Backoff (SB) andKneser-Ney Smoothing (KN).There is, however, a frequency cutoff on the vocab-ulary.
+The minimum frequency for a term to be in-cluded in the vocabulary is 2 for the target, ldcnewsand webnews data sets, and 200 for the web data set.All terms below the threshold are mapped to a spe-cial term UNK, representing the unknown word.Figure 3 shows the number of n-grams for lan-guage models trained on 13 million to 2 trillion to-kens.
+Both axes are on a logarithmic scale.
+Theright scale shows the approximate size of the servedlanguage models in gigabytes.
+The numbers abovethe lines indicate the relative increase in languagemodel size: x1.8/x2 means that the number of n-grams grows by a factor of 1.8 each time we doublethe amount of training data.
+The values are simi-lar across all data sets and data sizes, ranging from1.6 to 1.8.
+The plots are very close to straight linesin the log/log space; linear least-squares regressionfinds r2 > 0.99 for all four data sets.The web data set has the smallest relative increase.This can be at least partially explained by the highervocabulary cutoff.
+The largest language model gen-erated contains approx.
+300 billion n-grams.Table 2 shows sizes and approximate trainingtimes when training on the full target, webnews, andweb data sets.
+The processes run on standard currenthardware with the Linux operating system.
+Gen-erating models with Kneser-Ney Smoothing takes6 ?
+7 times longer than generating models withStupid Backoff.
+We deemed generation of Kneser-Ney models on the web data as too expensive andtherefore excluded it from our experiments.
+The es-timated runtime for that is approximately one weekon 1500 machines.8645010015020025030035010  100  1000  10000  100000  1e+0600.10.20.30.40.50.6PerplexityFractionofcovered5-gramsLM training data size in million tokens+.022/x2+.035/x2+.038/x2+.026/x2target KN PPldcnews KN PPwebnews KN PPtarget C5+ldcnews C5+webnews C5+web C5Figure 4: Perplexities with Kneser-Ney Smoothing(KN PP) and fraction of covered 5-grams (C5).7.3 Perplexity and n-Gram CoverageA standard measure for language model quality isperplexity.
+It is measured on test data T = w|T |1 :PP (T ) = e?
+1|T ||T | i=1log p(wi|wi?1i?n+1) (7)This is the inverse of the average conditional prob-ability of a next word; lower perplexities are bet-ter.
+Figure 4 shows perplexities for models withKneser-Ney smoothing.
+Values range from 280.96for 13 million to 222.98 for 237 million tokens tar-get data and drop nearly linearly with data size (r2 =0.998).
+Perplexities for ldcnews range from 351.97to 210.93 and are also close to linear (r2 = 0.987),while those for webnews data range from 221.85 to164.15 and flatten out near the end.
+Perplexities aregenerally high and may be explained by the mix-ture of genres in the test data (newswire, broadcastnews, newsgroups) while our training data is pre-dominantly written news articles.
+Other held-outsets consisting predominantly of newswire texts re-ceive lower perplexities by the same language mod-els, e.g., using the full ldcnews model we find per-plexities of 143.91 for the NIST MT 2005 evaluationset, and 149.95 for the NIST MT 2004 set.Note that the perplexities of the different languagemodels are not directly comparable because they usedifferent vocabularies.
+We used a fixed frequencycutoff, which leads to larger vocabularies as thetraining data grows.
+Perplexities tend to be higherwith larger vocabularies.0.340.360.380.40.420.4410  100  1000  10000  100000  1e+06TestdataBLEULM training data size in million tokens+0.62BP/x2+0.56BP/x2+0.51BP/x2+0.66BP/x2+0.70BP/x2+0.39BP/x2+0.15BP/x2target KN+ldcnews KN+webnews KNtarget SB+ldcnews SB+webnews SB+web SBFigure 5: BLEU scores for varying amounts of datausing Kneser-Ney (KN) and Stupid Backoff (SB).Perplexities cannot be calculated for languagemodels with Stupid Backoff because their scores arenot normalized probabilities.
+In order to neverthe-less get an indication of potential quality improve-ments with increased training sizes we looked at the5-gram coverage instead.
+This is the fraction of 5-grams in the test data set that can be found in thelanguage model training data.
+A higher coveragewill result in a better language model if (as we hy-pothesize) estimates for seen events tend to be bet-ter than estimates for unseen events.
+This fractiongrows from 0.06 for 13 million tokens to 0.56 for 2trillion tokens, meaning 56% of all 5-grams in thetest data are known to the language model.Increase in coverage depends on the training dataset.
+Within each set, we observe an almost constantgrowth (correlation r2 ?
+0.989 for all sets) witheach doubling of the training data as indicated bynumbers next to the lines.
+The fastest growth oc-curs for webnews data (+0.038 for each doubling),the slowest growth for target data (+0.022/x2).7.4 Machine Translation ResultsWe use a state-of-the-art machine translation systemfor translating from Arabic to English that achieveda competitive BLEU score of 0.4535 on the Arabic-English NIST subset in the 2006 NIST machinetranslation evaluation8 .
+Beam size and re-orderingwindow were reduced in order to facilitate a large8See http://www.nist.gov/speech/tests/mt/mt06eval official results.html for more results.865number of experiments.
+Additionally, our NISTevaluation system used a mixture of 5, 6, and 7-grammodels with optimized stupid backoff factors foreach order, while the learning curve presented hereuses a fixed order of 5 and a single fixed backoff fac-tor.
+Together, these modifications reduce the BLEUscore by 1.49 BLEU points (BP)9 at the largest train-ing size.
+We then varied the amount of languagemodel training data from 13 million to 2 trillion to-kens.
+All other parts of the system are kept the same.Results are shown in Figure 5.
+The first partof the curve uses target data for training the lan-guage model.
+With Kneser-Ney smoothing (KN),the BLEU score improves from 0.3559 for 13 mil-lion tokens to 0.3832 for 237 million tokens.
+Atsuch data sizes, Stupid Backoff (SB) with a constantbackoff parameter ?
+= 0.4 is around 1 BP worsethan KN.
+On average, one gains 0.62 BP for eachdoubling of the training data with KN, and 0.66 BPper doubling with SB.
+Differences of more than 0.51BP are statistically significant at the 0.05 level usingbootstrap resampling (Noreen, 1989; Koehn, 2004).We then add a second language model using ldc-news data.
+The first point for ldcnews shows a largeimprovement of around 1.4 BP over the last pointfor target for both KN and SB, which is approxi-mately twice the improvement expected from dou-bling the amount of data.
+This seems to be causedby adding a new domain and combining two models.After that, we find an improvement of 0.56?0.70 BPfor each doubling of the ldcnews data.
+The gap be-tween Kneser-Ney Smoothing and Stupid Backoffnarrows, starting with a difference of 0.85 BP andending with a not significant difference of 0.24 BP.Adding a third language models based on web-news data does not show a jump at the start of thecurve.
+We see, however, steady increases of 0.39?0.51 BP per doubling.
+The gap between Kneser-Neyand Stupid Backoff is gone, all results with StupidBackoff are actually better than Kneser-Ney, but thedifferences are not significant.We then add a fourth language model based onweb data and Stupid Backoff.
+Generating Kneser-Ney models for these data sizes is extremely ex-pensive and is therefore omitted.
+The fourth model91 BP = 0.01 BLEU.
+We show system scores as BLEU, dif-ferences as BP.shows a small but steady increase of 0.15 BP perdoubling, surpassing the best Kneser-Ney model(trained on less data) by 0.82 BP at the largestsize.
+Goodman (2001) observed that Kneser-NeySmoothing dominates other schemes over a broadrange of conditions.
+Our experiments confirm thisadvantage at smaller language model sizes, but showthe advantage disappears at larger data sizes.The amount of benefit from doubling the trainingsize is partly determined by the domains of the datasets10.
+The improvements are almost linear on thelog scale within the sets.
+Linear least-squares regres-sion shows correlations r2 > 0.96 for all sets andboth smoothing methods, thus we expect to see sim-ilar improvements when further increasing the sizes.8 ConclusionA distributed infrastructure has been described totrain and apply large-scale language models to ma-chine translation.
+Experimental results were pre-sented showing the effect of increasing the amountof training data to up to 2 trillion tokens, resultingin a 5-gram language model size of up to 300 billionn-grams.
+This represents a gain of about two ordersof magnitude in the amount of training data that canbe handled over that reported previously in the liter-ature (or three-to-four orders of magnitude, if oneconsiders only single-pass decoding).
+The infra-structure is capable of scaling to larger amounts oftraining data and higher n-gram orders.The technique is made efficient by judiciousbatching of score requests by the decoder in a server-client architecture.
+A new, simple smoothing tech-nique well-suited to distributed computation wasproposed, and shown to perform as well as moresophisticated methods as the size of the languagemodel increases.Significantly, we found that translation quality asindicated by BLEU score continues to improve withincreasing language model size, at even the largestsizes considered.
+This finding underscores the valueof being able to train and apply very large languagemodels, and suggests that further performance gainsmay be had by pursuing this direction further.10There is also an effect of the order in which we add themodels.
+As an example, web data yields +0.43 BP/x2 whenadded as the second model.
+A discussion of this effect is omit-ted due to space limitations.866ReferencesPeter F. Brown, Stephen Della Pietra, Vincent J. DellaPietra, and Robert L. Mercer.
+1993.
+The mathematicsof statistical machine translation: Parameter estima-tion.
+Computational Linguistics, 19(2):263?311.Stanley F. Chen and Joshua Goodman.
+1998.
+An empiri-cal study of smoothing techniques for language model-ing.
+Technical Report TR-10-98, Harvard, Cambridge,MA, USA.Jeffrey Dean and Sanjay Ghemawat.
+2004.
+Mapreduce:Simplified data processing on large clusters.
+In SixthSymposium on Operating System Design and Imple-mentation (OSDI-04), San Francisco, CA, USA.Ahmad Emami, Kishore Papineni, and Jeffrey Sorensen.2007.
+Large-scale distributed language modeling.
+InProceedings of ICASSP-2007, Honolulu, HI, USA.Joshua Goodman.
+2001.
+A bit of progress in languagemodeling.
+Technical Report MSR-TR-2001-72, Mi-crosoft Research, Redmond, WA, USA.Frederick Jelinek and Robert L. Mercer.
+1980.
+Inter-polated estimation of Markov source parameters fromsparse data.
+In Pattern Recognition in Practice, pages381?397.
+North Holland.Slava Katz.
+1987.
+Estimation of probabilities fromsparse data for the language model component of aspeech recognizer.
+IEEE Transactions on Acoustics,Speech, and Signal Processing, 35(3).Reinhard Kneser and Hermann Ney.
+1995.
+Improvedbacking-off for m-gram language modeling.
+In Pro-ceedings of the IEEE International Conference onAcoustics, Speech and Signal Processing, pages 181?184.Philipp Koehn.
+2004.
+Statistical significance tests formachine translation evaluation.
+In Proceedings ofEMNLP-04, Barcelona, Spain.Hermann Ney and Stefan Ortmanns.
+1999.
+Dynamicprogramming search for continuous speech recogni-tion.
+IEEE Signal Processing Magazine, 16(5):64?83.Eric W. Noreen.
+1989.
+Computer-Intensive Methods forTesting Hypotheses.
+John Wiley & Sons.Franz Josef Och and Hermann Ney.
+2004.
+The align-ment template approach to statistical machine transla-tion.
+Computational Linguistics, 30(4):417?449.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2002.
+BLEU: a method for automatic eval-uation of machine translation.
+In Proceedings of ACL-02, pages 311?318, Philadelphia, PA, USA.Ying Zhang, Almut Silja Hildebrand, and Stephan Vogel.2006.
+Distributed language modeling for n-best listre-ranking.
+In Proceedings of EMNLP-2006, pages216?223, Sydney, Australia.867

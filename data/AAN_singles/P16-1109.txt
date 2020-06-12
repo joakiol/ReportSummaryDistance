@@ -1,0 +1,319 @@
+Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics, pages 1148?1157,Berlin, Germany, August 7-12, 2016.c?2016 Association for Computational LinguisticsScaling a Natural Language Generation SystemJonathan PfeilDepartment of EECSCase Western Reserve UniversityCleveland, OH, USAjonathan.pfeil@case.eduSoumya RayDepartment of EECSCase Western Reserve UniversityCleveland, OH, USAsray@case.eduAbstractA key goal in natural language genera-tion (NLG) is to enable fast generationeven with large vocabularies, grammarsand worlds.
+In this work, we build upon arecently proposed NLG system, SentenceTree Realization with UCT (STRUCT).We describe four enhancements to thissystem: (i) pruning the grammar based onthe world and the communicative goal, (ii)intelligently caching and pruning the com-binatorial space of semantic bindings, (iii)reusing the lookahead search tree at differ-ent search depths, and (iv) learning and us-ing a search control heuristic.
+We evaluatethe resulting system on three datasets ofincreasing size and complexity, the largestof which has a vocabulary of about 10Kwords, a grammar of about 32K lexical-ized trees and a world with about 11K enti-ties and 23K relations between them.
+Ourresults show that the system has a mediangeneration time of 8.5s and finds the bestsentence on average within 25s.
+These re-sults are based on a sequential, interpretedimplementation and are significantly bet-ter than the state of the art for planning-based NLG systems.1 Introduction and Related WorkWe consider the restricted natural language gen-eration (NLG) problem (Reiter and Dale, 1997):given a grammar, lexicon, world and a commu-nicative goal, output a valid sentence that satis-fies this goal.
+Though restricted, this problem isstill challenging when the NLG system has to dealwith the large probabilistic grammars of naturallanguage, large knowledge bases representing re-alistic worlds with many entities and relations be-tween them, and complex communicative goals.Prior work has approach NLG from two di-rections.
+One strategy is over-generation andranking, in which an intermediate structure gen-erates many candidate sentences which are thenranked according to how well they match thegoal.
+This includes systems built on chart parsers(Shieber, 1988; Kay, 1996; White and Baldridge,2003), systems that use forest architectures suchas HALogen/Nitrogen, (Langkilde-Geary, 2002),systems that use tree conditional random fields (Luet al, 2009), and newer systems that use recur-rent neural networks (Wen et al, 2015b; Wen etal., 2015a).
+Another strategy formalizes NLG as agoal-directed planning problem to be solved usingan automated planner.
+This plan is then semanti-cally enriched, followed by surface realization toturn it into natural language.
+This is often viewedas a pipeline generation process (Reiter and Dale,1997).An alternative to pipeline generation is inte-grated generation, in which the sentence plan-ning and surface realization tasks happen simul-taneously (Reiter and Dale, 1997).
+CRISP (Kollerand Stone, 2007) and PCRISP (Bauer and Koller,2010) are two such systems.
+These generators en-code semantic components and grammar actionsin PDDL (Fox and Long, 2003), the input formatfor many off-the-shelf planners such as Graphplan(Blum and Furst, 1997).
+During the planning pro-cess a semantically annotated parse is generatedalongside the sentence, preventing ungrammaticalsentences and structures that cannot be realized.PCRISP builds upon the CRISP system by incor-porating grammar probabilities as costs in an off-the-shelf metric planner (Bauer and Koller, 2010).Our work builds upon the Sentence Tree Realiza-tion with UCT (STRUCT) system (McKinley andRay, 2014), described further in the next section.STRUCT performs integrated generation by for-1148malizing the generation problem as planning ina Markov decision process (MDP), and using aprobabilistic planner to solve it.Results reported in previous work (McKinleyand Ray, 2014) show that STRUCT is able to cor-rectly generate sentences for a variety of commu-nicative goals.
+Further, the system scaled betterwith grammar size (in terms of vocabulary) thanCRISP.
+Nonetheless, these experiments were per-formed with toy grammars and worlds with arti-ficial communicative goals written to test specificexperimental variables in isolation.
+In this work,we consider the question: can we enable STRUCTto scale to realistic generation tasks?
+For exam-ple, we would like STRUCT to be able to generateany sentence from the Wall Street Journal (WSJ)corpus (Marcus et al, 1993).
+We describe four en-hancements to the STRUCT system: (i) pruningthe grammar based on the world and the commu-nicative goal, (ii) intelligently caching and prun-ing the combinatorial space of semantic bindings,(iii) reusing the lookahead search tree at differentsearch depths, and (iv) learning and using a searchcontrol heuristic.
+We call this enhanced versionScalable-STRUCT (S-STRUCT).
+In our experi-ments, we evaluate S-STRUCT on three datasetsof increasing size and complexity derived from theWSJ corpus.
+Our results show that even with vo-cabularies, grammars and worlds containing tensof thousands of constituents, S-STRUCT has amedian generation time of 8.5s and finds the bestsentence on average within 25s, which is signifi-cantly better than the state of the art for planning-based NLG systems.2 Background: LTAG and STRUCTSTRUCT uses an MDP (Puterman, 1994) to for-malize the NLG process.
+The states of the MDPare semantically-annotated partial sentences.
+Theactions of the MDP are defined by the rules of thegrammar.
+STRUCT uses a probabilistic lexical-ized tree adjoining grammar (PLTAG).Tree Adjoining Grammars (TAGs) (Figure 1)consist of two sets of trees: initial trees and aux-iliary (adjoining) trees.
+An initial tree can be ap-plied to an existing sentence tree by replacing aleaf node whose label matches the initial tree?sroot label in an action called ?substitution?.
+Aux-iliary trees have a special ?foot?
+node whose labelmatches the label of its root, and uses this to en-code recursive language structures.
+Given an ex-NPNcatcat(x)SNP VPVchasedNP?x.?y.chased(x,y)N_rAblackN_f?x.black(x)SNPNAblackNcatVPVchasedNP?y.
+(cat(x) ^ black(x) ^ chased(x,y))Figure 1: LTAG examples: initial tree (chased),substitution (cat), and adjunction (black)isting sentence tree, an auxiliary tree can be ap-plied in a three-step process called ?adjunction?.First, an adjunction site is selected from the sen-tence tree; that is, any node whose label matchesthat of the auxiliary tree?s root and foot.
+Then, thesubtree rooted by the adjunction site is removedfrom the sentence tree and substituted into the footnode of the auxiliary tree.
+Finally, the modifiedauxiliary tree is substituted back into the originaladjunction location.
+LTAG is a variation of TAGin which each tree is associated with a lexical itemknown as an anchor (Joshi and Schabes, 1997).Semantics can be added to an LTAG by annotat-ing each tree with compositional lambda seman-tics that are unified via ?-reduction (Jurafsky andMartin, 2000).
+A PLTAG associates probabilitieswith every tree in the LTAG and includes proba-bilities for starting a derivation, probabilities forsubstituting into a specific node, and probabilitiesfor adjoining at a node, or not adjoining.The STRUCT reward function is a measure ofprogress towards the communicative goal as mea-sured by the overlap with the semantics of a partialsentence.
+It gives positive reward to subgoals ful-filled and gives negative reward for unbound enti-ties, unmet semantic constraints, sentence length,and ambiguous entities.
+Therefore, the best sen-tence for a given goal is the shortest unambiguoussentence which fulfills the communicative goaland all semantic constraints.
+The transition func-tion of the STRUCT MDP assigns the total proba-bility of selecting and applying an action in a stateto transition to the next, given by the action?s prob-ability in the grammar.
+The final component of theMDP is the discount factor, which is set to 1.
+Thisis because with lexicalized actions, the state doesnot loop, and the algorithm may need to generatelong sentences to match the communicative goal.STRUCT uses a modified version of the prob-abilistic planner UCT (Kocsis and Szepesv?ari,2006), which can generate near-optimal plans1149with a time complexity independent of the statespace size.
+UCT?s online planning happens intwo steps: for each action available, a lookaheadsearch tree is constructed to estimate the action?sutility.
+Then, the best available action is taken andthe procedure is repeated.
+If there are any unex-plored actions, UCT will choose one according toan ?open action policy?
+which samples PLTAGswithout replacement.
+If no unexplored actions re-main, an action a is chosen in state s according tothe ?tree policy?
+which maximizes Equation 1.P (s, a) = Q(s, a) + c?lnN(s)N(s, a)(1)Here Q(s, a) is the estimated value of a, com-puted as the sum of expected future rewards after(s, a).
+N(s, a) and N(s) are the visit counts fors and (s, a) respectively.
+c is a constant term con-trolling the exploration/exploitation trade off.
+Af-ter an action is chosen, the policy is rolled out todepth D by repeatedly sampling actions from thePLTAG, thereby creating the lookahead tree.UCT was originally used in an adversarial en-vironment, so it selects actions leading to the bestaverage reward; however, language generation isnot adversarial, so STRUCT chooses actions lead-ing to the best overall reward instead.Algorithm 1 S-STRUCT AlgorithmRequire: Grammar R, World W , Goal G, numtrials N , lookahead depth D, timeout T1:?R?
+pruneGrammar(R)2: state?
+empty state3: uctTree?
+new search tree at state4: while state not terminal and time < T do5:?uctTree?
+getAction(uctTree,N,D)6: state?
+uctTree.state7: end while8: return extractBestSentence(uctTree)The modified STRUCT algorithm presentedin this paper, which we call Scalable-STRUCT(S-STRUCT), is shown in Algorithm 1.
+Ifthe changes described in the next section (linesmarked with ?)
+are removed, we recover the origi-nal STRUCT system.3 Scaling the STRUCT systemIn this section, we describe five enhancements toSTRUCT that will allow it to scale to real worldAlgorithm 2 getAction (Algorithm 1, line 5)Require: Search Tree uctTree, num trials N ,lookahead depth D, grammar R1: for N do2: node?
+uctTree3: if node.state has unexplored actions then4:?action?
+pick with open action policy5: else6:?action?
+pick with tree policy7: end if8:?node?
+applyAction(node, action)9: depth?
+110: while depth < D do11: action?
+sample PLTAG from R12:?node?
+applyAction(node, action)13: reward?
+calcReward(node.state)14: propagate reward up uctTree15: depth?
+depth+ 116: end while17: end for18: uctTree?
+best child of uctTree19: return uctTreeNLG tasks.
+Although the implementation detailsof these are specific to STRUCT, all but one (reuseof the UCT search tree) could theoretically be ap-plied to any planning-based NLG system.3.1 Grammar PruningIt is clear that for a given communicative goal,only a small percentage of the lexicalized trees inthe grammar will be helpful in generating a sen-tence.
+Since these trees correspond to actions,if we prune the grammar suitably, we reduce thenumber of actions our planner has to consider.Algorithm 3 pruneGrammar (Algorithm 1, line 1)Require: Grammar R, World W , Goal G1: G??
+?2: for e ?
+G.entities do3: G??
+G??
+referringExpression(e,W )4: end for5: R??
+?6: for tree ?
+R do7: if tree fulfills semantic constraints ortree.relations ?
+G?.relations then8: R??
+R??
+{tree}9: end if10: end for11: return R?There are four cases in which an action is rele-1150vant.
+First, the action could directly contribute tothe goal semantics.
+Second, the action could sat-isfy a semantic constraint, such as mandatory de-terminer adjunction which would turn ?cat?
+into?the cat?
+in Figure 1.
+Third, the action allowsfor additional beneficial actions later in the gener-ation.
+An auxiliary tree anchored by ?that?, whichintroduces a relative clause, would not add any se-mantic content itself.
+However, it would add sub-stitution locations that would let us go from ?thecat?
+to ?the cat that chased the rabbit?
+later in thegeneration process.
+Finally, the action could dis-ambiguate entities in the communicative goal.
+Inthe most conservative approach, we cannot discardactions that introduce a relation sharing an entitywith a goal entity (through any number of otherrelations), as it may be used in a referring expres-sion (Jurafsky and Martin, 2000).
+However, wecan optimize this by ensuring that we can find atleast one, instead of all, referring expressions.This grammar pruning is ?lossless?
+in that, afterpruning, the full communicative goal can still bereached, all semantic constraints can be met, andall entities can be disambiguated.
+However it ispossible that the solution found will be longer thannecessary.
+This can happen if we use two separatedescriptors to disambiguate two entities where onewould have sufficed.
+For example, we could gen-erate the sentence ?the black dog chased the redcat?
+where saying ?the large dog chased the cat?would have sufficed (if ?black?, ?red?, and ?large?were only included for disambiguation purposes).We implement the pruning logic in thepruneGrammar algorithm shown in Algorithm3.
+First, an expanded goal G?is constructed byexplicitly solving for a referring expression foreach goal entity and adding it to the original goal.The algorithm is based on prior work (Bohnet andDale, 2005) and uses an alternating greedy search,which chooses the relation that eliminates the mostdistractors, and a depth-first search to describe theentities.
+Then, we loop through the trees in thegrammar and only keep those that can fulfill se-mantic constraints or can contribute to the goal.This includes trees introducing relative clauses.3.2 Handling Semantic BindingsAs a part of the reward calculation in Algorithm4, we must generate the valid bindings betweenthe entities in the partial sentence and the entitiesin the world (line 2).
+We must have at least oneAlgorithm 4 calcReward (Algorithm 2, line 13)Require: Partial Sentence S, World W , Goal G1: score?
+02:?B ?
+getV alidBindings(S,W )3: if |B| > 0 then4:?m?
+getV alidBinding(S,G)5: S ?
+apply m to S6: score += C1|G.relations ?
+S.relations|7: score ?= C2|G.conds?
+S.conds|8: score ?= C3|G.entities	 S.entities|9: score ?= C4|S.sentence|10: score /= C5|B|11: end if12: return scorevalid binding, as this indicates that our partial sen-tence is factual (with respect to the world); how-ever, more than one binding means that the sen-tence is ambiguous, so a penalty is applied.
+Unfor-tunately, computing the valid bindings is a com-binatorial problem.
+If there are N world entitiesandK partial sentence entities, there are(NK)bind-ings between them that we must check for validity.This quickly becomes infeasible as the world sizegrows.Algorithm 5 getValidBindings (Alg.
+4, line 2)Require: Partial Sentence S, World W1: validBindings?
+?2: queue?
+prevBindings if exists else [?
+]3: while |queue| > 0 do4: b?
+queue.pop()5: S??
+apply binding b to S6: if S?,W consistent and S?.entities allbound then7: validBindings.append(b)8: else if S?,W consistent then9: freeS ?
+unbound S?.entities10: freeW ?W .entities not in b11: for es, ew?
+freeS ?
+freeW do12: queue.push(b ?
+{es?
+ew})13: end for14: end if15: end while16: return validBindingsInstead of trying every binding, we use the pro-cedure shown in Algorithm 5 to greatly reduce thenumber of bindings we must check.
+Starting withan initially empty binding, we repeatedly add asingle {sentenceEntity ?
+worldEntity} pair(line 12).
+If a binding contains all partial sentence1151entities and the semantics are consistent with theworld, the binding is valid (lines 6-7).
+If at anypoint, a binding yields partial sentence semanticsthat are inconsistent with the world, we no longerneed to consider any bindings which it is a sub-set of (when condition on line 8 is false, no chil-dren expanded).
+The benefit of this bottom-up ap-proach is that when an inconsistency is caused byadding a mapping of partial sentence entity e1andworld entity e2, all of the(N?1K?1)bindings contain-ing {e1?
+e2} are ruled out as well.
+This pro-cedure is especially effective in worlds/goals withlow ambiguity (such as real-world text).We further note that many of the binding checksare repeated between action selections.
+Becauseour sentence semantics are conjunctive, entityspecifications only get more specific with addi-tional relations; therefore, bindings that were in-validated earlier in the search procedure can neveragain become valid.
+Thus, we can cache andreuse valid bindings from the previous partial sen-tence (line 2).
+For domains with very large worlds(where most relations have no bearing on the com-municative goal), most of the possible bindingswill be ruled out with the first few action appli-cations, resulting in large computational savings.3.3 Reusing the Search TreeThe STRUCT algorithm constructs a lookaheadtree of depth D via policy rollout to estimate thevalue of each action.
+This tree is then discardedand the procedure repeated at the next state.
+Butit may be that at the next state, many of the use-ful actions will already have been visited by prioriterations of the algorithm.
+For a lookahead depthD, some actions will have already been exploredup to depth D ?
+1.For example if we have generated the par-tial sentence ?the cat chased the rabbit?
+and S-STRUCT looks ahead to find that a greater rewardis possible by introducing the relative clause ?therabbit that ate?, when we transition to ?the rabbitthat?, we do not need to re-explore ?ate?
+and candirectly try actions that result in ?that ate grass?,?that ate carrots?, etc.
+Note that if there are stillunexplored actions at an earlier depth, these willstill be explored as well (action rollouts such as?that drank water?
+in this example).Reusing the search tree is especially effectivegiven that the tree policy causes us to favor areasof the search space with high value.
+Therefore,when we transition to the state with highest value,it is likely that many useful actions have alreadybeen explored.
+Reusing the search tree is reflectedin Algorithms 1-2 by passing uctTree back andforth to/from getAction instead of starting a newsearch tree at each step.
+In applyAction, whena state/action already in the tree is chosen, S-STRUCT transitions to the next state without hav-ing to recompute the state or its reward.3.4 Learning and Using Search ControlDuring the search procedure, a large number ofactions are explored but relatively few of themare helpful.
+Ideally, we would know which ac-tions would lead to valuable states without actu-ally having to expand and evaluate the resultantstates, which is an expensive operation.
+Fromprior knowledge, we know that if we have a par-tial sentence of ?the sky is?, we should try actionsresulting in ?the sky is blue?
+before those result-ing in ?the sky is yellow?.
+This prior knowledgecan be estimated through learned heuristics fromprevious runs of the planner (Yoon et al, 2008).To do this, a set of previously completed plans canbe treated as a training set: for each (state, action)pair considered, a feature vector ?
+(s, a) is emit-ted, along with either the distance to the goal stateor a binary indicator of whether or not the state ison the path to the goal.
+A perceptron (or similarmodel) H(s, a) is trained on the (?
+(s, a), target)pairs.
+H(s, a) can be incorporated into the plan-ning process to help guide future searches.We apply this idea to our S-STRUCT system bytracking the (state, action) pairs visited in previ-ous runs of the STRUCT system where STRUCTobtained at least 90% of the reward of the knownbest sentence and emit a feature vector for each,containing: global tree frequency, tree probability(as defined in Section 4.1), and the word corre-lation of the action?s anchor with the two wordson either side of the action location.
+We definethe global tree frequency as the number of timesthe tree appeared in the corpus normalized by thenumber of trees in the corpus; this is different thanthe tree probability as it does not take any contextinto account (such as the parent tree and substitu-tion location).
+Upon search completion, the fea-ture vectors are annotated with a binary indicatorlabel of whether or not the (state, action) pair wason the path to the best sentence.
+This training setis then used to train a perceptron H(s, a).1152Table 1: Summary statistics for test data setsTest SetGoals /SentencesVocabSizeLex Trees /ActionsWorldEntitiesWorldRelationsAvg.
+GoalEntitiesAvg.
+GoalRelationsMaxDepthSmall 50 130 395 77 135 1.54 2.70 0Medium 500 1165 3734 741 1418 1.48 2.83 1Large 5000 9872 31966 10998 23097 2.20 4.62 6We use H(s, a) to inform both the open actionpolicy (Algorithm 2, line 4) and the tree policy(Algorithm 2, line 6).
+In the open action policy ,we choose open actions according to their heuris-tic values, instead of just their tree probabilities.In the tree policy, we incorporate H(s, a) into thereward estimation by using Equation 2 in place ofEquation 1 in Algorithm 2 (Chaslot et al, 2008a):P (s, a) = Q(s, a)+?H(s, a)+c?lnN(s)N(s, a).
+(2)Here, H(s, a) is a value prediction from priorknowledge and ?
+is a parameter controlling thetrade-off between prior knowledge and estimatedvalue on this goal.4 Empirical EvaluationIn this section, we evaluate three hypotheses: (1)S-STRUCT can handle real-world datasets, as theyscale in terms of (a) grammar size, (b) world size,(c) entities/relations in the goal, (d) lookaheadrequired to generate sentences, (2) S-STRUCTscales better than STRUCT to such datasets and(3) Each of the enhancements above provides apositive contribution to STRUCT?s scalability inisolation.4.1 DatasetsWe collected data in the form of grammars, worldsand goals for our experiments, starting from theWSJ corpus of the Penn TreeBank (Marcus et al,1993).
+We parsed this with an LTAG parser togenerate the best parse and derivation tree (Sarkar,2000; XTAG Research Group, 2001).
+The parsergenerated valid parses for 18,159 of the WSJ sen-tences.
+To pick the best parse for a given sentence,we choose the parse which minimizes the PAR-SEVAL bracket-crossing metric against the gold-standard (Abney et al, 1991).
+This ensures thatthe major structures of the parse tree are retained.We then pick the 31 most frequently occurringXTAG trees (giving us 74% coverage of the parsedsentences) and annotate them with compositionalsemantics.
+The final result of this process was acorpus of semantically annotated WSJ sentencesalong with their parse and derivation trees1.To show the scalability of the improvedSTRUCT system, we extracted 3 datasets of in-creasing size and complexity from the semanti-cally annotated WSJ corpus.
+We nominally referto these datasets as Small, Medium, and Large.Summary statistics of the data sets are shown inTable 1.
+For each test set, we take the grammarto be all possible lexicalizations of the unlexical-ized trees given the anchors of the test set.
+We setthe world as the union of all communicative goalsin the test set.
+The PLTAG probabilities are de-rived from the entire parseable portion of the WSJ.Due to the data sparsity issues (Bauer and Koller,2010), we use unlexicalized probabilities.The reward function constants C were set to[500, 100, 10, 10, 1].
+In the tree policy, c was setto 0.5.
+These are as in the original STRUCTsystem.
+?
+was chosen as 100 after evaluating{0, 10, 100, 1000, 10000} on a tuning set.In addition to test sets, we extract an inde-pendent training set using 100 goals to learn theheuristic H(s, a).
+We train a separate perceptronfor each test set and incorporate this into the S-STRUCT algorithm as described in Section 3.4.4.2 ResultsFor these experiments, S-STRUCT was imple-mented in Python 3.4.
+The experiments were runon a single core of a Intel(R) Xeon(R) CPU E5-2450 v2 processor clocked at 2.50GHz with ac-cess to 8GB of RAM.
+The times reported are fromthe start of the generation process instead of thestart of the program execution to reduce variationcaused by interpreter startup, input parsing, etc.
+In1Not all of the covered trees were able to recursively de-rive their semantics, despite every constituent tree being se-mantically annotated.
+This is because ?-reduction of the ?-semantics is not associative in many cases where the syntac-tic composition is associative, causing errors during semanticunification.
+Due to this and other issues, the number of usableparse trees/sentences was about 7500.11530 10 20 30 40 500.00.20.40.60.81.01.2+Prune GrammarBaseline(a) Small Baseline0.0 0.2 0.4 0.6 0.8 1.0 1.20.00.20.40.60.81.01.2+Heuristic (S-STRUCT)+Cache Bindings+Reuse Search Tree+Search Bindings(b) Small0.0 0.5 1.0 1.5 2.00.00.20.40.60.81.01.2(c) Medium0 10 20 30 40 50 600.00.20.40.60.81.01.2(d) LargeFigure 2: Avg.
+Best Normalized Reward (y-axis) vs. Time in Seconds (x-axis) for (a) Small Baseline,(b) Small, (c) Medium, (d) Large.
+Time when first grammatical sentence available marked as ?.Experiments are cumulative (a trial contains all improvements below it in the legend).SNPDtheNPNprovisionVPVeliminatedNPNlossesSNPDtheNPNAone-timeNprovisionVPVeliminatedNPNAfutureNlossesSNPDtheNPNAone-timeNprovisionVPVeliminatedNPNPNAfutureNlossesPPPatNPDtheNPNunitFigure 3: Best sentence available during S-STRUCT generation at 5.5 (s), 18.0 (s), and 28.2 (s)all experiments, we normalize the reward of a sen-tence by the reward of the actual parse tree, whichwe take to be the gold standard.
+Note that thismeans that in some cases, S-STRUCT can producesolutions with better than this value, e.g.
+if thereare multiple ways to achieve the semantic goal.To investigate the first two hypotheses thatS-STRUCT can handle the scale of real-worlddatasets and scales better than STRUCT, we plotthe average best reward of all goals in the test setover time in Figure 2.
+The results show the cu-mulative effect of the enhancements; working upthrough the legend, each line represents ?switch-ing on?
+another option and includes the effects ofall improvements listed below it.
+The addition ofthe heuristic represents the entire S-STRUCT sys-tem.
+On each line, ?
+marks the time at which thefirst grammatically correct sentence was available.The Baseline shown in Figure 2a is the origi-nal STRUCT system proposed in (McKinley andRay, 2014).
+Due to the large number of actionsthat must be considered, the Baseline experiment?saverage first sentence is not available until 26.20seconds, even on the Small dataset.
+In previ-ous work, the experiments for both STRUCT andCRISP were on toy examples, with grammars hav-ing 6 unlexicalized trees and typically < 100 lexi-calized trees (McKinley and Ray, 2014; Koller andStone, 2007).
+In these experiments, STRUCT wasshown to perform better than or as well as CRISP.Even in our smallest domain, however, the base-line STRUCT system is impractically slow.
+Fur-ther, prior work on PCRISP used a grammar thatwas extracted from the WSJ Penn TreeBank, how-ever it was restricted to the 416 sentences in Sec-tion 0 with <16 words.
+With PCRISP?s extractedgrammar, the most successful realization experi-ment yielded a sentence in only 62% of the tri-als, the remainder having timed out after five min-utes (Bauer and Koller, 2010).
+Thus it is clear thatthese systems do not scale to real NLG tasks.Adding the grammar pruning to the Baseline al-lows S-STRUCT to find the first grammaticallycorrect sentence in 1.3 seconds, even if the re-ward is still sub-optimal.
+For data sets largerthan Small, the Baseline and Prune Grammar ex-periments could not be completed, as they stillenumerated all semantic bindings.
+For even themedium world, a sentence with 4 entities wouldhave to consider 1.2 ?
+1010bindings.
+There-fore, the cumulative experiments start with PruneGrammar and Search Bindings turned on.Figures 2b, 2c and 2d show the results for eachenhancement above on the corresponding dataset.We observe that the improved binding search fur-ther improves performance on the Small task.
+TheSmall test set does not require any lookahead, soit is expected that there would be no benefit to1154(a)0 10 20 30 40 50 60Time (seconds)0.00.20.40.60.81.01.2Reward HeuristicCache BindingsReuse Search TreeSearch Bindings(b)S_rNP_0 VPV?_vAP_1Ared?x.red(x)(c)0 20 40 60 80 100 120 140Time (seconds)0.000.010.020.030.040.050.060.070.080.09(d)Figure 4: (a) Large Non-Cumulative Experiment(b) ?nx0Ax1 XTAG tree (c) Time to 90%Reward (d) Lookahead Required.reusing the search tree, and little to no benefit fromcaching bindings or using a heuristic.
+In the Smalldomain, S-STRUCT is able to generate sentencesvery quickly; the first sentence is available by44ms and the best sentence is available by 100ms.In the medium and large domains, the ?ReuseSearch Tree?, ?Cache Bindings?, and ?Heuristic?changes do improve upon the use of only ?SearchBindings?.
+The Medium domain is still extremelyfast, with the first sentence available in 344ms andthe best sentence available around 1s.
+The largedomain slows down due to the larger lookahead re-quired, the larger grammar, and the huge numberof bindings that have to be considered.
+Even withthis, S-STRUCT can generate a first sentence in7.5s and the best sentence in 25s.
+In Figure 4c, weshow a histogram of the generation time to 90%of the best reward.
+The median time is 8.55s (?symbol).Additionally, histograms of the lookahead re-quired for guaranteed optimal generation areshown for the entire parsable WSJ and our Largeworld in Figure 4d.
+The complexity of the en-tire WSJ does not exceed our Large world, thuswe argue that our results are representative of S-STRUCT?s performance on real-world tasks.To investigate the third hypothesis that each im-provement contributes positively to the scalability,the noncumulative impact of each improvement isshown in Figure 4a.
+All experiments still musthave Prune Grammar and Search Bindings turnedon in order to terminate.
+Therefore, we take thisas a baseline to show that the other changes pro-vide additional benefits.
+Looking at Figure 4a, wesee that each of the changes improves the rewardcurve and the time to generate the first sentence.4.3 Discussion, Limitations and Future WorkAs an example of sentences available at a giventime in the process, we annotate the Large Cumu-lative Heuristic Experiment with  symbols for aspecific trial of the Large dataset.
+Figure 3 showsthe best sentence that was available at three differ-ent times.
+The first grammatically correct sentencewas available 5.5 seconds into the generation pro-cess, reading ?The provision eliminated losses?.This sentence captured the major idea of the com-municative goal, but missed some critical details.As the search procedure continued, S-STRUCTexplored adjunction actions.
+By 18 seconds, addi-tional semantic content was added to expand upon1155the details of the provision and losses.
+S-STRUCTsettled on the best sentence it could find at 28.2seconds, able to match the entire communicativegoal with the sentence ?The one-time provisioneliminated future losses at the unit?.In domains with large lookaheads required,reusing the Search Tree has a large effect on boththe best reward at a given time and on the timeto generate the first sentence.
+This is because S-STRUCT has already explored some actions fromdepth 1 to D ?
+1.
+Additionally, in domains witha large world, the Cache Binding improvement issignificant.
+The learned heuristic, which achievesthe best reward and the shortest time to a completesentence, tries to make S-STRUCT choose betteractions at each step instead of allowing STRUCTto explore actions faster; this means that thereis less overlap between the improvement of theheuristic and other strategies, allowing the totalimprovement to be higher.One strength of the heuristic is in helping S-STRUCT to avoid ?bad?
+actions.
+For example,the XTAG tree ?nx0Ax1 shown in Figure 4b isan initial tree lexicalized by an adjective.
+This treewould be used to say something like ?The dog isred.?
+S-STRUCT may choose this as an initial ac-tion to fulfill a subgoal; however, if the goal wasto say that a red dog chased a cat, S-STRUCTwill be shoehorned into a substantially worse goaldown the line, when it can no longer use an initialtree that adds the ?chase?
+semantics.
+Although therollout process helps, some sentences can sharethe same reward up to the lookahead and only di-verge later.
+The heuristic can help by biasing thesearch against such troublesome scenarios.All of the results discussed above are with-out parallelization and other engineering optimiza-tions (such as writing S-STRUCT in C), as itwould make for an unfair comparison with theoriginal system.
+The core UCT procedure usedby STRUCT and S-STRUCT could easily be par-allelized, as the sampling shown in Algorithm 2can be done independently.
+This has been done inother domains in which UCT is used (ComputerGo), to achieve a speedup factor of 14.9 using 16processor threads (Chaslot et al, 2008b).
+There-fore, we believe these optimizations would resultin a constant factor speedup.Currently, the STRUCT and S-STRUCT sys-tems only focuses on the domain of single sen-tence generation, rather than discourse-level plan-ning.
+Additionally, neither system handles non-semantic feature unification, such as constraintson number, tense, or gender.
+While these representpractical concerns for a production system, we ar-gue that their presence will not affect the system?sscalability, as there is already feature unificationhappening in the ?-semantics.
+In fact, we believethat additional features could improve the scalabil-ity, as many available actions will be ruled out ateach state.5 ConclusionIn this paper we have presented S-STRUCT, whichenhances the STRUCT system to enable betterscaling to real generation tasks.
+We show viaexperiments that this system can scale to largeworlds and generate complete sentences in real-world datasets with a median time of 8.5s.
+Toour knowledge, these results and the scale ofthese NLG experiments (in terms of grammar size,world size, and lookahead complexity) representsthe state-of-the-art for planning-based NLG sys-tems.
+We conjecture that the parallelization of S-STRUCT could achieve the response times nec-essary for real-time applications such as dialog.S-STRUCT is available through Github upon re-quest.ReferencesS.
+Abney, S. Flickenger, C. Gdaniec, C. Grishman,P.
+Harrison, D. Hindle, R. Ingria, F. Jelinek, J. Kla-vans, M. Liberman, M. Marcus, S. Roukos, B. San-torini, and T. Strzalkowski.
+1991.
+Procedure forquantitatively comparing the syntactic coverage ofenglish grammars.
+In E. Black, editor, Proceedingsof the Workshop on Speech and Natural Language,HLT ?91, pages 306?311, Stroudsburg, PA, USA.Association for Computational Linguistics.D.
+Bauer and A. Koller.
+2010.
+Sentence generation asplanning with probabilistic LTAG.
+Proceedings ofthe 10th International Workshop on Tree AdjoiningGrammar and Related Formalisms, New Haven, CT.A.L.
+Blum and M.L.
+Furst.
+1997.
+Fast planningthrough planning graph analysis.
+Artificial intelli-gence, 90(1):281?300.Bernd Bohnet and Robert Dale.
+2005.
+Viewing re-ferring expression generation as search.
+In Inter-national Joint Conference on Artificial Intelligence,pages 1004?1009.Guillaume M. JB Chaslot, Mark H.M. Winands,H.
+Jaap van Den Herik, Jos W.H.M.
+Uiterwijk, andBruno Bouzy.
+2008a.
+Progressive strategies for1156monte-carlo tree search.
+New Mathematics and Nat-ural Computation, 4(03):343?357.Guillaume M. JB Chaslot, Mark H.M. Winands, andH Jaap van Den Herik.
+2008b.
+Parallel monte-carlotree search.
+In Computers and Games, pages 60?71.Springer.M.
+Fox and D. Long.
+2003.
+PDDL2.1: An extensionto PDDL for expressing temporal planning domains.Journal of Artificial Intelligence Research, 20:61?124.Aravind K Joshi and Yves Schabes.
+1997.
+Tree-adjoining grammars.
+In Handbook of formal lan-guages, pages 69?123.
+Springer.Daniel Jurafsky and James H. Martin.
+2000.
+Speechand Language Processing: An Introduction to Nat-ural Language Processing, Computational Linguis-tics, and Speech Recognition.
+Prentice Hall PTR,Upper Saddle River, NJ, USA, 1st edition.Martin Kay.
+1996.
+Chart generation.
+In Proceed-ings of the 34th annual meeting on Association forComputational Linguistics, ACL ?96, pages 200?204, Stroudsburg, PA, USA.
+Association for Com-putational Linguistics.Levente Kocsis and Csaba Szepesv?ari.
+2006.
+Ban-dit based monte-carlo planning.
+In Proceedings ofthe 17th European Conference on Machine Learn-ing, ECML?06, pages 282?293, Berlin, Heidelberg.Springer-Verlag.Alexander Koller and Matthew Stone.
+2007.
+Sen-tence generation as a planning problem.
+In Pro-ceedings of the 45th Annual Meeting of the Associ-ation of Computational Linguistics, pages 336?343,Prague, Czech Republic, June.
+Association for Com-putational Linguistics.I.
+Langkilde-Geary.
+2002.
+An empirical verification ofcoverage and correctness for a general-purpose sen-tence generator.
+In Proceedings of the 12th Inter-national Natural Language Generation Workshop,pages 17?24.
+Citeseer.W.
+Lu, H.T.
+Ng, and W.S.
+Lee.
+2009.
+Natural languagegeneration with tree conditional random fields.
+InProceedings of the 2009 Conference on EmpiricalMethods in Natural Language Processing: Volume1, pages 400?409.
+Association for ComputationalLinguistics.Mitchell P Marcus, Mary Ann Marcinkiewicz, andBeatrice Santorini.
+1993.
+Building a large anno-tated corpus of english: The Penn Treebank.
+Com-putational linguistics, 19(2):313?330.Nathan McKinley and Soumya Ray.
+2014.
+A decision-theoretic approach to natural language generation.In Proceedings of the 52nd Annual Meeting of theAssociation for Computational Linguistics (Volume1: Long Papers), pages 552?561, Baltimore, Mary-land, June.
+Association for Computational Linguis-tics.M.L.
+Puterman.
+1994.
+Markov decision processes:Discrete stochastic dynamic programming.
+JohnWiley & Sons, Inc.Ehud Reiter and Robert Dale.
+1997.
+Building appliednatural language generation systems.
+Natural Lan-guage Engineering, 3(1):57?87.Anoop Sarkar.
+2000.
+Practical experiments in parsingusing tree adjoining grammars.
+In Proceedings ofTAG, volume 5, pages 25?27.Stuart M. Shieber.
+1988.
+A uniform architecture forparsing and generation.
+In Proceedings of the 12thconference on Computational linguistics - Volume2, COLING ?88, pages 614?619, Stroudsburg, PA,USA.
+Association for Computational Linguistics.Tsung-Hsien Wen, Milica Gasic, Dongho Kim, NikolaMrksic, Pei-Hao Su, David Vandyke, and SteveYoung.
+2015a.
+Stochastic language generation indialogue using recurrent neural networks with con-volutional sentence reranking.
+In Proceedings of the16th Annual Meeting of the Special Interest Groupon Discourse and Dialogue, pages 275?284, Prague,Czech Republic, September.
+Association for Com-putational Linguistics.Tsung-Hsien Wen, Milica Gasic, Nikola Mrk?si?c, Pei-Hao Su, David Vandyke, and Steve Young.
+2015b.Semantically conditioned lstm-based natural lan-guage generation for spoken dialogue systems.
+InProceedings of the 2015 Conference on EmpiricalMethods in Natural Language Processing, pages1711?1721, Lisbon, Portugal, September.
+Associa-tion for Computational Linguistics.M.
+White and J. Baldridge.
+2003.
+Adapting chart real-ization to CCG.
+In Proceedings of the 9th EuropeanWorkshop on Natural Language Generation, pages119?126.XTAG Research Group.
+2001.
+A lexicalized treeadjoining grammar for english.
+Technical ReportIRCS-01-03, IRCS, University of Pennsylvania.Sungwook Yoon, Alan Fern, and Robert Givan.
+2008.Learning control knowledge for forward searchplanning.
+The Journal of Machine Learning Re-search, 9:683?718.1157

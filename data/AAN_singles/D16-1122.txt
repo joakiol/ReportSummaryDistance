@@ -1,0 +1,282 @@
+Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, pages 1142?1152,Austin, Texas, November 1-5, 2016. c?2016 Association for Computational LinguisticsDetecting and Characterizing EventsAllison J.
+B. ChaneyPrinceton Universityachaney@cs.princeton.eduHanna WallachMicrosoft Researchwallach@microsoft.comMatthew ConnellyColumbia Universitymjc96@columbia.eduDavid M. BleiColumbia Universitydavid.blei@columbia.eduAbstractSignificant events are characterized by interac-tions between entities (such as countries, or-ganizations, or individuals) that deviate fromtypical interaction patterns.
+Analysts, includ-ing historians, political scientists, and journal-ists, commonly read large quantities of textto construct an accurate picture of when andwhere an event happened, who was involved,and in what ways.
+In this paper, we presentthe Capsule model for analyzing documentsto detect and characterize events of potentialsignificance.
+Specifically, we develop a modelbased on topic modeling that distinguishes be-tween topics that describe ?business as usual?and topics that deviate from these patterns.
+Todemonstrate this model, we analyze a corpus ofover two million U.S. State Department cablesfrom the 1970s.
+We provide an open-source im-plementation of an inference algorithm for themodel and a pipeline for exploring its results.1 IntroductionForeign embassies of the United States governmentcommunicate with one another and with the U.S.State Department through diplomatic cables.
+TheNational Archive collects these cables in a corpus,which traces the (declassified) diplomatic history ofthe United States.1 The corpus contains, for example,over two million cables sent between 1973 and 1978.Most of these cables describe diplomatic ?businessas usual,?
+such as arrangements for visiting officials,1 The National Archives?
+corpus also includes messages sentby diplomatic pouch; however, for brevity, and at the risk ofbeing imprecise, we also refer to these messages as ?cables.
+?recovery of lost or stolen passports, or obtaining listsof names for meetings and conferences.
+For example,the embassies sent 8,635 cables during the week ofApril 21, 1975.
+Here is one, selected at random:Hoffman, UNESCO Secretariat, requestedinfo from PermDel concerning an official in-vitation from the USG RE subject meetingscheduled 10?13 JUNE 1975, Madison, Wis-consin.
+Would appreciate info RE status ofaction to be taken in order to inform Secre-tariat.
+Hoffman communicating with Dr. JohnP.
+Klus RE list of persons to be invited.But, hidden in the corpus are also cables about im-portant diplomatic events?the cables and events thatare most interesting to historians, political scientists,and journalists.
+For example, during that same week,the U.S. was in the last moments of the Vietnam Warand, on April 30, 1975, lost its hold on Saigon.
+Thismarked the end of the war and induced a mass exodusof refugees.
+Here is one cable about this event:GOA program to move VietnameseRefugees to Australia is making little progressand probably will not cover more than100-200 persons.
+Press comment on smallnessof program has recognized difficulty of gettingVietnamese out of Saigon, but ?CanberraTimes?
+Apr 25 sharply critical of government?sperformance.
+[...] Labor government clearlyhopes whole matter will somehow disappear.Our goal in this paper is to develop a tool to helphistorians, political scientists, and journalists wade1142Figure 1: Capsule?s analysis (described in detail in section 5) of two million cables from the National Archives?
+corpus.
+The y-axisrepresents a loose measure of ?eventness?
+(equation (5)).
+The gray background depicts the number of cables sent over time.through corpora of documents to find potentially sig-nificant events and the primary sources around them.We present Capsule, a probabilistic model for detect-ing and characterizing important events, such as thefall of Saigon, in large corpora of historical commu-nication, such as diplomatic cables from the 1970s.Figure 1 illustrates Capsule?s analysis of two mil-lion cables from the National Archives?
+corpus.
+They-axis represents ?eventness,?
+a loose measure ofhow strongly a week?s cables deviate from typicaldiplomatic ?business as usual?
+to discuss some mat-ter that is common to many embassies.
+(We describethis measure of ?eventness?
+in detail in section 3.
+)This figure shows that Capsule detects many well-known events between 1973 and 1978, including thefall of Saigon (April 30, 1975) and the death of MaoTse-tung (September 9, 1976).
+Capsule also uncoversobscure, but significant, events that have largely es-caped the attention of scholars, such as when the U.S.defended its control of the Panama Canal before theUnited Nations Security Council (March 19, 1973).Capsule therefore provides a new way to detect andcharacterize historical moments that may be of inter-est to historians, political scientists, and journalists.The intuition behind Capsule is this: Embassieswrite cables throughout the year, usually describingtypical diplomatic business, such as visits from gov-ernment officials.
+Sometimes, however, importantevents occur, such as the fall of Saigon, that pull em-bassies away from their typical activities and leadthem to write cables that discuss these events andtheir consequences.
+Capsule therefore operational-izes an ?event?
+as a moment in history when multipleembassies deviate from their usual topics of discus-sion and each embassy deviates in a similar way.Capsule embeds this intuition into a Bayesianmodel that uses latent variables to encode what ?busi-ness as usual?
+means for each embassy, to character-ize the events of each week, and to identify the cablesthat discuss those events.
+Given a corpus of cables,the corresponding posterior distribution of the latentvariables provides a filter for the cables that isolatesimportant moments in diplomatic history.
+Figure 1depicts the mean of this posterior distribution.We present the Capsule model in section 3, provid-ing both a formal model specification and guidanceon how to use the model to detect and characterizereal-world events.
+In section 4, we validate Capsuleusing simulated data, and in section 5, we use it toanalyze over two million U.S. State Department ca-bles.
+Although we describe Capsule in the contextof diplomatic cables, it is suitable for exploring anycorpus with the same underlying structure: text (orother discrete multivariate data) generated over timeby known entities.
+This includes email, consumerbehavior, social media posts, and opinion articles.2 Related WorkWe first review previous work on automatic eventdetection and other related concepts, to contextualizeour approach in general and Capsule in particular.In both univariate and multivariate settings, ana-1143lysts often want to predict whether or not rare eventswill occur (Weiss and Hirsh, 1998; Das et al, 2008).In contrast, Capsule is intended to help analysts ex-plore and understand their data; our goal is humaninterpretability rather than prediction or forecasting.Events can be construed as either anomalies?temporary deviations from usual behavior?or?changepoints?
+that mark persistent shifts in usualbehavior (Guralnik and Srivastava, 1999; Adams andMacKay, 2007).
+We focus on events as anomalies.Event detection in the context of news arti-cles (Zhao et al, 2012; Zhao et al, 2007; Zhanget al, 2002; Li et al, 2005; Wang et al, 2007; Allanet al, 1998) and social media posts (Atefeh and Khre-ich, 2015; VanDam, 2012; Lau et al, 2012; Jackowayet al, 2011; Sakaki et al, 2010; Reuter and Cimi-ano, 2012; Becker et al, 2010; Sayyadi et al, 2009)usually means identifying clusters of documents.
+Fornews, the goal is to create new clusters as novel sto-ries appear; each article is assumed to be associatedwith one event, which does not allow for distinctionsbetween typical content and rare events.
+For socialmedia, the goal is to identify rare events, but the re-sultant methods are intended for short documents,and are not appropriate for longer documents thatmay contain information about a variety of subjects.Many existing methods for detecting events fromtext focus on individual vocabulary terms, oftenweighted by tf-idf values (Fung et al, 2005; Kumaranand Allan, 2004; Brants et al, 2003; Das Sarma etal., 2011; Zhao et al, 2007; Zhao et al, 2012).
+Wecharacterize events by bursts in groups of terms.Although groups of terms can be summarized di-rectly (Peng et al, 2007; Chakrabarti and Punera,2011; Gao et al, 2012), topic models (Blei, 2012)provide a way to automatically identify groups ofrelated terms and reduce the dimensionality of textdata.
+Researchers have previously used topic modelsto detect events mentioned in social media posts (Lauet al, 2012; Dou et al, 2012) and to find posts rele-vant to particular, monitored events (VanDam, 2012).Capsule uses topics to characterize both typical diplo-matic content and potentially significant events.In addition to modeling text over time, researchershave also used spatial information (Neill et al, 2005;Mathioudakis et al, 2010; Liu et al, 2011) and infor-mation about authors (Zhao et al, 2007) and newsoutlets (Wang et al, 2007) to enhance event detec-Figure 2: Cartoon intuition.
+The y-axis represents the stackedproportions of cables about various topics, while the x-axisrepresents time.
+The Bangkok embassy, Hong Kong embassy,and U.S. State Department all have typical diplomatic business,about which they usually send cables.
+When an event occursduring time interval t , the cables alter to cover the event beforereturning to ?business as usual.?
+Capsule discovers the entities?typical concerns, as well as the timing and content of events.tion.
+We rely on author information to characterizediplomatic ?business as usual?
+for each embassy.Event detection is closely related to detecting andcharacterizing relationships between entities (Scheinet al, 2015; Linderman and Adams, 2014; Das Sarmaet al, 2011).
+Capsule can trivially use sender?receiver pairs instead of authors, and the model spec-ification can be tailored to reflect network structure.Finally, there are connections between Capsuleand recent work on Poisson processes.
+In particular,we can interpret Capsule as a collection of relateddiscrete-time Poisson processes with random inten-sity measures.
+Further, marginalizing out the eventstrengths (described in section 3.1) reveals that theuse of a vocabulary term by one embassy can ?excite?the use of that term by another.
+This suggests a closerelationship to Hawkes processes (Hawkes, 1971).3 The Capsule ModelIn this section, we present the Capsule model fordetecting and characterizing significant diplomaticevents.
+We first provide the intuition behind Capsule,and then formally specify the model.
+We also explainhow to use Capsule to explore a corpus and how tolearn the posterior distribution of the latent variables.Consider an entity like the Bangkok embassy, as1144illustrated in figure 2.
+We can imagine that this en-tity sends a stream of diplomatic cables over time?some to the U.S. State Department, others to otherAmerican embassies, such as the one in Hong Kong.Embassies usually write cables that describe typicaldiplomatic business.
+For example, the Bangkok em-bassy might write about topics regarding southeastAsia more generally.
+We can think of a topic as beinga probability distribution over vocabulary terms.Now imagine that an event, such as the captureof Saigon during the Vietnam War, occurs duringa particular time interval t .
+We cannot directly ob-serve the occurrence of this event, but we can ob-serve the stream of cables and the event?s impact onit.
+When the event occurs, multiple entities deviatefrom their usual topics of discussion simultaneously,before returning to their usual behavior, as depictedin figure 2.
+For example, the day after the capture ofSaigon, the majority of the diplomatic cables writtenby the Bangkok embassy and several other entitieswere about Vietnam War refugees.
+If we think of theevent as another probability distribution over vocabu-lary terms, then each entity?s stream of cables reflectsits typical concerns, as well as any significant events.3.1 Model SpecificationWe now define the Capsule model.
+Our data comefrom entities (e.g., embassies) who send messages(e.g., diplomatic cables) over time; specifically, weobserve the number of times ndv that each vocabularyterm v occurs in each message d .
+Each messageis associated with an author entity ad and a timeinterval td within which that message was sent.We model each message with a bank of Poissondistributions2?one for each vocabulary term:ndv  Poisson .dv/ : (1)The rate dv blends the different influences on mes-sage content.
+Specifically, it blends three types oftopics, intended to capture ?business-as-usual?
+dis-cussion and content related to significant events.We operationalize each topic as a specialized prob-ability distribution over vocabulary terms (the set ofunique words in the corpus of messages), as is com-mon in topic models (Blei et al, 2003; Canny, 2004;2Readers familiar with topic modeling may expect a multino-mial model of term occurrences, but Poisson models of countsbetter capture messages with different lengths (Canny, 2004).Topic Type Top TermsGeneral visit, hotel, schedule, arrivalEntity soviet, moscow, ussr, agreementEvent saigon, evacuation, vietnam, helpTable 1: The highest-probability vocabulary terms for examplesof the three types of topics (general, entity, and event).
+Theseexamples come from the analysis that we describe section 5.Gopalan et al, 2014)?i.e., each term is associatedwith each topic, but with a different probability.Each message blends 1) general topics ?1; : : : ;?Kabout diplomacy (e.g., terms about diplomats, termsabout communication), 2) an entity topic ad specificto the author of that message (e.g., terms about HongKong),3 and 3) event topics1; : : : ;T that are spe-cific to the events in recent time intervals (e.g., termsabout a coup, terms about the death of a dignitary).Examples of these three types of topics are in ta-ble 1.
+The general topic relates to planning travel, theentity topic captures words related to the U.S.S.R.,and the event topic captures words related to the evac-uation of Saigon toward the end of the Vietnam War.The messages share the three types of topics indifferent ways: all messages share the general topics,messages written by a single entity share an entitytopic, and messages in the same time interval use theevent topics in similar ways.
+Each message blends itscorresponding topics with a set of message-specificstrengths.
+As a result, each message captures a dif-ferent mix of general diplomacy discussion, entity-specific terms, and recent events.
+Specifically, thePoisson rate for vocabulary term v in message d isdv DKXkD1dk?kv C dadv CTXtD1f .td ; t / dttv; (2)where dk is message d ?s strength for general topick, d is message d ?s strength for ad ?s entity topic,and dt is message d ?s strength for event topic t .
+Thefunction f ./ ensures that the events influences de-cay over time.
+As we describe in appendix B, we3The entity-specific topics play a similar role to the back-ground topics introduced by Paul and Dredze (2012).1145Figure 3: Graphical model for Capsule.
+Observed termcounts depend on general topics ?1; : : : ;?K , entity topics1; : : : ;A, and event topics1; : : : ;T , as well as message-specific strengths d , d , and d .
+Variables 1; : : : ;A and1; : : : ; A represent entity-specific strengths, while  1; : : : ;  Tallow time intervals to be more or less ?eventful.?
+Black squaresdenote hyperparameters (unlabeled for visual simplicity).compared several different decay functions (exponen-tial, linear, and step) and found that the followingexponential decay function works well in practice:f .td ; t / D(0 t  td < t Cexp .td t/= 5otherwise.
+(3)Dividing  by five means that we can interpret it asthe number of time intervals after which an event willhave little impact on the content of the messages.We place hierarchical gamma priors over themessage-specific strengths, introducing entity-specific strengths 1; : : : ;A and 1; : : : ; A that al-low different entities to focus on different topics andevent strengths  1; : : : ;  T that allow different timeintervals to be more or less ?eventful.?
+We placeDirichlet priors over the topics.
+The graphical modelis in figure 3 and the generative process is in figure 4.Given a corpus of messages, learning the poste-rior distribution of the latent variables uncovers thethree types of topics, the message- and entity-specificstrengths, and the event strengths.
+In section 3.3, weexplain how an analyst can use the event strengths asa filter that isolates potentially significant messages.3.2 Learning the Posterior DistributionIn order to use Capsule to to explore a corpus of mes-sages, we must first learn the posterior distribution of for k D 1; : : : ; K, draw general topic?k  DirichletV .?
+; : : : ; ?/ for each entity a D 1; : : : ; A,I draw entity-specific strengthak  Gamma .s; r/ for each entity a D 1; : : : ; A, draw entity topica  DirichletV .?
+; : : : ; ?/ draw entity-specific strengtha  Gamma .s; r/ for each time interval t D 1; : : : ; T , draw event topict  DirichletV .?
+; : : : ; ?/ draw event strengtht  Gamma .s; r/ for each message d D 1; : : : ;D, sent duringtime interval td by author entity ad , for each general topic k D 1; : : : ; K,I draw message-specific strengthdk  Gamma .s; adk/ draw message-specific strengthd  Gamma .s; ad / for each time interval t D 1; : : : ; T ,I draw message-specific strengthdt  Gamma .s;  t / for each vocabulary term v D 1; : : : ; V ,I set dv DPKkD1 dk?kv C dadv CPTtD1 f .td ; t / dttvI draw term countsnd;v  Poisson .dv/Figure 4: Generative process for Capsule.
+We use s and r todenote top-level (i.e., fixed) shape and rate hyperparameters;they can be set to different values for different variables.the latent variables?the general topics, the entity top-ics, the event topics, the message- and entity-specificstrengths, and the event strengths?conditioned onthe observed term counts.
+As for many Bayesianmodels, this posterior distribution is not tractable tocompute; approximating it is therefore our central sta-tistical and computational problem.
+We introduce anapproximate inference algorithm for Capsule, basedon variational methods (Jordan et al, 1999),4, which4Source code: https://github.com/ajbc/capsule.1146we outline in appendix A.5 This algorithm producesa fitted variational distribution which be can then beused as a proxy for the true posterior distribution.3.3 Detecting and Characterizing EventsWe can use the mean of the fitted variational dis-tribution to explore the data.
+Specifically, we canexplore ?business-as-usual?
+content using the poste-rior expected values of the general topics ?1; : : : ;?Kand the entity topics 1; : : : ;A, and we can detectand characterize events using the posterior expectedvalues of the event strengths and the event topics.To detect events, we define an measure that quanti-fies the ?eventness?
+of time interval t .
+Specifically,we first compute how relevant each message d isto that time interval: mdt D f .td ; t /E?dt ?.
+Usingthese relevancy values, we then compute the propor-tion of each message?s term counts that are associatedwith the event topic specific to time interval t :pdt DmdtPk E?dk?C E?d ?CPt 0 mdt 0: (4)Finally, we aggregate these values over messages:1Pd f .td ; t /DXdD1pdt ; (5)where the multiplicative fraction ensures that mes-sages that were sent during time intervals that arefurther from t contribute less than than messages thatwere sent during time intervals that are closer to t .We can characterize an event t by selecting thehighest-probability vocabulary terms from E?t ?.By ordering the messages according to mdt Df .td ; t /E?dt ?, we can also identify the messagesthat are most strongly associated with event t .In section 5, we explore the cables associated withsignificant events in the National Archives?
+corpus ofdiplomatic cables.
+To make Capsule more accessiblefor historians, political scientists, and journalists, wehave released an open-source tool for visualizing itsresults.6 This tool allows analysts to browse a cor-pus of messages and the mean of the correspondingposterior distribution, including general topics, entitytopics, and event topics.
+Figure 5 contains severalscreenshots of the tool?s browsing interface.5Appendices are in the supplemental material.6Source code: https://github.com/ajbc/capsule-viz;demo: http://www.princeton.edu/~achaney/capsule/.Figure 5: Screenshots of the Capsule visualization tool usedto explore U.S. State Department cables.
+Top left: events overtime (similar to figure 1).
+Top right: entities located on a map.Bottom: summary of the week of May 12, 1975, including topvocabulary terms, relevant cables, and text from Wikipedia.4 Model Validation with Simulated DataBefore using Capsule to explore a corpus of realmessages (described in section 5), we provide a quan-titative validation of the model using simulated data.We used the generative process in figure 4 to createten data sets, each with 100 time intervals, ten generaltopics, ten entities, and roughly 20,000 messages.We then used these data sets to compare Capsule?sevent detection performance to that of four baselinemethods.
+We also compared the methods?
+abilities toidentify the most relevant messages for each event.4.1 Detecting EventsFor each data set, we ordered the time intervals frommost to least eventful, using the ?eventness?
+measuredescribed in section 3.3 and the simulated values ofthe latent variables.
+We then treated these rankedlists of time intervals as ?ground truth?
+and assessedhow well each method was able to recover them.For Capsule itself, we used our approximate infer-ence algorithm to obtain a fitted variational distribu-tion for each simulated data set.
+We then ordered thetime intervals using our ?eventness?
+measure and theposterior expected values of the latent variables.For our first baseline, we constructed an ?event-only?
+version of Capsule by dropping the first and1147second terms in equation (2).
+We used this baseline totest whether modeling ?business as usual?
+discussionmakes it easier to detect significant events.
+We ob-tained a fitted variational distribution for this modelusing a variant of our approximate inference algo-rithm, and then ordered the time intervals using our?eventness?
+measure, modified appropriately, and theposterior expected values of the latent variables.For our second baseline, we drew inspiration fromprevious work on event detection in the context ofnews articles, and focused on each time interval?sdeviation in term counts from the average.
+Specifi-cally, we ordered the time intervals 1; : : : ; T for eachsimulated data set according to this measure:VXvD1DXdD1tdDt????
+?ndv  1DDXdD1ndv?????
+: (6)We added tf-idf term weights for our third baseline:VXvD1tf-idf .v/DXdD1tdDt????
+?ndv  1DDXdD1ndv?????
+: (7)Finally, we randomly ordered the time intervalsfor each data set to serve as a straw-man baseline.We also experimented with baselines that involvedterm-count deviations on the entity level and topic-usage deviations on the message level (Dou et al,2012), but found that they were not competitive.For each data set, we compared each method?sranked list of time intervals to the corresponding?ground-truth?
+list of time intervals, by dividing thesum of the lists?
+actual set overlap at each rank bythe sum of their maximum set overlap at each rank:PTrD1 jStruthr \ Smethodr jPTrD1 r; (8)where S truthr is a set of the top r time intervals accord-ing to the ?ground-truth?
+list and Smethodr is a set ofthe top r time intervals according to the method.Figure 6 shows that Capsule outperforms all fourbaseline methods.
+These results serve as a sanitycheck for both the model and its implementation.4.2 Identifying Relevant MessagesFor each data set, we created a list of the most rele-vant messages for each time interval t by computingFigure 6: Event detection performance using ten simulated datasets.
+Each dot represents the performance (equation (8); higheris better) of a single method on a single data set; each shadedgreen area summarizes the distribution of performance for asingle method.
+Capsule outperforms all four baseline methods.f .td ; t / dt for each message d (using the simulatedvalues of dt ) and ordering the messages accordingly.We then treated these ranked lists of messages as?ground truth?
+and assessed how well Capsule andthe baseline methods were able to recover them.For Capsule, we used our approximate inferencealgorithm to obtain a fitted variational distribution foreach data set, and then, for each time interval, orderedthe messages according to mdt D f .td ; t /E?dt ?.For our second and third baselines, we ordered themessages sent during each time interval accordingmessage-specific versions of equations (6) and (7).For each data set, we compared each method?sranked list of messages for each time interval to thecorresponding ?ground-truth?
+list, by computing pre-cision at ten messages.
+The average precision forCapsule was was 0.44, while the average precision forthe ?event-only?
+version of the model was 0.09.
+Theother baselines recovered zero relevant messages.5 Exploratory AnalysisCapsule is intended to help analysts explore and un-derstand their data.
+In this section, we demonstrateits capabilities by analyzing a corpus of over two mil-lion U.S. State Department cables from the 1970s.5.1 DataThe National Archive collects diplomatic cables sentbetween the U.S. State Department and its foreignembassies.
+We obtained a subset of this corpusfrom the Central Foreign Policy Files at the NationalArchives, via the History Lab at Columbia Univer-1148sity;7 the subset contains cables sent between 1973and 1978.
+In addition to the text of the cables, eachmessage is labeled with its author (e.g., the U.S. StateDepartment, a particular embassy, or an individual),the date the cable was sent, and other metadata.
+Weused a vocabulary of 6,293 terms and omitted cableswith fewer than three terms, resulting in 2,021,852cables sent by 22,961 entities.
+We used weekly timeintervals, as few cables were sent on weekends.5.2 Model SettingsWe ran our approximate inference algorithm for Cap-sule to obtain a fitted variational distribution.
+Weused K D 100 general topics, the exponential decayfunction in equation (3) with  D 4, and top-levelhyperparameters s D r D 0:3.
+With these settings, asingle iteration of the algorithm took about an hour.85.3 Detecting Well-Known EventsTo evaluate Capsule?s ability to detect well-knownevents, we used a list, provided to us by the HistoryLab, of thirty-nine well-known events that took placebetween 1973 and 1978.
+Each event is present inat least one of six reputable collections of historicevents, such as the Office of the Historian?s Mile-stones in the History of U.S. Foreign Relations.9 Wetreated this list of events as ?ground truth?
+and as-sessed how well Capsule and each of the baselines de-scribed in section 4.1 were able to recover them?or,in other words, how well the methods identify theseeventful weeks, compared to more typical weeks.Specifically, we used each method to construct aranked list of time intervals.
+Then, for each method,we computed the discounted cumulative gain (DCG),which, in this context, is equivalent to computing39XeD11log  rank  e; LmethodT ; (9)where LmethodT is the method?s ranked list of timeintervals and rank  e; LmethodT is the rank of the ethwell-known event in LmethodT .
+Finally, we dividedthe DCG by the ideal DCG?i.e., P39eD1 1log .e/?to7http://history-lab.org8Each iteration of our algorithm considers all messages.
+Mod-ifying it to stochastically sample the data would reduce the timerequired to obtain an equivalent fitted variational distribution.9https://history.state.gov/milestones/1969-1976Method nDCGCapsule (this paper) 0.693term-count deviation + tf-idf (equation (7)) 0.652term-count deviation (equation (6)) 0.642random 0.557?event-only?
+Capsule (this paper) 0.426Table 2: Event detection performance (nDCG; higher is better)using thirty-nine well-known events that took place between1973 and 1978.
+Capsule outperforms all four baseline methods.obtain the normalized DCG (nDCG).
+Table 2 showsthat Capsule outperforms all four baseline methods.5.4 ExplorationWe now turn to our primary goal?using Capsule toexplore and understand a corpus of messages.
+Fig-ure 1 shows our ?eventness?
+measure (equation (5))over time.
+One of the tallest peaks occurs during theweek of December 1, 1975, when the United NationsGeneral Assembly discussed omnibus decolonization.As described in section 3.3, we can characterize thisevent by computing mdt D f .td ; t /E?dt ?
+for eachmessage d and then ordering the messages accord-ingly.
+Table 3 lists the highest-ranked messages.Another notable event was the seizure of theS.S.
+Mayaguez, an American merchant vessel, duringMay, 1975, at the end of the Vietnam War.
+Table 4lists the highest-ranked messages for this event.
+Wecan examine these messages to confirm their rele-vancy and learn more about the event.
+For example,here is the content of the most relevant message:In absence of MFA Chief of Eighth Depart-ment Avramov, I informed American deskofficer Yankov of circumstances surround-ing seizure and recovery of merchant shipMayaguez and its crew.
+Yankov promised toinform the Foreign Minister of US statementtoday (May 15).
+BatjerA third week of interest occurs in early July, 1976.On July 4, the U.S. celebrated its Bicentennial, buton the same day, Israeli forces completed a hostagerescue mission because an Air France flight fromTel Aviv had been hijacked and taken to Entebbe,Uganda.10 This event was mostly discussed the week10Capsule assumes that only one event occurs during each1149f .td ; t /E?dt ?
+Date Author Entity Subject4.60 1975-12-05 Canberra 30th UNGA: Item 23, Guam, Obmibus Decolonization and ...4.26 1975-12-05 Mexico 30th UNGA-Item 23: Guam, Omnibus Decolonization and ...4.21 1975-12-06 State 30th UNGA-Item 23: Guam, Omnibus Decolonization and ...4.11 1975-12-03 Dakar 30th UNGA: Resolutions on American Samoa, Guam and ...4.08 1975-12-04 Monrovia 30th UNGA: Item 23: Resolutions on decolonization and A...Table 3: Highest-ranked messages for the week of December 1, 1975, when the United Nations General Assembly discusseddecolonization.
+Capsule accurately recovers messages related to this real-world event.
+Typos are intentionally copied from the data.f .td ; t /E?dt ?
+Date Author Entity Subject5.06 1975-05-15 Sofia Seizure of US merchant vessel by Cambodian forces5.05 1975-05-15 Dar es Salaam Seizure of U.S. merchant vessel by Cambodian forces4.92 1975-05-16 Lusaka Seizure of US merchant vessel by Cambodian forces4.61 1975-05-13 Zagreb Waiver request for INS Vienna visas Eagle name check...4.59 1975-05-15 State eizure of US merchant Vessel by Cambodian forcesTable 4: Highest-ranked messages for the week of May 12, 1975, when the S.S. Mayaguez, an American merchant vessel, wascaptured.
+Capsule accurately recovers messages related to this real-world event.
+Typos are intentionally copied from the data.after the event took place; the most relevant mes-sages are listed in appendix B (table 5).
+The cablefrom Stockholm describing the ?Ugandan role in AirFrance hijacking?
+begins with the following content,which reveals further information about this event:1.
+We provided MFA Director of PoliticalAffairs Leifland with Evidence of Ugandan as-sistance to hijackers contained in Ref A. Afterreading material, Leifland described it a ?quitegood?, and said it would be helpful for meet-ing MFA has scheduled for early this morningto determine position GOS will take at July 8UNSC consideration of Israeli Rescue Opera-tion.
+...In addition to detecting and characterizing well-known events, such the S.S. Mayaguez incident andOperation Entebbe, Capsule can detect and character-ize obscure, but significant, events, such as when Er-itrean rebels kidnapped Tenneco oil employees (April8, 1974) and when the U.S. Navy evacuated citizensfrom Lebanon (?Operation Fluid Drive,?
+June 20,1976).
+Both events appear in figure 1.
+Capsule uncov-ers events where analysts might not otherwise look.Capsule also provides a way to explore ?business-time interval.
+This example is a clear violation of this assump-tion, but also serves to demonstrate that Capsule can successfullydetect and characterize multiple events, even when they overlap.as-usual?
+discussion using the posterior expected val-ues of the general topics ?1; : : : ;?K and the entitytopics 1; : : : ;A.
+Examples of each of these typesof topics are in appendix B (tables 6 and 7, respec-tively); these examples illustrate that, as desired, theentity topics absorb location-specific terms, prevent-ing them from overwhelming the general topics.6 ConclusionWe presented Capsule, a Bayesian model for detect-ing and characterizing potentially significant events.We evaluated Capsule?s ability to detect events andidentify relevant messages; it outperformed four base-line methods.
+We used Capsule to analyze a large cor-pus of U.S. State Department cables from the 1970s,demonstrating that it can discover both well-knownand obscure (but significant) events, as well as rele-vant documents.
+We anticipate that Capsule, and ourvisualization tool, will be useful for historians, po-litical scientists, and journalists who wish to exploreand understand large corpora of documents.
+This isincreasingly important?the U.S. State Departmentalone produces around two billion e-mails annually.AcknowledgmentsThis work was supported by NSF IIS-1247664; ONRN00014-11-1-0651; DARPA FA8750-14-2-0009 andN66001-15-C-4032; Adobe; the Alfred P. SloanFoundation; the Columbia Global Policy Initiative.1150ReferencesRyan Prescott Adams and David JC MacKay.
+2007.Bayesian online changepoint detection.
+arXiv preprintarXiv:0710.3742.James Allan, Ron Papka, and Victor Lavrenko.
+1998.On-line new event detection and tracking.
+In Proceed-ings of the ACM SIGIR Conference on Research andDevelopment in Information Retrieval, pages 37?45.Farzindar Atefeh and Wael Khreich.
+2015.
+A surveyof techniques for event detection in twitter.
+Computa-tional Intelligence, 31(1):132?164.Hila Becker, Mor Naaman, and Luis Gravano.
+2010.Learning similarity metrics for event identification insocial media.
+In Proceedings of the ACM InternationalConference on Web Search and Data Mining (WSDM),pages 291?300.D.
+Blei, A. Ng, and M. Jordan.
+2003.
+Latent Dirichletallocation.
+The Journal of Machine Learning Research,3:993?1022, January.David M Blei.
+2012.
+Probabilistic topic models.
+Commu-nications of the ACM, 55(4):77?84.Thorsten Brants, Francine Chen, and Ayman Farahat.2003.
+A system for new event detection.
+In Proceed-ings of the ACM SIGIR Conference on Research andDevelopment in Information Retrieval, pages 330?337.John Canny.
+2004.
+Gap: a factor model for discretedata.
+In Proceedings of the ACM SIGIR Conference onResearch and Development in Information Retrieval,pages 122?129.Deepayan Chakrabarti and Kunal Punera.
+2011.
+Eventsummarization using tweets.
+Proceedings of the Inter-national AAAI Conference on Web and Social Media(ICWSM), 11:66?73.Kaustav Das, Jeff Schneider, and Daniel B Neill.
+2008.Anomaly pattern detection in categorical datasets.
+InProceedings of the ACM SIGKDD International Confer-ence on Knowledge Discovery and Data Mining (KDD),pages 169?176.Anish Das Sarma, Alpa Jain, and Cong Yu.
+2011.
+Dy-namic relationship and event discovery.
+In Proceedingsof the ACM International Conference on Web Searchand Data Mining (WSDM), pages 207?216.Wenwen Dou, Xiaoyu Wang, Drew Skau, William Rib-arsky, and Michelle X Zhou.
+2012.
+Leadline: Interac-tive visual analysis of text data through event identifi-cation and exploration.
+In Visual Analytics Science andTechnology (VAST), 2012 IEEE Conference on, pages93?102.
+IEEE.Gabriel Pui Cheong Fung, Jeffrey Xu Yu, Philip S Yu, andHongjun Lu.
+2005.
+Parameter free bursty events detec-tion in text streams.
+In Proceedings of the InternationalConference on Very Large Data Bases (VLDB), pages181?192.
+VLDB Endowment.Wei Gao, Peng Li, and Kareem Darwish.
+2012.
+Jointtopic modeling for event summarization across newsand social media streams.
+In Proceedings of the Inter-national Conference on Information and KnowledgeManagement (CIKM), pages 1173?1182.Prem K Gopalan, Laurent Charlin, and David Blei.
+2014.Content-based recommendations with Poisson factor-ization.
+In Z. Ghahramani, M. Welling, C. Cortes, N.D.Lawrence, and K.Q.
+Weinberger, editors, Advances inNeural Information Processing Systems (NIPS), pages3176?3184.
+Curran Associates, Inc.Valery Guralnik and Jaideep Srivastava.
+1999.
+Eventdetection from time series data.
+In Proceedings of theACM SIGKDD International Conference on KnowledgeDiscovery and Data Mining (KDD), pages 33?42.Alan G Hawkes.
+1971.
+Spectra of some self-excitingand mutually exciting point processes.
+Biometrika,58(1):83?90.Alan Jackoway, Hanan Samet, and Jagan Sankara-narayanan.
+2011.
+Identification of live news eventsusing twitter.
+In Proceedings of the 3rd ACM SIGSPA-TIAL International Workshop on Location-Based SocialNetworks, pages 25?32.
+ACM.Michael I. Jordan, Zoubin Ghahramani, Tommi S.Jaakkola, and Lawrence K. Saul.
+1999.
+An intro-duction to variational methods for graphical models.Machine Learning, 37(2):183?233, November.Giridhar Kumaran and James Allan.
+2004.
+Text classifi-cation and named entities for new event detection.
+InProceedings of the ACM SIGIR Conference on Researchand Development in Information Retrieval, pages 297?304.Jey Han Lau, Nigel Collier, and Timothy Baldwin.
+2012.On-line trend analysis with topic models:n# twittertrends detection topic model online.
+In Proceedingsof the International Conference on Computational Lin-guistics (COLING), pages 1519?1534.Zhiwei Li, Bin Wang, Mingjing Li, and Wei-Ying Ma.2005.
+A probabilistic model for retrospective newsevent detection.
+In Proceedings of the ACM SIGIRConference on Research and Development in Informa-tion Retrieval, pages 106?113.Scott W Linderman and Ryan P Adams.
+2014.
+Discover-ing latent network structure in point process data.
+arXivpreprint arXiv:1402.0914.Xueliang Liu, Rapha?l Troncy, and Benoit Huet.
+2011.Using social media to identify events.
+In Proceedingsof the ACM SIGMM International Workshop on SocialMedia (WSM), pages 3?8.Michael Mathioudakis, Nilesh Bansal, and Nick Koudas.2010.
+Identifying, attributing and describing spatialbursts.
+Proceedings of the International Conference onVery Large Data Bases (VLDB), 3(1-2):1091?1102.1151Daniel B Neill, Andrew W Moore, Maheshkumar Sabh-nani, and Kenny Daniel.
+2005.
+Detection of emerg-ing space-time clusters.
+In Proceedings of the ACMSIGKDD International Conference on Knowledge Dis-covery and Data Mining (KDD), pages 218?227.Michael J Paul and Mark Dredze.
+2012.
+A model formining public health topics from twitter.
+Health, 11:16?6.Wei Peng, Charles Perng, Tao Li, and Haixun Wang.
+2007.Event summarization for system management.
+In Pro-ceedings of the ACM SIGKDD International Confer-ence on Knowledge Discovery and Data Mining (KDD),pages 1028?1032.Timo Reuter and Philipp Cimiano.
+2012.
+Event-basedclassification of social media streams.
+In Proceedingsof the 2nd ACM International Conference on Multime-dia Retrieval, page 22.
+ACM.Takeshi Sakaki, Makoto Okazaki, and Yutaka Matsuo.2010.
+Earthquake shakes twitter users: real-time eventdetection by social sensors.
+In Proceedings of the Inter-national World Wide Web Conference (WWW), pages851?860.Hassan Sayyadi, Matthew Hurst, and Alexey Maykov.2009.
+Event detection and tracking in social streams.In Proceedings of the International AAAI Conferenceon Web and Social Media (ICWSM).Aaron Schein, John Paisley, David M Blei, and HannaWallach.
+2015.
+Bayesian Poisson tensor factorizationfor inferring multilateral relations from sparse dyadicevent counts.
+In Proceedings of the ACM SIGKDDInternational Conference on Knowledge Discovery andData Mining (KDD), pages 1045?1054.Courtland VanDam.
+2012.
+A probabilistic topic modelingapproach for event detection in social media.
+Master?sthesis, Michigan State University.Xuanhui Wang, ChengXiang Zhai, Xiao Hu, and RichardSproat.
+2007.
+Mining correlated bursty topic patternsfrom coordinated text streams.
+In Proceedings of theACM SIGKDD International Conference on KnowledgeDiscovery and Data Mining (KDD), pages 784?793.ACM.Gary M Weiss and Haym Hirsh.
+1998.
+Learning to predictrare events in event sequences.
+In Proceedings of theACM SIGKDD International Conference on KnowledgeDiscovery and Data Mining (KDD), pages 359?363.Yi Zhang, Jamie Callan, and Thomas Minka.
+2002.
+Nov-elty and redundancy detection in adaptive filtering.
+InProceedings of the ACM SIGIR Conference on Researchand Development in Information Retrieval, pages 81?88.Qiankun Zhao, Prasenjit Mitra, and Bi Chen.
+2007.
+Tem-poral and information flow based event detection fromsocial text streams.
+In Proceedings of the AAAI Confer-ence on Artificial Intelligence, volume 7, pages 1501?1506.Wayne Xin Zhao, Rishan Chen, Kai Fan, Hongfei Yan,and Xiaoming Li.
+2012.
+A novel burst-based textrepresentation model for scalable event detection.
+InProceedings of the 50th Annual Meeting of the Asso-ciation for Computational Linguistics: Short Papers-Volume 2, pages 43?47.
+Association for ComputationalLinguistics.1152

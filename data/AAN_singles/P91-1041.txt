@@ -1,0 +1,322 @@
+Quasi-Destructive Graph UnificationHideto TomabechiCarnegie Mellon University ATR Interpreting Telephony109 EDSH, Pittsburgh, PA 15213-3890 Research Laboratories*tomabech+@cs.cmu.edu Seika-cho, S rakugun, Kyoto 619-02 JAPANABSTRACTGraph unification is the most expensive partof unification-based grammar parsing.
+It of-ten takes over 90% of the total parsing timeof a sentence.
+We focus on two speed-upelements in the design of unification algo-rithms: 1) elimination of excessive copyingby only copying successful unifications, 2)Finding unification failures as soon as possi-ble.
+We have developed a scheme to attainthese two elements without expensive over-head through temporarily modifying raphsduring unification to eliminate copying dur-ing unification.
+We found that parsing rel-atively long sentences (requiring about 500top-level unifications during a parse) usingour algorithm is approximately twice as fastas parsing the same sentences using Wrob-lewski's algorithm.1.
+MotivationGraph unification is the most expensive part ofunification-based grammar parsing systems.
+For ex-ample, in the three types of parsing systems currentlyused at ATR \], all of which use graph unification algo-rithms based on \[Wroblewski, 1987\], unification oper-ations consume 85 to 90 percent of the total cpu timedevoted to a parse.
+2 The number of unification opera-tions per sentence tends to grow as the grammar getslarger and more complicated.
+An unavoidable paradoxis that when the natural anguage system gets largerand the coverage of linguistic phenomena increasesthe writers of natural language grammars tend to relymore on deeper and more complex path equations (cy-cles and frequent reentrancy) tolessen the complexityof writing the grammar.
+As a result, we have seen thatthe number of unification operations increases rapidlyas the coverage of the grammar grows in contrast tothe parsing algorithm itself which does not seem to*Visiting Research Scientist.
+Local email address:tomabech%al~-la.al~.co.jp@ uunet.UU.NET.1The three parsing systems are based on: 1.
+Earley'salgorithm, 2. active chartparsing, 3. generalized LR parsing.2In the large-scale HPSG-based spoken Japanese analy-sis system developed at ATR, sometimes 98 percent of theelapsed time is devoted to graph unification (\[Kogure, 1990\]).grow so quickly.
+Thus, it makes sense to speed upthe unification operations to improve the total speedperformance of the natural language systems.Our original unification algorithm was based on\[Wroblewskl, 1987\] which was chosen in 1988 asthe then fastest algorithm available for our applica-tion (HPSG based unification grammar, three types ofparsers (Earley, Tomita-LR, and active chart), unifica-tion with variables and cycles 3combined with Kasper's(\[Kasper, 1987\]) scheme for handling disjunctions.
+Indesigning the graph unification algorithm, we havemade the following observation which influenced thebasic design of the new algorithm described in thispaper:Unification does not always succeed.As we will see from the data presented ina later section,when our parsing system operates with a relativelysmall grammar, about 60 percent of the unificationsattempted during a successful parse result in failure.If a unification falls, any computation performed andmemory consumed during the unification iswasted.
+Asthe grammar size increases, the number of unificationfailures for each successful parse increases 4.
+Withoutcompletely rewriting the grammar and the parser, itseems difficult to shift any significant amount of thecomputational burden to the parser in order to reducethe number of unification failures 5.Another problem that we would like to address inour design, which seems to be well documented in theexisting literature is that:Copying is an expensive operation.The copying of a node is a heavy burden to the pars-ing system.
+\[Wroblewski, 1987\] calls it a "computa-tional sink".
+Copying is expensive in two ways: 1) ittakes time; 2) it takes space.
+Copying takes time andspace ssentially because the area in the random accessmemory needs to be dynamically allocated which is anexpensive operation.
+\[Godden, 1990\] calculates thecomputation time cost of copying to be about 67 per-3Please refer to \[Kogure, 1989\] for trivial time modifica-tion of Wroblewski's algorithm to handle cycles.4We estimate over 80% of unifications to be failures inour large-scale speech-to-speech translation system underdevelopment.5Of course, whether that will improve the overall perfor-mance is another question.315cent of the total parsing time in his TIME parsing sys-tem.
+This time/space burden of copying is non-trivialwhen we consider the fact that creation of unneces-sary copies will eventually trigger garbage collectionsmore often (in a Lisp environment) which will alsoslow down the overall performance ofthe parsing sys-tem.
+In general, parsing systems are always short ofmemory space (such as large LR tables of Tomita-LRparsers and expan~ng tables and charts of Farley andactive chart parsers"), and the marginal addition or sub-traction of the amount of memory space consumed byother parts of the system often has critical effects onthe performance of these systems.Considering the aforementioned problems, we pro-pose the following principles to be the desirable con-ditions for a fast graph unification algorithm:?
+Copying should be performed only for success-ful unifications.?
+Unification failures should be found as soon aspossible.By way of definition we would like to categorize ex-cessive copying of dags into Over Copying and EarlyCopying.
+Our definition of over copying is the same asWroblewski's; however, our definition of early copyingis slightly different.?
+Over Copying: Two dags are created in orderto create one new dag.
+- This typically happenswhen copies of two input dags are created priorto a destructive unification operation to build onenew dag.
+(\[Godden, 1990\] calls such a unifica-tion: Eager Unification.).
+When two arcs point tothe same node, over copying is often unavoidablewith incremental copying schemes.?
+Early Copying: Copies are created prior to thefailure of unification so that copies created sincethe beginning of the unification up to the point offailure are wasted.Wroblewski defines Early Copying as follows: "Theargument dags are copied before unification started.
+Ifthe unification falls then some of the copying is wastedeffort" and restricts early copying to cases that onlyapply to copies that are created prior to a unification.Restricting early copying to copies that are made priorto a unification leaves a number of wasted copies thatare created uring a unification up to the point of failureto be uncovered by either of the above definitions forexcessive copying.
+We would like Early Copying tomean all copies that are wasted ue to a unification fail-ure whether these copies are created before or duringthe actual unification operations.Incremental copying has been accepted as an effec-tive method of minimizing over copying and eliminat-6For example, our phoneme-based generalized LR parserfor speech input is always running on a swapping space be-cause the LR table is too big.ing early copying as defined by Wroblewski.
+How-ever, while being effective in minimizing over copying(it over copies only in some cases of convergent arcsinto one node), incremental copying is ineffective ineliminating early copying as we define it.
+7 Incremen-tal copying is ineffective in eliminating early copyingbecause when a gra_ph unification algorithm recursesfor shared arcs (i.e.
+the arcs with labels that exist inboth input graphs), each created unification operationrecursing into each shared arc is independent of otherrecursive calls into other arcs.
+In other words, the re-cursive calls into shared arcs are non-deterministic andthere is no way for one particular recursion i to a sharedarc to know the result of future recursions into othershared arcs.
+Thus even if a particular recursion intoone arc succeeds (with minimum over copying and noearly copying in Wroblewski's ense), other arcs mayeventually fail and thus the copies that are created inthe successful arcs are all wasted.
+We consider it adrawback of incremental copying schemes that copiesthat are incrementally created up to the point of fail-ure get wasted.
+This problem will be particularly feltwhen we consider parallel implementations of incre-mental copying algorithms.
+Because ach recursioninto shared arcs is non-deterministic,parallel processescan be created to work concurrently on all arcs.
+In eachof the parallelly created processes for each shared arc,another recursion may take place creating more paral-lel processes.
+While some parallel recursive call intosome arc may take time (due to a large number of sub-arcs, etc.)
+another non-deterministic call to other arcsmay proceed eeper and deeper creating a large num-ber of parallel processes.
+In the meantime, copies areincrementally created at different depths of subgraphsas long as the subgraphs of each of them are unifiedsuccessfully.
+This way, when a failure is finally de-tected at some deep location in some subgraph, othernumerous processes may have created a large numberof copies that are wasted.
+Thus, early copying will bea significant problem when we consider the possibilityof parallelizing the unification algorithms as well.2.
+Our  SchemeWe would like to introduce an algorithm which ad-dresses the criteria for fast unification discussed in theprevious ections.
+It also handles cycles without overcopying (without any additional schemes such as thoseintroduced by \[Kogure, 1989\]).As a data structure, a node is represented with eightfields: type, arc-list, comp-arc-list, forward, copy,comp-arc-mark, forward-mark, and copy-mark.
+Al-though this number may seem high for a graph nodedata structure, the amount of memory consumed isnot significantly different from that consumed by other7'Early copying' will henceforth be used to refer to earlycopying as defined by us.316algorithms.
+Type can be represented by three bits;comp-arc-mark, forward-mark, and copy-mark can berepresented byshort integers (i.e.
+fixnums); and comp-arc-list (just like arc-lis0 is a mere collection of pointersto memory locations.
+Thus this additional informationis trivial in terms of memory cells consumed and be-cause of this dam structure the unification algorithmitself can remain simple.NODEtype+ .
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
++arc - l i s t+ .
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
++comp-arc - l i s t+ .
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
++fo rward+ .
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
++copy+ .
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
++comp-arc -mark+ .
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
++fo rward-mark+ .
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
++copy-markARCI l abe l  I+ .
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
++I va lue  I+ .
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
++Figure 1: Node and Arc StructuresThe representation f ran arc is no different from thatof other unification algorithms.
+Each arc has two fieldsfor 'label' and 'value'.
+'Label' is an atomic symbolwhich labels the arc, and 'value' is a pointer to a node.The central notion of our algorithm is the depen-dency of the representational content on the globaltiming clock (or the global counter for the currentgeneration of unification algorithms).
+This schemewas used in \[Wroblewski, 1987\] to invalidate the copyfield of a node after one unification by incrementing aglobal counter.
+This is an extremely cheap operationbut has the power to invalidate the copy fields of allnodes in the system simultaneously.
+In our algorithm,this dependency of the content of fields on global tim-ing is adopted for arc lists, forwarding pointers, andcopy pointers.
+Thus any modification made, such asadding forwarding links, copy links or arcs during onetop-level unification (unify0) to any node in memorycan be invalidated by one increment operation on theglobal timing counter.
+During unification (in unifyl)and copying after a successful unification, the globaltiming ID for a specific field can be checked by compar-ing the content of mark fields with the global countervalue and if they match then the content is respected;if not it is simply ignored.
+Thus the whole operation isa trivial addition to the original destructive unificationalgorithm (Pereira's and Wroblewski's unifyl).We have two kinds of arc lists 1) arc-list and comp-arc-list.
+Arc-list contains the arcs that are permanent(i.e., usual graph arcs) and compare-list contains arcsthat are only valid during one graph unification oper-ation.
+We also have two kinds of forwarding links,i.e., permanent and temporary.
+A permanent forward-ing link is the usual forwarding link found in otheralgorithms (\[Pereira, 1985\], \[Wroblewski, 1987\], etc).Temporary forwarding links are links that are only validduring one unification.
+The currency of the temporarylinks is determined by matching the content of the markfield for the links with the global counter and if theymatch then the content of this field is respected 8.
+Asin \[Pereira, 1985\], we have three types of nodes: 1):atomic, 2) :bottom 9, and 3) :complex.
+:atomic typenodes represent a omic symbol values (such as Noun),:bottom type nodes are variables and :complex typenodes are nodes that have arcs coming out of them.Arcs are stored in the arc-list field.
+The atomic valueis also stored in the arc-list if the node type is :atomic.
+:bottom nodes ucceed in unifying with any nodes andthe result of unification takes the type and the valueof the node that the :bottom node was unified with.
+:atomic nodes succeed in unifying with :bottom nodesor :atomic nodes with the same value (stored in thearc-lis0.
+Unification of an :atomic node with a :com-plex node immediately fails.
+:complex nodes succeedin unifying with :bottom nodes or with :complex nodeswhose subgraphs all unify.
+Arc values are always nodesand never symbolic values because the :atomic and:bottom nodes may be pointed to by multiple arcs (justas in structure sharing of :complex nodes) dependingon grammar constraints, and we do not want arcs tocontain terminal atomic values.
+Figure 2 is the cen-tral quasi-destructive graph unification algorithm andFigure 3 shows the algorithm for copying nodes andarcs (called by unify0) while respecting the contents ofcomp-arc-lists.The functions Complementarcs(dg 1,dg2) and Inter-sectarcs(dgl,dg2) are similar to Wroblewski's algo-rithm and return the set-difference (the arcs with la-bels that exist in dgl but not in rig2) and intersec-tion (the arcs with labels that exist both in dgl anddg2) respectively.
+During the set-difference and set-intersection operations, the content of comp-arc-listsare respected as parts of arc lists if the comp-arc-marks match the current value of the global timingcounter.
+Dereference-dg(dg) recursively traverses theforwarding link to return the forwarded node.
+In do-ing so, it checks the forward-mark of the node andif the forward-mark value is 9 (9 represents a perma-nent forwarding link) or its value matches the current8We do not have a separate field for temporary forwardinglinks; instead, we designate he integer value 9 to represent apermanent forwarding link.
+We start incrementing the globalcounter f om 10 so whenever the forward-mark is not 9 theinteger value must equal the global counter value to respectthe forwarding link.9Bottom iscalled leaf in Pereira's algorithm.317value of *unify-global-counter*, then the function re-turns the forwarded node; otherwise it simply returnsthe input node.
+Forward(dgl, dg2, :forward-type) puts(the pointer to) dg2 in the forward field of dgl.
+Ifthe keyword in the function call is :temporary, the cur-rent value of  the *unify-global-counter* is written inthe forward-mark field of  dgl.
+I f  the keyword is :per-manent, 9 is written in the forward-mark field of  dgl.Our algorithm itself does not require any permanentforwarding; however, the functionality is added be-cause the grammar reader module that reads the pathequation specifications into dg feature-structures usespermanent forwarding to merge the additional gram-matical specifications into a graph structure 1?.
+Thetemporary forwarding links are necessary to handlereentrancy and cycles.
+As soon as unification (at anylevel of recursion through shared arcs) succeeds, a tem-porary forwarding link is made from dg2 to dgl (dglto dg2 if dgl  is of  type :bottom).
+Thus, during unifi-cation, a node already unified by other recursive callsto unifyl within the same unify0 call has a temporaryforwarding link from dg2 to dgl (or dgl  to dg2).
+Asa result, if this node becomes an input argument node,dereferencing the node causes dgl and dg2 to becomethe same node and unification immediately succeeds.Thus a subgraph below an already unified node will notbe checked more than once even if an argument graphhas a cycle.
+Also, during copying done subsequently toa successful unification, two ares converging into thesame node will not cause over copying simply becauseif a node already has a copy then the copy is returned.For example, as a case that may cause over copies inother schemes for dg2 convergent arcs, let us considerthe case when the destination node has a correspondingnode in dgl and only one of the convergent arcs has acorresponding are in dgl.
+This destination ode is al-ready temporarily forwarded to the node in dgl (sincethe unification check was successful prior to copying).Once a copy is created for the corresponding dgl nodeand recorded in the copy field of  dgl ,  every time aconvergent arc in dg2 that needs to be copied pointsto its destination ode, dereferencing the node returnsthe corresponding node in dgl and since a copy of italready exists, this copy is returned.
+Thus no duplicatecopy is created H.roWe have been using Wroblewski's algorithm for the uni-fication part of the parser and thus usage of (permanent)forwarding links is adopted by the grammar reader moduleto convert path equations to graphs.
+For example, permanentforwarding isdone when a :bottom node is to be merged withother nodes.nCopying of dg2 ares happens for arcs that exist in dg2but not in dgl (i.e., Complementarcs(dg2,dgl)).
+Such arcsare pushed to the cornp-arc-list of dgl during unify1 andare copied into the are-list of the copy during subsequentcopying.
+If there is a cycle or a convergence in arcs in dgl orin ares in dg2 that do not have corresponding arcs in dg 1, thenthe mechanism is even simpler than the one discussed here.A copy is made once, and the same copy is simply returnedQUASI-DESTRUCTIVE GRAPH UNIFICATION IFUNCTION unify-dg(dg 1,dg2);result ~ catch with tag 'unify-failcalling unify0(dgl,dg2);increment *unify-global-counter*; ;; starts from 10 12retum(result);END;FUNCTION unify0(dg 1,dg2);if '*T* = unifyl(dgl,dg2); THENcopy .--- eopy-dg-with-comp-arcs(dgl);return(copy);END;FUNCTION unify1 (dgl-underef, dg2-underef);dgl ,-- dereference-dg(dgl-underef);dg2 ~-- dereference-dg(dg2-underef);IF (dgl = dg2)I3THENreturn('*T*);ELSE IF (dgl.type = :bottom) THENforward-dg(dg 1,dg2,:ternporary);return('*T*);ELSE IF (dg2.type =:bottom) THENforward-dg(dg2,dg 1,:temporary);return('*T*);ELSE IF (dgl.type = :atomic ANDdg2.type =:atomic) THENIF (dgl.arc-list =dg2.are-list)14THENforward-dg(dg2,dg 1,:temporary);return('*T*);ELSE throwlSwith keyword 'unify-fail;ELSE IF (dgl.type = :atomic ORdg2.type =:atomic) THENthrow with keyword 'unify-fail;ELSE new ~ complementarcs(dg2,dgl);shared ~-- intersectarcs(dgl,dg2);FOR EACH arc IN shared DOunifyl (destination ofthe shared arc for dgl,destination ofthe shared arc for dg2);forward-dg(dg2,dg 1,:temporary); 1~dg 1.comp-arc-mark *-- *unify-global-counter*;dgl.comp-arc-list ,-- new;return ('*T*);END;Figure 2: The Q-D. Unification Functionsevery lime another convergent arc points to the original node.It is because axes are copied only from either dgl or dg2.129 indicates a permanent forwarding link.13Equal in the 'eq' sense.
+Because of forwarding andcycles, it is possible that dgl and dg2 are 'eq'.X4Arc-list contains atomic value if the node is of type:atomic.lSCatch/throw construct; i.e., immediately return to un/fy-dg.16This will be executed only when all recursive calls intounifyl succeeded.
+Otherwise, a failure would have caused318QUASI-DESTRUCTIVE COPYING \]FUNCTION copy-dg-with-comp-arcs(dg-undere0;dg ~ dereference-dg(dg-undere0;IF (dg.copy is non-empty ANDdg.copy-mark = *unify-global-counter*) THENreturn(dg.copy);a7ELSE IF (dg.type = :atomic) THENcopy ,-- create-node0; Iscopy.type ,-- :atomic;copy.are-list ,--- rig.are-list;dg.copy ,-- copy;dg.eopy-mark ,--- *unify-global-counter*;return(copy);ELSE IF (dg.type = :bottom) THENcopy *- ereate-nodeO;copy.type .-- :bottom;dg.copy ,-- copy;dg.copy-mark ~-- *unify-global-counter*;return(copy);ELSEcopy *- create-node();copy.type ,-- :complex;FOR ALL are IN dg.are-list DOnewarc , -  copy-are-and-comp-arc(are);push newarc into copy.are-list;IF (dg.comp-are-list is non-empty ANDdg.comp-arc-mark = *unify-global-counter*) THENFOR ALL comp-arc IN dg.comp-are-list DOneware ,-- copy-arc-and-comp-arc(comp-arc);push neware into copy.are-list;dg.copy 4-- copy;dg.copy-mark ,-- *unify-global-counter*;return (copy);END;FUNCTION copy-arc-and-comp-arcs(input-arc);label ,--- input-arc.label;value ,-- copy-dg-with-comp-arcs(input-are.value);return a new arc with label and value;END;Figure 3: Node and Arc Copying FunctionsFigure 4 shows a simple example of quasi-destructive graph unification with dg2 convergent arcs.The round nodes indicate atomic nodes and the rect-angular nodes indicate bottom (variable) nodes.
+First,top-level unifyl finds that each of the input graphs hasarc-a and arc-b (shared).
+Then unifyl is recursivelycalled.
+At step two, the recursion into arc-a locallysucceeds, and a temporary forwarding link with time-stamp(n) is made from node \[-\]2 to node s. At the thirdstep (recursion into arc-b), by the previous forwarding,node f12 already has the value s (by dereferencing).Then this unification returns a success and a tempo-rary forwarding link with time-stamp(n) is created froman immediate r turn to unify.dg.17I.e., the existing copy of the node.lSCreates an empty node structure.node \[-\] 1 to node s. At the fourth step, since all recur-sive unifications (unifyls) into shared arcs succeeded,top-level unifyl creates a temporary forwarding linkwith time-stamp(n) from dag2's root node to dagl 'sroot node, and sets arc-c (new) into comp-arc-list ofdagl and returns success ('*T*).
+At the fifth step, acopy of dagl is created respecting the content of comp-arc-list and dereferencing the valid forward links.
+Thiscopy is returned as a result of  unification.
+At the laststep (step six), the global timing counter is incremented(n =:, n+ 1).
+After this operation, temporary forwardinglinks and comp-arc-lists with time-stamp (< n+l) willbe ignored.
+Therefore, the original dagl and dag2 arerecovered in a constant time without a costly reversingoperations.
+(Also, note that recursions into shared-arcscan be done in any order producing the same result).unifyl(dagl,dag2) SHARF~-Ia, b}S " tFor each node with arc-a.unifyl( s, \[ \]2)dag 1 dag2a bforward(n)For each node witbare-b.unifyl( \[ \]i, \[ \]2)forward(n)dagl.
+forwxd(n) dag2a/.., \]b-'.fist(n)={c} a / / Jb~Cotforward(n)copy-comp-ar?-list(dag 1)copy.
+of dagl (n) d a g ~ d a g 2S t S ~ .
+~ ~ .
+.
+~  j ~ tforward(n) copy ofdagl(n) dagl dag2Figure4: A Simple Example of Quasi-DestructiveGraph Unification319As we just saw, the algorithm itself is simple.
+Thebasic control structure of the unification is similar toPereira's and Wroblewski's unifyl.
+The essential dif-ference between our unifyl and the previous ones isthat our unifyl is non-destructive.
+It is because thecomplementarcs(dg2,dgl) are set to the comp-arc-listof dgl and not into the are-list of dgl.
+Thus, as soonas we increment the global counter, the changes madeto dgl (i.e., addition of complement arcs into comp-are-list) vanish.
+As long as the comp-arc-mark valuematches that of the global counter the content of thecomp-arc-list can be considered a part of arc-list andtherefore, dgl is the result of unification.
+Hence thename quasi-destructive graph unification.
+In order tocreate acopy for subsequent use we only need to makea copy of dgl before we increment the global counterwhile respecting the content of the comp-arc-list ofdgl.Thus instead of calling other unification functions(such as unify2 of Wroblewski) for incrementally ere-ating a copy node during a unification, we only needto create a copy after unification.
+Thus, if unifica-tion fails no copies are made at all (as in \[Karttunen,1986\]'s cheme).
+Because unification that recursesinto shared ares carries no burden of incremental copy-ing (i.e., it simply checks if nodes are compatible), asthe depth of unification increases (i.e., the graph getslarger) the speed-up of our method should get conspic-uous if a unification eventually fails.
+I f  all unifica-tions during a parse are going to be successful, ouralgorithm should be as fast as or slightly slower thanWroblewski's algorithm 19.
+Since a parse that does notfail on a single unification is unrealistic, the gain fromour scheme should depend on the amount of unificationfailures that occur during a unification.
+As the numberof failures per parse increases and the graphs that failedget larger, the speed-up from our algorithm should be-come more apparent.
+Therefore, the characteristics ofour algorithm seem desirable.
+In the next section, wewill see the actual results of experiments which com-pare our unification algorithm to Wroblewski's algo-rithm (slightly modified to handle variables and cyclesthat are required by our HPSG based grammar).3.
+ExperimentsTable 1 shows the results of our experiments using anHPSG-based Japanese grammar developed at ATR fora conference registration telephone dialogue domain.19h may be slightly slower becauseour nification recursestwice on a graph: once to unify and once to copy, whereas inincremental unification schemes copying is performed dur-ing the same recursion as unifying.
+Additional bookkeepingfor incremental copying and an additional set-difference op-eration (i.e, complementarcs(dgl,dg2)) during unify2 mayoffset his, however.
+'Unifs' represents he total number of unifications dur-ing a parse (the number of calls to the top-level 'unify-dg', and not 'unifyl').
+'USrate' represents the ratioof successful unifications to the total number of uni-fications.
+We parsed each sentence three times on aSymbolics 3620 using both unification methods andtook the shortest elapsed time for both methods ( 'T'represents our scheme, 'W'  represents Wroblewski'salgorithm with a modification to handle cycles andvariables2?).
+Data structures are the same for both uni-fication algorithms (except for additional fields for anode in our algorithm, i.e., comp-arc-list, comp-arc-mark, and forward-mark).
+Same functions are used tointerface with Earley's parser and the same subfunc-tions are used wherever possible (such as creation andaccess of arcs) to minimize the differences that are notpurely algorithmic.
+'Number of copies' represents henumber of nodes created uring each parse (and doesnot include the number of arc structures that are cre-ated during a parse).
+'Number of conses' represents heamount of structure words consed uring a parse.
+Thisnumber epresents he real comparison of the amountof space being consumed by each unification algorithm0ncluding added fields for nodes in our algorithm andarcs that are created in both algorithms).We used Earley's parsing algorithm for the experi-ment.
+The Japanese grammar is based on HPSG anal-ysis (\[Pollard and Sag, 1987\]) covering phenomenasuch as coordination, case adjunction, adjuncts, con-trol, slash categories, zero-pronouns, interrogatives,WH constructs, and some pragmatics ( peaker, hearerrelations, politeness, etc.)
+(\[Yoshimoto and Kogure,1989\]).
+The grammar covers many of the importantlinguistic phenomena in conversational J panese.
+Thegrammar graphs which are converted from the pathequations contain 2324 nodes.
+We used 16 sentencesfrom a sample telephone conversation dialog whichrange from very short sentences (one word, i.e., iie'no') to relatively long ones (such as soredehakochi-rakarasochiranitourokuyoushiwoookuriitashimasu " Inthat case, we \[speaker\] will send you \[hearer\] the reg-istration form.').
+Thus, the number of (top-level) uni-fications per sentence varied widely (from 6 to over500).~Cycles can be handled in Wroblewski's algorithm bychecking whether an arc with the same label already existswhen arcs are added to a node.
+And ff such an arc alreadyexists, we destructively unify the node which is the destina-tion of the existing arc with the node which is the destinationof the arc being added.
+If such an arc does not exist, wesimply add the arc.
+(\[Kogure, 1989\]).
+Thus, cycles can behandled very cheaply in Wroblewski's algorithm.
+Handlingvariables in Wroblewski's algorithm is basically the same asin our algorithm (i.e., Pereira's cheme), and the addition ofthis functionality can be ignored in terms of comparison toour algorithm.
+Our algorithm does not require any additionalscheme to handle cycles in input dgs.320sent#123456789i0ii1213141516Unifs6i01247130559681480555109428559527777USrate0.50.350.330.410.390.380.380.390.380.390.400.380.380.380.390.39Elapsed time(sec)T W1.066 1 1131.897 2 8991.206 1 2903.349 4 10212.151 17 3091.254 1 6011.016 1 0303.499 4 45218.402 34 65326.933 47 2244.592 5 43313.728 24 35015.480 42 3571.977 2 4103.574 4 6883.658 4 431Num of Copies Num of ConsesT W T W85 107 1231 14511418 2285 15166 23836129 220 1734 26441635 2151 17133 229435529 9092 57405 93035608 997 6873 1076385 107 1175 13951780 2406 18718 249789466 15756 96985 16721111789 18822 119629 1899972047 2913 21871 305317933 13363 81536 1358089976 17741 102489 180169745 941 8272 102921590 2137 16946 224161590 2137 16943 22413Table 1: Comparison of our algorithm with Wroblewski's4.
+Discuss ion:  Compar i son  to OtherApproachesThe control structure of our algorithm is identical tothat of \[Pereira, 1985\].
+However, instead of stor-ing changes to the argument (lags in the environmentwe store the changes in the (lags themselves non-destructively.
+Because we do not use the environment,the log(d) overhead (where d is the number of nodesin a dag) associated with Pereira's cheme that is re-quired during node access (to assemble the whole dagfrom the skeleton and the updates in the environment)is avoided in our scheme.
+We share the principle ofstoring changes in a restorable way with \[Karttunen,1986\]'s reversible unification and copy graphs onlyafter a successful unification.
+Karttunen originallyintroduced this scheme in order to replace the lessefficient structure-sharing implementations (\[Pereira,1985\], \[Karttunen and Kay, 1985\]).
+In Karttunen'smethod 21, whenever a destructive change is about tobe made, the attribute value pairs 22 stored in the bodyof the node are saved into an array.
+The dag node struc-ture itself is also saved in another array.
+These valuesare restored after the top level unification iscompleted.
+(A copy is made prior to the restoration operation ifthe unification was a successful one.)
+The differencebetween Karttunen's method and ours is that in our al-gorithm, one increment to the global counter can invali-date all the changes made to nodes, while in Karttunen'salgorithm each node in the entire argument graph thathas been destructively modified must be restored sep-arately by retrieving the attribute-values saved in an21The discussion ofKartunnen's method isbased on the D-PATR implementation on Xerox 1100 machines (\[Karttunen,1986\]).~'Le., arc structures: 'label' and 'value' pairs in ourvocabulary.array and resetting the values into the dag structureskeletons aved in another array.
+In both Karttunen'sand our algorithm, there will be a non-destructive (r -versible, and quasi-destructive) saving of intersectionarcs that may be wasted when a subgraph of a partic-ular node successfully unifies but the final unificationfails due to a failure in some other part of the argumentgraphs.
+This is not a problem in our method because thetemporary change made to a node is performed as push-ing pointers into already existing structures (nodes) andit does not require ntirely new structures to be createdand dynamically allocated memory (which was neces-sary for the copy (create-node) operation), z3\[Godden,1990\] presents a method of using lazy evaluation inunification which seems to be one SUCC~sful actual-ization of \[Karttunen and Kay, 1985\]'s lazy evaluationidea.
+One question about lazy evaluation is that the ef-ficiency of lazy evaluation varies depending upon theparticular hardware and programming language nvi-ronment.
+For example, in CommonLisp, to attain alazy evalaa_tion, as soon as a function is delayed, a clo-sure (or a structure) needs to be created receiving a dy-namic allocation of memory Oust as in creating a copynode).
+Thus, there is a shift of memory and associatedcomputation consumed from making copies to makingclosures.
+In terms of memory cells saved, althoughthe lazy scheme may reduce the total number of copiescreated, if we consider the memory consumed tocreateclosures, the saving may be significantly canceled.
+Interms of speed, since delayed evaluation requires addi-tional bookkeeping, how schemes uch as the one in-troduced by \[Godden, 1990\] would compare with non-lazy incremental copying schemes i an open question.Unfortunately Godden offers a comparison ofhis algo-Z3Although, inKarttunen's method it may become ratherexpensive ff the arrays require resizing during the savingoperation of the subgraphs.321rithm with one that uses a full copying method (i.e.
+hisEager Copying) which is already significantly slowerthan Wroblewski's algorithm.
+However, no compari-son is offered with prevailing unification schemes suchas Wroblewski's.
+With the complexity for lazy evalu-ation and the memory consumed for delayed closuresadded, it is hard to estimate whether lazy unificationruns considerably faster than Wroblewski's incremen-tal copying scheme, ~5.
+ConclusionThe algorithm introduced in this paper runs signifi-cantly faster than Wroblewski's algorithm using Ear-ley's parser and an HPSG based grammar developedat ATR.
+The gain comes from the fact that our algo-rithm does not create any over copies or early copies.In Wroblewski's algorithm, although over copies areessentially avoided, early copies (by our definition)are a significant problem because about 60 percent ofunifications result in failure in a successful parse inour sample parses.
+The additional set-difference oper-ation required for incremental copying during unify2may also be contributing tothe slower speed of Wrob-lewski's algorithm.
+Given that our sample grammar isrelatively small, we would expect hat the differencein the performance between the incremental copyingschemes and ours will expand as the grammar sizeincreases and both the number of failures ~ and thesize of the wasted subgraphs of failed unifications be-come larger.
+Since our algorithm is essentially paral-lel, patallelization is one logical choice to pursue fur-ther speedup.
+Parallel processes can be continuouslycreated as unifyl reeurses deeper and deeper withoutcreating any copies by simply looking for a possiblefailure of the unification (and preparing for successivecopying in ease unification succeeds).
+So far, we havecompleted a preliminary implementation a sharedmemory parallel hardware with about 75 percent ofeffective parallelization rate.
+With the simplicity ofour algorithm and the ease of implementing it (com-pared to both incremental copying schemes and lazyschemes), combined with the demonstrated speed ofthe algorithm, the algorithm could be a viable alterna-tive to existing unification algorithms used in current~That is, unless some new scheme for reducing exces-sive copying is introduced such as scucture-sharing of anunchanged shared-forest (\[Kogure, 1990\]).
+Even then, ourcriticism of the cost of delaying evaluation would still bevalid.
+Also, although different in methodology from the waysuggested by Kogure for Wroblewski's algorithm, it is possi-ble to at~in structure-sharing of an unchanged forest in ourscheme as well.
+We have already developed a preliminaryversion of such a scheme which is not discussed inthis paper.Z~For example, in our large-scale speech-to-speech trans-lation system under development, the USrate is estimated tobe under 20%, i.e., over 80% of unifications are estimated tobe failures.natural language systems.ACKNOWLEDGMENTSThe author would like to thank Akira Kurematsu,Tsuyoshi Morimoto, Hitoshi Iida, Osamu Furuse,Masaaki Nagata, Toshiyuki Takezawa nd other mem-bers of ATR and Masaru Tomita and Jaime Carbonellat CMU.
+Thanks are also due to Margalit Zabludowskiand Hiroaki Kitano for comments on the final versionof this paper and Takako Fujioka for assistance in im-plementing the parallel version of the algorithm.Appendix: ImplementationThe unification algorithms, Farley parser and theHPSG path equation to graph converter programs areimplemented in CommonLisp on a Symbolics ma-chine.
+The preliminary parallel version of our uni-fication algorithm is currently implemented on a Se-quent/Symmetry closely-coupled shared-memory par-allel machine running Allegro CLiP parallel Common-Lisp.References\[Godden, 1990\] Godden, K. "Lazy Unification" In Proceed-ings of ACL-90, 1990.\[Karttunen, 1986\] Karttunen, L. "D-PATR: A DevelopmentEnvironment for Unificadon-Based Grammars".
+In Pro-ceedingsofCOLING-86, 1986.
+(Also, Report CSLL86-61Stanford University).\[Karttunen a d Kay, 1985\] Karttunen, L. and M. Kay"Structure Sharing with Binary Trees".
+In Proceedingsof ACL-85, 1985.\[Kasper, 1987\] Kasper, R. "A Unification Method for Dis-junctive Feature Descriptions'.
+InProceedingsofACL-87,1987.\[Kogure, 1989\] Kogure, K. A Study on Feature Structuresand Unification.
+ATR Technical Report.
+TR-1-0032,1988.\[Kogure, 1990\] Kogure, K. "Strategic Lazy IncrementalCopy Graph Unification".
+In Proceedings ofCOLING-90,1990.\[Pereira, 1985\] Pereira, E "A Structure-Sharing Represen-tation for Unificadon-Based Grammar Formalisms".
+InProceedings ofACL-85, 1985.\[Pollard and Sag, 1987\] Pollard, C. and I.
+Sag Information-based Syntax and Semantics.
+Vol 1, CSLI, 1987.\[Yoshimoto and Kogure, 1989\] Yoshimoto, K. and K.Kogure Japanese Sentence Analysis by means of PhraseStructure Grammar.
+ATR Technical Report.
+TR-1-0049,1989.\[Wroblewski, 1987\] Wroblewski, D."Nondestrucdve GraphUnification" In Proceedings ofAAAI87, 1987.322

@@ -1,0 +1,349 @@
+Proceedings of the 48th Annual Meeting of the Association for Computational Linguistics, pages 1512?1521,Uppsala, Sweden, 11-16 July 2010. c?2010 Association for Computational LinguisticsA Generalized-Zero-Preserving Method for Compact Encoding ofConcept LatticesMatthew SkalaSchool of Computer ScienceUniversity of Waterloomskala@cs.toronto.eduVictoria KrakovnaJa?nos Krama?rDept.
+of MathematicsUniversity of Toronto{vkrakovna,jkramar}@gmail.comGerald PennDept.
+of Computer ScienceUniversity of Torontogpenn@cs.toronto.eduAbstractConstructing an encoding of a concept lat-tice using short bit vectors allows for ef-ficient computation of join operations onthe lattice.
+Join is the central operationany unification-based parser must support.We extend the traditional bit vector encod-ing, which represents join failure using thezero vector, to count any vector with lessthan a fixed number of one bits as failure.This allows non-joinable elements to sharebits, resulting in a smaller vector size.
+Aconstraint solver is used to construct theencoding, and a variety of techniques areemployed to find near-optimal solutionsand handle timeouts.
+An evaluation is pro-vided comparing the extended representa-tion of failure with traditional bit vectortechniques.1 IntroductionThe use of bit vectors is almost as old as HPSGparsing itself.
+Since they were first suggested inthe programming languages literature (A?
+?t-Kaci etal., 1989) as a method for computing the unifica-tion of two types without table lookup, bit vectorshave been attractive because of three speed advan-tages:?
+The classical bit vector encoding uses bitwiseAND to calculate type unification.
+This ishard to beat.?
+Hash tables, the most common alternative,involve computing the Dedekind-MacNeillecompletion (DMC) at compile time if the in-put type hierarchy is not a bounded-completepartial order.
+That is exponential time in theworst case; most bit vector methods avoid ex-plicitly computing it.?
+With large type signatures, the table that in-dexes unifiable pairs of types may be so largethat it pushes working parsing memory intoswap.
+This loss of locality of reference coststime.Why isn?t everyone using bit vectors?
+For themost part, the reason is their size.
+The classicalencoding given by A?
+?t-Kaci et al (1989) is at leastas large as the number of meet-irreducible types,which in the parlance of HPSG type signaturesis the number of unary-branching types plus thenumber of maximally specific types.
+For the En-glish Resource Grammar (ERG) (Copestake andFlickinger, 2000), these are 314 and 2474 respec-tively.
+While some systems use them nonetheless(PET (Callmeier, 2000) does, as a very notable ex-ception), it is clear that the size of these codes is asource of concern.Again, it has been so since the very beginning:A?
+?t-Kaci et al (1989) devoted several pages toa discussion of how to ?modularize?
+type codes,which typically achieves a smaller code in ex-change for a larger-time operation than bitwiseAND as the implementation of type unification.However, in this and later work on the subject(e.g.
+(Fall, 1996)), one constant has been that weknow our unification has failed when the imple-mentation returns the zero vector.
+Zero preserva-tion (Mellish, 1991; Mellish, 1992), i.e., detect-ing a type unification failure, is just as importantas obtaining the right answer quickly when it suc-ceeds.The approach of the present paper borrowsfrom recent statistical machine translation re-search, which addresses the problem of efficientlyrepresenting large-scale language models using amathematical construction called a Bloom filter(Talbot and Osborne, 2007).
+The approach is bestcombined with modularization in order to furtherreduce the size of the codes, but its novelty lies in1512the observation that counting the number of onebits in an integer is implemented in the basic in-struction sets of many CPUs.
+The question thenarises whether smaller codes would be obtainedby relaxing zero preservation so that any resultingvector with at most ?
+bits is interpreted as failure,with ?
+?
+1.Penn (2002) generalized join-preserving encod-ings of partial orders to the case where more thanone code can be used to represent the same ob-ject, but the focus there was on codes arising fromsuccessful unifications; there was still only onerepresentative for failure.
+To our knowledge, thepresent paper is the first generalization of zeropreservation in CL or any other application do-main of partial order encodings.We note at the outset that we are not usingBloom filters as such, but rather a derandomizedencoding scheme that shares with Bloom filtersthe essential insight that ?
+can be greater than zerowithout adverse consequences for the required al-gebraic properties of the encoding.
+Deterministicvariants of Bloom filters may in turn prove to beof some value in language modelling.1.1 Notation and definitionsA partial order ?X,v?
+consists of a set X and areflexive, antisymmetric, and transitive binary re-lation v. We use u unionsq v to denote the unique leastupper bound or join of u, v ?
+X , if one exists, andu u v for the greatest lower bound or meet.
+If weneed a second partial order, we use  for its orderrelation and g for its join operation.
+We are espe-cially interested in a class of partial orders calledmeet semilattices, in which every pair of elementshas a unique meet.
+In a meet semilattice, the joinof two elements is unique when it exists at all, andthere is a unique globally least element ?
+(?bot-tom?
+).A successor of an element u ?
+X is an elementv 6= u ?
+X such that u v v and there is now ?
+Xwith w 6= u,w 6= v, and u v w v v, i.e., v fol-lows u in X with no other elements in between.
+Amaximal element has no successor.
+A meet irre-ducible element is an element u ?
+X such that forany v, w ?
+X , if u = v uw then u = v or u = w.A meet irreducible has at most one successor.Given two partial orders ?X,v?
+and ?Y,?, anembedding of X into Y is a pair of functionsf : X ?
+Y and g : (Y ?
+Y ) ?
+{0, 1}, whichmay have some of the following properties for allu, v ?
+X:u v v ?
+f(u)  f(v) (1)defined(u unionsq v)?
+g(f(u), f(v)) = 1 (2)?defined(u unionsq v)?
+g(f(u), f(v)) = 0 (3)u unionsq v = w ?
+f(u) g f(v) = f(w) (4)With property (1), the embedding is said to pre-serve order; with property (2), it preserves suc-cess; with property (3), it preserves failure; andwith property (4), it preserves joins.2 Bit-vector encodingIntuitively, taking the join of two types in a type hi-erarchy is like taking the intersection of two sets.Types often represent sets of possible values, andthe type represented by the join really does repre-sent the intersection of the sets that formed the in-put.
+So it seems natural to embed a partial order oftypes ?X,v?
+into a partial order (in fact, a lattice)of sets ?Y,?, where Y is the power set of someset Z, and  is the superset relation ?.
+Then joing is simply set intersection ?.
+The embeddingfunction g, which indicates whether a join exists,can be naturally defined by g(f(u), f(v)) = 0 ifand only if f(u) ?
+f(v) = ?.
+It remains to choosethe underlying set Z and embedding function f .A?
+?t-Kaci et al (1989) developed what has be-come the standard technique of this type.
+Theyset Z to be the set of all meet irreducible elementsin X; and f(u) = {v ?
+Z|v w u}, that is, themeet irreducible elements greater than or equal tou.
+The resulting embedding preserves order, suc-cess, failure, and joins.
+If Z is chosen to be themaximal elements of X instead, then join preser-vation is lost but the embedding still preserves or-der, success, and failure.
+The sets can be repre-sented efficiently by vectors of bits.
+We hope tominimize the size of the largest set f(?
+), whichdetermines the vector length.It follows from the work of Markowsky (1980)that the construction of A?
+?t-Kaci et al is optimalamong encodings that use sets with intersectionfor meet and empty set for failure: with Y definedas the power set of some setZ,v as?, unionsq as?, andg(f(u), f(v)) = 0 if and only if f(u)?
+f(v) = ?,then the smallest Z that will preserve order, suc-cess, failure, and joins is the set of all meet irre-ducible elements of X .
+No shorter bit vectors arepossible.We construct shorter bit vectors by modifyingthe definition of g, so that the minimality results1513no longer apply.
+In the following discussion wepresent first an intuitive and then a technical de-scription of our approach.2.1 Intuition from Bloom filtersVectors generated by the above construction tendto be quite sparse, or if not sparse, at least bor-ing.
+Consider a meet semilattice containing onlythe bottom element ?
+and n maximal elements allincomparable to each other.
+Then each bit vectorwould consist of either all ones, or all zeroes ex-cept for a single one.
+We would thus be spendingn bits to represent a choice among n + 1 alterna-tives, which should fit into a logarithmic numberof bits.
+The meet semilattices that occur in prac-tice are more complicated than this example, butthey tend to contain things like it as a substruc-ture.
+With the traditional bit vector construction,each of the maximal elements consumes its ownbit, even though those bits are highly correlated.The well-known technique called Bloom fil-tering (Bloom, 1970) addresses a similar issue.There, it is desired to store a large array of bitssubject to two considerations.
+First, most of thebits are zeroes.
+Second, we are willing to accepta small proportion of one-sided errors, where ev-ery query that should correctly return one does so,but some queries that should correctly return zeromight actually return one instead.The solution proposed by Bloom and widelyused in the decades since is to map the entries inthe large bit array pseudorandomly (by means ofa hash function) into the entries of a small bit ar-ray.
+To store a one bit we find its hashed locationand store it there.
+If we query a bit for which theanswer should be zero but it happens to have thesame hashed location as another query with the an-swer one, then we return a one and that is one ofour tolerated errors.To reduce the error rate we can elaborate theconstruction further: with some fixed k, we usek hash functions to map each bit in the large arrayto several locations in the small one.
+Figure 1 il-lustrates the technique with k = 3.
+Each bit hasthree hashed locations.
+On a query, we check allthree; they must all contain ones for the query toreturn a one.
+There will be many collisions of indi-vidual hashed locations, as shown; but the chancesare good that when we query a bit we did not in-tend to store in the filter, at least one of its hashedlocations will still be empty, and so the query will1 1 1 1 11 1 11?1Figure 1: A Bloom filterreturn zero.
+Bloom describes how to calculate theoptimal value of k, and the necessary length ofthe hashed array, to achieve any desired bound onthe error rate.
+In general, the hashed array canbe much smaller than the original unhashed ar-ray (Bloom, 1970).Classical Bloom filtering applied to the sparsevectors of the embedding would create some per-centage of incorrect join results, which would thenhave to be handled by other techniques.
+Our workdescribed here combines the idea of using k hashfunctions to reduce the error rate, with perfecthashes designed in a precomputation step to bringthe error rate to zero.2.2 Modified failure detectionIn the traditional bit vector construction, typesmap to sets, join is computed by intersection ofsets, and the empty set corresponds to failure(where no join exists).
+Following the lead ofBloom filters, we change the embedding functiong(f(u), f(v)) to be 0 if and only if |f(u)?f(v)| ??
+for some constant ?.
+With ?
+= 0 this is the sameas before.
+Choosing greater values of ?
+allows usto re-use set elements in different parts of the typehierarchy while still avoiding collisions.Figure 2 shows an example meet semilattice.
+Inthe traditional construction, to preserve joins wemust assign one bit to each of the meet-irreducibleelements {d, e, f, g, h, i, j, k, l,m}, for a total often bits.
+But we can use eight bits and still pre-serve joins by setting g(f(u), f(v)) = 0 if andonly if |f(u) ?
+f(v)| ?
+?
+= 1, and f as follows.f(?)
+= {1, 2, 3, 4, 5, 6, 7, 8}f(a) = {1, 2, 3, 4, 5}f(b) = {1, 6, 7, 8} f(c) = {1, 2, 3}f(d) = {2, 3, 4, 5} f(e) = {1, 6}f(f) = {1, 7} f(g) = {1, 8}f(h) = {6, 7} f(i) = {6, 8}f(j) = {1, 2} f(k) = {1, 3}f(l) = {2, 3} f(m) = {2, 3, 4}(5)1514ac dbe f g h ij k lmFigure 2: An example meet semilattice; ?
+is themost general type.As a more general example, consider the verysimple meet semilattice consisting of just a leastelement ?
+with n maximal elements incompara-ble to each other.
+For a given ?
+we can representthis in b bits by choosing the smallest b such that( b?+1)?
+n and assigning each maximal element adistinct choice of the bits.
+With optimal choice of?, b is logarithmic in n.2.3 ModulesAs A?
+?t-Kaci et al (1989) described, partial or-ders encountered in practice often resemble trees.Both their technique and ours are at a disadvantagewhen applied to large trees; in particular, if thebottom of the partial order has successors whichare not joinable with each other, then those will beassigned large sets with little overlap, and bits inthe vectors will tend to be wasted.To avoid wasting bits, we examine the partialorder X in a precomputation step to find the mod-ules, which are the smallest upward-closed sub-sets of X such that for any x ?
+X , if x has atleast two joinable successors, then x is in a mod-ule.
+This is similar to ALE?s definition of mod-ule (Penn, 1999), but not the same.
+The definitionof A?
+?t-Kaci et al (1989) also differs from ours.Under our definition, every module has a uniqueleast element, and not every type is in a module.For instance, in Figure 2, the only module has aas its least element.
+In the ERG?s type hierarchy,there are 11 modules, with sizes ranging from 10to 1998 types.To find the join of two types in the same mod-ule, we find the intersection of their encodings andcheck whether it is of size greater than ?.
+If thetypes belong to two distinct modules, there is nojoin.
+For the remaining cases, where at least one ofthe types lacks a module, we observe that the mod-ule bottoms and non-module types form a tree, andthe join can be computed in that tree.
+If x is a typein the module whose bottom is y, and z has nomodule, then x unionsq z = y unionsq z unless y unionsq z = yin which case x unionsq z = x; so it only remains tocompute joins within the tree.
+Our implementa-tion does that by table lookup.
+More sophisticatedapproaches could be appropriate on larger trees.3 Set programmingIdeally, we would like to have an efficient algo-rithm for finding the best possible encoding of anygiven meet semilattice.
+The encoding can be rep-resented as a collection of sets of integers (repre-senting bit indices that contain ones), and an opti-mal encoding is the collection of sets whose over-all union is smallest subject to the constraint thatthe collection forms an encoding at all.
+This com-binatorial optimization problem is a form of setprogramming; and set programming problems arewidely studied.
+We begin by defining the form ofset programming we will use.Definition 1 Choose set variables S1, S2, .
+.
+.
+, Snto minimize b = |?ni=1 Si| subject to some con-straints of the forms |Si| ?
+ri, Si ?
+Sj , Si + Sj ,|Si ?
+Sj | ?
+?, and Si ?
+Sj = Sk.
+The constant?
+is the same for all constraints.
+Set elements maybe arbitrary, but we generally assume they are theintegers {1 .
+.
+.
+b} for convenience.The reduction of partial order representation toset programming is clear: we create a set variablefor every type, force the maximal types?
+sets tocontain at least ?
++ 1 elements, and then use sub-set to enforce that every type is a superset of allits successors (preserving order and success).
+Welimit the maximum intersection of incomparabletypes to preserve failure.
+To preserve joins, if thatproperty is desired, we add a constraint Si + Sjfor every pair of types xi 6v xj and one of theform Si ?
+Sj = Sk for every xi, xj , xk such thatxi unionsq xj = xk..Given a constraint satisfaction problem like thisone, we can ask two questions: is there a feasi-ble solution, assigning values to the variables soall constraints are satisfied; and if so what is theoptimal solution, producing the best value of theobjective while remaining feasible?
+In our prob-lem, there is always a feasible solution we canfind by the generalized A?
+?t-Kaci et al construc-tion (GAK), which consists of assigning ?
+bits1515shared among all types; adding enough unsharednew bits to maximal elements to satisfy cardinal-ity constraints; adding one new bit to each non-maximal meet irreducible type; and propagatingall the bits down the hierarchy to satisfy the subsetconstraints.
+Since the GAK solution is feasible, itprovides a useful upper bound on the result of theset programming.Ongoing research on set programming has pro-duced a variety of software tools for solving theseproblems.
+However, at first blush our instances aremuch too large for readily-available set program-ming tools.
+Grammars like ERG contain thou-sands of types.
+We use binary constraints be-tween every pair of types, for a total of millionsof constraints?and these are variables and con-straints over a domain of sets, not integers or re-als.
+General-purpose set programming softwarecannot handle such instances.3.1 Simplifying the instancesFirst of all, we only use minimum cardinality con-straints |Si| ?
+ri for maximal types; and everyri ?
+?
++ 1.
+Given a feasible bit assignment for amaximal type with more than ri elements in its setSi, we can always remove elements until it has ex-actly ri elements, without violating the other con-straints.
+As a result, instead of using constraints|Si| ?
+ri we can use constraints |Si| = ri.
+Doingso reduces the search space.Subset is transitive; so if we have constraintsSi ?
+Sj and Sj ?
+Sk, then Si ?
+Sk is impliedand we need not specify it as a constraint.
+Simi-larly, if we have Si ?
+Sj and Si * Sk, then wehave Sj * Sk.
+Furthermore, if Si and Sj havemaximum intersection ?, then any subset of Sialso has maximum intersection ?
+with any subsetof Sk, and we need not specify those constraintseither.Now, let a choke-vertex in the partial order?X,v?
+be an element u ?
+X such that for ev-ery v, w ?
+X where v is a successor of w andu v v, we have u v w. That is, any chain of suc-cessors from elements not after u to elements afteru, must pass through u.
+Figure 2 shows choke-vertices as squares.
+We call these choke-verticesby analogy with the graph theoretic concept ofcut-vertices in the Hasse diagram of the partial or-der; but note that some vertices (like j and k) canbe choke-vertices without being cut-vertices, andsome vertices (like c) can be cut-vertices withoutbeing choke-vertices.
+Maximal and minimal ele-ments are always choke-vertices.Choke-vertices are important because the op-timal bit assignment for elements after a choke-vertex u is almost independent of the bit assign-ment elsewhere in the partial order.
+Removingthe redundant constraints means there are no con-straints between elements after u and elementsbefore, or incomparable with, u.
+All constraintsacross u must involve u directly.
+As a result, wecan solve a smaller instance consisting of u andeverything after it, to find the minimal number ofbits ru for representing u.
+Then we solve the restof the problem with a constraint |Su| = ru, ex-cluding all partial order elements after u, and thencombine the two solutions with any arbitrary bi-jection between the set elements assigned to u ineach solution.
+Assuming optimal solutions to bothsub-problems, the result is an optimal solution tothe original problem.3.2 Splitting into componentsIf we cut the partial order at every choke-vertex,we reduce the huge and impractical encodingproblem to a collection of smaller ones.
+The cut-ting expresses the original partial order as a treeof components, each of which corresponds to a setprogramming instance.
+Components are shown bythe dashed lines in Figure 2.
+We can find an op-timal encoding for the entire partial order by opti-mally encoding the components, starting with theleaves of that tree and working our way back to theroot.The division into components creates a collec-tion of set programming instances with a widerange of sizes and difficulty; we examine each in-stance and choose appropriate techniques for eachone.
+Table 1 summarizes the rules used to solve aninstance, and shows the number of times each rulewas applied in a typical run with the modules ex-tracted from ERG, a ten-minute timeout, and each?
+from 0 to 10.In many simple cases, GAK is provably opti-mal.
+These include when ?
+= 0 regardless of thestructure of the component; when the componentconsists of a bottom and zero, one, or two non-joinable successors; and when there is one element(a top) greater than all other elements in the com-ponent.
+We can easily recognize these cases andapply GAK to them.Another important special case is when the1516Condition Succ.
+Fail.
+Method?
+= 0 216 GAK (optimal)?
+top 510 GAK (optimal)2 successors 850 GAK (optimal)3 or 4successors70 exponentialvariableonly ULs 420 b-choose-(?+1)special casebefore ULremoval251 59 ic_setsafter ULremoval9 50 ic_setsremaining 50 GAKTable 1: Rules for solving an instance in the ERGcomponent consists of a bottom and some num-ber k of pairwise non-joinable successors, and thesuccessors all have required cardinality ?
++ 1.Then the optimal encoding comes from finding thesmallest b such that( b?+1)is at least k, and givingeach successor a distinct combination of the b bits.3.3 Removing unary leavesFor components that do not have one of the spe-cial forms described above, it becomes necessaryto solve the set programming problem.
+Some ofour instances are small enough to apply constraintsolving software directly; but for larger instances,we have one more technique to bring them into thetractable range.Definition 2 A unary leaf (UL) is an element x ina partial order ?X,v?
+such that x is maximal andx is the successor of exactly one other element.ULs are special because their set programmingconstraints always take a particular form: if x is aUL and a successor of y, then the constraints onits set Sx are exactly that |Sx| = ?
++ 1, Sx ?
+Sy,and Sx has intersection of size at most ?
+with theset for any other successor of y.
+Other constraintsdisappear by the simplifications described earlier.Furthermore, ULs occur frequently in the par-tial orders we consider in practice; and by increas-ing the number of sets in an instance, they havea disproportionate effect on the difficulty of solv-ing the set programming problem.
+We thereforeimplement a special solution process for instancescontaining ULs: we remove them all, solve the re-sulting instance, and then add them back one at atime while attempting to increase the overall num-ber of elements as little as possible.This process of removing ULs, solving, andadding them back in, may in general produce sub-optimal solutions, so we use it only when thesolver cannot find a solution on the full-sized prob-lem.
+In practical experiments, the solver gener-ally either produces an optimal or very nearly op-timal solution within a time limit on the order often minutes; or fails to produce a feasible solu-tion at all, even with a much longer limit.
+Testingwhether it finds a solution is then a useful way todetermine whether UL removal is worthwhile.Recall that in an instance consisting of k ULsand a bottom, an optimal solution consists of find-ing the smallest b such that( b?+1)is at least k; thatis the number of bits for the bottom, and we canchoose any k distinct subsets of size ?+ 1 for theULs.
+Augmenting an existing solution to includeadditional ULs involves a similar calculation.To add a UL x as the successor of an elementy without increasing the total number of bits, wemust find a choice of ?
++ 1 of the bits already as-signed to y, sharing at most ?
+bits with any of y?sother successors.
+Those successors are in generalsets of arbitrary size, but all that matters for as-signing x is how many subsets of size ?
++ 1 theyalready cover.
+The UL can use any such subsetnot covered by an existing successor of y.
+Our al-gorithm counts the subsets already covered, andcompares that with the number of choices of ?+1bits from the bits assigned to y.
+If enough choicesremain, we use them; otherwise, we add bits untilthere are enough choices.3.4 SolvingFor instances with a small number of sets and rela-tively large number of elements in the sets, we usean exponential variable solver.
+This encodes theset programming problem into integer program-ming.
+For each element x ?
+{1, 2, .
+.
+.
+, b}, letc(x) = {i|x ?
+Si}; that is, c(x) represents theindices of all the sets in the problem that containthe element x.
+There are 2n ?
+1 possible valuesof c(x), because each element must be in at leastone set.
+We create an integer variable for each ofthose values.
+Each element is counted once, so thesum of the integer variables is b.
+The constraintstranslate into simple inequalities on sums of thevariables; and the system of constraints can besolved with standard integer programming tech-niques.
+After solving the integer programmingproblem we can then assign elements arbitrarily1517to the appropriate combinations of sets.Where applicable, the exponential variable ap-proach works well, because it breaks all the sym-metries between set elements.
+It also continues tofunction well even when the sets are large, sincenothing in the problem directly grows when weincrease b.
+The wide domains of the variablesmay be advantageous for some integer program-ming solvers as well.
+However, it creates an in-teger programming problem of size exponential inthe number of sets.
+As a result, it is only applica-ble to instances with a very few set variables.For more general set programming instances,we feed the instance directly into a solver de-signed for such problems.
+We used the ECLiPSelogic programming system (Cisco Systems, 2008),which offers several set programming solvers aslibraries, and settled on the ic sets library.
+Thisis a straightforward set programming solver basedon containment bounds.
+We extended the solverby adding a lightweight not-subset constraint, andcustomized heuristics for variable and value selec-tion designed to guide the solver to a feasible so-lution as soon as possible.
+We choose variablesnear the top of the instance first, and prefer to as-sign values that share exactly ?
+bits with exist-ing assigned values.
+We also do limited symme-try breaking, in that whenever we assign a bit notshared with any current assignment, the choice ofbit is arbitrary so we assume it must be the lowest-index bit.
+That symmetry breaking speeds up thesearch significantly.The present work is primarily on the benefitsof nonzero ?, and so a detailed study of gen-eral set programming techniques would be inap-propriate; but we made informal tests of severalother set-programming solvers.
+We had hoped thata solver using containment-lexicographic hybridbounds as described by Sadler and Gervet (Sadlerand Gervet, 2008) would offer good performance,and chose the ECLiPSe framework partly to gainaccess to its ic hybrid sets implementation of suchbounds.
+In practice, however, ic hybrid sets gaveconsistently worse performance than ic sets (typi-cally by an approximate factor of two).
+It appearsthat in intuitive terms, the lexicographic boundsrarely narrowed the domains of variables much un-til the variables were almost entirely labelled any-way, at which point containment bounds were al-most as good; and meanwhile the increased over-head of maintaining the extra bounds slowed downthe entire process to more than compensate forthe improved propagation.
+We also evaluated theCardinal solver included in ECLiPSe, which of-fers stronger propagation of cardinality informa-tion; it lacked other needed features and seemedno more efficient than ic sets.
+Among thesethree solvers, the improvements associated withour custom variable and value heuristics greatlyoutweighed the baseline differences between thesolvers; and the differences were in optimizationtime rather than quality of the returned solutions.Solvers with available source code were pre-ferred for ease of customization, and free solverswere preferred for economy, but a license forILOG CPLEX (IBM, 2008) was available and wetried using it with the natural encoding of sets asvectors of binary variables.
+It solved small in-stances to optimality in time comparable to thatof ECLiPSe.
+However, for medium to large in-stances, CPLEX proved impractical.
+An instancewith n sets of up to b bits, dense with pairwiseconstraints like subset and maximum intersection,requires ?
+(n2b) variables when encoded into in-teger programming in the natural way.
+CPLEXstores a copy of the relaxed problem, with signifi-cant bookkeeping information per variable, for ev-ery node in the search tree.
+It is capable of storingmost of the tree in compressed form on disk, but inour larger instances even a single node is too large;CPLEX exhausts memory while loading its input.The ECLiPSe solver also stores each set variablein a data structure that increases linearly with thenumber of elements, so that the size of the prob-lem as stored by ECLiPSe is also ?
+(n2b); but theconstant for ECLiPSe appears to be much smaller,and its search algorithm stores only incrementalupdates (with nodes per set instead of per element)on a stack as it explores the tree.
+As a result, theECLiPSe solver can process much larger instancesthan CPLEX without exhausting memory.Encoding into SAT would allow use of the so-phisticated solvers available for that problem.
+Un-fortunately, cardinality constraints are notoriouslydifficult to encode in Boolean logic.
+The obvi-ous encoding of our problem into CNFSAT wouldrequire O(n2b?)
+clauses and variables.
+Encod-ings into Boolean variables with richer constraintsthan CNFSAT (we tried, for instance, the SICS-tus Prolog clp(FD) implementation (Carlsson etal., 1997)) generally exhausted memory on muchsmaller instances than those handled by the set-1518Module n b0 ?
+b?mrs_min 10 7 0 7conj 13 8 1 7list 27 15 1 11local_min 27 21 1 10cat_min 30 17 1 14individual 33 15 0 15head_min 247 55 0 55*sort* 247 129 3 107synsem_min 612 255 0 255sign_min 1025 489 3 357mod_relation 1998 1749 6 284entire ERG 4305 2788 140 985Table 2: Best encodings of the ERG and its mod-ules: n is number of types, b0 is vector length with?
+= 0, and ?
+is parameter that gives the shortestvector length b?.variable solvers, while offering no improvementin speed.4 EvaluationTable 2 shows the size of our smallest encodingsto date for the entire ERG without modularization,and for each of its modules.
+These were foundby running the optimization process of the previ-ous section on Intel Xeon servers with a timeoutof 30 minutes for each invocation of the solver(which may occur several times per module).
+Un-der those conditions, some modules take a longtime to optimize?as much as two hours per testedvalue of ?
+for sign_min.
+The Xeon?s hyper-threading feature makes reproducibility of timingresults difficult, but we found that results almostnever improved with additional time allowance be-yond the first few seconds in any case, so the prac-tical effect of the timing variations should be min-imal.These results show some significant improve-ments in vector length for the larger modules.However, they do not reveal the entire story.
+Inparticular, the apparent superiority of ?
+= 0 forthe synsem_min module should not be takenas indicating that no higher ?
+could be better:rather, that module includes a very difficult setprogramming instance on which the solver failedand fell back to GAK.
+For the even larger modules,nonzero ?
+proved helpful despite solver failures,because of the bits saved by UL removal.
+UL re-moval is clearly a significant advantage, but onlyEncoding length time spaceLookup table n/a 140 72496Modular, best ?
+0?357 321 203Modular, ?
+= 0 0?1749 747 579Non-mod, ?
+= 0 2788 4651 1530Non-mod, ?
+= 1 1243 2224 706Non-mod, ?
+= 2 1140 2008 656Non-mod, ?
+= 9 1069 1981 622Non-mod, ?
+= 140 985 3018 572Table 3: Query performance.
+Vector length in bits,time in milliseconds, space in Kbytes.for the modules where the solver is failing any-way.
+One important lesson seems to be that furtherwork on set programming solvers would be bene-ficial: any future more capable set programmingsolver could be applied to the unsolved instancesand would be expected to save more bits.Table 3 and Figure 3 show the performance ofthe join query with various encodings.
+These re-sults are from a simple implementation in C thattests all ordered pairs of types for joinability.
+Aswell as testing the non-modular ERG encoding fordifferent values of ?, we tested the modularizedencoding with ?
+= 0 for all modules (to show theeffect of modularization alone) and with ?
+cho-sen per-module to give the shortest vectors.
+Forcomparison, we also tested a simple lookup table.The same implementation sufficed for all thesetests, by means of putting all types in one mod-ule for the non-modular bit vectors or no typesin any module for the pure lookup table.
+Thetimes shown are milliseconds of user CPU timeto test all join tests (roughly 18.5 million of them),on a non-hyperthreading Intel Pentium 4 with aclock speed of 2.66GHz and 1G of RAM, run-ning Linux.
+Space consumption shown is the totalamount of dynamically-allocated memory used tostore the vectors and lookup table.The non-modular encoding with ?
+= 0 is thebasic encoding of A?
+?t-Kaci et al (1989).
+As Ta-ble 3 shows, we achieved more than a factor oftwo improvement from that, in both time and vec-tor length, just by setting ?
+= 1.
+Larger valuesoffered further small improvements in length up to?
+= 140, which gave the minimum vector lengthof 985.
+That is a shallow minimum; both ?
+= 120and ?
+= 160 gave vector lengths of 986, and thelength slowly increased with greater ?.However, the fastest bit-count on this architec-1519150020002500300035004000450050000  50  100  150  200userCPUtime(ms)lambda (bits)Figure 3: Query performance for the ERG without modularization.ture, using a technique first published by Weg-ner (1960), requires time increasing with the num-ber of nonzero bits it counts; and a similar effectwould appear on a word-by-word basis even if weused a constant-time per-word count.
+As a result,there is a time cost associated with using larger ?,so that the fastest value is not necessarily the onethat gives the shortest vectors.
+In our experiments,?
+= 9 gave the fastest joins for the non-modularencoding of the ERG.
+As shown in Figure 3, allsmall nonzero ?
+gave very similar times.Modularization helps a lot, both with ?
+= 0,and when we choose the optimal ?
+per module.Here, too, the use of optimal ?
+improves both timeand space by more than a factor of two.
+Our bestbit-vector encoding, the modularized one with per-module optimal ?, is only a little less than halfthe speed of the lookup table; and this test favoursthe lookup table by giving it a full word for everyentry (no time spent shifting and masking bits) andtesting the pairs in a simple two-level loop (almostpurely sequential access).5 ConclusionWe have described a generalization of conven-tional bit vector concept lattice encoding tech-niques to the case where all vectors with ?
+or fewerone bits represent failure; traditional encodings arethe case ?
+= 0.
+Increasing ?
+can reduce the over-all storage space and improve speed.A good encoding requires a kind of perfecthash, the design of which maps naturally to con-straint programming over sets of integers.
+Wehave described a practical framework for solvingthe instances of constraint programming thus cre-ated, in which we can apply existing or future con-straint solvers to the subproblems for which theyare best suited; and a technique for modularizingpractical type hierarchies to get better value fromthe bit vector encodings.
+We have evaluated the re-sulting encodings on the ERG?s type system, andexamined the performance of the associated unifi-cation test.
+Modularization, and the use of nonzero?, each independently provide significant savingsin both time and vector length.The modified failure detection concept suggestsseveral directions for future work, including eval-uation of the new encodings in the context of alarge-scale HPSG parser; incorporation of furtherdevelopments in constraint solvers; and the possi-bility of approximate encodings that would permitone-sided errors as in traditional Bloom filtering.ReferencesHassan A?
+?t-Kaci, Robert S. Boyer, Patrick Lincoln, andRoger Nasr.
+1989.
+Efficient implementation of lat-tice operations.
+ACM Transactions on ProgrammingLanguages and Systems, 11(1):115?146, January.1520Burton H. Bloom.
+1970.
+Space/time trade-offs in hashcoding with allowable errors.
+Communications ofthe ACM, 13(7):422?426, July.Ulrich Callmeier.
+2000.
+PET ?
+a platform for ex-perimentation with efficient HPSG processing tech-niques.
+Natural Language Engineering, 6(1):99?107.Mats Carlsson, Greger Ottosson, and Bjo?rn Carlson.1997.
+An open-ended finite domain constraintsolver.
+In H. Glaser, P. Hartel, and H. Kucken, ed-itors, Programming Languages: Implementations,Logics, and Programming, volume 1292 of Lec-ture Notes in Computer Science, pages 191?206.Springer-Verlag, September.Cisco Systems.
+2008.
+ECLiPSe 6.0.
+Computer soft-ware.
+Online http://eclipse-clp.org/.Ann Copestake and Dan Flickinger.
+2000.
+Anopen-source grammar development environmentand broad-coverage English grammar using HPSG.In Proceedings of the Second Conference on Lan-guage Resources and Evaluation (LREC 2000).Andrew Fall.
+1996.
+Reasoning with Taxonomies.Ph.D.
+thesis, Simon Fraser University.IBM.
+2008.
+ILOG CPLEX 11.
+Computer software.George Markowsky.
+1980.
+The representation ofposets and lattices by sets.
+Algebra Universalis,11(1):173?192.Chris Mellish.
+1991.
+Graph-encodable descriptionspaces.
+Technical report, University of EdinburghDepartment of Artificial Intelligence.
+DYANA De-liverable R3.2B.Chris Mellish.
+1992.
+Term-encodable descriptionspaces.
+In D.R.
+Brough, editor, Logic Program-ming: New Frontiers, pages 189?207.
+Kluwer.Gerald Penn.
+1999.
+An optimized prolog encoding oftyped feature structures.
+In D. De Schreye, editor,Logic programming: proceedings of the 1999 Inter-national Conference on Logic Programming (ICLP),pages 124?138.Gerald Penn.
+2002.
+Generalized encoding of descrip-tion spaces and its application to typed feature struc-tures.
+In Proceedings of the 40th Annual Meeting ofthe Association for Computational Linguistics (ACL2002), pages 64?71.Andrew Sadler and Carmen Gervet.
+2008.
+Enhanc-ing set constraint solvers with lexicographic bounds.Journal of Heuristics, 14(1).David Talbot and Miles Osborne.
+2007.
+SmoothedBloom filter language models: Tera-scale LMs onthe cheap.
+In Proceedings of the 2007 Joint Con-ference on Empirical Methods in Natural LanguageProcessing and Computational Natural LanguageLearning (EMNLP-CoNLL), pages 468?476.Peter Wegner.
+1960.
+A technique for counting onesin a binary computer.
+Communications of the ACM,3(5):322.1521

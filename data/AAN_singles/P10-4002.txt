@@ -1,0 +1,218 @@
+Proceedings of the ACL 2010 System Demonstrations, pages 7?12,Uppsala, Sweden, 13 July 2010. c?2010 Association for Computational Linguisticscdec: A Decoder, Alignment, and Learning Framework forFinite-State and Context-Free Translation ModelsChris DyerUniversity of Marylandredpony@umd.eduAdam LopezUniversity of Edinburghalopez@inf.ed.ac.ukJuri GanitkevitchJohns Hopkins Universityjuri@cs.jhu.eduJonathan WeeseJohns Hopkins Universityjweese@cs.jhu.eduFerhan TureUniversity of Marylandfture@cs.umd.eduPhil BlunsomOxford Universitypblunsom@comlab.ox.ac.ukHendra SetiawanUniversity of Marylandhendra@umiacs.umd.eduVladimir EidelmanUniversity of Marylandvlad@umiacs.umd.eduPhilip ResnikUniversity of Marylandresnik@umiacs.umd.eduAbstractWe present cdec, an open source frame-work for decoding, aligning with, andtraining a number of statistical machinetranslation models, including word-basedmodels, phrase-based models, and modelsbased on synchronous context-free gram-mars.
+Using a single unified internalrepresentation for translation forests, thedecoder strictly separates model-specifictranslation logic from general rescoring,pruning, and inference algorithms.
+Fromthis unified representation, the decoder canextract not only the 1- or k-best transla-tions, but also alignments to a reference,or the quantities necessary to drive dis-criminative training using gradient-basedor gradient-free optimization techniques.Its efficient C++ implementation meansthat memory use and runtime performanceare significantly better than comparabledecoders.1 IntroductionThe dominant models used in machine transla-tion and sequence tagging are formally basedon either weighted finite-state transducers (FSTs)or weighted synchronous context-free grammars(SCFGs) (Lopez, 2008).
+Phrase-based models(Koehn et al, 2003), lexical translation models(Brown et al, 1993), and finite-state conditionalrandom fields (Sha and Pereira, 2003) exemplifythe former, and hierarchical phrase-based modelsthe latter (Chiang, 2007).
+We introduce a soft-ware package called cdec that manipulates bothclasses in a unified way.1Although open source decoders for both phrase-based and hierarchical translation models havebeen available for several years (Koehn et al,2007; Li et al, 2009), their extensibility to newmodels and algorithms is limited by two sig-nificant design flaws that we have avoided withcdec.
+First, their implementations tightly couplethe translation, language model integration (whichwe call rescoring), and pruning algorithms.
+Thismakes it difficult to explore alternative transla-tion models without also re-implementing rescor-ing and pruning logic.
+In cdec, model-specificcode is only required to construct a translation for-est (?3).
+General rescoring (with language modelsor other models), pruning, inference, and align-ment algorithms then apply to the unified datastructure (?4).
+Hence all model types benefit im-mediately from new algorithms (for rescoring, in-ference, etc.
+); new models can be more easily pro-totyped; and controlled comparison of models ismade easier.Second, existing open source decoders were de-signed with the traditional phrase-based parame-terization using a very small number of dense fea-tures (typically less than 10).
+cdec has been de-signed from the ground up to support any parame-terization, from those with a handful of dense fea-tures up to models with millions of sparse features(Blunsom et al, 2008; Chiang et al, 2009).
+Sincethe inference algorithms necessary to compute atraining objective (e.g.
+conditional likelihood orexpected BLEU) and its gradient operate on theunified data structure (?5), any model type can betrained using with any of the supported training1The software is released under the Apache License, ver-sion 2.0, and is available from http://cdec-decoder.org/ .7criteria.
+The software package includes generalfunction optimization utilities that can be used fordiscriminative training (?6).These features are implemented without com-promising on performance.
+We show experimen-tally that cdec uses less memory and time thancomparable decoders on a controlled translationtask (?7).2 Decoder workflowThe decoding pipeline consists of two phases.
+Thefirst (Figure 1) transforms input, which may berepresented as a source language sentence, lattice(Dyer et al, 2008), or context-free forest (Dyerand Resnik, 2010), into a translation forest that hasbeen rescored with all applicable models.In cdec, the only model-specific logic is con-fined to the first step in the process where aninput string (or lattice, etc.)
+is transduced intothe unified hypergraph representation.
+Since themodel-specific code need not worry about integra-tion with rescoring models, it can be made quitesimple and efficient.
+Furthermore, prior to lan-guage model integration (and distortion model in-tegration, in the case of phrase based translation),pruning is unnecessary for most kinds of mod-els, further simplifying the model-specific code.Once this unscored translation forest has beengenerated, any non-coaccessible states (i.e., statesthat are not reachable from the goal node) are re-moved and the resulting structure is rescored withlanguage models using a user-specified intersec-tion/pruning strategy (?4) resulting in a rescoredtranslation forest and completing phase 1.The second phase of the decoding pipeline (de-picted in Figure 2) computes a value from therescored forest: 1- or k-best derivations, featureexpectations, or intersection with a target languagereference (sentence or lattice).
+The last optiongenerates an alignment forest, from which a wordalignment or feature expectations can be extracted.Most of these values are computed in a time com-plexity that is linear in the number of edges andnodes in the translation hypergraph using cdec?ssemiring framework (?5).2.1 Alignment forests and alignmentAlignment is the process of determining if andhow a translation model generates a ?source, tar-get?
+string pair.
+To compute an alignment undera translation model, the phase 1 translation hyper-graph is reinterpreted as a synchronous context-free grammar and then used to parse the targetsentence.2 This results in an alignment forest,which is a compact representation of all the deriva-tions of the sentence pair under the translationmodel.
+From this forest, the Viterbi or maximum aposteriori word alignment can be generated.
+Thisalignment algorithm is explored in depth by Dyer(2010).
+Note that if the phase 1 forest has beenpruned in some way, or the grammar does not de-rive the sentence pair, the target intersection parsemay fail, meaning that an alignment will not berecoverable.3 Translation hypergraphsRecent research has proposed a unified repre-sentation for the various translation and taggingformalisms that is based on weighted logic pro-gramming (Lopez, 2009).
+In this view, trans-lation (or tagging) deductions have the structureof a context-free forest, or directed hypergraph,where edges have a single head and 0 or more tailnodes (Nederhof, 2003).
+Once a forest has beenconstructed representing the possible translations,general inference algorithms can be applied.In cdec?s translation hypergraph, a node rep-resents a contiguous sequence of target languagewords.
+For SCFG models and sequential tag-ging models, a node also corresponds to a sourcespan and non-terminal type, but for word-basedand phrase-based models, the relationship to thesource string (or lattice) may be more compli-cated.
+In a phrase-based translation hypergraph,the node will correspond to a source coverage vec-tor (Koehn et al, 2003).
+In word-based models, asingle node may derive multiple different sourcelanguage coverages since word based models im-pose no requirements on covering all words in theinput.
+Figure 3 illustrates two example hyper-graphs, one generated using a SCFG model andother from a phrase-based model.Edges are associated with exactly one syn-chronous production in the source and target lan-guage, and alternative translation possibilities areexpressed as alternative edges.
+Edges are furtherannotated with feature values, and are annotatedwith the source span vector the edge correspondsto.
+An edge?s output label may contain mixturesof terminal symbol yields and positions indicatingwhere a child node?s yield should be substituted.2The parser is smart enough to detect the left-branchinggrammars generated by lexical translation and tagging mod-els, and use a more efficient intersection algorithm.8SCFG parserFST transducerTaggerLexical transducerPhrase-basedtransducerSource CFGSourcesentenceSource latticeUnscoredhypergraphInput TransducersCube pruningFull intersectionFST rescoringTranslationhypergraphOutputCube growingNo rescoringFigure 1: Forest generation workflow (first half of decoding pipeline).
+The decoder?s configurationspecifies what path is taken from the input (one of the bold ovals) to a unified translation hypergraph.The highlighted path is the workflow used in the test reported in ?7.TranslationhypergraphTargetreferenceViterbi extractionk-best extractionmax-translationextractionfeatureexpectationsintersection byparsingAlignmenthypergraphfeatureexpectationsmax posterioralignmentViterbi alignmentTranslation outputs Alignment outputsFigure 2: Output generation workflow (second half of decoding pipeline).
+Possible output types aredesignated with a double box.In the case of SCFG grammars, the edges corre-spond simply to rules in the synchronous gram-mar.
+For non-SCFG translation models, there aretwo kinds of edges.
+The first have zero tail nodes(i.e., an arity of 0), and correspond to word orphrase translation pairs (with all translation op-tions existing on edges deriving the same headnode), or glue rules that glue phrases together.For tagging, word-based, and phrase-based mod-els, these are strictly arranged in a monotone, left-branching structure.4 Rescoring with weighted FSTsThe design of cdec separates the creation of atranslation forest from its rescoring with a lan-guage models or similar models.3 Since the struc-ture of the unified search space is context free (?3),we use the logic for language model rescoring de-scribed by Chiang (2007), although any weightedintersection algorithm can be applied.
+The rescor-3Other rescoring models that depend on sequential con-text include distance-based reordering models or Markov fea-tures in tagging models.ing models need not be explicitly represented asFSTs?the state space can be inferred.Although intersection using the Chiang algo-rithm runs in polynomial time and space, the re-sulting rescored forest may still be too large to rep-resent completely.
+cdec therefore supports threepruning strategies that can be used during intersec-tion: full unpruned intersection (useful for taggingmodels to incorporate, e.g., Markov features, butnot generally practical for translation), cube prun-ing, and cube growing (Huang and Chiang, 2007).5 Semiring frameworkSemirings are a useful mathematical abstractionfor dealing with translation forests since manyuseful quantities can be computed using a singlelinear-time algorithm but with different semirings.A semiring is a 5-tuple (K,?,?, 0, 1) that indi-cates the set from which the values will be drawn,K, a generic addition and multiplication operation,?
+and ?, and their identities 0 and 1.
+Multipli-cation and addition must be associative.
+Multi-plication must distribute over addition, and v ?
+09GoalJJ NN1 2asmalllittlehouseshellGoal010100 101110asmalllittle1a1house1shell1little1small1house1shell1little1smallFigure 3: Example unrescored translation hypergraphs generated for the German input ein (a) kleines(small/little) Haus (house/shell) using a SCFG-based model (left) and phrase-based model with a distor-tion limit of 1 (right).must equal 0.
+Values that can be computed usingthe semirings include the number of derivations,the expected translation length, the entropy of thetranslation posterior distribution, and the expectedvalues of feature functions (Li and Eisner, 2009).Since semirings are such a useful abstraction,cdec has been designed to facilitate implementa-tion of new semirings.
+Table 1 shows the C++ rep-resentation used for semirings.
+Note that becauseof our representation, built-in types like double,int, and bool (together with their default op-erators) are semirings.
+Beyond these, the typeprob t is provided which stores the logarithm ofthe value it represents, which helps avoid under-flow and overflow problems that may otherwisebe encountered.
+A generic first-order expectationsemiring is also provided (Li and Eisner, 2009).Table 1: Semiring representation.
+T is a C++ typename.Element C++ representationK T?
+T::operator+=?
+T::operator*=0 T()1 T(1)Three standard algorithms parameterized withsemirings are provided: INSIDE, OUTSIDE, andINSIDEOUTSIDE, and the semiring is specified us-ing C++ generics (templates).
+Additionally, eachalgorithm takes a weight function that maps fromhypergraph edges to a value in K, making it possi-ble to use many different semirings without alter-ing the underlying hypergraph.5.1 Viterbi and k-best extractionAlthough Viterbi and k-best extraction algorithmsare often expressed as INSIDE algorithms withthe tropical semiring, cdec provides a separatederivation extraction framework that makes use ofa < operator (Huang and Chiang, 2005).
+Thus,many of the semiring types define not only the el-ements shown in Table 1 but T::operator< aswell.
+The k-best extraction algorithm is also pa-rameterized by an optional predicate that can filterout derivations at each node, enabling extractionof only derivations that yield different strings as inHuang et al (2006).6 Model trainingTwo training pipelines are provided with cdec.The first, called Viterbi envelope semiring train-ing, VEST, implements the minimum error ratetraining (MERT) algorithm, a gradient-free opti-mization technique capable of maximizing arbi-trary loss functions (Och, 2003).6.1 VESTRather than computing an error surface using k-best approximations of the decoder search space,cdec?s implementation performs inference overthe full hypergraph structure (Kumar et al, 2009).In particular, by defining a semiring whose valuesare sets of line segments, having an addition op-eration equivalent to union, and a multiplicationoperation equivalent to a linear transformation ofthe line segments, Och?s line search can be com-puted simply using the INSIDE algorithm.
+Sincethe translation hypergraphs generated by cdecmay be quite large making inference expensive,the logic for constructing error surfaces is fac-tored according to the MapReduce programmingparadigm (Dean and Ghemawat, 2004), enablingparallelization across a cluster of machines.
+Im-plementations of the BLEU and TER loss functionsare provided (Papineni et al, 2002; Snover et al,2006).106.2 Large-scale discriminative trainingIn addition to the widely used MERT algo-rithm, cdec also provides a training pipeline fordiscriminatively trained probabilistic translationmodels (Blunsom et al, 2008; Blunsom and Os-borne, 2008).
+In these models, the translationmodel is trained to maximize conditional log like-lihood of the training data under a specified gram-mar.
+Since log likelihood is differentiable withrespect to the feature weights in an exponentialmodel, it is possible to use gradient-based opti-mization techniques to train the system, enablingthe parameterization of the model using millionsof sparse features.
+While this training approachwas originally proposed for SCFG-based transla-tion models, it can be used to train any modeltype in cdec.
+When used with sequential taggingmodels, this pipeline is identical to traditional se-quential CRF training (Sha and Pereira, 2003).Both the objective (conditional log likelihood)and its gradient have the form of a difference intwo quantities: each has one term that is com-puted over the translation hypergraph which issubtracted from the result of the same computa-tion over the alignment hypergraph (refer to Fig-ures 1 and 2).
+The conditional log likelihood isthe difference in the log partition of the translationand alignment hypergraph, and is computed usingthe INSIDE algorithm.
+The gradient with respectto a particular feature is the difference in this fea-ture?s expected value in the translation and align-ment hypergraphs, and can be computed using ei-ther INSIDEOUTSIDE or the expectation semiringand INSIDE.
+Since a translation forest is generatedas an intermediate step in generating an alignmentforest (?2) this computation is straightforward.Since gradient-based optimization techniquesmay require thousands of evaluations to converge,the batch training pipeline is split into map andreduce components, facilitating distribution oververy large clusters.
+Briefly, the cdec is run as themap function, and sentence pairs are mapped over.The reduce function aggregates the results and per-forms the optimization using standard algorithms,including LBFGS (Liu et al, 1989), RPROP (Ried-miller and Braun, 1993), and stochastic gradientdescent.7 ExperimentsTable 2 compares the performance of cdec, Hi-ero, and Joshua 1.3 (running with 1 or 8 threads)decoding using a hierarchical phrase-based trans-lation grammar and identical pruning settings.4Figure 4 shows the cdec configuration andweights file used for this test.The workstation used has two 2GHz quad-coreIntel Xenon processors, 32GB RAM, is runningLinux kernel version 2.6.18 and gcc version 4.1.2.All decoders use SRI?s language model toolkit,version 1.5.9 (Stolcke, 2002).
+Joshua was run onthe Sun HotSpot JVM, version 1.6.0 12.
+A hierar-chical phrase-based translation grammar was ex-tracted for the NIST MT03 Chinese-English trans-lation using a suffix array rule extractor (Lopez,2007).
+A non-terminal span limit of 15 was used,and all decoders were configured to use cube prun-ing with a limit of 30 candidates at each node andno further pruning.
+All decoders produced a BLEUscore between 31.4 and 31.6 (small differences areaccounted for by different tie-breaking behaviorand OOV handling).Table 2: Memory usage and average per-sentencerunning time, in seconds, for decoding a Chinese-English test set.Decoder Lang.
+Time (s) Memorycdec C++ 0.37 1.0GbJoshua (1?)
+Java 0.98 1.5GbJoshua (8?)
+Java 0.35 2.5GbHiero Python 4.04 1.1Gbformalism=scfggrammar=grammar.mt03.scfg.gzadd pass through rules=truescfg max span limit=15feature function=LanguageModel \en.3gram.pruned.lm.gz -o 3feature function=WordPenaltyintersection strategy=cube pruningcubepruning pop limit=30LanguageModel 1.12WordPenalty -4.26PhraseModel 0 0.963PhraseModel 1 0.654PhraseModel 2 0.773PassThroughRule -20Figure 4: Configuration file (above) and featureweights file (below) used for the decoding test de-scribed in ?7.4http://sourceforge.net/projects/joshua/118 Future workcdec continues to be under active development.We are taking advantage of its modular design tostudy alternative algorithms for language modelintegration.
+Further training pipelines are un-der development, including minimum risk train-ing using a linearly decomposable approximationof BLEU (Li and Eisner, 2009), and MIRA train-ing (Chiang et al, 2009).
+All of these will bemade publicly available as the projects progress.We are also improving support for parallel trainingusing Hadoop (an open-source implementation ofMapReduce).AcknowledgementsThis work was partially supported by the GALEprogram of the Defense Advanced ResearchProjects Agency, Contract No.
+HR0011-06-2-001.Any opinions, findings, conclusions or recommen-dations expressed in this paper are those of the au-thors and do not necessarily reflect the views of thesponsors.
+Further support was provided the Euro-Matrix project funded by the European Commis-sion (7th Framework Programme).
+Discussionswith Philipp Koehn, Chris Callison-Burch, ZhifeiLi, Lane Schwarz, and Jimmy Lin were likewisecrucial to the successful execution of this project.ReferencesP.
+Blunsom and M. Osborne.
+2008.
+Probalistic inference formachine translation.
+In Proc.
+of EMNLP.P.
+Blunsom, T. Cohn, and M. Osborne.
+2008.
+A discrimina-tive latent variable model for statistical machine transla-tion.
+In Proc.
+of ACL-HLT.P.
+F. Brown, V. J. Della Pietra, S. A. Della Pietra, and R. L.Mercer.
+1993.
+The mathematics of statistical machinetranslation: parameter estimation.
+Computational Lin-guistics, 19(2):263?311.D.
+Chiang, K. Knight, and W. Wang.
+2009.
+11,001 newfeatures for statistical machine translation.
+In Proc.
+ofNAACL, pages 218?226.D.
+Chiang.
+2007.
+Hierarchical phrase-based translation.Comp.
+Ling., 33(2):201?228.J.
+Dean and S. Ghemawat.
+2004.
+MapReduce: Simplifieddata processing on large clusters.
+In Proc.
+of the 6th Sym-posium on Operating System Design and Implementation(OSDI 2004), pages 137?150.C.
+Dyer and P. Resnik.
+2010.
+Context-free reordering, finite-state translation.
+In Proc.
+of HLT-NAACL.C.
+Dyer, S. Muresan, and P. Resnik.
+2008.
+Generalizingword lattice translation.
+In Proc.
+of HLT-ACL.C.
+Dyer.
+2010.
+Two monolingual parses are better than one(synchronous parse).
+In Proc.
+of HLT-NAACL.L.
+Huang and D. Chiang.
+2005.
+Better k-best parsing.
+In InProc.
+of IWPT, pages 53?64.L.
+Huang and D. Chiang.
+2007.
+Forest rescoring: Fasterdecoding with integrated language models.
+In Proc.
+ACL.L.
+Huang, K. Knight, and A. Joshi.
+2006.
+A syntax-directedtranslator with extended domain of locality.
+In Proc.
+ofAMTA.P.
+Koehn, F. J. Och, and D. Marcu.
+2003.
+Statistical phrase-based translation.
+In Proc.
+of HLT/NAACL, pages 48?54.P.
+Koehn, H. Hoang, A.
+B. Mayne, C. Callison-Burch,M.
+Federico, N. Bertoldi, B. Cowan, W. Shen, C. Moran,R.
+Zens, C. Dyer, O. Bojar, A. Constantin, and E. Herbst.2007.
+Moses: Open source toolkit for statistical ma-chine translation.
+In Proc.
+of ACL, Demonstration Ses-sion, pages 177?180, June.S.
+Kumar, W. Macherey, C. Dyer, and F. Och.
+2009.
+Efficientminimum error rate training and minimum B ayes-risk de-coding for translation hypergraphs and lattices.
+In Proc.of ACL, pages 163?171.Z.
+Li and J. Eisner.
+2009.
+First- and second-order expectationsemirings with applications to minimum-risk training ontranslation forests.
+In Proc.
+of EMNLP, pages 40?51.Z.
+Li, C. Callison-Burch, C. Dyer, J. Ganitkevitch, S. Khu-danpur, L. Schwartz, W. N. G. Thornton, J. Weese, andO.
+F. Zaidan.
+2009.
+Joshua: an open source toolkit forparsing-based machine translation.
+In Proc.
+of the FourthWorkshop on Stat.
+Machine Translation, pages 135?139.D.
+C. Liu, J. Nocedal, D. C. Liu, and J. Nocedal.
+1989.
+Onthe limited memory BFGS method for large scale opti-mization.
+Mathematical Programming B, 45(3):503?528.A.
+Lopez.
+2007.
+Hierarchical phrase-based translation withsuffix arrays.
+In Proc.
+of EMNLP, pages 976?985.A.
+Lopez.
+2008.
+Statistical machine translation.
+ACM Com-puting Surveys, 40(3), Aug.A.
+Lopez.
+2009.
+Translation as weighted deduction.
+In Proc.of EACL, pages 532?540.M.-J.
+Nederhof.
+2003.
+Weighted deductive parsing andKnuth?s algorithm.
+Comp.
+Ling., 29(1):135?143, Mar.F.
+Och.
+2003.
+Minimum error rate training in statistical ma-chine translation.
+In Proc.
+of ACL, pages 160?167.K.
+Papineni, S. Roukos, T. Ward, and W.-J.
+Zhu.
+2002.BLEU: a method for automatic evaluation of machinetranslation.
+In Proc.
+of ACL, pages 311?318.M.
+Riedmiller and H. Braun.
+1993.
+A direct adaptive methodfor faster backpropagation learning: The RPROP algo-rithm.
+In Proc.
+of the IEEE international conference onneural networks, pages 586?591.F.
+Sha and F. Pereira.
+2003.
+Shallow parsing with conditionalrandom fields.
+In Proc.
+of NAACL, pages 134?141.M.
+Snover, B. Dorr, R. Schwartz, L. Micciulla, andJ.
+Makhoul.
+2006.
+A study of translation edit rate withtargeted human annotation.
+In Proc.
+AMTA.A.
+Stolcke.
+2002.
+SRILM ?
+an extensible language modelingtoolkit.
+In Intl.
+Conf.
+on Spoken Language Processing.12

@@ -1,0 +1,261 @@
+Sequential Conditional Generalized Iterative ScalingJoshua GoodmanMicrosoft ResearchOne Microsoft WayRedmond, WA 98052joshuago@microsoft.comAbstractWe describe a speedup for training conditional maxi-mum entropy models.
+The algorithm is a simple vari-ation on Generalized Iterative Scaling, but convergesroughly an order of magnitude faster, depending onthe number of constraints, and the way speed is mea-sured.
+Rather than attempting to train all model pa-rameters simultaneously, the algorithm trains themsequentially.
+The algorithm is easy to implement,typically uses only slightly more memory, and willlead to improvements for most maximum entropyproblems.1 IntroductionConditional Maximum Entropy models have beenused for a variety of natural language tasks, includ-ing Language Modeling (Rosenfeld, 1994), part-of-speech tagging, prepositional phrase attachment,and parsing (Ratnaparkhi, 1998), word selection formachine translation (Berger et al, 1996), and find-ing sentence boundaries (Reynar and Ratnaparkhi,1997).
+Unfortunately, although maximum entropy(maxent) models can be applied very generally, thetypical training algorithm for maxent, GeneralizedIterative Scaling (GIS) (Darroch and Ratcliff, 1972),can be extremely slow.
+We have personally used upto a month of computer time to train a single model.There have been several attempts to speed up max-ent training (Della Pietra et al, 1997; Wu and Khu-danpur, 2000; Goodman, 2001).
+However, as wedescribe later, each of these has suffered from appli-cability to a limited number of applications.
+Darrochand Ratcliff (1972) describe GIS for joint probabil-ities, and mention a fast variation, which appears tohave been missed by the conditional maxent com-munity.
+We show that this fast variation can alsobe used for conditional probabilities, and that it isuseful for a larger range of problems than traditionalspeedup techniques.
+It achieves good speedups forall but the simplest models, and speedups of an orderof magnitude or more for typical problems.
+It hasonly one disadvantage: when there are many possi-ble output values, the memory needed is prohibitive.By combining this technique with another speeduptechnique (Goodman, 2001), this disadvantage canbe eliminated.Conditional maxent models are of the formP (y|x) =exp?i?ifi(x, y)?y?exp?i?ifi(x, y?
+)(1)where x is an input vector, y is an output, the fiarethe so-called indicator functions or feature valuesthat are true if a particular property of x, y is true,and ?iis a weight for the indicator fi.
+For instance,if trying to do word sense disambiguation for theword ?bank?, x would be the context around an oc-currence of the word; y would be a particular sense,e.g.
+financial or river; fi(x, y) could be 1 if the con-text includes the word ?money?
+and y is the financialsense; and ?iwould be a large positive number.Maxent models have several valuable proper-ties.
+The most important is constraint satisfaction.For a given fi, we can count how many times fiwas observed in the training data, observed[i] =?jfi(xj, yj).
+For a model P?with parameters?, we can see how many times the model pre-dicts that fiwould be expected: expected[i] =?j,yP?
+(y|xj)fi(xj, y).
+Maxent models have theproperty that expected[i] = observed[i] for all i.These equalities are called constraints.
+An addi-tional property is that, of models in the form of Equa-tion 1, the maxent model maximizes the probabilityof the training data.
+Yet another property is that max-ent models are as close as possible to the uniformdistribution, subject to constraint satisfaction.Maximum entropy models are most commonlylearned using GIS, which is actually a very simplealgorithm.
+At each iteration, a step is taken in a di-rection that increases the likelihood of the trainingComputational Linguistics (ACL), Philadelphia, July 2002, pp.
+9-16.Proceedings of the 40th Annual Meeting of the Association fordata.
+The step size is guaranteed to be not too largeand not too small: the likelihood of the training dataincreases at each iteration and eventually convergesto the global optimum.
+Unfortunately, this guaran-tee comes at a price: GIS takes a step size inverselyproportional to the maximum number of active con-straints.
+Maxent models are interesting precisely be-cause of their ability to combine many different kindsof information, so this weakness of GIS means thatmaxent models are slow to learn precisely when theyare most useful.We will describe a variation on GIS that worksmuch faster.
+Rather than learning all parameters ofthe model simultaneously, we learn them sequen-tially: one, then the next, etc., and then back to thebeginning.
+The new algorithm converges to the samepoint as the original one.
+This sequential learningwould not lead to much, if any, improvement, ex-cept that we also show how to cache subcomputa-tions.
+The combination leads to improvements of anorder of magnitude or more.2 AlgorithmsWe begin by describing the classic GIS algorithm.Recall that GIS converges towards a model inwhich, for each fi, expected[i] = observed[i].Whenever they are not equal, we can movethem closer.
+One simple idea is to just addlog observed[i]/expected[i] to ?i.
+The problemwith this is that it ignores the interaction with other?s.
+If updates to other ?s made on the same iterationof GIS have a similar effect, we could easily go toofar, and even make things worse.
+GIS introduces aslowing factor, f#, equal to the largest total value offi: f# = maxj,y?ifi(xj, y).
+Next, GIS computesan update:?i=log observed[i]/expected[i]f#(2)We then add ?ito?i.
+This update provably convergesto the global optimum.
+GIS for joint models wasgiven by Darroch and Ratcliff (1972); the conditionalversion is due to Brown et al (Unpublished), asdescribed by Rosenfeld (1994).In practice, we use the pseudocode of Figure 1.1We will write I for the number of training instances,1Many published versions of the GIS algorithm require in-clusion of a ?slack?
+indicator function so that the same numberof constraints always applies.
+In practice it is only necessarythat the total of the indicator functions be bounded by f#, notnecessarily equal to it.
+Alternatively, one can see this as includ-ing the slack indicator, but fixing the corresponding ?
+to 0, andexpected[0..F ] = 0for each training instance jfor each output ys[j, y] := 0for each i such that fi(xj, y) = 0s[j, y] += ?i?
+fi(xj, y)z :=?yes[j,y]for each output yfor each i such that fi(xj, y) = 0expected[i] += fi(xj, y)?
+es[j,y]/zfor each i?i=1f#logobserved[i]expected[i]?i+= ?iFigure 1: One Iteration of Generalized Iterative Scal-ing (GIS)and F for number of indicator functions; we use Yfor the number of output classes (values for y).
+Weassume that we keep a data structure listing, for eachtraining instance xjand each value y, the i such thatfi(xj, y) = 0.Now we can describe our variation on GIS.
+Basi-cally, instead of updating all ?
+?s simultaneously, wewill loop over each indicator function, and computean update for that indicator function, in turn.
+In par-ticular, the first change we make is that we exchangethe outer loops over training instances and indicatorfunctions.
+Notice that in order to do this efficiently,we also need to rearrange our data structures: whilewe previously assumed that the training data wasstored as a sparse matrix of indicator functions withnon-zero values for each instance, we now assumethat the data is stored as a sparse matrix of instanceswith non-zero values for each indicator.
+The size ofthe two matrices is obviously the same.The next change we make is to update each ?inear the inner loop, immediately after expected[i] iscomputed, rather than after expected values for allfeatures have been computed.
+If we update the fea-tures one at a time, then the meaning of f# changes.In the original version of GIS, f# is the largest totalof all features.
+However, f# only needs to be thelargest total of all the features being updated, and innot updating it, so that it can be ommitted from any equations;the proofs that GIS improves at each iteration and that there isa global optimum still hold.z[1..I] = Ys[1..I, 1..Y ] = 0for each feature fiexpected = 0for each output yfor each instance j such that fi(xj, y) = 0expected += fi(xj, y)?
+es[j,y]/z[j]?i=1maxj,yfi(xj,y)logobserved[i]expected[i]?i+= ?ifor each output yfor each instance j such that fi(xj, y) = 0z[j]?= es[j,y]s[j, y] += ?iz[j] += es[j,y]Figure 2: One Iteration of Sequential ConditionalGeneralized Iterative Scaling (SCGIS)this case, there is only one such feature.
+Thus, in-stead of f#, we use maxj,yfi(xj, y).
+In many max-ent applications, the fitake on only the values 0 or1, and thus, typically, maxj,yfi(xj, y) = 1.
+There-fore, instead of slowing by a factor of f#, there maybe no slowing at all!We make one last change in order to get a speedup.Rather than recompute for each instance j and eachoutput y, s[j, y] =?i?i?
+fi(xj, y), and the corre-sponding normalizing factors z =?yes[j,y] we in-stead keep these arrays computed as invariants, andincrementally update them whenever a ?ichanges.With this important change, we now get a substantialspeedup.
+The code for this transformed algorithm isgiven in Figure 2.The space of models in the form of Equation 1 isconvex, with a single global optimum.
+Thus, GISand SCGIS are guaranteed to converge towards thesame point.
+For convergence proofs, see Darrochand Ratcliff (1972), who prove convergence of thealgorithm for joint models.2.1 Time and SpaceIn this section, we analyze the time and space re-quirements for SCGIS compared to GIS.
+The spaceresults depend on Y, the number of output classes.When Y is small, SCGIS requires only a smallamount more space than GIS.
+Note that in Section 3,we describe a technique that, when there are manyoutput classes, uses clustering to get both a speedupand to reduce the number of outputs, thus alleviatingthe space issues.Typically for GIS, the training data is stored asa sparse matrix of size T of all non-zero indicatorfunctions for each instance j and output y.
+The trans-posed matrix used by SCGIS is the same size T .In order to make the relationship between GISand SCGIS clearer, the algorithms in Figures 1 and2 are given with some wasted space.
+For instance,the matrix s[j, y] of sums of ?s only needs to bea simple array s[y] for GIS, but we wrote it as amatrix so that it would have the same meaning inboth algorithms.
+In the space and time analyses, wewill assume that such space-wasting techniques areoptimized out before coding.Now we can analyze the space and time for GIS.GIS requires the training matrix, of size T , the ?s, ofsize F , as well as the expected and observed arrays,which are also size F .
+Thus, GIS requires spaceO(T + F ).
+Since T must be at least as large as F(we can eliminate any indicator functions that don?tappear in the training data), this is O(T ).SCGIS is potentially somewhat larger.
+SCGISalso needs to store the training data, albeit in a differ-ent form, but one that is also of size T .
+In particular,the matrix is interchanged so that its outermost indexis over indicator functions, instead of training data.SCGIS also needs the observed and ?
+arrays, bothof size F , and the array z[j] of size I , and, more im-portantly, the full array s[j, y], which is of size IY .In many problems, Y is small ?
+often 2 ?
+and IY isnegligible, but in problems like language modeling,Y can be very large (60,000 or more).
+The overallspace for SCGIS, O(T +IY ), is essentially the sameas for GIS when Y is small, but much larger whenY is large ?
+but see the optimization described inSection 3.Now, consider the time for each algorithm to ex-ecute one iteration.
+Assume that for every instanceand output there is at least one non-zero indicatorfunction, which is true in practice.
+Notice that forGIS, the top loops end up iterating over all non-zeroindicator functions, for each output, for each traininginstance.
+In other words, they examine every entryin the training matrix T once, and thus require timeT .
+The bottom loops simply require time F , whichis smaller than T .
+Thus, GIS requires time O(T ).For SCGIS, the top loops are also over each non-zero entry in the training data, which takes timeO(T ).
+The bottom loops also require time O(T ).Thus, one iteration of SCGIS takes about as longas one iteration of GIS, and in practice in our im-plementation, each SCGIS iteration takes about 1.3times as long as each GIS iteration.
+The speedupin SCGIS comes from the step size: the update inGIS is slowed by f#, while the update in SCGIS isnot.
+Thus, we expect SCGIS to converge by up to afactor of f# faster.
+For many applications, f# canbe large.The speedup from the larger step size is difficultto analyze rigorously, and it may not be obviouswhether the speedup we in fact observe is actuallydue to the f# improvement or to the caching.
+Notethat without the caching, each iteration of SCGISwould be O(f#) times slower than an iteration ofGIS; the caching is certainly a key component.
+Butwith the caching, each iteration of SCGIS is stillmarginally slower than GIS (by a small constant fac-tor).
+In Section 4, we in fact empirically observe thatfewer iterations are required to achieve a given levelof convergence, and this reduction is very roughlyproportional to f#.
+Thus, the speedup does appearto be because of the larger step size.
+However, theexact speedup from the step size depends on manyfactors, including how correlated features are, andthe order in which they are trained.Although we are not aware of any problems wheremaxent training data does not fit in main memory,and yet the model can be learned in reasonable time,it is comforting that SCGIS, like GIS, requires se-quential, not random, access to the training data.
+So,if one wanted to train a model using a large amountof data on disk or tape, this could still be done withreasonable efficiency, as long as the s and z arrays,for which we need random access, fit in main mem-ory.All of these analyses have assumed that the train-ing data is stored as a precomputed sparse matrix ofthe non-zero values for fifor each training instancefor each output.
+In some applications, such as lan-guage modeling, this is not the case; instead, thefiare computed on the fly.
+However, with a bit ofthought, those data structures also can be rearranged.Chen and Rosenfeld (1999) describe a techniquefor smoothing maximum entropy that is the best cur-rently known.
+Maximum entropy models are natu-rally maximally smooth, in the sense that they areas close as possible to uniform, subject to satisfy-ing the constraints.
+However, in practice, there maybe enough constraints that the models are not nearlysmooth enough ?
+they overfit the training data.
+Chenand Rosenfeld describe a technique whereby a Gaus-sian prior on the parameters is assumed.
+The modelsno longer satisfy the constraints exactly, but workmuch better on test data.
+In particular, instead ofattempting to maximize the probability of the train-ing data, they maximize a slightly different objectivefunction, the probability of the training data times theprior probability of the model:argmax?J?j=1P?
+(yj|xj)P (?)
+(3)where P (?)
+=?Ii=11?2??e??2i2?2.
+In other words,the probability of the ?s is a simple normal distribu-tion with 0 mean, and a standard deviation of ?.Chen and Rosenfeld describe a modified updaterule in which to find the updates, one solves for ?iinobserved[i] = expected[i]?
+e?if# + ?i + ?i?2SCGIS can be modified in a similar way to use anupdate rule in which one solves for ?iinobserved[i] = expected[i]?e?i maxj,y fi(xj ,y)+?i + ?i?23 Previous WorkAlthough sequential updating was described for jointprobabilities in the original paper on GIS by Darrochand Ratcliff (1972), GIS with sequential updatingfor conditional models appears previously unknown.Note that in the NLP community, almost all max-ent models have used conditional models (which aretypically far more efficient to learn), and none to ourknowledge has used this speedup.2There appear to be two main reasons this speeduphas not been used before for conditional models.One issue is that for joint models, it turns out to bemore natural to compute the sumss[x], while for con-ditional models, it is more natural to compute the ?sand not store the sums s. Storing s is essential for ourspeedup.
+Also, one of the first and best known usesof conditional maxent models is for language mod-eling (Rosenfeld, 1994), where the number of outputclasses is the vocabulary size, typically 5,000-60,000words.
+For such applications, the array s[j, y] wouldbe of a size at least 5000 times the number of train-ing instances: clearly impractical (but see below for2Berger et al (1996) use an algorithm that might appearsequential, but an examination of the definition off# and relatedwork shows that it is not.a recently discovered trick).
+Thus, it is unsurprisingthat this speedup was forgotten.There have been several previous attempts tospeed up maxent modeling.
+Best known is the workof Della Pietra et al (1997), the Improved IterativeScaling (IIS) algorithm.
+Instead of treating f# as aconstant, we can treat it as a function of xjand y. Inparticular, let f#(x, y) =?ifi(x, y) Then, solvenumerically for ?iin the equationobserved[i] = (4)?j,yP?(y|xj)?
+fi(xj, y)?
+exp(?if#(xj, y))Notice that in the special case where f#(x, y) isa constant f#, Equation 4 reduces to Equation 2.However, for training instances where f#(xj, y) <f#, the IIS update can take a proportionately largerstep.
+Thus, IIS can lead to speedups when f#(xj, y)is substantially less than f#.
+It is, however, hard tothink of applications where this difference is typi-cally large.
+We only know of one limited experimentcomparing IIS to GIS (Lafferty, 1995).
+That experi-ment showed roughly a factor of 2 speedup.
+It shouldbe noted that compared to GIS, IIS is much harderto implement efficiently.
+When solving Equation 4,one uses an algorithm such as Newton?s method thatrepeatedly evaluates the function.
+Either one mustrepeatedly cycle through the training data to computethe right hand side of this equation, or one must usetricks such as bucketing by the values of f#(xj, y).The first option is inefficient and the second addsconsiderably to the complexity of the algorithm.Note that IIS and SCGIS can be combined by us-ing an update rule where one solves forobserved[i] = (5)?j,yP?
+(xj, y)?
+fi(xj, y)?
+exp(?ifi(xj, y))For many model types, the fitake only the values 1or 0.
+In this case, Equation 5 reduces to the normalSCGIS update.Brown (1959) describes Iterative Scaling (IS), ap-plied to joint probabilities, and Jelinek (1997, page235) shows how to apply IS to conditional probabili-ties.
+For binary-valued features, without the cachingtrick, SCGIS is the same as the algorithm describedby Jelinek.
+The advantage of SCGIS over IS is thecaching ?
+without which there is no speedup ?
+andbecause it is a variation on GIS, it can be applied tonon-binary valued features.
+Also, with SCGIS, it isclear how to apply other improvements such as thesmoothing technique of Chen and Rosenfeld (1999).Several techniques have been developed specif-ically for speeding up conditional maxent models,especially when Y is large, such as language mod-els, and space precludes a full discussion here.
+Thesetechniques include unigram caching, cluster expan-sion (Lafferty et al, 2001; Wu and Khudanpur,2000), and word clustering (Goodman, 2001).
+Ofthese, the best appears to be word clustering, whichleads to up to a factor of 35 speedup, and whichhas an additional advantage: it allows the SCGISspeedup to be used when there are a large number ofoutputs.The word clustering speedup (which can be ap-plied to almost any problem with many outputs, notjust words) works as follows.
+Notice that in both GISand in SCGIS, there are key loops over all outputs, y.Even with certain optimizations that can be applied,the length of these loops will still be bounded by, andoften be proportional to, the number of outputs.
+Wetherefore change from a model of the form P (y|x)to modeling P (cluster(y)|x) ?
+P (y|x, cluster(y)).Consider a language model in which y is a word, xrepresents the words preceding y, and the vocabularysize is 10,000 words.
+Then for a model P (y|x), thereare 10,000 outputs.
+On the other hand, if we create100 word clusters, each with 100 words per clus-ter, then for a model P (cluster(y)|x), there are 100outputs, and for a model P (y|x, cluster(y)) there arealso 100 outputs.
+Thus, instead of training one modelwith a time proportional to 10,000, we train two mod-els, each with time proportional to 100.
+Thus, in thisexample, there is a 50 times speedup.
+In practice, thespeedups are not quite so large, but we do achievespeedups of up to a factor of 35.
+Although the modelform learned is not exactly the same as the originalmodel, the perplexity of the form using two models isactually marginally lower (better) than the perplex-ity of the form using a single model, so there doesnot seem to be any disadvantage to using it.The word clustering technique can be extended touse multiple levels.
+For instance, by putting wordsinto superclusters, such as their part of speech, andclusters, such as semantically similar words of agiven part of speech, one could use a three levelmodel.
+In fact, the technique can be extended toup to log2Y levels with two outputs per level, mean-ing that the space requirements are proportional to 2instead of to the original Y .
+Since SCGIS worksby increasing the step size, and the cluster-basedspeedup works by increasing the speed of the in-ner loop (whchi SCGIS shares), we expect that thetwo techniques would complement each other well,and that the speedups would be nearly multiplica-tive.
+Very preliminary language modeling experi-ments are consistent with this analysis.There has been interesting recent unpublishedwork by Minka (2001).
+While this work is verypreliminary, and the experimental setting somewhatunrealistic (dense features artificially generated), es-pecially for many natural language tasks, the resultsare dramatic enough to be worth noting.
+In particu-lar, Minka found that a version of conjugate gradientdescent worked extremely well ?
+much faster thanGIS.
+If the problem domain resembles Minka?s, thenconjugate gradient descent and related techniquesare well worth trying, and it would be interesting totry these techniques for more realistic tasks.SCGIS turns out to be related to boosting.
+Asshown by Collins et al (2002), boosting is insome ways a sequential version of maxent.
+Thesingle largest difference between our algorithm andCollins?is that we update each feature in order, whileCollins?
+algorithms select a (possibly new) featureto update.
+That algorithm also require more storagethan our algorithm when data is sparse: fast imple-mentations require storage of both the training datamatrix (to compute which feature to update) and thetranspose of the training data matrix (to perform theupdate efficiently.
+)4 Experimental ResultsIn this section, we give experimental results, show-ing that SCGIS converges up to an order of magni-tude faster than GIS, or more, depending on the num-ber of non-zero indicator functions, and the methodof measuring performance.There are at least three ways in which one couldmeasure performance of a maxent model: the ob-jective function optimized by GIS/SCGIS; the en-tropy on test data; and the percent correct on testdata.
+The objective function for both SCGIS andGIS when smoothing is Equation 3: the probabil-ity of the training data times the probability of themodel.
+The most interesting measure, the percentcorrect on test data, tends to be noisy.For a test corpus, we chose to use exactly the sametraining, test, problems, and feature sets used byBanko and Brill (2001).
+These problems consisted oftrying to guess which of two confusable words, e.g.?their?
+or ?there?, a user intended.
+Banko and Brillchose this data to be representative of typical ma-chine learning problems, and, by trying it across datasizes and different pairs of words, it exhibits a gooddeal of different behaviors.
+Banko and Brill useda standard set of features, including words within awindow of 2, part-of-speech tags within a window of2, pairs of word or tag features, and whether or nota given word occurred within a window of 9.
+Alto-gether, they had 55 feature types.
+That is, there weremany thousands of features in the model (dependingon the exact model), but at most 55 could be ?true?for a given training or test instance.We examine the performance of SCGIS versusGIS across three different axes.
+The most importantvariable is the number of features.
+In addition to try-ing Banko and Brill?s 55 feature types, we tried usingfeature sets with 5 feature types (words within a win-dow of 2, plus the ?unigram?
+feature) and 15 featuretypes (words within a window of 2, tags within awindow of 2, the unigram, and pairs of words withina window of 2).
+We also tried not using smoothing,and we tried varying the training data size.In Table 1, we present a ?typical?
+configuration,using 55 feature types, and 10 million words of train-ing, and smoothing with a Gaussian prior.
+The firsttwo columns show the different confusable words.Each column shows the ratio of how much longer(in terms of elapsed time) it takes GIS to achieve thesame results as 10 iterations of SCGIS.
+An ?XXX?denotes a case in which GIS did not achieve theperformance level of SCGIS within 1000 iterations.
+(XXXs were not included in averages.
+)3 The ?ob-jec?
+column shows the ratio of time to achieve thesame value of the objective function (Equation 3);the ?ent?
+column show the ratio of time to achievethe same test entropy; and the ?cor?
+column showsthe ratio of time to achieve the same test error rate.For all three measurements, the ratio can be up to afactor of 30, though the average is somewhat lower,and in two cases, GIS converged faster.In Table 2 we repeat the experiment, but with-out smoothing.
+On the objective function ?
+whichwith no smoothing is just the training entropy ?
+theincrease from SCGIS is even larger.
+On the other3On a 1.7 GHz Pentium IV with 10,000,000 words train-ing, and 5 feature types it took between .006 and .24 secondsper iteration of SCGIS, and between .004 and .18 seconds forGIS.
+With 55 feature types, it took between .05 and 1.7 sec-onds for SCGIS and between .03 and 1.2 seconds for GIS.
+Notethat many experiments use much larger datasets or many morefeature types; run time scales linearly with training data size.objec ent coraccept except 31.3 38.9 32.3affect effect 27.8 10.7 6.4among between 30.9 1.9 XXXits it?s 26.8 18.5 11.1peace piece 33.4 0.3 XXXprincipal principle 24.1 XXX 0.2then than 23.4 37.4 24.4their there 17.3 31.3 6.1weather whether 21.3 XXX 8.7your you?re 36.8 9.7 19.1Average 27.3 18.6 13.5Table 1: Baseline: standard feature types (55), 10million words, smoothedobjec ent coraccept except 39.3 4.8 7.5affect effect 46.4 5.2 5.1among between 48.7 4.5 2.5its it?s 47.0 3.2 1.4peace piece 46.0 0.6 XXXprincipal principle 43.9 5.7 0.7then than 48.7 5.6 1.0their there 46.8 8.7 0.6weather whether 44.7 6.7 2.1your you?re 49.0 2.0 29.6Average 46.1 4.7 5.6Table 2: Same as baseline, except no smoothingcriteria ?
+test entropy and percentage correct ?
+theincrease from SCGIS is smaller than it was withsmoothing, but still consistently large.In Tables 3 and 4, we show results with small andmedium feature sets.
+As can be seen, the speedupswith smaller features sets (5 feature types) are lessthan the speedups with the medium sized feature set(15 feature types), which are smaller than the base-line speedup with 55 features.Notice that across all experiments, there were nocases where GIS converged faster than SCGIS onthe objective function; two cases where it covergedfaster on test data entropy; and 5 cases where it con-verged faster on test data correctness.
+The objectivefunction measure is less noisy than test data entropy,and test data entropy is less noisy than test data er-ror rate: the noisier the data, the more chance ofan unexpected result.
+Thus, one possibility is thatthese cases are simply due to noise.
+Similarly, thefour cases in which GIS never reached the test dataobjec ent coraccept except 6.0 4.8 3.7affect effect 3.6 3.6 1.0among between 5.8 1.0 0.7its it?s 8.7 5.6 3.3peace piece 25.2 2.9 XXXprincipal principle 6.7 18.6 1.0then than 6.9 6.7 9.6their there 4.7 4.2 3.6weather whether 2.2 6.5 7.5your you?re 7.6 3.4 16.8Average 7.7 5.7 5.2Table 3: Small feature set (5 feature types)objec ent coraccept except 10.8 10.7 8.3affect effect 12.4 18.3 6.8among between 7.7 14.3 9.0its it?s 7.4 XXX 5.4peace piece 14.6 4.5 9.4principal principle 7.3 XXX 0.0then than 6.5 13.7 11.0their there 5.9 11.3 2.8weather whether 10.5 29.3 13.9your you?re 13.1 8.1 9.8Average 9.6 13.8 7.6Table 4: Medium feature set (15 feature types)entropy of SCGIS and the four cases in which GISnever reached the test data error rate of SCGIS mightalso be attributable to noise.
+There is an alternativeexplanation that might be worth exploring.
+On a dif-ferent data set, 20 newsgroups, we found that earlystopping techniques were helpful, and that GIS andSCGIS benefited differently depending on the ex-act settings.
+It is possible that effects similar to thesmoothing effect of early stopping played a role inboth the XXX cases (in which SCGIS presumablybenefited more from the effects) and in the caseswhere GIS beat SCGIS (in which cases GIS pre-sumably benefited more.)
+Additional research wouldbe required to determine which explanation ?
+earlystopping or noise ?
+is correct, although we suspectboth explanations apply in some cases.We also ran experiments that were the same as thebaseline experiment, except changing the trainingdata size to 50 million words and to 1 million words.We found that the individual speedups were oftendifferent at the different sizes, but did not appear tobe overall higher or lower or qualitatively different.5 DiscussionThere are many reasons that maxent speedups areuseful.
+First, in applications with active learningor parameter optimization or feature set selection,it may be necessary to run many rounds of maxent,making speed essential.
+There are other fast algo-rithms, such as Winnow, available, but in our ex-perience, there are some problems where smoothedmaxent models are better classifiers than Winnow.Furthermore, many other fast classification algo-rithms, including Winnow, do not output probabil-ities, which are useful for precision/recall curves,or when there is a non-equal tradeoff between falsepositives and false negatives, or when the output ofthe classifier is used as input to other models.
+Fi-nally, there are many applications of maxent wherehuge amounts of data are available, such as for lan-guage modeling.
+Unfortunately, it has previouslybeen very difficult to use maxent models for thesetypes of experiments.
+For instance, in one languagemodeling experiment we performed, it took a monthto learn a single model.
+Clearly, for models of thistype, any speedup will be very helpful.Overall, we expect this technique to be widelyused.
+It leads to very significant speedups ?
+up to anorder of magnitude or more.
+It is very easy to imple-ment ?
+other than the need to transpose the trainingdata matrix, and store an extra array, it is no morecomplex than standard GIS.
+It can be easily appliedto any model type, although it leads to the largestspeedups on models with more feature types.
+Sincemodels with many interacting features are the typefor which maxent models are most interesting, thisis typical.
+It requires very few additional resources:unless there are a large number of output classes, ituses about as much space as standard GIS, and whenthere are a large number of output classes, it canbe combined with our clustering speedup technique(Goodman, 2001) to get both additional speedups,and to reduce the space requirements.
+Thus, thereappear to be no real impediments to its use, and itleads to large, broadly applicable gains.AcknowledgementsThanks to Ciprian Chelba, Stan Chen, Chris Meek,and the anonymous reviewers for useful comments.ReferencesM.
+Banko and E. Brill.
+2001.
+Mitigating the paucityof data problem.
+In HLT.Adam L. Berger, Stephen A. Della Pietra, and Vin-cent J. Della Pietra.
+1996.
+A maximum entropyapproach to natural language processing.
+Compu-tational Linguistics, 22(1):39?71.P.
+Brown, S. DellaPietra, V. DellaPietra, R. Mercer,A.
+Nadas, and S. Roukos.
+Unpublished.
+Transla-tion models using learned features and a general-ized Csiszar algorithm.
+IBM research report.D.
+Brown.
+1959.
+A note on approximations to prob-ability distributions.
+Information and Control,2:386?392.S.F.
+Chen and R. Rosenfeld.
+1999.
+A gaussian priorfor smoothing maximum entropy models.
+Tech-nical Report CMU-CS-99-108, Computer ScienceDepartment, Carnegie Mellon University.Michael Collins, Robert E. Schapire, and YoramSinger.
+2002.
+Logistic regression, adaboost andbregman distances.
+Machine Learning, 48.J.N.
+Darroch and D. Ratcliff.
+1972.
+Generalized it-erative scaling for log-linear models.
+The Annalsof Mathematical Statistics, 43:1470?1480.Stephen Della Pietra, Vincent Della Pietra, and JohnLafferty.
+1997.
+Inducing features of randomfields.
+IEEE Transactions on Pattern Analysis andMachine Intelligence, 19(4):380?393, April.Joshua Goodman.
+2001.
+Classes for fast maximumentropy training.
+In ICASSP 2001.Frederick Jelinek.
+1997.
+Statistical Methods forSpeech Recognition.
+MIT Press.J.
+Lafferty, F. Pereira, andA.
+McCallum.
+2001.
+Con-ditional random fields: Probabilistic models forsegmenting and labeling sequence data.
+In ICML.John Lafferty.
+1995.
+Gibbs-markov models.
+InComputing Science and Statistics: Proceedingsof the 27th Symposium on the Interface.Thomas Minka.
+2001.
+Algorithms for maximum-likelihood logistic regression.
+Available fromhttp://www-white.media.mit.edu/?tpminka/papers/learning.html.Adwait Ratnaparkhi.
+1998.
+Maximum EntropyModels for Natural Language Ambiguity Resolu-tion.
+Ph.D. thesis, University of Pennsylvania.J.
+Reynar and A. Ratnaparkhi.
+1997.
+A maximumentropy approach to identifying sentence bound-aries.
+In ANLP.Ronald Rosenfeld.
+1994.
+Adaptive Statistical Lan-guage Modeling: A Maximum Entropy Approach.Ph.D.
+thesis, Carnegie Mellon University, April.J.
+Wu and S. Khudanpur.
+2000.
+Efficient trainingmethods for maximum entropy language model-ing.
+In ICSLP, volume 3, pages 114?117.

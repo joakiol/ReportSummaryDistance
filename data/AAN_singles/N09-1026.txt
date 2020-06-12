@@ -1,0 +1,317 @@
+Human Language Technologies: The 2009 Annual Conference of the North American Chapter of the ACL, pages 227?235,Boulder, Colorado, June 2009. c?2009 Association for Computational LinguisticsEfficient Parsing for Transducer GrammarsJohn DeNero, Mohit Bansal, Adam Pauls, and Dan KleinComputer Science DivisionUniversity of California, Berkeley{denero, mbansal, adpauls, klein}@cs.berkeley.eduAbstractThe tree-transducer grammars that arise incurrent syntactic machine translation systemsare large, flat, and highly lexicalized.
+We ad-dress the problem of parsing efficiently withsuch grammars in three ways.
+First, wepresent a pair of grammar transformationsthat admit an efficient cubic-time CKY-styleparsing algorithm despite leaving most of thegrammar in n-ary form.
+Second, we showhow the number of intermediate symbols gen-erated by this transformation can be substan-tially reduced through binarization choices.Finally, we describe a two-pass coarse-to-fineparsing approach that prunes the search spaceusing predictions from a subset of the origi-nal grammar.
+In all, parsing time reduces by81%.
+We also describe a coarse-to-fine prun-ing scheme for forest-based language modelreranking that allows a 100-fold increase inbeam size while reducing decoding time.
+Theresulting translations improve by 1.3 BLEU.1 IntroductionCurrent approaches to syntactic machine translationtypically include two statistical models: a syntac-tic transfer model and an n-gram language model.Recent innovations have greatly improved the effi-ciency of language model integration through multi-pass techniques, such as forest reranking (Huangand Chiang, 2007), local search (Venugopal et al,2007), and coarse-to-fine pruning (Petrov et al,2008; Zhang and Gildea, 2008).
+Meanwhile, trans-lation grammars have grown in complexity fromsimple inversion transduction grammars (Wu, 1997)to general tree-to-string transducers (Galley et al,2004) and have increased in size by including moresynchronous tree fragments (Galley et al, 2006;Marcu et al, 2006; DeNeefe et al, 2007).
+As a resultof these trends, the syntactic component of machinetranslation decoding can now account for a substan-tial portion of total decoding time.
+In this paper,we focus on efficient methods for parsing with verylarge tree-to-string grammars, which have flat n-aryrules with many adjacent non-terminals, as in Fig-ure 1.
+These grammars are sufficiently complex thatthe purely syntactic pass of our multi-pass decoder isthe compute-time bottleneck under some conditions.Given that parsing is well-studied in the mono-lingual case, it is worth asking why MT grammarsare not simply like those used for syntactic analy-sis.
+There are several good reasons.
+The most im-portant is that MT grammars must do both analysisand generation.
+To generate, it is natural to mem-orize larger lexical chunks, and so rules are highlylexicalized.
+Second, syntax diverges between lan-guages, and each divergence expands the minimaldomain of translation rules, so rules are large andflat.
+Finally, we see most rules very few times, soit is challenging to subcategorize non-terminals tothe degree done in analytic parsing.
+This paper de-velops encodings, algorithms, and pruning strategiesfor such grammars.We first investigate the qualitative properties ofMT grammars, then present a sequence of parsingmethods adapted to their broad characteristics.
+Wegive normal forms which are more appropriate thanChomsky normal form, leaving the rules mostly flat.We then describe a CKY-like algorithm which ap-plies such rules efficiently, working directly over then-ary forms in cubic time.
+We show how thoughtful227NNP1no daba una bofetada a DT2NN3verdeS ?
+NNP no daba una bofetada a DT NN verdeDT+NN ?
+DT NNMaria no daba una bofetada a la bruja verdeMary did not slap the green witchSNNP NNDTNNP1did not slap DT2green NN3S ?Lexical normal form (LNF) transformationS ?
+NNP no daba una bofetada a DT NN verdeS\NNP ?
+no daba una bofetada a DT+NN verdeS ?
+NNP S\NNPAnchored LNF transformationDT+NN ?
+DT NN022,50045,00067,50090,0001 2 3 4 5 6 7 8 9 10+017,50035,00052,50070,0001 2 3 4 5 6+Original grammar rulesNP ?
+DT NN NNSS ?
+NNP no daba una bofetada a DT+NN verdeNP ?
+DT+NN NNS NP ?
+DT NN+NNSorType-minimizing binarizationRequired symbols Sequences to buildDT+NN DT NNNNS NNP NP SDT,NNDT,NN,NNSMinimal binary rules for LNFNP ?
+DT+NN NNSNP ?
+DT+NN NNSXnolaXdababrujadabaVP ?
+no dabaNP ?
+la bruja... Maria daba ...S ?
+NP   dabaS ?
+NP daba(a)(b)(c)Figure 1: (a) A synchronous transducer rule has co-indexed non-terminals on the source and target side.
+In-ternal grammatical structure of the target side has beenomitted.
+(b) The source-side projection of the rule is amonolingual source-language rule with target-side gram-mar symbols.
+(c) A training sentence pair is annotatedwith a target-side parse tree and a word alignment, whichlicense this rule to be extracted.binarization can further increase parsing speed, andwe present a new coarse-to-fine scheme that usesrule subsets rather than symbol clustering to builda coarse grammar projection.
+These techniques re-duce parsing time by 81% in aggregate.
+Finally,we demonstrate that we can accelerate forest-basedreranking with a language model by pruning withinformation from the parsing pass.
+This approachenables a 100-fold increase in maximum beam size,improving translation quality by 1.3 BLEU whiledecreasing total decoding time.2 Tree Transducer GrammarsTree-to-string transducer grammars consist ofweighted rules like the one depicted in Figure 1.Each n-ary rule consists of a root symbol, a se-quence of lexical items and non-terminals on thesource-side, and a fragment of a syntax tree onthe target side.
+Each non-terminal on the sourceside corresponds to a unique one on the target side.Aligned non-terminals share a grammar symbol de-rived from a target-side monolingual grammar.These grammars are learned from word-alignedsentence pairs annotated with target-side phrasestructure trees.
+Extraction proceeds by using wordalignments to find correspondences between target-side constituents and source-side word spans, thendiscovering transducer rules that match these con-NNP1no daba una bofetada a DT2NN3verdeS ?
+NNP no daba una bofetada a DT NN verdeDT+NN ?
+DT NNMaria no daba una bofetada a la bruja verdeMary did not slap the green witchSNNP NNDTNNP1did not slap DT2green NN3S ?Lexical rules cannot contain adjacent non-terminalsS ?
+NNP no daba una bofetada a DT NN verdeS\NNP ?
+no daba una bofetada a DT+NN verdeS ?
+NNP S\NNPAnchored LNF rules are bounded by lexical itemsDT+NN ?
+DT NN022,50045,00067,50090,0001 2 3 4 5 6 7 8 9 10+017,50035,00052,50070,0001 2 3 4 5 6+Original grammar rules are flat and lexicalNP ?
+DT NN NNSS ?
+NNP no daba una bofetada a DT+NN verdeNon-lexical rules are binarized using few symbolsRequired symbols Sequences to buildDT+NN DT NNNNS NNP NP SDT  NNDT  NN  NNSBinary rules for LNF that minimize symbol countNP ?
+DT+NN NNSNP ?
+DT+NN NNSXnolaXdababrujadabaVP ?
+no dabaNP ?
+la bruja... Maria daba ...S ?
+NP   dabaS ?
+NP daba(a)(b)(c)022,50045,00067,50090,0001 2 3 4 5 6 7+022,50045,00067,50090,0001 2 3 4 5 6 7 8 9 10+Right-branchingLeft-branchingGreedyOptimal (ILP)0 3,000 6,000 9,0004431,1015,8718,095030,00060,00090,0001 2 3 4 5 6 7+Figure 2: Transducer grammars are composed of very flatrules.
+Above, the histogram shows rule counts for eachrule size among the 332,000 rules that apply to an indi-vidual 30-word sentence.
+The size of a rule is the totalnumber of non-terminals and lexical items in its source-side yield.stituent alignments (Galley et al, 2004).
+Given thiscorrespondence, an array of extraction proceduresyields rules that are well-suited to machine trans-lation (Galley et al, 2006; DeNeefe et al, 2007;Marcu et al, 2006).
+Rule weights are estimatedby discriminatively combining relative frequencycounts and other rule features.A transducer grammarG can be projected onto itssource language, inducing a monolingual grammar.If we weight each rule by the maximumweight of itsprojecting synchronous rules, then parsing with thisprojected grammar maximizes the translation modelscore for a source sentence.
+We need not even con-sider the target side of transducer rules until integrat-ing an n-gram language model or other non-localfeatures of the target language.We conduct experiments with a grammar ex-tracted from 220 million words of Arabic-Englishbitext, extracting rules with up to 6 non-terminals.
+Ahistogram of the size of rules applicable to a typical30-word sentence appears in Figure 2.
+The grammarincludes 149 grammatical symbols, an augmentationof the Penn Treebank symbol set.
+To evaluate, wedecoded 300 sentences of up to 40 words in lengthfrom the NIST05 Arabic-English test set.3 Efficient Grammar EncodingsMonolingual parsing with a source-projected trans-ducer grammar is a natural first pass in multi-passdecoding.
+These grammars are qualitatively dif-ferent from syntactic analysis grammars, such asthe lexicalized grammars of Charniak (1997) or theheavily state-split grammars of Petrov et al (2006).228In this section, we develop an appropriate grammarencoding that enables efficient parsing.It is problematic to convert these grammars intoChomsky normal form, which CKY requires.
+Be-cause transducer rules are very flat and contain spe-cific lexical items, binarization introduces a largenumber of intermediate grammar symbols.
+Rule sizeand lexicalization affect parsing complexity whetherthe grammar is binarized explicitly (Zhang et al,2006) or implicitly binarized using Early-style inter-mediate symbols (Zollmann et al, 2006).
+Moreover,the resulting binary rules cannot be Markovized tomerge symbols, as in Klein andManning (2003), be-cause each rule is associated with a target-side treethat cannot be abstracted.We also do not restrict the form of rules in thegrammar, a common technique in syntactic machinetranslation.
+For instance, Zollmann et al (2006)follow Chiang (2005) in disallowing adjacent non-terminals.
+Watanabe et al (2006) limit grammarsto Griebach-Normal form.
+However, general treetransducer grammars provide excellent translationperformance (Galley et al, 2006), and so we focuson parsing with all available rules.3.1 Lexical Normal FormSequences of consecutive non-terminals complicateparsing because they require a search over non-terminal boundaries when applied to a sentencespan.
+We transform the grammar to ensure that allrules containing lexical items (lexical rules) do notcontain sequences of non-terminals.
+We allow bothunary and binary non-lexical rules.Let L be the set of lexical items and V the setof non-terminal symbols in the original grammar.Then, lexical normal form (LNF) limits productionsto two forms:Non-lexical: X ?
+X1(X2)Lexical: X ?
+(X1)?(X2)?
+= w+(Xiw+)?Above, all Xi ?
+V and w+ ?
+L+.
+Symbols inparentheses are optional.
+The nucleus ?
+of lexicalrules is a mixed sequence that has lexical items oneach end and no adjacent non-terminals.Converting a grammar into LNF requires twosteps.
+In the sequence elimination step, for everyNNP1no d ba una bofetada  DT2NN3verdeS ?
+NNP no daba una bofetada a DT NN verdMaria no daba una bofetada a la bruja verdeMary did not slap the green witchSNNP NNDTNNP1did not slap DT2green NN3S ?LNF replaces non-terminal sequences in lexical rulesS ?
+NNP no daba una bofetada a DT NN verdeS\NNP ?
+no daba una bofetada a DT+NN verdeS ?
+NNP S\NNPAnchored LNF rules are bounded by lexical items022,50045,00067,50090,0001 2 3 4 5 6 7 8 9 10+017,50035,00052,50070,0001 2 3 4 5 6+Original grammar rules are flat and lexicalNP ?
+DT NN NNSS ?
+NNP no daba una bofetada a DT+NN verdeNon-lexical rules are binarized using few symbolsNon-lexical rules before binarization:Equivalent binary rules, minimizing symbol count:XnolaXdababrujadabaVP ?
+no dabaNP ?
+la bruja... Maria daba ...S ?
+NP   dabaS ?
+NP daba(a)(b)(c)022,50045,00067,50090,0001 2 3 4 5 6 7+022,50045,00067,50090,0001 2 3 4 5 6 7 8 9 10+Right-branchingLeft-branchingGreedyOptimal (ILP)0 3,000 6,000 9,0004431,1015,8718,095030,00060,00090,0001 2 3 4 5 6 7+DT+NN ?
+DT NNNP ?
+DT NN NNS DT+NN ?
+DT NNNP ?
+DT+NN NNS DT+NN ?
+DT NNNP ?
+DT+NN NNS DT+NN ?
+DT NNFigure 3: We transform the original grammar by firsteliminating non-terminal sequences in lexical rules.Next, we binarize, adding a minimal number of inter-mediate grammar symbols and binary non-lexical rules.Finally, anchored LNF further transforms lexical rulesto begin and end with lexical items by introducing ad-ditional symbols.lexical rule we replace each sequence of consecutivenon-terminalsX1 .
+.
+.
+Xn with the intermediate sym-bol X1+.
+.
+.+Xn (abbreviated X1:n) and introduce anon-lexical rule X1+.
+.
+.+Xn ?
+X1 .
+.
+.
+Xn.
+In thebinarization step, we introduce further intermediatesymbols and rules to binarize all non-lexical rulesin the grammar, including those added by sequenceelimination.3.2 Non-terminal BinarizationExactly howwe binarize non-lexical rules affects thetotal number of intermediate symbols introduced bythe LNF transformation.Binarization involves selecting a set of symbolsthat will allow us to assemble the right-hand sideX1 .
+.
+.
+Xn of every non-lexical rule using binaryproductions.
+This symbol set must at least includethe left-hand side of every rule in the grammar(lexical and non-lexical), including the intermediate229NNP1no daba una bofetada a DT2NN3verdeS ?
+NNP no daba una bofetada a DT NN verdeDT+NN ?
+DT NNMaria no daba una bofetada a la bruja verdeMary did not slap the green witchSNNP NNDTNNP1did not slap DT2green NN3S ?Lexical rules cannot contain adjacent non-terminalsS ?
+NNP no daba una bofetada a DT NN verdeS\NNP ?
+no daba una bofetada a DT+NN verdeS ?
+NNP S\NNPAnchored LNF rules are bounded by lexical itemsDT+NN ?
+DT NN022,50045,00067,50090,0001 2 3 4 5 6 7 8 9 10+017,50035,00052,50070,0001 2 3 4 5 6+Original grammar rules are flat and lexicalNP ?
+DT NN NNSS ?
+NNP no daba una bofetada a DT+NN verdeNon-lexical rules are binarized using few symbolsRequired symbols Sequences to buildDT+NN DT NNNNS NNP NP SDT  NNDT  NN  NNSBinary rules for LNF that minimize symbol countNP ?
+DT+NN NNSNP ?
+DT+NN NNSXnolaXdababrujadabaVP ?
+no dabaNP ?
+la bruja... Maria daba ...S ?
+NP   dabaS ?
+NP daba(a)(b)(c)022,50045,00067,50090,0001 2 3 4 5 6 7+022,50045,00067,50090,0001 2 3 4 5 6 7 8 9 10+Right-branchingLeft-branchingGreedyOptimal (ILP)0 3,000 6,000 9,0004431,1015,8718,095030,00060,00090,0001 2 3 4 5 6 7+ Figure 4: The number of non-terminal symbols intro-duced to the grammar through LNF binarization dependsupon the policy for binarizing type sequences.
+This ex-periment shows results from transforming a grammar thathas already been filtered for a particular short sentence.Both the greedy and optimal binarizations use far fewersymbols than naive binarizations.symbols X1:n introduced by sequence elimination.To ensure that a symbol sequence X1 .
+.
+.
+Xn canbe constructed, we select a split point k and add in-termediate types X1:k and Xk+1:n to the grammar.We must also ensure that the sequences X1 .
+.
+.
+Xkand Xk+1 .
+.
+.
+Xn can be constructed.
+As baselines,we used left-branching (where k = 1 always) andright-branching (where k = n?
+1) binarizations.We also tested a greedy binarization approach,choosing k to minimize the number of grammarsymbols introduced.
+We first try to select k such thatboth X1:k and Xk+1:n are already in the grammar.If no such k exists, we select k such that one of theintermediate types generated is already used.
+If nosuch k exists again, we choose k = ?12n?.
+This pol-icy only creates new intermediate types when nec-essary.
+Song et al (2008) propose a similar greedyapproach to binarization that uses corpus statistics toselect common types rather than explicitly reusingtypes that have already been introduced.Finally, we computed an optimal binarization thatexplicitly minimizes the number of symbols in theresulting grammar.
+We cast the minimization as aninteger linear program (ILP).
+Let V be the set ofall base non-terminal symbols in the grammar.
+Weintroduce an indicator variable TY for each symbolY ?
+V + to indicate that Y is used in the grammar.Y can be either a base non-terminal symbol Xi oran intermediate symbol X1:n. We also introduce in-dicators AY,Z for each pairs of symbols, indicatingthat both Y and Z are used in the grammar.
+LetL ?
+V + be the set of left-hand side symbols forall lexical and non-lexical rules already in the gram-mar.
+Let R be the set of symbol sequences on theright-hand side of all non-lexical rules.
+Then, theILP takes the form:min ?Y ?V +TY (1)s.t.
+TY = 1 ?
+Y ?
+L (2)1 ?
+?kAX1:k,Xk+1:n ?
+X1 .
+.
+.
+Xn ?
+R (3)TX1:n ?
+?kAX1:k,Xk+1:n ?
+X1:n (4)AY,Z ?
+TY , AY,Z ?
+TZ ?
+Y, Z (5)The solution to this ILP indicates which symbolsappear in a minimal binarization.
+Equation 1 explic-itly minimizes the number of symbols.
+Equation 2ensures that all symbols already in the grammar re-main in the grammar.Equation 3 does not require that a symbol repre-sent the entire right-hand side of each non-lexicalrule, but does ensure that each right-hand side se-quence can be built from two subsequence symbols.Equation 4 ensures that any included intermediatetype can also be built from two subsequence types.Finally, Equation 5 ensures that if a pair is used, eachmember of the pair is included.
+This program can beoptimized with an off-the-shelf ILP solver.1Figure 4 shows the number of intermediate gram-mar symbols needed for the four binarization poli-cies described above for a short sentence.
+Our ILPsolver could only find optimal solutions for veryshort sentences (which have small grammars afterrelativization).
+Because greedy requires very littletime to compute and generates symbol counts thatare close to optimal when both can be computed, weuse it for our remaining experiments.3.3 Anchored Lexical Normal FormWe also consider a further grammar transformation,anchored lexical normal form (ALNF), in which theyield of lexical rules must begin and end with a lex-ical item.
+As shown in the following section, ALNFimproves parsing performance over LNF by shiftingwork from lexical rule applications to non-lexical1We used lp solve: http://sourceforge.net/projects/lpsolve.230rule applications.
+ALNF consists of rules with thefollowing two forms:Non-lexical: X ?
+X1(X2)Lexical: X ?
+w+(Xiw+)?To convert a grammar into ALNF, we first transformit into LNF, then introduce additional binary rulesthat split off non-terminal symbols from the ends oflexical rules, as shown in Figure 3.4 Efficient CKY ParsingWe now describe a CKY-style parsing algorithm forgrammars in LNF.
+The dynamic program is orga-nized into spans Sij and computes the Viterbi scorew(i, j,X) for each edge Sij [X], the weight of themaximum parse over words i+1 to j, rooted at sym-bol X .
+For each Sij , computation proceeds in threephases: binary, lexical, and unary.4.1 Applying Non-lexical Binary RulesFor a span Sij , we first apply the binary non-lexicalrules just as in standard CKY, computing an interme-diate Viterbi score wb(i, j,X).
+Let ?r be the weightof rule r. Then, wb(i, j,X) =maxr=X?X1X2?rj?1maxk=i+1w(i, k,X1) ?
+w(k, j,X2).The quantitiesw(i, k,X1) andw(k, j,X2) will havealready been computed by the dynamic program.The work in this phase is cubic in sentence length.4.2 Applying Lexical RulesOn the other hand, lexical rules in LNF can be ap-plied without binarization, because they only applyto particular spans that contain the appropriate lexi-cal items.
+For a given Sij , we first compute all the le-gal mappings of each rule onto the span.
+A mappingconsists of a correspondence between non-terminalsin the rule and subspans of Sij .
+In practice, thereis typically only one way that a lexical rule in LNFcan map onto a span, because most lexical items willappear only once in the span.Let m be a legal mapping and r its correspondingrule.
+Let S(i)k` [X] be the edge mapped to the ith non-terminal of r underm, and ?r the weight of r. Then,wl(i, j,X) = maxm ?r?S(i)k` [X]w(k, `,X).Again, w(k, `,X) will have been computed by thedynamic program.
+Assuming only a constant num-ber of mappings per rule per span, the work in thisphase is quadratic.
+We can then merge wl and wb:w(i, j,X) = max(wl(i, j,X), wb(i, j,X)).To efficiently compute mappings, we store lexi-cal rules in a trie (or suffix array) ?
+a searchablegraph that indexes rules according to their sequenceof lexical items and non-terminals.
+This data struc-ture has been used similarly to index whole trainingsentences for efficient retrieval (Lopez, 2007).
+Tofind all rules that map onto a span, we traverse thetrie using depth-first search.4.3 Applying Unary RulesUnary non-lexical rules are applied after lexicalrules and non-lexical binary rules.w(i, j,X) = maxr:r=X?X1?rw(i, j,X1).While this definition is recursive, we allow only oneunary rule application per symbol X at each spanto prevent infinite derivations.
+This choice does notlimit the generality of our algorithm: chains of unar-ies can always be collapsed via a unary closure.4.4 Bounding Split Points for Binary RulesNon-lexical binary rules can in principle apply toany span Sij where j ?
+i ?
+2, using any split pointk such that i < k < j.
+In practice, however, manyrules cannot apply to many (i, k, j) triples becausethe symbols for their children have not been con-structed successfully over the subspans Sik and Skj .Therefore, the precise looping order over rules andsplit points can influence computation time.We found the following nested looping order forthe binary phase of processing an edge Sij [X] gavethe fastest parsing times for these grammars:1.
+Loop over symbols X1 for the left child2.
+Loop over all rules X ?
+X1X2 containing X13.
+Loop over split points k : i < k < j4.
+Update wb(i, j,X) as necessaryThis looping order allows for early stopping viaadditional bookkeeping in the algorithm.
+We trackthe following statistics as we parse:231Grammar Bound checks Parsing timeLNF no 264LNF yes 181ALNF yes 104Table 1: Adding bound checks to CKY and transformingthe grammar from LNF to anchored LNF reduce parsingtime by 61% for 300 sentences of length 40 or less.
+Noapproximations have been applied, so all three scenariosproduce no search errors.
+Parsing time is in minutes.minEND(i,X), maxEND(i,X): The minimum andmaximum position k for which symbol X wassuccessfully built over Sik.minSTART(j,X), maxSTART(j,X): The minimumand maximum position k for which symbol Xwas successfully built over Skj .We then bound k by mink and maxk in the innerloop using these statistics.
+If ever mink > maxk,then the loop is terminated early.1.
+set mink = i+ 1,maxk = j ?
+12. loop over symbols X1 for the left childmink = max(mink,minEND(i,X1))maxk = min(maxk,maxEND(i,X1))3. loop over rules X ?
+X1X2mink = max(mink,minSTART(j,X2))maxk = min(maxk,maxSTART(j,X2))4. loop over split points k : mink ?
+k ?
+maxk5.
+update wb(i, j,X) as necessaryIn this way, we eliminate unnecessary work byavoiding split points that we know beforehand can-not contribute to wb(i, j,X).4.5 Parsing Time ResultsTable 1 shows the decrease in parsing time from in-cluding these bound checks, as well as switchingfrom lexical normal form to anchored LNF.Using ALNF rather than LNF increases the num-ber of grammar symbols and non-lexical binaryrules, but makes parsing more efficient in threeways.
+First, it decreases the number of spans forwhich a lexical rule has a legal mapping.
+In this way,ALNF effectively shifts work from the lexical phaseto the binary phase.
+Second, ALNF reduces the timespent searching the trie for mappings, because thefirst transition into the trie must use an edge with alexical item.
+Finally, ALNF improves the frequencythat, when a lexical rule matches a span, we havesuccessfully built every edge Sk`[X] in the mappingfor that rule.
+This frequency increases from 45% to96% with ALNF.5 Coarse-to-Fine SearchWe now consider two coarse-to-fine approximatesearch procedures for parsing with these grammars.Our first approach clusters grammar symbols to-gether during the coarse parsing pass, followingwork in analytic parsing (Charniak and Caraballo,1998; Petrov and Klein, 2007).
+We collapse allintermediate non-terminal grammar symbols (e.g.,NP) to a single coarse symbol X, while pre-terminalsymbols (e.g., NN) are hand-clustered into 7 classes(nouns, verbals, adjectives, punctuation, etc.).
+Wethen project the rules of the original grammar intothis simplified symbol set, weighting each rule ofthe coarse grammar by the maximum weight of anyrule that mapped onto it.In our second and more successful approach, weselect a subset of grammar symbols.
+We then in-clude only and all rules that can be built using thosesymbols.
+Because the grammar includes many rulesthat are compositions of smaller rules, parsing witha subset of the grammar still provides meaningfulscores that can be used to prune base grammar sym-bols while parsing under the full grammar.5.1 Symbol SelectionTo compress the grammar, we select a small sub-set of symbols that allow us to retain as much ofthe original grammar as possible.
+We use a votingscheme to select the symbol subset.
+After conver-sion to LNF (or ALNF), each lexical rule in the orig-inal grammar votes for the symbols that are requiredto build it.
+A rule votes as many times as it was ob-served in the training data to promote frequent rules.We then select the top nl symbols by vote count andinclude them in the coarse grammar C.We would also like to retain as many non-lexicalrules from the original grammar as possible, but theright-hand side of each rule can be binarized in manyways.
+We again use voting, but this time each non-232Pruning Minutes Model score BLEUNo pruning 104 60,179 44.84Clustering 79 60,179 44.84Subsets 50 60,163 44.82Table 2: Coarse-to-fine pruning speeds up parsing timewith minimal effect on either model score or translationquality.
+The coarse grammar built using symbol subsetsoutperforms clustering grammar symbols, reducing pars-ing time by 52%.
+These experiments do not include alanguage model.lexical rule votes for its yield, a sequence of sym-bols.
+We select the top nu symbol sequences as theset R of right-hand sides.Finally, we augment the symbol set of C with in-termediate symbols that can construct all sequencesin R, using only binary rules.
+This step again re-quires choosing a binarization for each sequence,such that a minimal number of additional symbols isintroduced.
+We use the greedy approach from Sec-tion 3.2.
+We then include in C all rules from theoriginal grammar that can be built from the symbolswe have chosen.
+Surprisingly, we are able to re-tain 76% of the grammar rules while excluding 92%of the grammar symbols2, which speeds up parsingsubstantially.5.2 Max Marginal ThresholdingWe parse first with the coarse grammar to find theViterbi derivation score for each edge Sij [X].
+Wethen perform a Viterbi outside pass over the chart,like a standard outside pass but replacing ?
+withmax (Goodman, 1999).
+The product of an edge?sViterbi score and its Viterbi outside score gives amax marginal, the score of the maximal parse thatuses the edge.We then prune away regions of the chart that de-viate in their coarse max marginal from the globalViterbi score by a fixed margin tuned on a develop-ment set.
+Table 2 shows that both methods of con-structing a coarse grammar are effective in pruning,but selecting symbol subsets outperformed the moretypical clustering approach, reducing parsing timeby an additional factor of 2.2We used nl of 500 and nu of 4000 for experiments.
+Theseparameters were tuned on a development set.6 Language Model IntegrationLarge n-gram language models (LMs) are criticalto the performance of machine translation systems.Recent innovations have managed the complexityof LM integration using multi-pass architectures.Zhang and Gildea (2008) describes a coarse-to-fineapproach that iteratively increases the order of theLM.
+Petrov et al (2008) describes an additionalcoarse-to-fine hierarchy over language projections.Both of these approaches integrate LMs via bottom-up dynamic programs that employ beam search.
+Asan alternative, Huang and Chiang (2007) describes aforest-based reranking algorithm called cube grow-ing, which also employs beam search, but focusescomputation only where necessary in a top-downpass through a parse forest.In this section, we show that the coarse-to-fineidea of constraining each pass using marginal pre-dictions of the previous pass also applies effectivelyto cube growing.
+Max marginal predictions from theparse can substantially reduce LM integration time.6.1 Language Model Forest RerankingParsing produces a forest of derivations, where eachedge in the forest holds its Viterbi (or one-best)derivation under the transducer grammar.
+In forestreranking via cube growing, edges in the forest pro-duce k-best lists of derivations that are scored byboth the grammar and an n-gram language model.Using ALNF, each edge must first generate a k-bestlist of derivations that are not scored by the languagemodel.
+These derivations are then flattened to re-move the binarization introduced by ALNF, so thatthe resulting derivations are each rooted by an n-ary rule r from the original grammar.
+The leaves ofr correspond to sub-edges in the chart, which arerecursively queried for their best language-model-scored derivations.
+These sub-derivations are com-bined by r, and new n-grams at the edges of thesederivations are scored by the language model.The language-model-scored derivations for theedge are placed on a priority queue.
+The top ofthe priority queue is repeatedly removed, and itssuccessors added back on to the queue, until klanguage-model-scored derivations have been dis-covered.
+These k derivations are then sorted and233Pruning Max TM LM Total Inside Outside LM Totalstrategy beam BLEU score score score time time time timeNo pruning 20 57.67 58,570 -17,202 41,368 99 0 247 346CTF parsing 200 58.43 58,495 -16,929 41,556 53 0 186 239CTF reranking 200 58.63 58,582 -16,998 41,584 98 64 79 241CTF parse + rerank 2000 58.90 58,602 -16,980 41,622 53 52 148 253Table 3: Time in minutes and performance for 300 sentences.
+We used a trigram language model trained on 220million words of English text.
+The no pruning baseline used a fix beam size for forest-based language model reranking.Coarse-to-fine parsing included a coarse pruning pass using a symbol subset grammar.
+Coarse-to-fine reranking usedmax marginals to constrain the reranking pass.
+Coarse-to-fine parse + rerank employed both of these approximations.supplied to parent edges upon request.36.2 Coarse-to-Fine ParsingEven with this efficient reranking algorithm, inte-grating a language model substantially increased de-coding time and memory use.
+As a baseline, wereranked using a small fixed-size beam of 20 deriva-tions at each edge.
+Larger beams exceeded the mem-ory of our hardware.
+Results appear in Table 3.Coarse-to-fine parsing before LM integration sub-stantially improved language model reranking time.By pruning the chart with max marginals from thecoarse symbol subset grammar from Section 5, wewere able to rerank with beams of length 200, lead-ing to a 0.8 BLEU increase and a 31% reduction intotal decoding time.6.3 Coarse-to-Fine Forest RerankingWe realized similar performance and speed bene-fits by instead pruning with max marginals from thefull grammar.
+We found that LM reranking exploredmany edges with low max marginals, but used fewof them in the final decoder output.
+Following thecoarse-to-fine paradigm, we restricted the rerankerto edges with a max marginal above a fixed thresh-old.
+Furthermore, we varied the beam size of eachedge based on the parse.
+Let ?m be the ratio ofthe max marginal for edge m to the global Viterbiderivation for the sentence.
+We used a beam of size?k ?
+2ln?m?
+for each edge.Computing max marginals under the full gram-mar required an additional outside pass over the fullparse forest, adding substantially to parsing time.3Huang and Chiang (2007) describes the cube growing al-gorithm in further detail, including the precise form of the suc-cessor function for derivations.However, soft coarse-to-fine pruning based on thesemax marginals also allowed for beams up to length200, yielding a 1.0 BLEU increase over the baselineand a 30% reduction in total decoding time.We also combined the coarse-to-fine parsing ap-proach with this soft coarse-to-fine reranker.
+Tilingthese approximate search methods allowed another10-fold increase in beam size, further improvingBLEU while only slightly increasing decoding time.7 ConclusionAs translation grammars increase in complexitywhile innovations drive down the computational costof language model integration, the efficiency of theparsing phase of machine translation decoding is be-coming increasingly important.
+Our grammar nor-mal form, CKY improvements, and symbol subsetcoarse-to-fine procedure reduced parsing time forlarge transducer grammars by 81%.These techniques also improved forest-based lan-guage model reranking.
+A full decoding pass with-out any of our innovations required 511 minutes us-ing only small beams.
+Coarse-to-fine pruning inboth the parsing and language model passes alloweda 100-fold increase in beam size, giving a perfor-mance improvement of 1.3 BLEU while decreasingtotal decoding time by 50%.AcknowledgementsThis work was enabled by the Information Sci-ences Institute Natural Language Group, primarilythrough the invaluable assistance of Jens Voeckler,and was supported by the National Science Founda-tion (NSF) under grant IIS-0643742.234ReferencesEugene Charniak and Sharon Caraballo.
+1998.
+New fig-ures of merit for best-first probabilistic chart parsing.In Computational Linguistics.Eugene Charniak.
+1997.
+Statistical techniques for natu-ral language parsing.
+In National Conference on Arti-ficial Intelligence.David Chiang.
+2005.
+A hierarchical phrase-based modelfor statistical machine translation.
+In The Annual Con-ference of the Association for Computational Linguis-tics.Steve DeNeefe, Kevin Knight, Wei Wang, and DanielMarcu.
+2007.
+What can syntax-based MT learn fromphrase-based MT?
+In Proceedings of the Joint Confer-ence on Empirical Methods in Natural Language Pro-cessing and Computational Natural Language Learn-ing.Michel Galley, Mark Hopkins, Kevin Knight, and DanielMarcu.
+2004.
+What?s in a translation rule?
+In Hu-man Language Technologies: The Annual Conferenceof the North American Chapter of the Association forComputational Linguistics.Michel Galley, Jonathan Graehl, Kevin Knight, DanielMarcu, Steve DeNeefe, Wei Wang, and IgnacioThayer.
+2006.
+Scalable inference and training ofcontext-rich syntactic translation models.
+In The An-nual Conference of the Association for ComputationalLinguistics.Joshua Goodman.
+1999.
+Semiring parsing.
+Computa-tional Linguistics.Liang Huang and David Chiang.
+2007.
+Forest rescoring:Faster decoding with integrated language models.
+InThe Annual Conference of the Association for Compu-tational Linguistics.Dan Klein and Chris Manning.
+2003.
+Accurate unlexi-calized parsing.
+In Proceedings of the Association forComputational Linguistics.Adam Lopez.
+2007.
+Hierarchical phrase-based transla-tion with suffix arrays.
+In The Conference on Empiri-cal Methods in Natural Language Processing.Daniel Marcu, Wei Wang, Abdessamad Echihabi, andKevin Knight.
+2006.
+SPMT: Statistical machinetranslation with syntactified target language phrases.In Proceedings of the Conference on Empirical Meth-ods in Natural Language Processing.Slav Petrov and Dan Klein.
+2007.
+Improved inferencefor unlexicalized parsing.
+In The Annual Conferenceof the North American Chapter of the Association forComputational Linguistics.Slav Petrov, Leon Barrett, Romain Thibaux, and DanKlein.
+2006.
+Learning accurate, compact, and inter-pretable tree annotation.
+In The Annual Conference ofthe Association for Computational Linguistics.Slav Petrov, Aria Haghighi, and Dan Klein.
+2008.Coarse-to-fine syntactic machine translation using lan-guage projections.
+In The Conference on EmpiricalMethods in Natural Language Processing.Xinying Song, Shilin Ding, and Chin-Yew Lin.
+2008.Better binarization for the CKY parsing.
+In The Con-ference on Empirical Methods in Natural LanguageProcessing.Ashish Venugopal, Andreas Zollmann, and Stephan Vo-gel.
+2007.
+An efficient two-pass approach tosynchronous-CFG driven statistical MT.
+In In Pro-ceedings of the Human Language Technology andNorth American Association for Computational Lin-guistics Conference.Taro Watanabe, Hajime Tsukada, and Hideki Isozaki.2006.
+Left-to-right target generation for hierarchicalphrase-based translation.
+In The Annual Conferenceof the Association for Computational Linguistics.Dekai Wu.
+1997.
+Stochastic inversion transductiongrammars and bilingual parsing of parallel corpora.Computational Linguistics, 23:377?404.Hao Zhang and Daniel Gildea.
+2008.
+Efficient multi-pass decoding for synchronous context free grammars.In The Annual Conference of the Association for Com-putational Linguistics.Hao Zhang, Liang Huang, Daniel Gildea, and KevinKnight.
+2006.
+Synchronous binarization for machinetranslation.
+In North American Chapter of the Associ-ation for Computational Linguistics.Andreas Zollmann, Ashish Venugopal, and Stephan Vo-gel.
+2006.
+Syntax augmented machine translation viachart parsing.
+In The Statistical Machine TranslationWorkshop at the North American Association for Com-putational Linguistics Conference.235

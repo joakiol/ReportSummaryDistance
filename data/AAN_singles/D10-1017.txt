@@ -1,0 +1,375 @@
+Proceedings of the 2010 Conference on Empirical Methods in Natural Language Processing, pages 167?176,MIT, Massachusetts, USA, 9-11 October 2010. c?2010 Association for Computational LinguisticsEfficient Graph-Based Semi-Supervised Learningof Structured Tagging ModelsAmarnag SubramanyaGoogle ResearchMountain View, CA 94043asubram@google.comSlav PetrovGoogle ResearchNew York, NY 10011slav@google.comFernando PereiraGoogle ResearchMountain View, CA 94043pereira@google.comAbstractWe describe a new scalable algorithm forsemi-supervised training of conditional ran-dom fields (CRF) and its application to part-of-speech (POS) tagging.
+The algorithm usesa similarity graph to encourage similar n-grams to have similar POS tags.
+We demon-strate the efficacy of our approach on a do-main adaptation task, where we assume thatwe have access to large amounts of unlabeleddata from the target domain, but no additionallabeled data.
+The similarity graph is used dur-ing training to smooth the state posteriors onthe target domain.
+Standard inference can beused at test time.
+Our approach is able to scaleto very large problems and yields significantlyimproved target domain accuracy.1 IntroductionSemi-supervised learning (SSL) is the use ofsmall amounts of labeled data with relatively largeamounts of unlabeled data to train predictors.
+Insome cases, the labeled data can be sufficient to pro-vide reasonable accuracy on in-domain data, but per-formance on even closely related out-of-domain datamay lag far behind.
+Annotating training data for allsub-domains of a varied domain such as all of Webtext is impractical, giving impetus to the develop-ment of SSL techniques that can learn from unla-beled data to perform well across domains.
+The ear-liest SSL algorithm is self-training (Scudder, 1965),where one makes use of a previously trained modelto annotate unlabeled data which is then used tore-train the model.
+While self-training is widelyused and can yield good results in some applica-tions (Yarowsky, 1995), it has no theoretical guaran-tees except under certain stringent conditions, whichrarely hold in practice(Haffari and Sarkar, 2007).Other SSL methods include co-training (Blumand Mitchell, 1998), transductive support vector ma-chines (SVMs) (Joachims, 1999), and graph-basedSSL (Zhu et al, 2003).
+Several surveys cover abroad range of methods (Seeger, 2000; Zhu, 2005;Chapelle et al, 2007; Blitzer and Zhu, 2008).
+A ma-jority of SSL algorithms are computationally expen-sive; for example, solving a transductive SVM ex-actly is intractable.
+Thus we have a conflict betweenwanting to use SSL with large unlabeled data setsfor best accuracy, but being unable to do so becauseof computational complexity.
+Some researchers at-tempted to resolve this conflict by resorting to ap-proximations (Collobert et al, 2006), but those leadto suboptimal results (Chapelle et al, 2007).Graph-based SSL algorithms (Zhu et al, 2003;Joachims, 2003; Corduneanu and Jaakkola, 2003;Belkin et al, 2005; Subramanya and Bilmes, 2009)are an important subclass of SSL techniques thathave received much attention in the recent past, asthey outperform other approaches and also scale eas-ily to large problems.
+Here one assumes that the data(both labeled and unlabeled) is represented by ver-tices in a graph.
+Graph edges link vertices that arelikely to have the same label.
+Edge weights governhow strongly the labels of the nodes linked by theedge should agree.Most previous work in SSL has focused on un-structured classification problems, that is, problemswith a relatively small set of atomic labels.
+There167has been much less work on SSL for structured pre-diction where labels are composites of many atomiclabels with constraints between them.
+While thenumber of atomic labels might be small, there willgenerally be exponentially many ways to combinethem into the final structured label.
+Structured pre-diction problems over sequences appear for exam-ple in speech recognition, named-entity recogni-tion, and part-of-speech tagging; in machine trans-lation and syntactic parsing, the output may be tree-structured.Altun et al (2005) proposed a max-margin ob-jective for semi-supervised learning over structuredspaces.
+Their objective is similar to that of manifoldregularization (Belkin et al, 2005) and they makeuse of a graph as a smoothness regularizer.
+Howevertheir solution involves inverting a matrix whose sizedepends on problem size, making it impractical forvery large problems.
+Brefeld and Scheffer (2006)present a modified version of the co-training algo-rithm for structured output spaces.
+In both of theabove cases, the underlying model is based on struc-tured SVM, which does not scale well to very largedatasets.
+More recently Wang et al (2009) proposedto train a conditional random field (CRF) (Lafferty etal., 2001) using an entropy-based regularizer.
+Theirapproach is similar to the entropy minimization al-gorithm (Grandvalet and Bengio, 2005).
+The prob-lem here is that their objective is not convex and thuscan pose issues for large problems.
+Further, graph-based SSL algorithms outperform algorithms basedon entropy minimization (Chapelle et al, 2007).In this work, we propose a graph-based SSLmethod for CRFs that is computationally practicalfor very large problems, unlike the methods in thestudies cited above.
+Our method is scalable be-cause it trains with efficient standard building blocksfor CRF inference and learning and also standardgraph label propagation machinery.
+Graph regular-izer computations are only used for training, so attest time, standard CRF inference can be used, un-like in graph-based transductive methods.
+Briefly,our approach starts by training a CRF on the sourcedomain labeled data, and then uses it to decode unla-beled data from the target domain.
+The state posteri-ors on the target domain are then smoothed using thegraph regularizer.
+Best state sequences for the unla-beled target data are then created by Viterbi decod-ing with the smoothed state posteriors, and this au-tomatic target domain annotation is combined withthe labeled source domain data to retrain the CRF.We demonstrate our new method in domain adap-tation for a CRF part-of-speech (POS) tagger.
+WhilePOS tagging accuracies have reached the level ofinter-annotator agreement (>97%) on the standardPennTreebank test set (Toutanova et al, 2003; Shenet al, 2007), performance on out-of-domain data isoften well below 90%, impairing language process-ing tasks that need syntactic information.
+For exam-ple, on the question domain used in this paper, thetagging accuracy of a supervised CRF is only 84%.Our domain adaptation algorithm improves perfor-mance to 87%, which is still far below in-domainperformance, but a significant reduction in error.2 Supervised CRFWe assume that we have a set of labeled source do-main examples Dl = {(xi,yi)}li=1, but only un-labeled target domain examples Du = {xi}l+ui=l+1.Here xi = x(1)i x(2)i ?
+?
+?x(|xi|)i is the sequence ofwords in sentence i and yi = y(1)i y(2)i ?
+?
+?
+y(|xi|)i isthe corresponding POS tag sequence, with y(j)i ?
+Ywhere Y is the set of POS tags.
+Our goal is to learna CRF of the form:p(yi|xi; ?
+)?exp(Ni?j=1K?k=1?kfk(y(j?1)i ,y(j)i ,xi, j))for the target domain.
+In the above equation, ?
+={?1, .
+.
+.
+, ?K} ?
+RK , fk(y(j?1)i , y(j)i ,xi, j) is the k-th feature function applied to two consecutive CRFstates and some window of the input sequence, and?k is the weight of that feature.
+We discuss our fea-tures in detail in Section 6.
+Given only labeled dataDl, the optimal feature weights are given by:??=argmin?
+?RK[?l?i=1log p(yi|xi; ?)+???
+?2](1)Here ??
+?2 is the squared `2-norm and acts as theregularizer, and ?
+is a trade-off parameter whose set-ting we discuss in Section 6.
+In our case, we alsohave access to the unlabeled data Du from the targetdomain which we would like to use for training theCRF.
+We first describe how we construct a similarity168graph over the unlabeled which will be used in ouralgorithm as a graph regularizer.3 Graph ConstructionGraph construction is the most important step ingraph-based SSL.
+The standard approach for un-structured problems is to construct a graph whosevertices are labeled and unlabeled examples, andwhose weighted edges encode the degree to whichthe examples they link should have the same la-bel (Zhu et al, 2003).
+Then the main graph con-struction choice is what similarity function to usefor the weighted edges between examples.
+How-ever, in structured problems the situation is morecomplicated.
+Consider the case of sequence tag-ging we are studying.
+While we might be able tochoose some appropriate sequence similarity to con-struct the graph, such as edit distance or a stringkernel, it is not clear how to use whole sequencesimilarity to constrain whole tag sequences assignedto linked examples in the learning algorithm.
+Al-tun et al (2005) had the nice insight of doing thegraph construction not for complete structured ex-amples but instead for the parts of structured exam-ples (also known as factors in graphical model ter-minology), which encode the local dependencies be-tween input data and output labels in the structuredproblem.
+However, their approach is too demandingcomputationally (see Section 5), so instead we uselocal sequence contexts as graph vertices, explotingthe empirical observation that the part of speech ofa word occurrence is mostly determined by its localcontext.Specifically, the set V of graph vertices consistsof all the word n-grams1 (types) that have occur-rences (tokens) in training sentences (labeled andunlabeled).
+We partition V = Vl ?
+Vu where Vl cor-responds to n-grams that occur at least once in thelabeled data, and Vu corresponds to n-grams that oc-cur only in the unlabeled data.Given a symmetric similarity function betweentypes to be defined below, we link types u and v with1We pad the n-grams at the beginning and end of sentenceswith appropriate dummy symbols.Description FeatureTrigram + Context x1 x2 x3 x4 x5Trigram x2 x3 x4Left Context x1 x2Right Context x4 x5Center Word x2Trigram ?
+Center Word x2 x4Left Word + Right Context x2 x4 x5Left Context + Right Word x1 x2 x4Suffix HasSuffix(x3)Table 1: Features we extract given a sequence of words?x1 x2 x3 x4 x5?
+where the trigram is ?x2 x3 x4?.an edge of weight wuv, defined as:wuv ={sim(u, v) if v ?
+K(u) or u ?
+K(v)0 otherwisewhereK(u) is the set of k-nearest neighbors of u ac-cording to the given similarity.
+For all experimentsin this paper, n = 3 and k = 5.To define the similarity function, for each tokenof a given type in the labeled and unlabeled data,we extract a set of context features.
+For example,for the token x2 x3 x4 occurring in the sequencex1 x2 x3 x4 x5, we use feature templates that cap-ture the left (x1 x2) and right contexts (x4 x5).
+Addi-tionally, we extract suffix features from the word inthe middle.
+Table 1 gives an overview of the featuresthat we used.
+For each n-gram type, we compute thevector of pointwise mutual information (PMI) val-ues between the type and each of the features thatoccur with tokens of that type.
+Finally, we use thecosine distance between those PMI vectors as oursimilarity function.We have thus circumvented the problem of defin-ing similarities over sequences by defining the graphover types that represent local sequence contexts.Since our CRF tagger only uses local features of theinput to score tag pairs, we believe that the graphwe construct captures all significant context infor-mation.
+Figure 1 shows an excerpt from our graph.The figure shows the neighborhoods of a subset ofthe vertices with the center word ?book.?
+To reduceclutter, we included only closest neighbors and theedges that involve the nodes of interest.169[the conference on][whose book on][the auction on][U.N.-backed conference on][the conference speakers][to schedule a][to postpone a]VB[to ace a][to book a][to run a][to start a]NNNNNNVBVB[you book a][you rent a][you log a][you unrar a][to book some][to approve some]VB[to fly some][to approve parental-consent]643[the book that][the job that][the constituition that][the movie that][the city that]NNNN[a movie agent][a clearing agent][a book agent]746Figure 1: Vertices with center word ?book?
+and their local neighborhoods, as well as the shortest-path distance betweenthem.
+Note that the noun (NN) and verb (VB) interpretations form two disjoint connected components.It is remarkable that the neighborhoods are co-herent, showing very similar syntactic configura-tions.
+Furthermore, different vertices that (should)have the same label are close to each other, form-ing connected components for each part-of-speechcategory (for nouns and verbs in the figure).
+We ex-pect the similarity graph to provide information thatcannot be expressed directly in a sequence model.In particular, it is not possible in a CRF to directlyenforce the constraint that similar trigrams appear-ing in different sentences should have similar POStags.
+This constraint however is important dur-ing (semi-supervised) learning, and is what makesour approach different and more effective than self-training.In practice, we expect two main benefits fromour graph-based approach.
+First, the graph allowsnew features to be discovered.
+Many words occuronly in the unlabeled data and a purely supervisedCRF would not be able to learn feature weights forthose observations.
+We could use self-training tolearn weights for those features, but self-training justtends to reinforce the knowledge that the supervisedmodel already has.
+The similarity graph on the otherhand can link events that occur only in the unlabeleddata to similar events in the labeled data.
+Further-more, because the graph is built over types ratherthan tokens, it will encourage the same interpreta-tion to be chosen for similar trigrams occurring indifferent sentences.
+For example, the word ?unrar?will most likely not occur in the labeled trainingdata.
+Seeing it in the neighborhood of words forwhich we know the POS tag will help us learn thecorrect POS tag for this otherwise unknown word(see Figure 1).Second, the graph propagates adjustments to theweights of known features.
+Many words occur onlya handful of times in our labeled data, resulting inpoor estimates of their contributions.
+Even for fre-quently occurring events, their distribution in the tar-get domain might be different from their distributionin the source domain.
+While self-training might beable to help adapt to such domain changes, its ef-fectiveness will be limited because the model willalways be inherently biased towards the source do-main.
+In contrast, labeled vertices in the similar-ity graph can help disambiguate ambiguous contextsand correct (some of) the errors of the supervisedmodel.4 Semi-Supervised CRFGiven unlabeled data Du, we only have access tothe prior p(x).
+As the CRF is a discriminativemodel, the lack of label information renders theCRF weights independent of p(x) and thus we can-not directly utilize the unlabeled data when train-ing the CRF.
+Therefore, semi-supervised approachesto training discriminative models typically use theunlabeled data to construct a regularizer that isused to guide the learning process (Joachims, 1999;Lawrence and Jordan, 2005).
+Here we use the graphas a smoothness regularizer to train CRFs in a semi-supervised manner.Our algorithm iterates between the following five170Algorithm 1 Semi-Supervised CRF Training?s = crf-train(Dl, ?0)Set ?
+(t)0 = ?
+(s)while not converged do{p} = posterior decode(Du, ?old){q} = token to type({p}){q?}
+= graph propagate({q})D(1)u = viterbi decode({q?
+}, ?old)?
+(t)n+1 = crf-train(Dl ?
+D(1)u , ?
+(t)n )end whileReturn last ?
+(t)simple (and convex) steps: Given a set of CRF pa-rameters, we first compute marginals over the un-labeled data (posterior decode).
+The marginalsover tokens are then aggregated to marginals overtypes (token to type), which are used to initial-ize the graph label distributions.
+After running la-bel propagation (graph propagate), the posteriorsfrom the graph are used to smooth the state posteri-ors.
+Decoding the unlabeled data (viterbi decode)produces a new set of automatic annotations that canbe combined with the labeled data to retrain the CRFusing the supervised CRF training objective (crf-train).
+These steps, summarized in Algorithm 1, areiterated until convergence.4.1 Posterior DecodingLet ?
+(t)n (t refers to target domain) represent the esti-mate of the CRF parameters for the target domain af-ter the n-th iteration.2 In this step, we use the currentparameter estimates to compute the marginal proba-bilitiesp(y(j)i |xi; ?
+(t)n ) 1 ?
+j ?
+|xi|, i ?
+Dlover POS tags for every word position j for i index-ing over sentences in Dl ?
+Du.4.2 Token-to-Type MappingRecall that our graph is defined over types whilethe posteriors computed above involve particular to-kens.
+We accumulate token-based marginals to cre-ate type marginals as follows.
+For a sentence i andword position j in that sentence, let T (i, j) be the2In the first iteration, we initialize the target domain param-eters to the source domain parameters: ?
+(t)0 = ?
+(s).trigram (graph node) centered at position j. Con-versely, for a trigram type u, let T?1(u) be the setof actual occurrences (tokens) of that trigram u; thatis, all pairs (i, j) where i is the index of a sentencewhere u occurs and j is the position of the centerword of an occurrence of u in that sentence.
+We cal-culate type-level posteriors as follows:qu(y) ,1|T?1(u)|?
+(i,j)?T?1(u)p(y(j)i |xi; ?
+(t)n ) .This combination rule connects the token-centeredCRF with the type-centered graph.
+Other waysof combining the token marginals, such as usingweights derived from the entropies of marginals,might be worth investigating.4.3 Graph PropagationWe now use our similarity graph (Section 3) tosmooth the type-level marginals by minimizing thefollowing convex objective:C(q) =?u?Vl?ru ?
+qu?2+ ?
+?u?V,v?N (i)wuv?qu ?
+qv?2 + ?
+?u?V?qu ?
+U?2s.t.
+?yqu(y) = 1 ?u & qu(y) ?
+0 ?u, y (2)where q = {q1, q2, .
+.
+.
+q|V |}.
+The setting of thehyperparameters ?
+and ?
+will be discussed in Sec-tion 6, N (u) is the set of neighbors of node u, andru is the empirical marginal label distribution for tri-gram u in the labeled data.
+We use a squared loss topenalize neighboring nodes that have different labeldistributions: ?qu ?
+qv?2 =?y(qu(y) ?
+qv(y))2,additionally regularizing the label distributions to-wards the uniform distribution U over all possiblelabels Y .
+It can be shown that the above objective isconvex in q.Our graph propagation objective can be seen as amulti-class generalization of the quadratic cost crite-rion (Bengio et al, 2007).
+The first term in the aboveobjective requires that we respect the informationin our labeled data.
+The second term is the graphsmoothness regularizer which requires that the qi?sbe smooth with respect to the graph.
+In other words,if wuv is large, then qu and qv should be close in the171squared-error sense.
+This implies that vertices u andv are likely to have similar marginals over POS tags.The last term is a regularizer and encourages all typemarginals to be uniform to the extent that is allowedby the first two terms.
+If a unlabeled vertex doesnot have a path to any labeled vertex, this term en-sures that the converged marginal for this vertex willbe uniform over all tags, ensuring that our algorithmperforms at least as well as a standard self-trainingbased algorithm, as we will see later.While the objective in Equation 2 admits a closedform solution, it involves inverting a matrix of or-der |V | and thus we use instead the simple iterativeupdate given byq(m)u (y) =?u(y)?uwhere?u(y) = ru(y)?
+(u ?
+Vl)+?v?N (u)wuvq(m?1)v (y) + ?U(y),?u = ?
+(u ?
+Vl) + ?
++ ?
+?v?N (u)wuv (3)where m is the iteration index and ?
+is the indica-tor function that returns 1 if and only if the con-dition is true.
+The iterative procedure starts withq(0)u (y) = qu(y) as given in the previous section.In all our experiments we run 10 iterations of theabove algorithm, and we denote the type marginalsat completion by q?u(y).4.4 Viterbi DecodingGiven the type marginals computed in the previousstep, we interpolate them with the original CRF to-ken marginals.
+This interpolation between type andtoken marginals encourages similar n-grams to havesimilar posteriors, while still allowing n-grams indifferent sentences to differ in their posteriors.
+Foreach unlabeled sentence i and word position j in it,we calculate the following interpolated tag marginal:p?
+(y(j)i = y|xi) = ?p(y(j)i = y|xi; ?
+(t)n )+ (1?
+?
+)q?T (m,n)(y) (4)where ?
+is a mixing coefficient which reflects therelative confidence between the original posteriorsfrom the CRF and the smoothed posteriors from thegraph.
+We discuss how we set ?
+in Section 6.The interpolated marginals summarize all the in-formation obtained so far about the tag distributionat each position.
+However, if we were to use them ontheir own to select the most likely POS tag sequence,the first-order tag dependencies modeled by the CRFwould be mostly ignored.
+This happens because thetype marginals obtained from the graph after labelpropagation will have lost most of the sequence in-formation.
+To enforce the first-order tag dependen-cies we therefore use Viterbi decoding over the com-bined interpolated marginals and the CRF transitionpotentials to compute the best POS tag sequence foreach unlabeled sentence.
+We refer to these 1-besttranscripts as y?i , i ?
+Du.4.5 Re-training the CRFNow that we have successfully labeled the unlabeledtarget domain data, we can use it in conjunction withthe source domain labeled data to re-train the CRF:?
+(t)n+1 =argmin?
+?RK[?l?i=1log p(yi|xi; ?
+(t)n )?
+?l+u?i=l+1log p(y?i |xi; ?
+(t)n )+???
+?2](5)where ?
+and ?
+are hyper-parameters whose settingwe discuss in Section 6.
+Given the new CRF pa-rameters ?
+we loop back to step 1 (Section 4.1) anditerate until convergence.
+It is important to note thatevery step of our algorithm is convex, although theircombination clearly is not.5 Related WorkOur work differs from previous studies ofSSL (Blitzer et al, 2006; III, 2007; Huangand Yates, 2009) for improving POS tagging inseveral ways.
+First, our algorithm can be general-ized to other structured semi-supervised learningproblems, although POS tagging is our motivatingtask and test application.
+Unlike III (2007), wedo not require target domain labeled data.
+Whilethe SCL algorithm (Blitzer et al, 2006) has beenevaluated without target domain labeled data, thatevaluation was to some extent transductive in thatthe target test data (unlabeled) was included in theunsupervised stage of SCL training that creates thestructural correspondence between the two domains.172We mentioned already the algorithm of Altun etal.
+(2005), which is unlikely to scale up becauseits dual formulation requires the inversion of a ma-trix whose size depends on the graph size.
+Guptaet al (2009) also constrain similar trigrams to havesimilar POS tags by forming cliques of similar tri-grams and maximizing the agreement score overthese cliques.
+Computing clique agreement poten-tials however is NP-hard and so they propose ap-proximation algorithms that are still quite complexcomputationally.
+We achieve similar effects by us-ing our simple, scalable convex graph regularizationframework.
+Further, unlike other graph-propagationalgorithms (Alexandrescu and Kirchhoff, 2009), ourapproach is inductive.
+While one might be ableto make inductive extensions of transductive ap-proaches (Sindhwani et al, 2005), these usually re-quire extensive computational resources at test time.6 Experiments and ResultsWe use the Wall Street Journal (WSJ) section ofthe Penn Treebank as our labeled source domaintraining set.
+We follow standard setup proceduresfor this task and train on sections 00-18, compris-ing of 38,219 POS-tagged sentences with a total of912,344 words.
+To evaluate our domain-adaptationapproach, we consider two different target domains:questions and biomedical data.
+Both target do-mains are relatively far from the source domain(newswire), making this a very challenging task.The QuestionBank (Judge et al, 2006), providesan excellent corpus consisting of 4,000 questionsthat were manually annotated with POS tags andparse trees.
+We used the first half as our develop-ment set and the second half as our test set.
+Ques-tions are difficult to tag with WSJ-trained taggersprimarily because the word order is very differentthan that of the mostly declarative sentences in thetraining data.
+Additionally, the unknown word rateis more than twice as high as on the in-domain de-velopment set (7.29% vs. 3.39%).
+As our unla-beled data, we use a set of 10 million questionscollected from anonymized Internet search queries.These queries were selected to be similar in styleand length to the questions in the QuestionBank.33In particular, we selected queries that start with an Englishfunction word that can be used to start a question (what, who,As running the CRF over 10 million sentences canbe rather cumbersome and probably unnecessary, werandomly select 100,000 of these queries and treatthis asDu.
+Because the graph nodes and the featuresused in the similarity function are based on n-grams,data sparsity can be a serious problem, and we there-fore use the entire unlabeled data set for graph con-struction.
+We estimate the mutual information-basedfeatures for each trigram type over all the 10 millionquestions, and then construct the graph over onlythe set of trigram types that actually occurs in the100,000 random subset and the WSJ training set.For our second target domain, we use the PennBioTreebank (PennBioIE, 2005).
+This corpus con-sists of 1,061 sentences that have been manually an-notated with POS tags.
+We used the first 500 sen-tences as a development set and the remaining 561sentences as our final test set.
+The high unknownword rate (23.27%) makes this corpus very difficultto tag.
+Furthermore, the POS tag set for this data is asuper-set of the Penn Treebank?s, including the twonew tags HYPH (for hyphens) and AFX (for com-mon post-modifiers of biomedical entities such asgenes).
+These tags were introduced due to the im-portance of hyphenated entities in biomedical text,and are used for 1.8% of the words in the test set.Any tagger trained only on WSJ text will automati-cally predict wrong tags for those words.
+For unla-beled data we used 100,000 sentences that were cho-sen by searching MEDLINE for abstracts pertainingto cancer, in particular genomic variations and muta-tions (Blitzer et al, 2006).
+Since we did not have ac-cess to additional unlabeled data, we used the sameset of sentences as target domain unlabeled data,Du.The graph here was constructed over the 100,000 un-labeled sentences and the WSJ training set.
+Finally,we remind the reader that we did not use label infor-mation for graph construction in either corpus.6.1 BaselinesOur baseline supervised CRF is competitivewith state-of-the-art discriminative POS taggers(Toutanova et al, 2003; Shen et al, 2007), achieving97.17% on the WSJ development set (sections 19-21).
+We use a fairly standard set of features, includ-ing word identity, suffixes and prefixes and detectorswhen, etc.
+), and have between 30 and 160 characters.173Questions BioDev Eval Dev EvalSupervised CRF 84.8 83.8 86.5 86.2Self-trained CRF 85.4 84.0 87.5 87.1Semi-supervised CRF 87.6 86.8 87.5 87.6Table 2: Domain adaptation experiments.
+POS tagging accuracies in %.for special characters such as dashes and digits.
+Wedo not use of observation-dependent transition fea-tures.
+Both supervised and semi-supervised modelsare regularized with a squared `2-norm regularizerwith weight set to 0.01.In addition to the supervised baseline trained ex-clusively on the WSJ, we also consider a semi-supervised self-trained baseline (?Self-trained CRF?in Table 2).
+In this approach, we first train a su-pervised CRF on the labeled data and then do semi-supervised training without label propagation.
+Thisis different from plain self-training because it aggre-gates the posteriors over tokens into posteriors overtypes.
+This aggregation step allows instances of thesame trigram in different sentences to share infor-mation and works better in practice than direct self-training on the output of the supervised CRF.6.2 Domain Adaptation ResultsThe data set obtained concatenating the WSJ train-ing set with the 10 million questions had about 20million trigram types.
+Of those, only about 1.1 mil-lion trigram types occurred in the WSJ training setor in the 100,000 sentence sub-sample.
+For thebiomedical domain, the graph had about 2.2 mil-lion trigrams.
+For all our experiments we set hy-perparameters as follows: for graph propagation,?
+= 0.5, ?
+= 0.01, for Viterbi decoding mixing,?
+= 0.6, for CRF re-training, ?
+= 0.001, ?
+= 0.01.These parameters were chosen based on develop-ment set performance.
+All CRF objectives were op-timized using L-BFGS (Bertsekas, 2004).Table 2 shows the results for both domains.
+Forthe question corpus, the supervised CRF performsat only 85% on the development set.
+While it is al-most impossible to improve in-domain tagging ac-curacy and tagging is therefore considered a solvedproblem by many, these results clearly show thatthe problem is far from solved.
+Self-training im-proves over the baseline by about 0.6% on the de-velopment set.
+However the gains from self-trainingare more modest (0.2%) on the evaluation (test) set.Our approach is able to provide a more solid im-provement of about 3% absolute over the super-vised baseline and about 2% absolute over the self-trained system on the question development set.
+Un-like self-training, on the question evaluation set, ourapproach provides about 3% absolute improvementover the supervised baseline.
+For the biomedicaldata, while the performances of our approach andself-training are statistically indistinguishable on thedevelopment set, we see modest gains of about 0.5%absolute on the evaluation set.
+On the same data, wesee that our approach provides about 1.4% absoluteimprovement over the supervised baseline.7 Analysis & ConclusionThe results suggest that our proposed approach pro-vides higher gains relative to self-training on thequestion data than on the biomedical corpus.
+Wehypothesize that this caused by sparsity in the graphgenerated from the biomedical dataset.
+For the ques-tions graph, the PMI statistics were estimated over10 million sentences while in the case of the biomed-ical dataset, the same statistics were computed overjust 100,000 sentences.
+We hypothesize that the lackof well-estimated features in the case of the biomed-ical dataset leads to a sparse graph.To verify the above hypothesis, we measured thepercentage of trigrams that occur in the target do-main (unlabeled) data that do not have any path toa trigram in the source domain data, and the aver-age minimum path length between a trigram in thetarget data and a trigram in the source data (whensuch a path exists).
+The results are shown in Ta-ble 3.
+For the biomedical data, close to 50% of thetrigrams from the target data do not have a path toa trigram from the source data.
+Even when such apath exists, the average path length is about 22.
+On174Questions Bio% of unlabeled trigrams12.4 46.8not connected toany labeled trigramsaverage path length9.4 22.4between an unlabeledtrigram and its nearestlabeled trigramTable 3: Analysis of the graphs constructed for the twodatasets discussed in Section 6.
+Unlabeled trigrams occurin the target domain only.
+Labeled trigrams occur at leastonce in the WSJ training data.the other hand, for the question corpus, only about12% of the target domain trigrams are disconnected,and the average path length is about 9.
+These re-sults clearly show the sparse nature of the biomed-ical graph.
+We believe that it is this sparsity thatcauses the graph propagation to not have a more no-ticeable effect on the final performance.
+It is note-worthy that making use of even such a sparse graphdoes not lead to any degradation in results, which weattribute to the choice of graph-propagation regular-izer (Section 4.3).We presented a simple, scalable algorithm fortraining structured prediction models in a semi-supervised manner.
+The approach is based on usingas a regularizer a nearest-neighbor graph constructedover trigram types.
+Our results show that the ap-proach not only scales to large datasets but also pro-duces significantly improved tagging accuracies.ReferencesA.
+Alexandrescu and K. Kirchhoff.
+2009.
+Graph-basedlearning for statistical machine translation.
+In NAACL.Y.
+Altun, D. McAllester, and M. Belkin.
+2005.
+Max-imum margin semi-supervised learning for structuredvariables.
+In Advances in Neural Information Process-ing Systems 18, page 18.M.
+Belkin, P. Niyogi, and V. Sindhwani.
+2005.
+On man-ifold regularization.
+In Proc.
+of the Conference on Ar-tificial Intelligence and Statistics (AISTATS).Y.
+Bengio, O. Delalleau, and N. L. Roux, 2007.
+Semi-Supervised Learning, chapter Label Propogation andQuadratic Criterion.
+MIT Press.D Bertsekas.
+2004.
+Nonlinear Programming.
+AthenaScientific Publishing.J.
+Blitzer and J. Zhu.
+2008.
+ACL 2008 tutorial on Semi-Supervised learning.J.
+Blitzer, R. McDonald, and F. Pereira.
+2006.
+Domainadaptation with structural correspondence learning.
+InEMNLP ?06.A.
+Blum and T. Mitchell.
+1998.
+Combining labeled andunlabeled data with co-training.
+In COLT: Proceed-ings of the Workshop on Computational Learning The-ory.U.
+Brefeld and T. Scheffer.
+2006.
+Semi-supervised learn-ing for structured output variables.
+In ICML06, 23rdInternational Conference on Machine Learning.O.
+Chapelle, B. Scholkopf, and A. Zien.
+2007.
+Semi-Supervised Learning.
+MIT Press.R.
+Collobert, F. Sinz, J. Weston, L. Bottou, andT.
+Joachims.
+2006.
+Large scale transductive svms.Journal of Machine Learning Research.A.
+Corduneanu and T. Jaakkola.
+2003.
+On informa-tion regularization.
+In Uncertainty in Artificial Intelli-gence.Y.
+Grandvalet and Y. Bengio.
+2005.
+Semi-supervisedlearning by entropy minimization.
+In CAP.R.
+Gupta, S. Sarawagi, and A.
+A. Diwan.
+2009.
+General-ized collective inference with symmetric clique poten-tials.
+CoRR, abs/0907.0589.G.
+R. Haffari and A. Sarkar.
+2007.
+Analysis of semi-supervised learning with the Yarowsky algorithm.
+InUAI.F.
+Huang and A. Yates.
+2009.
+Distributional represen-tations for handling sparsity in supervised sequence-labeling.
+In ACL-IJCNLP ?09: Proceedings of theJoint Conference of the 47th Annual Meeting of theACL and the 4th International Joint Conference onNatural Language Processing of the AFNLP: Volume1.
+Association for Computational Linguistics.H.
+Daume III.
+2007.
+Frustratingly easy domain adapta-tion.
+In Proceedings of the 45th Annual Meeting ofthe Association of Computational Linguistics, pages256?263, Prague, Czech Republic, June.
+Associationfor Computational Linguistics.T.
+Joachims.
+1999.
+Transductive inference for text clas-sification using support vector machines.
+In Proc.
+ofthe International Conference on Machine Learning(ICML).Thorsten Joachims.
+2003.
+Transductive learning viaspectral graph partitioning.
+In Proc.
+of the Interna-tional Conference on Machine Learning (ICML).J.
+Judge, A. Cahill, and J. van Genabith.
+2006.
+Question-bank: Creating a corpus of parse-annotated questions.In Proceedings of the 21st International Conferenceon Computational Linguist ics and 44th Annual Meet-ing of the Association for Computational Linguistics,pages 497?504.175J.
+Lafferty, A. McCallum, and F. Pereira.
+2001.
+Con-ditional random fields: Probabilistic models for seg-menting and labeling sequence data.
+In Proc.
+of the In-ternational Conference on Machine Learning (ICML).N.
+D. Lawrence and M. I. Jordan.
+2005.
+Semi-supervisedlearning via gaussian processes.
+In NIPS.PennBioIE.
+2005.
+Mining the bibliome project.
+Inhttp://bioie.ldc.upenn.edu/.H.
+J. Scudder.
+1965.
+Probability of Error of some Adap-tive Pattern-Recognition Machines.
+IEEE Transac-tions on Information Theory, 11.M.
+Seeger.
+2000.
+Learning with labeled and unlabeleddata.
+Technical report, University of Edinburgh, U.K.L.
+Shen, G. Satta, and A. Joshi.
+2007.
+Guided learningfor bidirectional sequence classification.
+In ACL ?07.V.
+Sindhwani, P. Niyogi, and M. Belkin.
+2005.
+Beyondthe point cloud: from transductive to semi-supervisedlearning.
+In Proc.
+of the International Conference onMachine Learning (ICML).A.
+Subramanya and J.
+A. Bilmes.
+2009.
+Entropic graphregularization in non-parametric semi-supervised clas-sification.
+In Neural Information Processing Society(NIPS), Vancouver, Canada, December.K.
+Toutanova, D. Klein, C. D. Manning, and Y. Singer.2003.
+Feature-rich part-of-speech tagging with acyclic dependency network.
+In HLT-NAACL ?03.Y.
+Wang, G. Haffari, S. Wang, and G. Mori.
+2009.A rate distortion approach for semi-supervised condi-tional random fields.D.
+Yarowsky.
+1995.
+Unsupervised word sense disam-biguation rivaling supervised methods.
+In Proceed-ings of the 33rd Annual Meeting of the Association forComputational Linguistics.X.
+Zhu, Z. Ghahramani, and J. Lafferty.
+2003.
+Semi-supervised learning using gaussian fields and har-monic functions.
+In Proc.
+of the International Con-ference on Machine Learning (ICML).X.
+Zhu.
+2005.
+Semi-supervised learning literature sur-vey.
+Technical Report 1530, Computer Sciences, Uni-versity of Wisconsin-Madison.176

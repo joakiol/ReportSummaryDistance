@@ -1,0 +1,468 @@
+Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics, pages 172?182,Berlin, Germany, August 7-12, 2016.c?2016 Association for Computational LinguisticsNeural Greedy Constituent Parsing with Dynamic OraclesMaximin Coavoux1,2and Beno?
+?t Crabb?e1,2,31Univ.
+Paris Diderot, Sorbonne Paris Cit?e2Alpage, Inria3Institut Universitaire de Francemaximin.coavoux@inria.frbenoit.crabbe@linguist.univ-paris-diderot.frAbstractDynamic oracle training has shown sub-stantial improvements for dependencyparsing in various settings, but has notbeen explored for constituent parsing.
+Thepresent article introduces a dynamic ora-cle for transition-based constituent pars-ing.
+Experiments on the 9 languagesof the SPMRL dataset show that a neu-ral greedy parser with morphological fea-tures, trained with a dynamic oracle, leadsto accuracies comparable with the bestnon-reranking and non-ensemble parsers.1 IntroductionConstituent parsing often relies on search methodssuch as dynamic programming or beam search, be-cause the search space of all possible predictionsis prohibitively large.
+In this article, we presenta greedy parsing model.
+Our main contributionis the design of a dynamic oracle for transition-based constituent parsing.
+In NLP, dynamic or-acles were first proposed to improve greedy de-pendency parsing training without involving addi-tional computational costs at test time (Goldbergand Nivre, 2012; Goldberg and Nivre, 2013).The training of a transition-based parser in-volves an oracle, that is a function mapping a con-figuration to the best transition.
+Transition-basedparsers usually rely on a static oracle, only well-defined for gold configurations, which transformstrees into sequences of gold actions.
+Trainingagainst a static oracle restricts the exploration ofthe search space to the gold sequence of actions.At test time, due to error propagation, the parserwill be in a very different situation than at train-ing time.
+It will have to infer good actions fromnoisy configurations.
+To alleviate error propaga-tion, a solution is to train the parser to predict thebest action given any configuration, by allowingit to explore a greater part of the search space attrain time.
+Dynamic oracles are non-deterministicoracles well-defined for any configuration.
+Theygive the best possible transitions for any config-uration.
+Although dynamic oracles are widelyused in dependency parsing and available for moststandard transition systems (Goldberg and Nivre,2013; Goldberg et al, 2014; G?omez-Rodr?
+?guez etal., 2014; Straka et al, 2015), no dynamic oracleparsing model has yet been proposed for phrasestructure grammars.The model we present aims at parsing mor-phologically rich languages (MRL).
+Recent re-search has shown that morphological features arevery important for MRL parsing (Bj?orkelund etal., 2013; Crabb?e, 2015).
+However, traditionallinear models (such as the structured perceptron)need to define rather complex feature templatesto capture interactions between features.
+Addi-tional morphological features complicate this task(Crabb?e, 2015).
+Instead, we propose to rely ona neural network weighting function which usesa non-linear hidden layer to automatically captureinteractions between variables, and embeds mor-phological features in a vector space, as is usualfor words and other symbols (Collobert and We-ston, 2008; Chen and Manning, 2014).The article is structured as follows.
+In Section2, we present neural transition-based parsing.
+Sec-tion 3 motivates learning with a dynamic oracleand presents an algorithm to do so.
+Section 4 in-troduces the dynamic oracle.
+Finally, we presentparsing experiments in Section 5 to evaluate ourproposal.2 Transition-Based Constituent ParsingTransition-based parsers for phrase structuregrammars generally derive from the work of Sagae172A[h]E[e]D[d]X[h]C[c]B[b]A[h]E[e]A:[h]D[d]A:[h]A:[h]X[h]C[c]B[b]Figure 1: Order-0 head markovization.and Lavie (2005).
+In the present paper, we extendCrabb?e (2015)?s transition system.Grammar form We extract the grammar froma head-annotated preprocessed constituent tree-bank (cf Section 5).
+The preprocessing involvestwo steps.
+First, unary chains are merged, ex-cept at the preterminal level, where at most oneunary production is allowed.
+Second, an order-0head-markovization is performed (Figure 1).
+Thisstep introduces temporary symbols in the bina-rized grammar, which are suffixed by ?:?.
+The re-sulting productions have one the following form:X[h]?
+A[a] B[b] X[h]?
+A[a] bX[h]?
+h X[h]?
+a B[b]where X,A,B are delexicalised non-terminals, a,b and h ?
+{a, b} are tokens, and X[h] is a lexical-ized non-terminal.
+The purpose of lexicalizationis to allow the extraction of features involving theheads of phrases together with their tags and mor-phological attributes.Transition System In the transition-basedframework, parsing relies on two data structures:a buffer containing the sequence of tokens toparse and a stack containing partial instantiatedtrees.
+A configuration C = ?j, S, b, ??
+is a tuplewhere j is the index of the next token in the buffer,S is the current stack, b is a boolean, and ?
+is theset of constituents constructed so far.1Constituents are instantiated non-terminals, i.e.tuples (X, i, j) such that X is a non-terminal and(i, j) are two integers denoting its span.
+Althoughthe content of ?
+could be retrieved from the stack,we make it explicit because it will be useful for thedesign of the oracle in Section 4.From an initial configuration C0= ?0, ,?, ?
+?,the parser incrementally derives new configura-tions by performing actions until a final configura-tion is reached.
+S(HIFT) pops an element from the1The introduction of ?
+is the main difference with Crabb?e(2015)?s transition system.Stack: S|(C, l, i)|(B, i, k)|(A, k, j)Action ConstraintsRL(X) or RR(X), X?
+N A/?
+Ntmpand B /?
+NtmpRL(X:) or RR(X:), X:?
+NtmpC/?
+Ntmpor j < nRR(X) B/?
+NtmpRL(X) A/?
+NtmpTable 1: Constraints to ensure that binary trees canbe unbinarized.
+n is the sentence length.Input w0w1.
+.
+.
+wn?1Axiom ?0, ,?, ?
+?S?j, S,?, ??
+?j + 1, S|(tj, j, j + 1),>, ?
+?RL(X)?j, S|(A, i, k)|(B, k, j),?, ??
+?j, S|(X, i, j),?, ?
+?
+{(X, i, j)}?RU(X)?j, S|(tj?1, j ?
+1, j),>, ??
+?j, S|(X, j ?
+1, j),?, ?
+?
+{(X, j ?
+1, j)}?GR?j, S,>, ??
+?j, S,?, ?
+?Figure 2: Transition system, the transition RR(X)and the lexicalization of symbols are omitted.buffer and pushes it on the stack.
+R(EDUCE)(X)pops two elements from the stack, and pushes anew non-terminal X on the stack with the two el-ements as its children.
+There are two kinds of bi-nary reductions, left (RL) or right (RR), depend-ing on the position of the head.
+Finally, unary re-ductions (RU(X)) pops only one element from thestack and pushes a new non-terminal X.
+A deriva-tion C0?
+?= C0a0?
+.
+.
+.a??1?
+C?is a sequenceof configurations linked by actions and leading toa final configuration.
+Figure 2 presents the algo-rithm as a deductive system.
+G(HOST)R(EDUCE)actions and boolean b (> or ?)
+are used to ensurethat unary reductions (RU) can only take placeonce after a SHIFT action.2Constraints on the transitions make sure thatpredicted trees can be unbinarized.
+Figure 3 showstwo examples of trees that could not have beenobtained by the binarization process.
+In the firsttree, a temporary symbol rewrites as two tempo-2This transition system is similar to the extended systemof Zhu et al (2013).
+The main difference is the strategyused to deal with unary reductions.
+Our strategy ensures thatderivations for a sentence all have the same number of steps,which can have an effect when using beam search.
+We use aGHOST-REDUCE action, whereas they use a padding strategywith an IDLE action.173A[h]C:[c]A:[h]A[h]C[h]A:[a]Figure 3: Examples of ill-formed binary treesrary symbols.
+In the second one, the head of atemporary symbol is not the head of its direct par-ent.
+Table 1 shows a summary of the constraintsused to ensure that any predicted tree is a well-formed binarized tree.3In this table, N is the setof non-terminals and Ntmp?
+N is the set of tem-porary non-terminals.Weighted Parsing The deductive system is in-herently non-deterministic.
+Determinism is pro-vided by a scoring functions(C0??)
+=??i=1f?
+(Ci?1, ai)where ?
+is a set of parameters.
+The score of aderivation decomposes as a sum of scores of ac-tions.
+In practice, we used a feed-forward neu-ral network very similar to the scoring model ofChen and Manning (2014).
+The input of the net-work is a sequence of typed symbols.
+We considerthree main types (non-terminals, tags and termi-nals) plus a language-dependent set of morpholog-ical attribute types, for example, gender, number,or case (Crabb?e, 2015).
+The first layer h(0)is alookup layer which concatenates the embeddingsof each typed symbol extracted from a configura-tion.
+The second layer h(1)is a non-linear layerwith a rectifier activation (ReLU).
+Finally, the lastlayer h(2)is a softmax layer giving a distributionover possible actions, given a configuration.
+Thescore of an action is its log probability.Assuming v1,v2.
+.
+.
+,v?are the embeddings ofthe sequence of symbols extracted from a config-uration, the forward pass is summed up by the fol-lowing equations:h(0)= [v1;v2; .
+.
+.
+;v?
+]h(1)= max{0,W(h)?
+h(0)+ b(h)}h(2)= Softmax(W(o)?
+h(1)+ b(o))f?
+(C, a) = log(h(2)a)3There are additional constraints which are not presentedhere.
+For example, SHIFT assumes that the buffer is notempty.
+A full description of constraints typically used in aslightly different transition system can be found in Zhang andClark (2009)?s appendix section.s2.ct[s2.wt]s1.ct[s1.wt]s1.cl[s1.wl] s1.cr[s1.wr]s0.ct[s0.wt]s0.cl[s0.wl] s0.cr[s0.wr]q1.
+.
+.q4?
+??
+?stack?
+??
+?queueFigure 4: Schematic representation of local ele-ments in a configuration.Thus, ?
+includes the weights and biases for eachlayer (W(h), W(o), b(h),b(o)), and the embed-ding lookup table for each symbol type.We perform greedy search to infer the best-scoring derivation.
+Note that this is not an exactinference.
+Most propositions in phrase structureparsing rely on dynamic programming (Durrettand Klein, 2015; Mi and Huang, 2015) or beamsearch (Crabb?e, 2015; Watanabe and Sumita,2015; Zhu et al, 2013).
+However we found thatwith a scoring function expressive enough and arich feature set, greedy decoding can be surpris-ingly accurate (see Section 5).Features Each terminal is a tuple containing theword form, its part-of-speech tag and an arbi-trary number of language-specific morphologicalattributes, such as CASE, GENDER, NUMBER,ASPECT and others (Seddah et al, 2013; Crabb?e,2015).
+The representation of a configuration de-pends on symbols at the top of the two data struc-tures, including the first tokens in the buffer, thefirst lexicalised non-terminals in the stack and pos-sibly their immediate descendants (Figure 4).
+Thefull set of templates is specified in Table 6 of An-nex A.
+The sequence of symbols that forms the in-put of the network is the instanciation of each posi-tion described in this table with a discrete symbol.3 Training a Greedy Parser with anOracleAn important component for the training of aparser is an oracle, that is a function mapping agold tree and a configuration to an action.
+Theoracle is used to generate local training examplesfrom trees, and feed them to the local classifier.A static oracle (Goldberg and Nivre, 2012) isan incomplete and deterministic oracle.
+It is onlywell-defined for gold configurations (the configu-rations derived by the gold action sequence) andreturns the unique gold action.
+Usually, parsersuse a static oracle to transform the set of bina-rized trees into a set D = {C(i), a(i)}1?i?Toftraining examples.
+Training consists in minimiz-174ing the negative log likelihood of these examples.The limitation of this training method is that onlygold configurations are seen during training.
+Attest time, due to error propagation, the parser willhave to predict good actions from noisy configu-rations, and will have much difficulty to recoverafter mistakes.To alleviate this problem, a line of work (Daum?eIII et al, 2006; Ross et al, 2011) has cast the prob-lem of structured prediction as a search problemand developed training algorithms aiming at ex-ploring a greater part of the search space.
+Thesemethods require an oracle well-defined for everysearch state, that is, for every parsing configura-tion.A dynamic oracle is a complete and non-deterministic oracle (Goldberg and Nivre, 2012).It returns the non-empty set of the best transitionsgiven a configuration and a gold tree.
+In depen-dency parsing, starting from Goldberg and Nivre(2012), dynamic oracle algorithms and trainingmethods have been proposed for a variety of tran-sition systems and led to substantial improvementsin accuracy (Goldberg and Nivre, 2013; Goldberget al, 2014; G?omez-Rodr?
+?guez et al, 2014; Strakaet al, 2015; G?omez-Rodr?
+?guez and Fern?andez-Gonz?alez, 2015).Online training An online trainer iterates sev-eral times over each sentence in the treebank, andupdates its parameters until convergence.
+When astatic oracle is used, the training examples can bepregenerated from the sentences.
+When we use adynamic oracle instead, we generate training ex-amples on the fly, by following the prediction ofthe parser (given the current parameters) insteadof the gold action, with probability p, where p isa hyperparameter which controls the degree of ex-ploration.
+The online training algorithm for a sin-gle sentence s, with an oracle function o is shownin Figure 5.
+It is a slightly modified version ofGoldberg and Nivre (2013)?s algorithm 3, an ap-proach they called learning with exploration.In particular, as our neural network uses a cross-entropy loss, and not the perceptron loss used inGoldberg and Nivre (2013), updates are performedeven when the prediction is correct.
+When p = 0,the algorithm acts identically to a static oracletrainer, as the parser always follows the gold tran-sition.
+When the set of actions predicted by theoracle has more than one element, the best scor-ing element among them is chosen as the referencefunction TRAINONESENTENCE(s,?, p, o)C ?
+INITIAL(s)while C is not a final configuration doA?
+o(C, s) .
+set of best actionsa??
+argmaxaf?
+(C)aif a?
+?
+A thent?
+a?
+.
+t: targetelset?
+argmaxa?Af?(C)a?
+?
+UPDATE(?, C, t) .
+backpropif RANDOM() < p thenC ?
+a?
+(C) .
+Follow predictionelseC ?
+t(C) .
+Follow best actionreturn ?Figure 5: Online training for a single annotatedsentence s, using an oracle function o.action to update the parameters of the neural net-work.4 A Dynamic Oracle forTransition-Based ParsingThis section introduces a dynamic oracle algo-rithm for the parsing model presented in the pre-vious 2 sections, that is the function o used in thealgorithm in Figure 5.The dynamic oracle must minimize a cost func-tion L(c; t, T ) computing the cost of applyingtransition t in configuration c, with respect to agold parse T .
+As is shown by Goldberg and Nivre(2013), the oracle?s correctness depends on thecost function.
+A correct dynamic oracle o willhave the following general formulation:o(c, T ) = {t|L(c; t, T ) = mint?L(c; t?, T )} (1)The correctness of the oracle is not necessaryto improve training.
+The oracle needs only tobe good enough (Daum?e et al, 2009), whichis confirmed by empirical results (Straka et al,2015).
+Goldberg and Nivre (2013) identifiedarc-decomposability, a powerful property of cer-tain dependency parsing transition systems forwhich we can easily derive correct efficient or-acles.
+When this property holds, we can inferwhether a tree is reachable from the reachabilityof individual arcs.
+This simplifies the calculationof each transition cost.
+We rely on an analogueproperty we call constituent decomposition.
+A175set of constituents is tree-consistent if it is a sub-set of a set corresponding to a well-formed tree.
+Aphrase structure transition system is constituent-decomposable iff for any configuration C and anytree-consistent set of constituents ?, if every con-stituent in ?
+is reachable from C, then the wholeset is reachable from C (constituent reachabilitywill be formally defined in Section 4.1).The following subsections are structured as fol-lows.
+First of all, we present a cost function (Sec-tion 4.1).
+Then, we derive a correct dynamic ora-cle algorithm for an ideal case where we assumethat there is no temporary symbols in the grammar(Section 4.2).
+Finally, we present some heuris-tics to define a dynamic oracle for the general case(Section 4.3).4.1 Cost FunctionThe cost function we use ignores the lexicalizationof the symbols.
+For the sake of simplicity, we mo-mentarily leave apart the headedness of the binaryreductions (until the last paragraph of Section 4)and assume a unique binary REDUCE action.For the purpose of defining a cost func-tion for transitions, we adopt a represen-tation of trees as sets of constituents.
+Forexample, (S (NP (D the) (N cat))(VP (V sleeps))) corresponds to the set{(S, 0, 3), (NP, 0, 2), (VP, 2, 3)}.
+As is shown inFigure 2, every reduction action (unary or binary)adds a new constituent to the set ?
+of alreadypredicted constituents, which was introduced inSection 2.
+We define the cost of a predicted setof constituents ??
+with respect to a gold set ?
+?asthe number of constituents in ?
+?which are notin ??
+penalized by the number of predicted unaryconstituents which are not in the gold set:Lr(?
+?, ??)
+= |???
+?
+?|+ |{(X, i, i+ 1) ?
+?
+?|(X, i, i+ 1) /?
+??
+}| (2)The first term penalizes false negatives and thesecond one penalizes unary false positives.
+Thenumber of binary constituents in ?
+?and ??
+dependsonly on the sentence length n, thus binary falsepositives are implicitly taken into account by thefist term.The cost of a transition and that of a configura-tion are based on constituent reachability.
+Therelation C ` C?holds iff C?can be deducedfrom C by performing a transition.
+Let `?de-note the reflexive transitive closure of `.
+A set ofconstituents ?
+(possibly a singleton) is reachablefrom a configuration C iff there is a configurationC?= ?j, S, b, ???
+such that C `?C?and ?
+?
+?
+?,which we write C ; ?.Then, the cost of an action t for a configura-tion C is the cost difference between the best treereachable from t(C) and the best tree reachablefrom C:Lr(t;C, ??)
+= min?
+:t(C);?L(?, ??)?
+min?
+:C;?L(?, ??
+)This cost function is easily decomposable (as asum of costs of transitions) whereas F1 measureis not.By definition, for each configuration, there is atleast one transition with cost 0 with respect to thegold parse.
+Otherwise, it would entail that thereis a tree reachable from C but unreachable fromt(C), for any t. Therefore, we reformulate equa-tion 1:o(C, ??)
+= {t|Lr(C; t, ??)
+= 0} (3)In the transition system, the grammar is left im-plicit: any reduction is allowed (even if the corre-sponding grammar rule has never been seen in thetraining corpus).
+However, due to the introductionof temporary symbols during binarization, thereare constraints to ensure that any derivation cor-responds to a well-formed unbinarized tree.
+Theseconstraints make it difficult to test the reachabilityof constituents.
+For this reason, we instantiate twotransition systems.
+We call SR-TMP the transitionsystem in Figure 2 which enforces the constraintsin Table 1, and SR-BIN, the same transition systemwithout any of such constraints.
+SR-BIN assumesan idealized case where the grammar contains notemporary symbols, whereas SR-TMP is the actualsystem we use in our experiments.4.2 A Correct Oracle for SR-BIN TransitionSystemSR-BIN transition system provides no guaranteesthat predicted trees are unbinarisable.
+The onlycondition for a binary reduction to be allowed isthat the stack contains at least two symbols.
+If so,any non-terminal in the grammar could be used.
+Insuch a case, we can define a simple necessary andsufficient condition for constituent reachability.Constituent reachability Let ?
+?be a tree-consistent constituent set, and C = ?j, S, b, ??
+a176parsing configuration, such that:S = (X1, i0, i1) .
+.
+.
+(Xp, ip?1, i)|(A, i, k)|(B, k, j)A binary constituent (X,m, n) is reachable iff itsatisfies one of the three following properties :1.
+(X,m, n) ?
+?2.
+j < m < n3.
+m ?
+{i0, .
+.
+.
+ip?1, i, k}, n ?
+jand (m,n) 6= (k, j)The first two cases are trivial and correspond re-spectively to a constituent already constructed andto a constituent spanning words which are still inthe buffer.In the third case, (X,m, n) can be constructedby performing n ?
+j times the transitions SHIFTand GHOST-REDUCE (or REDUCE-UNARY), andthen a sequence of binary reductions ended by anX reduction.
+Note that as the index j in the config-uration is non-decreasing during a derivation, theconstituents whose span end is inferior to j are notreachable if they are not already constructed.
+Fora unary constituent, the condition for reachabilityis straightforward: a constituent (X, i ?
+1, i) isreachable from configuration C = ?j, S, b, ??
+iff(X, i?
+1, i) ?
+?
+or i > j or i = j ?
+b = >.Constituent decomposability SR-BIN is con-stituent decomposable.
+In this paragraph, we givesome intuition about why this holds.
+Reason-ing by contradiction, let?s assume that every con-stituent of a tree-consistent set ?
+?is reachablefrom C = ?j, S|(A, i, k)|(B, k, j), b, ??
+and that?
+?is not reachable (contraposition).
+This entailsthat at some point during a derivation, there isno possible transition which maintains reachabil-ity for all constituents of ??.
+Let?s assume C isin such a case.
+If some constituent of ?
+?is reach-able fromC, but not from SHIFT(C), its span musthave the form (m, j), where m ?
+i.
+If some con-stituent of ?
+?is reachable from C, but not fromREDUCE(X)(C), for any label X , its span musthave the form (k, n), where n > j.
+If both condi-tions hold, ?
+?contains incompatible constituents(crossing brackets), which contradicts the assump-tion that ?
+?is tree-consistent.Computing the cost of a transition The condi-tions on constituent reachability makes it easy tocompute the cost of a transition t for a given con-figuration C = ?j, S|(A, i, k)|(B, k, j), b, ??
+anda gold set ??
+:1: function O(?j, S|(A, i, k)|(B, k, j), b, ?
+?, ??
+)2: if b = > then .
+Last action was SHIFT3: if (X, j ?
+1, j) ?
+?
+?then4: return {REDUCEUNARY(X)}5: else6: return {GHOSTREDUCE}7: if ?n > j, (X, k, n) ?
+?
+?then8: return {SHIFT}9: if (X, i, j) ?
+?
+?then10: return {REDUCE(X)}11: if ?m < i, (X,m, j) ?
+?
+?then12: return {REDUCE(Y),?Y }13: return {a ?
+A|a is a possible action}Figure 6: Oracle algorithm for SR-BIN.?
+The cost of a SHIFT is the number of con-stituents not in ?, reachable from C andwhose span ends in j.?
+The cost of a binary reduction REDUCE(X) isa sum of two terms.
+The first one is the num-ber of constituents of ?
+?whose span has theform (k, n) with n > j.
+These are no longercompatible with (X, i, j) in a tree.
+The sec-ond one is one if (Y, i, j) ?
+?
+?and Y 6= Xand zero otherwise.
+It is the cost of misla-belling a constituent with a gold span.?
+The cost of a unary reduction or that of aghost reduction can be computed straightfor-wardly by looking at the gold set of con-stituents.We present in Figure 6 an oracle algorithm derivedfrom these observations.4.3 A Heuristic-based Dynamic Oracle forSR-TMP transition systemThe conditions for constituent reachability for SR-BIN do not hold any longer for SR-TMP.
+In par-ticular, constituent reachability depends cruciallyon the distinction between temporary and non-temporary symbols.
+The algorithm in Figure 6 isnot correct for this transition system.
+In Figure7, we give an illustration of a prototypical case inwhich the algorithm in Figure 6 will fail.
+The con-stituent (C:, i, j) is in the gold set of constituentsand could be constructed with REDUCE(C:).
+Thethird symbol on the stack being temporary symbolD:, the reduction to a temporary symbol will jeop-ardize the reachability of (C,m, j) because reduc-177tions are not possible when the two symbols atthe top of the stack are temporary symbols.
+Thebest course of action is then a reduction to anynon-temporary symbol, so as to keep (C,m, j)reachable.
+Note that in this case, the cost of RE-DUCE(C:) cannot be smaller than that of a singlemislabelled constituent.In fact, this example shows that the constraintsinherent to SR-TMP makes it non constituent-decomposable.
+In the example in Figure 7, bothconstituents in the set {(C,m, j), (C:, i, j)}, atree-consistent constituent set, is reachable.
+How-ever, the whole set is not reachable, as RE-DUCE(C:) would make (C,m, j) not reachable.In dependency parsing, several exact dy-namic oracles have been proposed for non arc-decomposable transition systems (Goldberg et al,2014), including systems for non-projective pars-ing (G?omez-Rodr?
+?guez et al, 2014).
+These ora-cles rely on tabular methods to compute the costof transitions and have (high-degree) polynomialworst case running time.
+Instead, to avoid re-sorting to more computationally expensive exactmethods, we adapt the algorithm in Figure 6 to theconstraints involving temporary symbols using thefollowing heuristics:?
+If the standard oracle predicts a reduction,make sure to choose its label so that everyreachable constituent (X,m, j) ?
+??
+(m <i) is still reachable after the transition.
+Practi-cally, if such constituent exists and if the thirdsymbol on the stack is a temporary symbol,then do not predict a temporary symbol.?
+When reductions to both temporary symbolsand non-temporary symbols have cost zero,only predict temporary symbols.
+This shouldnot harm training and improve precision forthe unbinarized tree, as any non temporaryConfiguration stack Gold treeD:m,iAi,kBk,jCm,jDm,iC:i,jAi,kBk,jFigure 7: Problematic case.
+Due to the temporarysymbol constraints enforced by SR-TMP, the algo-rithm in Figure 6 will fail on this example.Dev F1 (EVALB) Decoding toks/secstatic (this work) 88.6 greedydynamic (this work) 89.0 greedyTest F1 (EVALB)Hall et al (2014) 89.2 CKY 12Berkeley (Petrov et al, 2006) 90.1 CKY 169Durrett and Klein (2015)?91.1 CKY -Zhu et al (2013)?91.3 beam=16 1,290Crabb?e (2015) 90.0 beam=8 2,150Sagae and Lavie (2006) 85.1 greedy -static (this work) 88.0 greedy 3,820dynamic (this work) 88.6 greedy 3,950Table 3: Results on the Penn Treebank (Mar-cus et al, 1993).
+?use clusters or word vectorslearned on unannotated data.different architec-ture (2.3Ghz Intel), single processor.symbol in the binarized tree corresponds toa constituent in the n-ary tree.Head choice In some cases, namely when re-ducing two non-temporary symbols to a new con-stituent (X, i, j), the oracle must determine thehead position in the reduction (REDUCE-RIGHTor REDUCE-LEFT).
+We used the following heuris-tic: if (X, i, j) is in the gold set, choose the samehead position, otherwise, predict both RR(X) andRL(X) to keep the non-determinism.5 ExperimentsWe conducted parsing experiments to evaluateour proposal.
+We compare two experimental set-tings.
+In the ?static?
+setting, the parser is trainedonly on gold configurations; in the ?dynamic?
+set-ting, we use the dynamic oracle and the trainingmethod in Figure 5 to explore non-gold configura-tions.
+We used both the SPMRL dataset (Seddahet al, 2013) in the ?predicted tag?
+scenario, andthe Penn Treebank (Marcus et al, 1993), to com-pare our proposal to existing systems.
+The tagsand morphological attributes were predicted usingMarmot (Mueller et al, 2013), by 10-fold jack-knifing for the train and development sets.
+Forthe SPMRL dataset, the head annotation was car-ried out with the procedures described in Crabb?eNumber of possible values ?
+8 ?
+32 > 32Dimensions for embedding 4 8 16Table 4: Size of morphological attributes embed-dings.178Arabic Basque French German Hebrew Hungarian Korean Polish Swedish AvgDecoding Development F1 (EVALBSPMRL)Durrett and Klein (2015)?CKY 80.68 84.37 80.65 85.25 89.37 89.46 82.35 92.10 77.93 84.68Crabb?e (2015) beam=8 81.25 84.01 80.87 84.08 90.69 88.27 83.09 92.78 77.87 84.77static (this work) greedy 80.25 84.29 79.87 83.99 89.78 88.44 84.98 92.38 76.63 84.51dynamic (this work) greedy 80.94 85.17 80.31 84.61 90.20 88.70 85.46 92.57 77.87 85.09Test F1 (EVALBSPMRL)Bj?orkelund et al (2014)?81.32?88.24 82.53 81.66 89.80 91.72 83.81 90.50 85.50 86.12Berkeley (Petrov et al, 2006) CKY 79.19 70.50 80.38 78.30 86.96 81.62 71.42 79.23 79.18 78.53Berkeley-Tags CKY 78.66 74.74 79.76 78.28 85.42 85.22 78.56 86.75 80.64 80.89Durrett and Klein (2015)?CKY 80.24 85.41 81.25 80.95 88.61 90.66 82.23 92.97 83.45 85.09Crabb?e (2015) beam=8 81.31 84.94 80.84 79.26 89.65 90.14 82.65 92.66 83.24 84.97Fern?andez-Gonz?alez and Martins (2015) - 85.90 78.75 78.66 88.97 88.16 79.28 91.20 82.80 (84.22)static (this work) greedy 79.77 85.91 79.62 79.20 88.64 90.54 84.53 92.69 81.45 84.71dynamic (this work) greedy 80.71 86.24 79.91 80.15 88.69 90.51 85.10 92.96 81.74 85.11dynamic (this work) beam=2 81.14 86.45 80.32 80.68 89.06 90.74 85.17 93.15 82.65 85.48dynamic (this work) beam=4 81.59 86.45 80.48 80.69 89.18 90.73 85.31 93.13 82.77 85.59dynamic (this work) beam=8 81.80 86.48 80.56 80.74 89.24 90.76 85.33 93.13 82.80 85.64Table 2: Results on development and test corpora.
+Metrics are provided by evalb spmrl withspmrl.prm parameters (http://www.spmrl.org/spmrl2013-sharedtask.html).
+?useclusters or word vectors learned on unannotated data.
+?Bj?orkelund et al (2013).
+(2015), using the alignment between dependencytreebanks and constituent treebanks.
+For English,we used Collins?
+head annotation rules (Collins,2003).
+Our system is entirely supervised anduses no external data.
+Every embedding wasinitialised randomly (uniformly) in the interval[?0.01, 0.01].
+Word embeddings have 32 dimen-sions, tags and non-terminal embeddings have 16dimensions.
+The dimensions of the morphologicalattributes depend on the number of values they canhave (Table 4).
+The hidden layer has 512 units.4For the ?dynamic?
+setting, we trained everyother k sentence with the dynamic oracle andthe other sentences with the static oracle.
+Thismethod, used by Straka et al (2015), allows forhigh values of p, without slowing or preventingconvergence.
+We used several hyperparameterscombinations (see Table 5 of Annex A).
+For eachlanguage, we present the model with the combi-nation which maximizes the developement set F-score.
+We used Averaged Stochastic Gradient De-scent (Polyak and Juditsky, 1992) to minimize thenegative log likelihood of the training examples.We shuffled the sentences in the training set be-fore each iteration.Results Results for English are shown in Table3.
+The use of the dynamic oracle improves F-score4We did not tune these hyperparameters for each lan-guage.
+Instead, we chose a set of hyperparameters whichachieved a tradeoff between training time and model accu-racy.
+The effect of the morphological features and their di-mensionality are left to future work.by 0.4 on the development set and 0.6 on the testset.
+The resulting parser, despite using greedy de-coding and no additional data, is quite accurate.For example, it compares well with Hall et al(2014)?s span based model and is much faster.For the SPMRL dataset, we report results on thedevelopment sets and test sets in Table 2.
+Themetrics take punctuation and unparsed sentencesinto account (Seddah et al, 2013).
+We compareour results with the SPMRL shared task baselines(Seddah et al, 2013) and several other parsingmodels.
+The model of Bj?orkelund et al (2014)obtained the best results on this dataset.
+It isbased on a product grammar and a discriminativereranker, together with morphological features andword clusters learned on unannotated data.
+Durrettand Klein (2015) use a neural CRF based on CKYdecoding algorithm, with word embeddings pre-trained on unannotated data.
+Fern?andez-Gonz?alezand Martins (2015) use a parsing-as-reduction ap-proach, based on a dependency parser with a la-bel set rich enough to reconstruct constituent treesfrom dependency trees.
+Finally, Crabb?e (2015)uses a structured perceptron with rich features andbeam-search decoding.
+Both Crabb?e (2015) andBj?orkelund et al (2014) use MARMOT-predictedmorphological tags (Mueller et al, 2013), as isdone in our experiments.Our results show that, despite using a very sim-ple greedy inference and being strictly supervised,our base model (static oracle training) is compet-itive with the best single parsers on this dataset.179We hypothesize that these surprising results comeboth from the neural scoring model and the mor-phological attribute embeddings (especially forBasque, Hebrew, Polish and Swedish).
+We did nottest these hypotheses systematically and leave thisinvestigation for future work.Furthermore, we observe that the dynamic ora-cle improves training by up to 0.6 F-score (aver-aged over all languages).
+The improvement de-pends on the language.
+For example, Swedish,Arabic, Basque and German are the languageswith the most important improvement.
+In terms ofabsolute score, the parser also achieves very goodresults on Korean and Basque, and even outper-forms Bj?orkelund et al (2014)?s reranker on Ko-rean.Combined effect of beam and dynamic ora-cle Although initially, dynamic oracle trainingwas designed to improve parsing without rely-ing on more complex search methods (Goldbergand Nivre, 2012), we tested the combined effectsof dynamic oracle training and beam search de-coding.
+In Table 2, we provide results for beamdecoding with the already trained local modelsin the ?dynamic?
+setting.
+The transition fromgreedy search to a beam of size two brings an im-provement comparable to that of the dynamic or-acle.
+Further increase in beam size does not seemto have any noticeable effect, except for Arabic.These results show that effects of the dynamic or-acle and beam decoding are complementary andsuggest that a good tradeoff between speed andaccuracy is already achieved in a greedy settingor with a very small beam size6 ConclusionWe have described a dynamic oracle for con-stituent parsing.
+Experiments show that traininga parser against this oracle leads to an improve-ment in accuracy over a static oracle.
+Togetherwith morphological features, we obtain a greedyparser as accurate as state-of-the-art (non rerank-ing) parsers for morphologically-rich languages.AcknowledgmentsWe thank the anonymous reviewers, along withH?ector Mart?
+?nez Alonso and Olga Seminck forvaluable suggestions to improve prior versions ofthis article.ReferencesAnders Bj?orkelund,?Ozlem C?etino?glu, Rich?ard Farkas,Thomas Mueller, and Wolfgang Seeker.
+2013.
+(re)ranking meets morphosyntax: State-of-the-artresults from the SPMRL 2013 shared task.
+In Pro-ceedings of the Fourth Workshop on Statistical Pars-ing of Morphologically-Rich Languages, pages 135?145, Seattle, Washington, USA, October.
+Associa-tion for Computational Linguistics.Anders Bj?orkelund,?Ozlem C?etino?glu, AgnieszkaFale?nska, Rich?ard Farkas, Thomas Mueller, Wolf-gang Seeker, and Zsolt Sz?ant?o.
+2014.
+Introduc-ing the ims-wroc?aw-szeged-cis entry at the spmrl2014 shared task: Reranking and morpho-syntaxmeet unlabeled data.
+In Proceedings of the FirstJoint Workshop on Statistical Parsing of Morpho-logically Rich Languages and Syntactic Analysis ofNon-Canonical Languages, pages 97?102, Dublin,Ireland, August.
+Dublin City University.L?eon Bottou.
+2010.
+Large-Scale Machine Learn-ing with Stochastic Gradient Descent.
+In YvesLechevallier and Gilbert Saporta, editors, Proceed-ings of COMPSTAT?2010, pages 177?186.
+Physica-Verlag HD.Danqi Chen and Christopher D Manning.
+2014.
+A fastand accurate dependency parser using neural net-works.
+In Empirical Methods in Natural LanguageProcessing (EMNLP).Michael Collins.
+2003.
+Head-driven statistical mod-els for natural language parsing.
+Comput.
+Linguist.,29(4):589?637, December.Ronan Collobert and Jason Weston.
+2008.
+A unifiedarchitecture for natural language processing: Deepneural networks with multitask learning.
+In Pro-ceedings of the 25th International Conference onMachine Learning, ICML ?08, pages 160?167, NewYork, NY, USA.
+ACM.Benoit Crabb?e.
+2015.
+Multilingual discriminative lex-icalized phrase structure parsing.
+In Proceedings ofthe 2015 Conference on Empirical Methods in Natu-ral Language Processing, pages 1847?1856, Lisbon,Portugal, September.
+Association for ComputationalLinguistics.Hal Daum?e, John Langford, and Daniel Marcu.
+2009.Search-based structured prediction.
+Machine Learn-ing, 75(3):297?325.Hal Daum?e III, John Langford, and Daniel Marcu.2006.
+Searn in practice.Greg Durrett and Dan Klein.
+2015.
+Neural crf pars-ing.
+In Proceedings of the Association for Computa-tional Linguistics, Beijing, China, July.
+Associationfor Computational Linguistics.Daniel Fern?andez-Gonz?alez and Andr?e F. T. Martins.2015.
+Parsing as reduction.
+In Proceedings of the18053rd Annual Meeting of the Association for Compu-tational Linguistics and the 7th International JointConference on Natural Language Processing (Vol-ume 1: Long Papers), pages 1523?1533, Beijing,China, July.
+Association for Computational Linguis-tics.Yoav Goldberg and Joakim Nivre.
+2012.
+A dynamicoracle for arc-eager dependency parsing.
+In Pro-ceedings of COLING 2012, pages 959?976, Mum-bai, India, December.
+The COLING 2012 Organiz-ing Committee.Yoav Goldberg and Joakim Nivre.
+2013.
+Trainingdeterministic parsers with non-deterministic oracles.Transactions of the Association for ComputationalLinguistics, 1:403?414.Yoav Goldberg, Francesco Sartorio, and Giorgio Satta.2014.
+A tabular method for dynamic oracles intransition-based parsing.
+TACL, 2:119?130.Carlos G?omez-Rodr?
+?guez and Daniel Fern?andez-Gonz?alez.
+2015.
+An efficient dynamic oracle forunrestricted non-projective parsing.
+In Proceedingsof the 53rd Annual Meeting of the Association forComputational Linguistics and the 7th InternationalJoint Conference on Natural Language Processing(Volume 2: Short Papers), pages 256?261, Beijing,China, July.
+Association for Computational Linguis-tics.Carlos G?omez-Rodr?
+?guez, Francesco Sartorio, andGiorgio Satta.
+2014.
+A polynomial-time dy-namic oracle for non-projective dependency pars-ing.
+In Proceedings of the 2014 Conference onEmpirical Methods in Natural Language Process-ing (EMNLP), pages 917?927, Doha, Qatar, Octo-ber.
+Association for Computational Linguistics.David Hall, Greg Durrett, and Dan Klein.
+2014.
+Lessgrammar, more features.
+In Proceedings of the 52ndAnnual Meeting of the Association for Computa-tional Linguistics (Volume 1: Long Papers), Bal-timore, Maryland, June.
+Association for Computa-tional Linguistics.Mitchell P. Marcus, Beatrice Santorini, and Mary AnnMarcinkiewicz.
+1993.
+Building a large annotatedcorpus of english: The penn treebank.
+Computa-tional Linguistics, 19(2):313?330.Haitao Mi and Liang Huang.
+2015.
+Shift-reduce con-stituency parsing with dynamic programming andpos tag lattice.
+In Proceedings of the 2015 Confer-ence of the North American Chapter of the Associ-ation for Computational Linguistics: Human Lan-guage Technologies, pages 1030?1035, Denver, Col-orado, May?June.
+Association for ComputationalLinguistics.Thomas Mueller, Helmut Schmid, and HinrichSch?utze.
+2013.
+Efficient higher-order CRFs formorphological tagging.
+In Proceedings of the 2013Conference on Empirical Methods in Natural Lan-guage Processing, pages 322?332, Seattle, Wash-ington, USA, October.
+Association for Computa-tional Linguistics.Slav Petrov, Leon Barrett, Romain Thibaux, and DanKlein.
+2006.
+Learning accurate, compact, andinterpretable tree annotation.
+In Proceedings ofthe 21st International Conference on ComputationalLinguistics and 44th Annual Meeting of the Associa-tion for Computational Linguistics, pages 433?440,Sydney, Australia, July.
+Association for Computa-tional Linguistics.B.
+T. Polyak and A.
+B. Juditsky.
+1992.
+Accelerationof stochastic approximation by averaging.
+SIAM J.Control Optim., 30(4):838?855, July.St?ephane Ross, Geoffrey J. Gordon, and Drew Bagnell.2011.
+A reduction of imitation learning and struc-tured prediction to no-regret online learning.
+In Ge-offrey J. Gordon, David B. Dunson, and MiroslavDud?
+?k, editors, AISTATS, volume 15 of JMLR Pro-ceedings, pages 627?635.
+JMLR.org.Kenji Sagae and Alon Lavie.
+2005.
+A classifier-basedparser with linear run-time complexity.
+In Proceed-ings of the Ninth International Workshop on ParsingTechnology, pages 125?132.
+Association for Com-putational Linguistics.Kenji Sagae and Alon Lavie.
+2006.
+A best-first prob-abilistic shift-reduce parser.
+In Proceedings of theCOLING/ACL on Main conference poster sessions,pages 691?698.
+Association for Computational Lin-guistics.Djam?e Seddah, Reut Tsarfaty, Sandra K?ubler, MarieCandito, Jinho D. Choi, Rich?ard Farkas, Jen-nifer Foster, Iakes Goenaga, Koldo Gojenola Gal-letebeitia, Yoav Goldberg, Spence Green, NizarHabash, Marco Kuhlmann, Wolfgang Maier, JoakimNivre, Adam Przepi?orkowski, Ryan Roth, WolfgangSeeker, Yannick Versley, Veronika Vincze, MarcinWoli?nski, Alina Wr?oblewska, and Eric Villemontede la Clergerie.
+2013.
+Overview of the SPMRL2013 shared task: A cross-framework evaluation ofparsing morphologically rich languages.
+In Pro-ceedings of the Fourth Workshop on Statistical Pars-ing of Morphologically-Rich Languages, pages 146?182, Seattle, Washington, USA, October.
+Associa-tion for Computational Linguistics.Milan Straka, Jan Haji?c, Jana Strakov?a, and JanHaji?c jr. 2015.
+Parsing universal dependency tree-banks using neural networks and search-based or-acle.
+In Proceedings of Fourteenth InternationalWorkshop on Treebanks and Linguistic Theories(TLT 14), December.Taro Watanabe and Eiichiro Sumita.
+2015.
+Transition-based neural constituent parsing.
+In Proceedingsof the 53rd Annual Meeting of the Association forComputational Linguistics and the 7th InternationalJoint Conference on Natural Language Processing181(Volume 1: Long Papers), pages 1169?1179, Bei-jing, China, July.
+Association for ComputationalLinguistics.Yue Zhang and Stephen Clark.
+2009.
+Transition-based parsing of the chinese treebank using a globaldiscriminative model.
+In Proceedings of the 11thInternational Conference on Parsing Technologies,IWPT ?09, pages 162?171, Stroudsburg, PA, USA.Association for Computational Linguistics.Muhua Zhu, Yue Zhang, Wenliang Chen, Min Zhang,and Jingbo Zhu.
+2013.
+Fast and accurate shift-reduce constituent parsing.
+In ACL (1), pages 434?443.
+The Association for Computer Linguistics.A Supplementary Material?static?
+and ?dynamic?
+setting ?dynamic?
+settinglearning rate ?
+iterations k p{0.01, 0.02} {0, 10?6} [1, 24] {8, 16} {0.5, 0.9}Table 5: Hyperparameters.
+?
+is the decrease con-stant used for the learning rate (Bottou, 2010).s0.cts0.wt.tag s0.wt.form q1.tags0.cls0.wl.tag s0.wl.form q2.tags0.crs0.wr.tag s0.wr.form q3.tags1.cts1.wt.tag s1.wt.form q4.tags1.cls1.wl.tag s1.wl.form q1.forms1.crs1.wr.tag s1.wr.form q2.forms2.cts2.wt.tag s2.wt.form q3.formq4.forms0.wt.m?m ?M q0.m?m ?Ms1.wt.m?m ?M q1.m?m ?MTable 6: These templates specify a list of ad-dresses in a configuration.
+The input of the neuralnetwork is the instanciation of each address by adiscrete typed symbol.
+Each vi(Section 2) is theembedding of the ithinstantiated symbol of thislist.
+M is the set of all available morphologicalattributes for a given language.
+We use the follow-ing notations (cf Figure 4): siis the ithitem in thestack, c denotes non-terminals, top, left and right,indicate the position of an element in the subtree.Finally, w and q are respectively stack and buffertokens.182

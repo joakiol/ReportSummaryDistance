@@ -1,0 +1,308 @@
+2012 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, pages 427?436,Montre?al, Canada, June 3-8, 2012. c?2012 Association for Computational LinguisticsBatch Tuning Strategies for Statistical Machine TranslationColin Cherry and George FosterNational Research Council Canada{Colin.Cherry,George.Foster}@nrc-cnrc.gc.caAbstractThere has been a proliferation of recent workon SMT tuning algorithms capable of han-dling larger feature sets than the traditionalMERT approach.
+We analyze a number ofthese algorithms in terms of their sentence-level loss functions, which motivates severalnew approaches, including a Structured SVM.We perform empirical comparisons of eightdifferent tuning strategies, including MERT,in a variety of settings.
+Among other results,we find that a simple and efficient batch ver-sion of MIRA performs at least as well astraining online, and consistently outperformsother options.1 IntroductionThe availability of linear models and discriminativetuning algorithms has been a huge boon to statis-tical machine translation (SMT), allowing the fieldto move beyond the constraints of generative noisychannels (Och and Ney, 2002).
+The ability to opti-mize these models according to an error metric hasbecome a standard assumption in SMT, due to thewide-spread adoption ofMinimum Error Rate Train-ing or MERT (Och, 2003).
+However, MERT hastrouble scaling to more than 30 features, which hasled to a surge in research on tuning schemes that canhandle high-dimensional feature spaces.These methods fall into a number of broad cate-gories.
+Minimum risk approaches (Och, 2003; Smithand Eisner, 2006) have been quietly capable of han-dling many features for some time, but have yet tosee widespread adoption.
+Online methods (Lianget al, 2006; Watanabe et al, 2007), are recognizedto be effective, but require substantial implementa-tion efforts due to difficulties with parallelization.Pairwise ranking (Shen et al, 2004; Hopkins andMay, 2011) recasts tuning as classification, and canbe very easy to implement, as it fits nicely into theestablished MERT infrastructure.The MERT algorithm optimizes linear weightsrelative to a collection of k-best lists or lattices,which provide an approximation to the true searchspace.
+This optimization is wrapped in an outerloop that iterates between optimizing weights andre-decoding with those weights to enhance the ap-proximation.
+Our primary contribution is to empiri-cally compare eight tuning algorithms and variants,focusing on methods that work within MERT?s es-tablished outer loop.
+This is the first comparison toinclude all three categories of optimizer.Furthermore, we introduce three tuners that havenot been previously tested.
+In particular, wetest variants of Chiang et al?s (2008) hope-fearMIRA that use k-best or lattice-approximated searchspaces, producing a Batch MIRA that outperformsa popular mechanism for parallelizing online learn-ers.
+We also investigate the direct optimization ofhinge loss on k-best lists, through the use of a Struc-tured SVM (Tsochantaridis et al, 2004).
+We reviewand organize the existing tuning literature, provid-ing sentence-level loss functions for minimum risk,online and pairwise training.
+Finally, since random-ization plays a different role in each tuner, we alsosuggest a new method for testing an optimizer?s sta-bility (Clark et al, 2011), which sub-samples thetuning set instead of varying a random seed.2 BackgroundWe begin by establishing some notation.
+We viewour training set as a list of triples [f,R, E ]ni=1, wheref is a source-language sentence, R is a set of target-language reference sentences, and E is the set of427all reachable hypotheses; that is, each e ?
+Ei is atarget-language derivation that can be decoded fromfi.
+The function ~hi(e) describes e?s relationship toits source fi using features that decompose into thedecoder.
+A linear model ~w scores derivations ac-cording to their features, meaning that the decodersolves:ei(~w) = argmaxe?Ei~w ?
+~hi(e) (1)Assuming we wish to optimize our decoder?s BLEUscore (Papineni et al, 2002), the natural objec-tive of learning would be to find a ~w such thatBLEU([e(~w), R]n1 ) is maximal.
+In most machinelearning papers, this would be the point where wewould say, ?unfortunately, this objective is unfeasi-ble.?
+But in SMT, we have been happily optimizingexactly this objective for years using MERT.However, it is now acknowledged that the MERTapproach is not feasible for more than 30 or so fea-tures.
+This is due to two main factors:1.
+MERT?s parameter search slows and becomesless effective as the number of features rises,stopping it from finding good training scores.2.
+BLEU is a scale invariant objective: one canscale ~w by any positive constant and receive thesame BLEU score.1 This causes MERT to re-sist standard mechanisms of regularization thataim to keep ||~w|| small.The problems with MERT can be addressedthrough the use of surrogate loss functions.
+In thispaper, we focus on linear losses that decompose overtraining examples.
+Using Ri and Ei, each loss `i(~w)indicates how poorly ~w performs on the ith trainingexample.
+This requires a sentence-level approxima-tion of BLEU, which we re-encode into a cost ?i(e)on derivations, where a high cost indicates that e re-ceives a low BLEU score.
+Unless otherwise stated,we will assume the use of sentence BLEU with add-1 smoothing (Lin and Och, 2004).
+The learners dif-fer in their definition of ` and ?, and in how theyemploy their loss functions to tune their weights.1This is true of any evaluation metric that considers only theranking of hypotheses and not their model scores; ie, it is trueof all common MT metrics.2.1 Margin Infused Relaxed AlgorithmFirst employed in SMT by Watanabe et al (2007),and refined by Chiang et al (2008; 2009), the Mar-gin Infused Relaxed Algorithm (MIRA) employs astructured hinge loss:`i(~w) = maxe?Ei[?i(e) + ~w ?
+(~hi(e) ?
+~hi(e?i ))](2)where e?i is an oracle derivation, and cost is de-fined as ?i(e) = BLEUi(e?i ) ?
+BLEUi(e), so that?i(e?i ) = 0.
+The loss `i(~w) is 0 only if ~w separateseach e ?
+Ei from e?i by a margin proportional to theirBLEU differentials.MIRA is an instance of online learning, repeatingthe following steps: visit an example i, decode ac-cording to ~w, and update ~w to reduce `i(~w).
+Eachupdate makes the smallest change to ~w (subject to astep-size cap C) that will separate the oracle from anumber of negative hypotheses.
+The work of Cram-mer et al (2006) shows that updating away from asingle ?fear?
+hypothesis that maximizes (2) admitsa closed-form update that performs well.
+Let e?i bethe e ?
+Ei that maximizes `i(~w); the update can beperformed in two steps:?t = min[C, `i(~wt)||~hi(e?i )?~hi(e?i)||2]~wt+1 = ~wt + ?t(~hi(e?i ) ?
+~hi(e?i))(3)To improve generalization, the average of allweights seen during learning is used on unseen data.Chiang et al (2008) take advantage of MIRA?sonline nature to modify each update to better suitSMT.
+The cost ?i is defined using a pseudo-corpus BLEU that tracks the n-gram statistics ofthe model-best derivations from the last few up-dates.
+This modified cost matches corpus BLEUbetter than add-1 smoothing, but it also makes ?itime-dependent: each update for an example i willbe in the context of a different pseudo-corpus.
+Theoracle e?i also shifts with each update to ~w, as itis defined as a ?hope?
+derivation, which maximizes~w ?
+~hi(e) + BLEUi(e).
+Hope updating ensures thatMIRA aims for ambitious, reachable derivations.In our implementation, we make a number ofsmall, empirically verified deviations from Chianget al (2008).
+These include the above-mentioneduse of a single hope and fear hypothesis, and the use428of hope hypotheses (as opposed to model-best hy-potheses) to build the pseudo-corpus for calculatingBLEUi.
+These changes were observed to be neu-tral with respect to translation quality, but resulted infaster running time and simplified implementation.2.2 Direct OptimizationWith the exception of MIRA, the tuning approachesdiscussed in this paper are direct optimizers.
+That is,each solves the following optimization problem:~w?
+= argmin~w?2||~w||2 +?i`i(~w) (4)where the first term provides regularization,weighted by ?.
+Throughout this paper, (4) isoptimized with respect to a fixed approximationof the decoder?s true search space, represented asa collection of k-best lists.
+The various methodsdiffer in their definition of loss and in how theyoptimize their objective.Without the complications added by hope decod-ing and a time-dependent cost function, unmodifiedMIRA can be shown to be carrying out dual coordi-nate descent for an SVM training objective (Martinset al, 2010).
+However, exactly what objective hope-fear MIRA is optimizing remains an open question.Gimpel and Smith (2012) discuss these issues ingreater detail, while also providing an interpretablealternative to MIRA.2.3 Pairwise Ranking OptimizationIntroduced by Hopkins and May (2011), PairwiseRanking Optimization (PRO) aims to handle largefeature sets inside the traditional MERT architec-ture.
+That is, PRO employs a growing approxima-tion of Ei by aggregating the k-best hypotheses froma series of increasingly refined models.
+This archi-tecture is desirable, as most groups have infrastruc-ture to k-best decode their tuning sets in parallel.For a given approximate E?i, PRO creates a sam-ple Si of (eg, eb) pairs, such that BLEUi(eg) >BLEUi(eb).
+It then uses a binary classifier to sep-arate each pair.
+We describe the resulting loss interms of an SVM classifier, to highlight similaritieswith MIRA.
+In terms of (4), PRO defines`i(~w) =?
+(eg ,eb)?Si2(1 + ~w ?
+(~hi(eb) ?
+~hi(eg)))+where (x)+ = max(0, x).
+The hinge loss is multi-plied by 2 to account for PRO?s use of two examples(positive and negative) for each sampled pair.
+Thissum of hinge-losses is 0 only if each pair is separatedby a model score of 1.
+Given [S]ni=1, this convexobjective can be optimized using any binary SVM.2Unlike MIRA, the margin here is fixed to 1; cost en-ters into PRO through its sampling routine, whichperforms a large uniform sample and then selects asubset of pairs with large BLEU differentials.The PRO loss uses a sum over pairs in place ofMIRA?s max, which allows PRO to bypass oracleselection, and to optimize with off-the-shelf classi-fiers.
+This sum is potentially a weakness, as PROreceives credit for each correctly ordered pair in itssample, and these pairs are not equally relevant tothe final BLEU score.2.4 Minimum Risk TrainingMinimum risk training (MR) interprets ~w as a prob-abilistic model, and optimizes expected BLEU.
+Wefocus on expected sentence costs (Och, 2003; Zenset al, 2007; Li and Eisner, 2009), as this risk is sim-ple to optimize and fits nicely into our mathemati-cal framework.
+Variants that use the expected suffi-cient statistics of BLEU also exist (Smith and Eisner,2006; Pauls et al, 2009; Rosti et al, 2011).We again assume a MERT-like tuning architec-ture.
+Let ?i(e) = ?BLEUi(e) and let`i(~w) = EP~w [?i(e)] =?e?E?i[exp(~w ?
+~hi(e))?i(e)]?e?
+?E?iexp(~w ?
+~hi(e?
+))This expected cost becomes increasingly small asgreater probability mass is placed on derivationswith high BLEU scores.
+This smooth, non-convexobjective can be solved to a local minimum usinggradient-based optimizers; we have found stochasticgradient descent to be quite effective (Bottou, 2010).Like PRO, MR requires no oracle derivation, andfits nicely into the established MERT architecture.The expectations needed to calculate the gradientEP~w[~hi(e)?i(e)]?
+EP~w [?i(e)]EP~w[~hi(e)]2Hopkins and May (2011) advocate a maximum-entropyversion of PRO, which is what we evaluate in our empiricalcomparison.
+It can be obtained using a logit loss `i(~w) =Pg,b 2 log?1 + exp?~w ?`~hi(eb) ?
+~hi(eg)??
+?.429are trivial to extract from a k-best list of derivations.Each downward step along this gradient moves themodel toward likely derivations, and away fromlikely derivations that incur high costs.3 Novel MethodsWe have reviewed three tuning methods, all of whichaddress MERT?s weakness with large features by us-ing surrogate loss functions.
+Additionally, MIRAhas the following advantages over PRO and MR:1.
+Loss is optimized using the true Ei, as opposedto an approximate search space E?i.2.
+Sentence BLEU is calculated with a fluidpseudo-corpus, instead of add-1 smoothing.Both of these advantages come at a cost: oper-ating on the true Ei sacrifices easy parallelization,while using a fluid pseudo-corpus creates an unsta-ble learning objective.
+We develop two large-margintuners that explore these trade-offs.3.1 Batch MIRAOnline training makes it possible to learn with thedecoder in the loop, forgoing the need to approxi-mate the search space, but it is not necessarily con-venient to do so.
+Online algorithms are notoriouslydifficult to parallelize, as they assume each exampleis visited in sequence.
+Parallelization is importantfor efficient SMT tuning, as decoding is still rela-tively expensive.The parallel online updates suggested by Chi-ang et al (2008) involve substantial inter-processcommunication, which may not be easily supportedby all clusters.
+McDonald et al (2010) suggesta simpler distributed strategy that is amenable tomap-reduce-like frameworks, which interleaves on-line training on shards with weight averaging acrossshards.
+This strategy has been adopted by Moses(Hasler et al, 2011), and it is the one we adopt inour MIRA implementation.However, online training using the decoder maynot be necessary for good performance.
+The successof MERT, PRO and MR indicates that their sharedsearch approximation is actually quite reasonable.Therefore, we propose Batch MIRA, which sits ex-actly where MERT sits in the standard tuning archi-tecture, greatly simplifying parallelization:1.
+Parallel Decode: [E?
+?
+]n1 = k-best([f, E ]n1 , ~w)2.
+Aggregate: [E?
+]n1 = [E?
+]n1 ?
+[E??]n13.
+Train: ~w = BatchMIRA([f,R, E?
+]n1 , ~w)4.
+Repeatwhere BatchMIRA() trains the SMT-adapted MIRAalgorithm to completion on the current approxima-tion E?
+, without parallelization.3 The only change wemake to MIRA is to replace the hope-fear decodingof sentences with the hope-fear re-ranking of k-bestlists.
+Despite its lack of parallelization, each call toBatchMIRA() is extremely fast, as SMT tuning setsare small enough to load all of [E?
+]n1 into memory.
+Wetest two Batch MIRA variants, which differ in theirrepresentation of E?
+.
+Pseudo-code that covers both isprovided in Algorithm 1.
+Note that if we set E?
+= E ,Algorithm 1 also describes online MIRA.Batch k-best MIRA inherits all of the MERT archi-tecture.
+It is very easy to implement; the hope-feardecoding steps can by carried out by simply evaluat-ing BLEU score and model score for each hypothe-sis in the k-best list.Batch Lattice MIRA replaces k-best decoding instep 1 with decoding to lattices.
+To enable loadingall of the lattices into memory at once, we prune toa density of 50 edges per reference word.
+The hope-fear decoding step requires the same oracle latticedecoding algorithms as online MIRA (Chiang et al,2008).
+The lattice aggregation in the outer loop canbe kept reasonable by aggregating only those pathscorresponding to hope or fear derivations.3.2 Structured SVMWhile MIRA takes a series of local hinge-loss re-ducing steps, it is also possible to directly minimizethe sum of hinge-losses using a batch algorithm, cre-ating a structured SVM (Tsochantaridis et al, 2004).To avoid fixing an oracle before optimization begins,we adapt Yu and Joachim?s (2009) latent SVM toour task, which allows the oracle derivation for eachsentence to vary during training.
+Again we assume aMERT-like architecture, which approximates E withan E?
+constructed from aggregated k-best lists.Inspired by the local oracle of Liang et al (2006),we define E?i?
+to be an oracle set:E?i?
+= {e|BLEUi(e) is maximal}.3In our implementation, BatchMIRA() trains for J = 30passes over [E?
+]n1 .430Algorithm 1 BatchMIRAinput [f,R, E?
+]n1 , ~w, max epochs J , step cap C,and pseudo-corpus decay ?.init Pseudo-corpus BG to small positive counts.init t = 1; ~wt = ~wfor j from 1 to J dofor i from 1 to n in random order do// Hope-fear decode in E?ie?t = argmaxe?E?i[~wt ?
+~hi(e) + BLEUi(e)]e?t = argmaxe?E?i[~wt ?
+~hi(e) ?
+BLEUi(e)]// Update weights?t = BLEUi(e?t ) ?
+BLEUi(e?t)?t = min[C,?t+~wt?
+(~hi(e?t)?~hi(e?t ))||~hi(e?t )?~hi(e?t)||2]~wt+1 = ~wt + ?t(~hi(e?t ) ?
+~hi(e?i))// Update statisticsBG = ?BG+ BLEU stats for e?t and Rit = t + 1end for~wavgj =1nj?njt?=1 ~wt?end forreturn ~wavgj that maximizes training BLEUCost is also defined in terms of the maximal BLEU,?i(e) = maxe??E?i[BLEUi(e?)]?
+BLEUi(e).Finally, loss is defined as:`i(~w) = maxe?E?i[?i(e) + ~w ?
+~hi(e)?
+maxe?i ?E?i?
+(~w ?
+~hi(e?i ))]This loss is 0 only if some hypothesis in the oracleset is separated from all others by a margin propor-tional to their BLEUi differentials.With loss defined in this manner, we can mini-mize (4) to local minimum by using an alternatingtraining procedure.
+For each example i, we selecta fixed e?i ?
+E?i?
+that maximizes model score; thatis, ~w is used to break ties in BLEU for oracle selec-tion.
+With the oracle fixed, the objective becomesa standard structured SVM objective, which can beminimized using a cutting-plane algorithm, as de-scribed by Tsochantaridis et al (2004).
+After doingso, we can drive the loss lower still by iterating thisprocess: re-select each oracle (breaking ties with thenew ~w), then re-optimize ~w.
+We do so 10 times.
+Wewere surprised by the impact of these additional iter-ations on the final loss; for some sentences, E?i?
+canbe quite large.Despite the fact that both algorithms use a struc-tured hinge loss, there are several differences be-tween our SVM and MIRA.
+The SVM has an ex-plicit regularization term ?
+that is factored into itsglobal objective, while MIRA regularizes implicitlyby taking small steps.
+The SVM requires a stableobjective to optimize, meaning that it must forgo thepseudo-corpus used by MIRA to calculate ?i; in-stead, the SVM uses an interpolated sentence-levelBLEU (Liang et al, 2006).4 Finally, MIRA?s oracleis selected with hope decoding.
+With a sufficientlylarge ~w, any e ?
+E?
+can potentially become the ora-cle.
+In contrast, the SVM?s local oracle is selectedfrom a small set E?
+?, which was done to more closelymatch the assumptions of the Latent SVM.To solve the necessary quadratic programmingsub-problems, we use a multiclass SVM similar toLIBLINEAR (Hsieh et al, 2008).
+Like Batch MIRAand PRO, the actual optimization is very fast, as thecutting plane converges quickly and all of [E?
+]n1 canbe loaded into memory at once.3.3 Qualitative SummaryWe have reviewed three tuning methods and intro-duced three tuning methods.
+All six methods em-ploy sentence-level loss functions, which in turn em-ploy sentence-level BLEU approximations.
+Exceptfor online MIRA, all methods plug nicely into theexisting MERT architecture.
+These methods can besplit into two groups: MIRA variants (online, batchk-best, batch lattice), and direct optimizers (PRO,MR and SVM).
+The MIRA variants use pseudo-corpus BLEU in place of smoothed BLEU, andprovide access to richer hypothesis spaces throughthe use of online training or lattices.5 The directoptimizers have access to a tunable regularizationparameter ?, and do not require special purposecode for hope and fear lattice decoding.
+Batch4SVM training with interpolated BLEU outperformed add-1BLEU in preliminary testing.
+A comparison of different BLEUapproximations under different tuning objectives would be aninteresting path for future work.5MR approaches that use lattices (Li and Eisner, 2009;Pauls et al, 2009; Rosti et al, 2011) or the complete searchspace (Arun et al, 2010) exist, but are not tested here.431k-best MIRA straddles the two groups, benefitingfrom pseudo-corpus BLEU and easy implementa-tion, while being restricted to a k-best list.4 Experimental DesignWe evaluated the six tuning strategies describedin this paper, along with two MERT baselines,on three language pairs(French-English (Fr-En),English-French (En-Fr) and Chinese-English (Zh-En)), across three different feature-set sizes.
+Eachsetting was run five times over randomized variantsto improve reliability.
+To cope with the resultinglarge number of configurations, we ran all experi-ments using an efficient phrase-based decoder simi-lar to Moses (Koehn et al, 2007).All tuning methods that use an approximate E?
+per-form 15 iterations of the outer loop and return theweights that achieve the best development BLEUscore.
+When present, ?
+was coarsely tuned (trying 3values differing by magnitudes of 10) in our large-feature Chinese-English setting.?
+kb-mert : k-best MERT with 20 randomrestarts.
+All k-best methods use k = 100.?
+lb-mert : Lattice MERT (Machery et al, 2008)using unpruned lattices and aggregating onlythose paths on the line search?s upper envelope.?
+mira : Online MIRA (?2.1).
+All MIRA vari-ants use a pseudo-corpus decay ?
+= 0.999 andC = 0.01.
+Online parallelization follows Mc-Donald et al (2010), using 8 shards.
+We tested20, 15, 10, 8 and 5 shards during development.?
+lb-mira : Batch Lattice MIRA (?3.1).?
+kb-mira : Batch k-best MIRA (?3.1).?
+pro : PRO (?2.3) follows Hopkins and May(2011); however, we were unable to find set-tings that performed well in general.
+Reportedresults use MegaM6 with a maximum of 30 it-erations (as is done in Moses; the early stop-ping provides a form of regularization) for oursix English/French tests, and MegaM with 100iterations and a reduced initial uniform sam-ple (50 pairs instead of 5000) for our three En-glish/Chinese tests.?
+mr : MR as described in ?2.4.
+We employ alearning rate of ?0/(1 + ?0?t) for stochastic6Available at www.cs.utah.edu/?hal/megam/corpus sentences words (en) words (fr)train 2,928,759 60,482,232 68,578,459dev 2,002 40,094 44,603test1 2,148 42,503 48,064test2 2,166 44,701 49,986Table 1: Hansard Corpus (English/French)corpus sentences words (zh) words (en)train1 6,677,729 200,706,469 213,175,586train2 3,378,230 69,232,098 66,510,420dev 1,506 38,233 40,260nist04 1,788 53,439 59,944nist06 1,664 41,782 46,140nist08 1,357 35,369 42,039Table 2: NIST09 Corpus (Chinese-English).
+Train1 cor-responds to the UN and Hong Kong sub-corpora; train2to all others.gradient descent, with ?0 tuned to optimize thetraining loss achieved after one epoch (Bottou,2010).
+Upon reaching a local optimum, we re-shuffle our data, re-tune our learning rate, andre-start from the optimum, repeating this pro-cess 5 times.
+We do not sharpen our distribu-tion with a temperature or otherwise control forentropy; instead, we trust ?
+= 50 to maintain areasonable distribution.?
+svm : Structured SVM (?3.2) with ?
+= 1000.4.1 DataSystems for English/French were trained on Cana-dian Hansard data (years 2001?2009) summarizedin table 1.7 The dev and test sets were chosenrandomly from among the most recent 5 days ofHansard transcripts.The system for Zh-En was trained on data fromthe NIST 2009 Chinese MT evaluation, summarizedin table 2.
+The dev set was taken from the NIST05 evaluation set, augmented with some material re-served from other NIST corpora.
+The NIST 04, 06,and 08 evaluation sets were used for testing.4.2 SMT FeaturesFor all language pairs, phrases were extracted witha length limit of 7 from separate word alignments7This corpus will be distributed on request.432template max fren enfr zhentgt unal 50 50 50 31count bin 11 11 11 11word pair 6724 1298 1291 1664length bin 63 63 63 63total 6848 1422 1415 1769Table 3: Sparse feature templates used in Big.performed by IBM2 and HMM models and sym-metrized using diag-and (Koehn et al, 2003).
+Con-ditional phrase probabilities in both directions wereestimated from relative frequencies, and from lexicalprobabilities (Zens and Ney, 2004).
+Language mod-els were estimated with Kneser-Ney smoothing us-ing SRILM.
+Six-feature lexicalized distortion mod-els were estimated and applied as in Moses.For each language pair, we defined roughly equiv-alent systems (exactly equivalent for En-Fr and Fr-En, which are mirror images) for each of threenested feature sets: Small, Medium, and Big.The Small set defines a minimal 7-feature sys-tem intended to be within easy reach of all tuningstrategies.
+It comprises 4 TM features, one LM, andlength and distortion features.
+For the Chinese sys-tem, the LM is a 5-gram trained on the NIST09 Gi-gaword corpus; for English/French, it is a 4-gramtrained on the target half of the parallel Hansard.The Medium set is a more competitive 18-featuresystem.
+It adds 4 TM features, one LM, and 6 lex-icalized distortion features.
+For Zh-En, Small?s TM(trained on both train1 and train2 in table 2) is re-placed by 2 separate TMs from these sub-corpora;for En/Fr, the extra TM (4 features) comes from aforced-decoding alignment of the training corpus, asproposed by Wuebker et al (2010).
+For Zh-En, theextra LM is a 4-gram trained on the target half of theparallel corpus; for En/Fr, it is a 4-gram trained on5m sentences of similar parliamentary data.The Big set adds sparse Boolean features toMedium, for a maximum of 6,848 features.
+We usedsparse feature templates that are equivalent to thePBMT set described in (Hopkins and May, 2011):tgt unal picks out each of the 50 most frequent tar-get words to appear unaligned in the phrase table;count bin uniquely bins joint phrase pair counts withupper bounds 1,2,4,8,16,32,64,128,1k,10k,?
+; wordpair fires when each of the 80 most frequent wordsin each language appear aligned 1-1 to each other, tosome other word, or not 1-1; and length bin captureseach possible phrase length and length pair.
+Table 3summarizes the feature templates, showing the max-imum number of features each can generate, and thenumber of features that received non-zero weights inthe final model tuned by MR for each language pair.Feature weights are initialized to 1.0 for each ofthe TM, LM and distortion penalty features.
+Allother weights are initialized to 0.0.4.3 Stability TestingWe follow Clark et al(2011), and perform multiplerandomized replications of each experiment.
+How-ever, their method of using different random seedsis not applicable in our context, since randomizationdoes not play the same role for all tuning methods.Our solution was to randomly draw and fix four dif-ferent sub-samples of each dev set, retaining eachsentence with a probability of 0.9.
+For each tuningmethod and setting, we then optimize on the origi-nal dev and all sub-samples.
+The resulting standarddeviations provide an indication of stability.5 ResultsThe results of our survey of tuning methods can beseen in Tables 4, 5 and 6.
+Results are averaged overtest sets (2 for Fr/En, 3 for Zh/En), and over 5 sub-sampled runs per test set.
+The SD column reports thestandard deviation of the average test score acrossthe 5 sub-samples.It may be dismaying to see only small scoreimprovements when transitioning from Medium toBig.
+This is partially due to the fact that our Big fea-ture set affects only phrase-table scores.
+Our phrasetables are already strong, through our use of largedata or leave-one-out forced decoding.
+The impor-tant baseline when assessing the utility of a methodis Medium k-best MERT.
+In all language pairs, ourBig systems generally outperform this baseline by0.4 BLEU points.
+It is interesting to note that mostmethods achieve the bulk of this improvement on theMedium feature set.8 This indicates that MERT be-gins to show some problems even in an 18-feature8One can see the same phenomenon in the results of Hop-kins and May (2011) as well.433Table 4: French to English Translation (Fr-En)Small Medium BigTune Test SD Tune Test SD Tune Test SDkb-mert 40.50 39.94 0.04 40.75 40.29 0.13 n/a n/a n/alb-mert 40.52 39.93 0.11 40.93 40.39 0.08 n/a n/a n/amira 40.38 39.94 0.04 40.64 40.59 0.06 41.02 40.74 0.05kb-mira 40.46 39.97 0.05 40.92 40.64 0.12 41.46 40.75 0.08lb-mira 40.44 39.98 0.06 40.94 40.65 0.06 41.59 40.78 0.09pro 40.11 40.05 0.05 40.16 40.07 0.08 40.55 40.21 0.24mr 40.24 39.88 0.05 40.70 40.57 0.14 41.18 40.60 0.08svm 40.05 40.20 0.03 40.60 40.56 0.08 41.32 40.52 0.07Table 5: English to French Translation (En-Fr)Small Medium BigTune Test SD Tune Test SD Tune Test SDkb-mert 40.47 39.72 0.06 40.70 40.02 0.11 n/a n/a n/alb-mert 40.45 39.76 0.08 40.90 40.13 0.10 n/a n/a n/amira 40.36 39.83 0.03 40.78 40.44 0.02 40.89 40.45 0.05kb-mira 40.44 39.83 0.02 40.94 40.35 0.06 41.48 40.52 0.06lb-mira 40.45 39.83 0.02 41.05 40.45 0.04 41.65 40.59 0.07pro 40.17 39.57 0.15 40.30 40.01 0.04 40.75 40.22 0.17mr 40.31 39.65 0.04 40.94 40.30 0.13 41.45 40.47 0.10svm 39.99 39.55 0.03 40.40 39.96 0.05 41.00 40.21 0.03Table 6: Chinese to English Translation (Zh-En)Small Medium BigTune Test SD Tune Test SD Tune Test SDkb-mert 23.97 29.65 0.06 25.74 31.58 0.42 n/a n/a n/alb-mert 24.18 29.48 0.15 26.42 32.39 0.22 n/a n/a n/amira 23.98 29.54 0.01 26.23 32.58 0.08 25.99 32.52 0.08kb-mira 24.10 29.51 0.06 26.28 32.50 0.12 26.18 32.61 0.14lb-mira 24.13 29.59 0.05 26.43 32.77 0.06 26.40 32.82 0.18pro 23.25 28.74 0.24 25.80 32.42 0.20 26.49 32.18 0.40mr 23.87 29.55 0.09 26.26 32.52 0.12 26.42 32.79 0.15svm 23.59 28.91 0.05 26.26 32.70 0.05 27.23 33.04 0.12404142434445lb-mirasvmmr4040.240.440.640.8lb-mira svmmrTune TestFigure 1: French-English test of regularization with an over-fitting feature set.
+lb-mira varies C ={1, 1e-1, 1e-2, 1e-3}, its defaultC is 1e-2; svm varies ?
+={1e2, 1e3, 1e4, 1e5}, its default ?
+is 1e3; mr varies ?
+={5, 5e1, 5e2, 5e3}, its default ?
+is 5e1.434setting, which can be mitigated through the use ofLattice MERT.When examining score differentials, recall thatthe reported scores average over multiple test setsand sub-sampled tuning runs.
+Using Small features,all of the tested methods are mostly indistinguish-able, but as we move to Medium and Big, BatchLattice MIRA emerges as our method of choice.
+Itis the top scoring system in all Medium settings,and in two of three Big settings (in Big Zh-En, theSVM comes first, with batch lattice MIRA placingsecond).
+However, all of the MIRA variants per-form similarly, though our implementation of on-line MIRA is an order of magnitude slower, mostlydue to its small number of shards.
+It is interest-ing that our batch lattice variant consistently outper-forms online MIRA.
+We attribute this to our paral-lelization strategy, Chiang et al?s (2008) more com-plex solution may perform better.There may be settings where an explicit regular-ization parameter is desirable, thus we also make arecommendation among the direct optimizers (PRO,MR and SVM).
+Though these systems all tend toshow a fair amount of variance across language andfeature sets (likely due to their use sentence-levelBLEU), MR performs the most consistently, and isalways within 0.2 of batch lattice MIRA.The SVM?s performance on Big Zh-En is an in-triguing outlier in our results.
+Note that it not onlyperforms best on the test set, but also achieves thebest tuning score by a large margin.
+We suspectwe have simply found a setting where interpolatedBLEU and our choice of ?
+work particularly well.We intend to investigate this case to see if this levelof success can be replicated consistently, perhapsthrough improved sentence BLEU approximation orimproved oracle selection.5.1 Impact of RegularizationOne main difference between MIRA and the directoptimizers is the availability of an explicit regular-ization term ?.
+To measure the impact of this param-eter, we designed a feature set explicitly for over-fitting.
+This set uses our Big Fr-En features, with thecount bin template modified to distinguish each jointcount observed in the tuning set.
+These new fea-tures, which expand the set to 20k+ features, shouldgeneralize poorly.We tested MR and SVM on our Fr-En data us-ing this feature set, varying their respective regular-ization parameters by factors of 10.
+We comparedthis to Batch Lattice MIRA?s step-size cap C, whichcontrols its regularization (Martins et al, 2010).
+Theresults are shown in Figure 1.
+Looking at the tuningscores, one can see that ?
+affords much greater con-trol over tuning performance than MIRA?s C. Look-ing at test scores, MIRA?s narrow band of regular-ization appears to be just about right; however, thereis no reason to expect this to always be the case.6 ConclusionWe have presented three new, large-margin tuningmethods for SMT that can handle thousands of fea-tures.
+Batch lattice and k-best MIRA carry out theironline training within approximated search spaces,reducing costs in terms of both implementation andtraining time.
+The Structured SVM optimizes a sumof hinge losses directly, exposing an explicit reg-ularization term.
+We have organized the literatureon tuning, and carried out an extensive comparisonof linear-loss SMT tuners.
+Our experiments showBatch Lattice MIRA to be the most consistent of thetested methods.
+In the future, we intend to inves-tigate improved sentence-BLEU approximations tohelp narrow the gap between MIRA and the directoptimizers.AcknowledgementsThanks to Mark Hopkins, Zhifei Li and JonathanMay for their advice while implementing the meth-ods in this review, and to Kevin Gimpel, RolandKuhn and the anonymous reviewers for their valu-able comments on an earlier draft.ReferencesAbhishek Arun, Barry Haddow, and Philipp Koehn.2010.
+A unified approach to minimum risk trainingand decoding.
+In Proceedings of the Joint Workshopon Statistical Machine Translation and MetricsMATR,pages 365?374.Leon Bottou.
+2010.
+Large-scale machine learning withstochastic gradient descent.
+In International Confer-ence on Computational Statistics, pages 177?187.David Chiang, Yuval Marton, and Philip Resnik.
+2008.Online large-margin training of syntactic and struc-tural translation features.
+In EMNLP, pages 224?233.435David Chiang, Kevin Knight, and Wei Wang.
+2009.11,001 new features for statistical machine translation.In HLT-NAACL, pages 218?226.Jonathan H. Clark, Chris Dyer, Alon Lavie, and Noah A.Smith.
+2011.
+Better hypothesis testing for statisticalmachine translation: Controlling for optimizer insta-bility.
+In ACL, pages 176?181.Koby Crammer, Ofer Dekel, Joseph Keshet, Shai Shalev-Shwartz, and Yoram Singer.
+2006.
+Online passive-aggressive algorithms.
+Journal of Machine LearningResearch.Kevin Gimpel and Noah A. Smith.
+2012.
+Structuredramp loss minimization for machine translation.
+InHLT-NAACL, Montreal, Canada, June.Eva Hasler, Barry Haddow, and Philipp Koehn.
+2011.Margin infused relaxed algorithm for moses.
+ThePrague Bulletin of Mathematical Linguistics, 96:69?78.Mark Hopkins and Jonathan May.
+2011.
+Tuning as rank-ing.
+In EMNLP, pages 1352?1362.Cho-Jui Hsieh, Kai-Wei Chang, Chih-Jen Lin, S. SathiyaKeerthi, and S. Sundararajan.
+2008.
+A dual coordinatedescent method for large-scale linear svm.
+In ICML.Philipp Koehn, Franz J. Och, and Daniel Marcu.
+2003.Statistical phrase-based translation.
+In HLT-NAACL,pages 127?133.Philipp Koehn, Hieu Hoang, Alexandra Birch, ChrisCallison-Burch, Marcello Federico, Nicola Bertoldi,Brooke Cowan, Wade Shen, Christine Moran, RichardZens, Chris Dyer, Ondrej Bojar, Alexandra Con-stantin, and Evan Herbst.
+2007.
+Moses: Open sourcetoolkit for statistical machine translation.
+In ACL,pages 177?180, Prague, Czech Republic, June.Zhifei Li and Jason Eisner.
+2009.
+First- and second-orderexpectation semirings with applications to minimum-risk training on translation forests.
+In EMNLP, pages40?51.Percy Liang, Alexandre Bouchard-Co?te?, Dan Klein, andBen Taskar.
+2006.
+An end-to-end discriminativeapproach to machine translation.
+In COLING-ACL,pages 761?768.Chin-Yew Lin and Franz Josef Och.
+2004.
+Orange: amethod for evaluating automatic evaluation metrics formachine translation.
+In COLING, pages 501?507.WolfgangMachery, Franz Josef Och, Ignacio Thayer, andJakob Uszkoreit.
+2008.
+Lattice-based minimum er-ror rate training for statistical machine translation.
+InEMNLP, pages 725?734.Andre?
+F. T. Martins, Kevin Gimpel, Noah A. Smith,Eric P. Xing, Pedro M. Q. Aguiar, and Ma?rio A. T.Figueiredo.
+2010.
+Learning structured classifiers withdual coordinate descent.
+Technical Report CMU-ML-10-109, Carnegie Mellon University.Ryan McDonald, Keith Hall, and Gideon Mann.
+2010.Distributed training strategies for the structured per-ceptron.
+In ACL, pages 456?464.Franz Joseph Och and Hermann Ney.
+2002.
+Discrimi-native training and maximum entropy models for sta-tistical machine translation.
+In ACL, pages 295?302,Philadelphia, PA, July.Franz Joseph Och.
+2003.
+Minimum error rate trainingfor statistical machine translation.
+In ACL, pages 160?167.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2002.
+BLEU: a method for automatic eval-uation of machine translation.
+In ACL, pages 311?318.Adam Pauls, John Denero, and Dan Klein.
+2009.
+Con-sensus training for consensus decoding in machinetranslation.
+In EMNLP, pages 1418?1427.Antti-Veikko Rosti, Bing Zhang, Spyros Matsoukas, andRichard Schwartz.
+2011.
+Expected bleu training forgraphs: BBN system description for WMT11 systemcombination task.
+In Proceedings of the Sixth Work-shop on Statistical Machine Translation, pages 159?165.Libin Shen, Anoop Sarkar, and Franz Josef Och.
+2004.Discriminative reranking for machine translation.
+InHLT-NAACL, pages 177?184, Boston, Massachusetts,May 2 - May 7.David A. Smith and Jason Eisner.
+2006.
+Minimum riskannealing for training log-linear models.
+In COLING-ACL, pages 787?794.Ioannis Tsochantaridis, Thomas Hofman, ThorstenJoachims, and Yasemin Altun.
+2004.
+Support vec-tor machine learning for interdependent and structuredoutput spaces.
+In ICML, pages 823?830.Taro Watanabe, Jun Suzuki, Hajime Tsukada, and HidekiIsozaki.
+2007.
+Online large-margin training for statis-tical machine translation.
+In EMNLP-CoNLL, pages764?773.Joern Wuebker, Arne Mauser, and Hermann Ney.
+2010.Training phrase translation models with leaving-one-out.
+In ACL.Chun-Nam John Yu and Thorsten Joachims.
+2009.Learning structural SVMs with latent variables.
+InICML.Richard Zens and Hermann Ney.
+2004.
+Improvements inphrase-based statistical machine translation.
+In HLT-NAACL, pages 257?264, Boston, USA, May.Richard Zens, Sa?sa Hasan, and Hermann Ney.
+2007.
+Asystematic comparison of training criteria for statisti-cal machine translation.
+In EMNLP, pages 524?532.436

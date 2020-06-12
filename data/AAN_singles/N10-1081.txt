@@ -1,0 +1,501 @@
+Human Language Technologies: The 2010 Annual Conference of the North American Chapter of the ACL, pages 564?572,Los Angeles, California, June 2010. c?2010 Association for Computational LinguisticsVariational Inference for Adaptor GrammarsShay B. CohenSchool of Computer ScienceCarnegie Mellon UniversityPittsburgh, PA 15213, USAscohen@cs.cmu.eduDavid M. BleiComputer Science DepartmentPrinceton UniversityPrinceton, NJ 08540, USAblei@cs.princeton.eduNoah A. SmithSchool of Computer ScienceCarnegie Mellon UniversityPittsburgh, PA 15213, USAnasmith@cs.cmu.eduAbstractAdaptor grammars extend probabilisticcontext-free grammars to define prior dis-tributions over trees with ?rich get richer?dynamics.
+Inference for adaptor grammarsseeks to find parse trees for raw text.
+Thispaper describes a variational inference al-gorithm for adaptor grammars, providingan alternative to Markov chain Monte Carlomethods.
+To derive this method, we developa stick-breaking representation of adaptorgrammars, a representation that enables usto define adaptor grammars with recursion.We report experimental results on a wordsegmentation task, showing that variationalinference performs comparably to MCMC.Further, we show a significant speed-up whenparallelizing the algorithm.
+Finally, we reportpromising results for a new application foradaptor grammars, dependency grammarinduction.1 IntroductionRecent research in unsupervised learning for NLPfocuses on Bayesian methods for probabilistic gram-mars (Goldwater and Griffiths, 2007; Toutanova andJohnson, 2007; Johnson et al, 2007).
+Such meth-ods have been made more flexible with nonparamet-ric Bayesian (NP Bayes) methods, such as Dirichletprocess mixture models (Antoniak, 1974; Pitman,2002).
+One line of research uses NP Bayes meth-ods on whole tree structures, in the form of adaptorgrammars (Johnson et al, 2006; Johnson, 2008b;Johnson, 2008a; Johnson and Goldwater, 2009), inorder to identify recurrent subtree patterns.Adaptor grammars provide a flexible distribu-tion over parse trees that has more structure thana traditional context-free grammar.
+Adaptor gram-mars are used via posterior inference, the compu-tational problem of determining the posterior distri-bution of parse trees given a set of observed sen-tences.
+Current posterior inference algorithms foradaptor grammars are based on MCMC samplingmethods (Robert and Casella, 2005).
+MCMC meth-ods are theoretically guaranteed to converge to thetrue posterior, but come at great expense: they arenotoriously slow to converge, especially with com-plex hidden structures such as syntactic trees.
+John-son (2008b) comments on this, and suggests the useof variational inference as a possible remedy.Variational inference provides a deterministic al-ternative to sampling.
+It was introduced for Dirich-let process mixtures by Blei and Jordan (2005) andapplied to infinite grammars by Liang et al (2007).With NP Bayes models, variational methods arebased on the stick-breaking representation (Sethu-raman, 1994).
+Devising a stick-breaking represen-tation is a central challenge to using variational in-ference in this setting.The rest of this paper is organized as follows.
+In?2 we describe a stick-breaking representation ofadaptor grammars, which enables variational infer-ence (?3) and a well-defined incorporation of recur-sion into adaptor grammars.
+In ?4 we give an em-pirical comparison of the algorithm to MCMC in-ference and describe a novel application of adaptorgrammars to unsupervised dependency parsing.2 Adaptor GrammarsWe review adaptor grammars and develop a stick-breaking representation of the tree distribution.2.1 Definition of Adaptor GrammarsAdaptor grammars capture syntactic regularities insentences by placing a nonparametric prior over thedistribution of syntactic trees that underlie them.The model exhibits ?rich get richer?
+dynamics: oncea tree is generated, it is more likely to reappear.Adaptor grammars were developed by Johnson etal.
+(2006).
+An adaptor grammar is a tuple A =?G,M,a, b,?
+?, which contains: (i) a context-freegrammar G = ?W,N,R, S?
+where W is the set of564terminals, N is the set of nonterminals, R is a set ofproduction rules, and S ?
+N is the start symbol?wedenote byRA the subset ofR with left-hand sideA;(ii) a set of adapted nonterminals, M ?
+N; and (iii)parameters a, b and ?, which are described below.An adaptor grammar assumes the following gen-erative process of trees.
+First, the multinomial dis-tributions ?
+for a PCFG based on G are drawnfrom Dirichlet distributions.
+Specifically, multino-mial ?A ?
+Dir(?A) where?
+is collection of Dirich-let parameters, indexed by A ?
+N.Trees are then generated top-down starting withS.
+Any non-adapted nonterminal A ?
+N \ M isexpanded by drawing a rule from RA.
+There aretwo ways to expand A ?M:1.
+With probability (nz ?
+bA)/(nA + aA) we ex-pand A to subtree z (a tree rooted at A with ayield in W?
+), where nz is the number of timesthe tree z was previously generated and nA is thetotal number of subtrees (tokens) previously gen-erated root being A.
+We denote by a the concen-tration parameters and b the discount parameters,both indexed by A ?
+M. We have aA ?
+0 andbA ?
+[0, 1].2.
+With probability (aA + kAbA)/(nA + aA), A isexpanded as in a PCFG by a draw from ?A overRA, where kA is the number of subtrees (types)previously generated with root A.For the expansion of adapted nonterminals, thisprocess can be explained using the Chinese restau-rant process (CRP) metaphor: a ?customer?
+(cor-responding to a partially generated tree) enters a?restaurant?
+(corresponding to a nonterminal) andselects a ?table?
+(corresponding to a subtree) to at-tach to the partially generated tree.
+If she is the firstcustomer at the table, the PCFG ?G,??
+produces thenew table?s associated ?dish?
+(a subtree).1When adaptor grammars are defined using theCRP, the PCFG G has to be non-recursive with re-1We note that our construction deviates from the strict def-inition of adaptor grammars (Johnson et al, 2006): (i) in ourconstruction, we assume (as prior work does in practice) thatthe adaptors in A = ?G,M,a, b,??
+follow the Pitman-Yor(PY) process (Pitman and Yor, 1997), though in general otherstochastic processes might be used; and (ii) we place a sym-metric Dirichlet over the parameters of the PCFG, ?, whereasJohnson et al used a fixed PCFG for the definition (though theyexperimented with a Dirichlet prior).spect to the adapted nonterminals.
+More precisely,for A ?
+N, denote by Reachable(G, A) all the non-terminals that can be reached from A using a partialderivation from G. Then we restrict G such thatfor all A ?
+M, we have A /?
+Reachable(G, A).Without this restriction, we might end up in a sit-uation where the generative process is ill-defined:in the CRP terminology, a customer could enter arestaurant and select a table whose dish is still inthe process of being selected.2 In the more generalform of adaptor grammars with arbitrary adaptors,the problem amounts to mutually dependent defini-tions of distributions which rely on the others to bedefined.
+We return to this problem in ?3.1.Inference The inference problem is to computethe posterior distribution of parse trees given ob-served sentences x = ?x1, .
+.
+.
+, xn?.
+Typically, in-ference with adaptor grammars is done with Gibbssampling.
+Johnson et al (2006) use an embeddedMetropolis-Hastings sampler (Robert and Casella,2005) inside a Gibbs sampler.
+The proposal distribu-tion is a PCFG, resembling a tree substitution gram-mar (TSG; Joshi, 2003).
+The sampler of Johnson etal.
+is based on the representation of the PY processas a distribution over partitions of integers.
+This rep-resentation is not amenable to variational inference.2.2 Stick-Breaking RepresentationTo develop a variational inference algorithm foradaptor grammars, we require an alternative repre-sentation of the model in ?2.1.
+The CRP-based def-inition implicitly marginalizes out a random distri-bution over trees.
+For variational inference, we con-struct that distribution.We first review the Dirichlet process and its stick-breaking representation.
+The Dirichlet process de-fines a distribution over distributions.
+Samples fromthe Dirichlet process tend to deviate from a basedistribution depending on a concentration parame-ter.
+Let G ?
+DP(G0, a) be a distribution sampledfrom the Dirichlet process with base distribution G02Consider the simple grammar with rules { S ?
+S S, S ?
+a}.
+Assume that a customer enters the restaurant for S. She sitsat a table, and selects a dish, a subtree, which starts with the ruleS ?
+S S. Perhaps the first child S is expanded by S ?
+a. Forthe second child S, it is possible to re-enter the ?S restaurant?and choose the first table, where the ?dish?
+subtree is still beinggenerated.565and concentration parameter a.
+The distribution Gis discrete, which means it puts positive mass on acountable number of atoms drawn from G0.
+Re-peated draws from G exhibit the ?clustering prop-erty,?
+which means that they will be assigned to thesame value with positive probability.
+Thus, they ex-hibit a partition structure.
+Marginalizing out G, thedistribution of that partition structure is given by aCRP with parameter a (Pitman, 2002).The stick-breaking process gives a constructivedefinition of G (Sethuraman, 1994).
+With the stick-breaking process (for the PY process), we first sam-ple ?stick lengths?
+pi ?
+GEM(a, b) (in the case ofDirichlet process, we have b = 0).
+The GEM par-titions the interval [0, 1] into countably many seg-ments.
+First, draw vi ?
+Beta(1 ?
+b, a + ib) fori ?
+{1, .
+.
+.}.
+Then, define pii , vi?i?1j=1(1 ?
+vj).In addition, we also sample infinitely many ?atoms?independently zi ?
+G0.
+Define G as:G(z) =?
+?i=1 pii?
+(zi, z) (1)where ?
+(zi, z) is 1 if zi = z and 0 otherwise.
+Thisrandom variable is drawn from a Pitman-Yor pro-cess.
+Notice the discreteness of G is laid bare in thestick-breaking construction.With the stick-breaking representation in hand,we turn to a constructive definition of the distri-bution over trees given by an adaptor grammar.Let A1, .
+.
+.
+, AK be an enumeration of the nonter-minals in M which satisfies: i ?
+j ?
+Aj /?Reachable(G, Ai).
+(That this exists follows fromthe assumption about the lack of recursiveness ofadapted nonterminals.)
+Let Yield(z) be the yield ofa tree derivation z.
+The process that generates ob-served sentences x = ?x1, .
+.
+.
+, xn?
+from the adaptorgrammarA = ?G,M,a, b,??
+is as follows:1.
+For each A ?
+N, draw ?A ?
+Dir(?A).2.
+For A from A1 to AK , define GA as follows:(a) Draw piA | aA, bA ?
+GEM(aA, bA).
+(b) For i ?
+{1, .
+.
+.
+}, grow a tree zA,i as follows:i.
+Draw A?
+B1 .
+.
+.
+Bn fromRA.ii.
+zA,i = AHHHB1 ?
+?
+?
+Bniii.
+While Yield(zA,i) has nonterminals:A.
+Choose an unexpanded nonterminal Bfrom yield of zA,i.B.
+If B ?
+M, expand B according to GB(defined on previous iterations of step 2).C.
+If B ?
+N \M, expand B with a rule fromRB according to Mult(?B).
+(c) For i ?
+{1, .
+.
+.
+}, define GA(zA,i) = piA,i3.
+For i ?
+{1, .
+.
+.
+, n} draw zi as follows:(a) If S ?M, draw zi | GS ?
+GS .
+(b) If S /?
+M, draw zi as in 2(b) (omitted forspace).4.
+Set xi = Yield(zi) for i ?
+{1, .
+.
+.
+, n}.Here, there are four collections of hidden variables:the PCFG multinomials ?
+= {?A | A ?
+N}, thestick length proportions v = {vA | A ?
+M} wherevA = ?vA,1, vA,2, .
+.
+.
+?, the adapted nonterminals?subtrees zA = {zA,i | A ?
+M; i ?
+{1, .
+.
+.}}
+andthe derivations z1:n = z1, .
+.
+.
+, zn.
+The symbol zrefers to the collection of {zA | A ?
+M}, and z1:nrefers to the derivations of the data x.Note that the distribution in 2(c) is defined withthe GEM distribution, as mentioned earlier.
+It is asample from the Pitman-Yor process (or the Dirich-let process), which is later used in 3(a) to sampletrees for an adapted non-terminal.3 Variational InferenceVariational inference is a deterministic alternativeto MCMC, which casts posterior inference as anoptimization problem (Jordan et al, 1999; Wain-wright and Jordan, 2008).
+The optimized functionis a bound on the marginal likelihood of the obser-vations, which is expressed in terms of a so-called?variational distribution?
+over the hidden variables.When the bound is tightened, that distribution isclose to the posterior of interest.
+Variational meth-ods tend to converge faster than MCMC, and can bemore easily parallelized over multiple processors ina framework such as MapReduce (Dean and Ghe-mawat, 2004).The variational bound on the likelihood of thedata is:log p(x | a,?)
+?
+H(q) +?A?MEq[log p(vA | aA)]+?A?MEq[log p(?A | ?A)]+?A?MEq[log p(zA | v,?)]
++ Eq[log p(z | vA)]566Expectations are taken with respect to the variationaldistribution q(v,?, z) and H(q) is its entropy.Before tightening the bound, we define the func-tional form of the variational distribution.
+We usethe mean-field distribution in which all of the hid-den variables are independent and governed by in-dividual variational parameters.
+(Note that in thetrue posterior, the hidden variables are highly cou-pled.)
+To account for the infinite collection of ran-dom variables, for which we cannot define a varia-tional distribution, we use the truncated stick distri-bution (Blei and Jordan, 2005).
+Hence, we assumethat, for all A ?
+M, there is some value NA suchthat q(vA,NA = 1) = 1.
+The assigned probability toparse trees in the stick will be 0 for i > NA, so wecan ignore zA,i for i > NA.
+This leads to a factor-ized variational distribution:q(v,?, z) = (2)?A?M(q(?A)NA?i=1q(vA,i)?
+q(zA,i))?n?i=1q(zi)It is natural to define the variational distributionsover ?
+and v to be Dirichlet distributions with pa-rameters ?A and Beta distributions with parameters?A,i, respectively.
+The two distributions over trees,q(zA,i) and q(zi), are more problematic.
+For ex-ample, with q(zi | ?
+), we need to take into ac-count different subtrees that could be generated bythe model and use them with the proper probabilitiesin the variational distribution q(zi | ?).
+We followand extend the idea from Johnson et al (2006) anduse grammatons for these distributions.
+Gramma-tons are ?mini-grammars,?
+inspired by the grammarG.For two strings in s, t ?
+W?, we use ?t ?
+s?to mean that t is a substring of s. In that case, agrammaton is defined as follows:Definition 1.
+LetA = ?G,M,a, b,??
+be an adap-tor grammar with G = ?W,N,R, S?.
+Let s be a fi-nite string over the alphabet ofG andA ?
+N. Let Ube the set of nonterminals U , Reachable(G, A) ?
+(N \M).
+The grammaton G(A, s) is the context-free grammar with the start symbol A and the rulesRA?(?B?URB)??A?B1...Bn?RA?i?
+{i|Bi?M}{Bi ?t | t ?
+s}.Using a grammaton, we define the distributionsq(zA,i | ?A) and q(zi | ?).
+This requires a pre-processing step (described in detail in ?3.3) that de-fines, for each A ?
+M, a list of strings sA =?sA,1, .
+.
+.
+, sA,NA?.
+Then, for q(zA,i | ?A) we usethe grammaton G(A, sA,i) and for q(zi | ?)
+weuse the grammaton G(A, xi) where xi is the ithobserved sentence.
+We parametrize the grammatonwith weights ?A (or ?)
+for each rule in the gramma-ton.
+This makes the variational distributions over thetrees for strings s (and trees for x) globally normal-ized weighted grammars.
+Choosing such distribu-tions is motivated by their ability to make the varia-tional bound tight (similar to Cohen et al, 2008, andCohen and Smith, 2009).
+In practice we do not haveto use rewrite rules for all strings t ?
+s in the gram-maton.
+It suffices to add rewrite rules only for thestrings t = sA,i that have some grammaton attachedto them,G(A, sA,i).The variational distribution above yields a vari-ational inference algorithm for approximating theposterior by estimating ?A,i, ?A, ?A and ?
+it-eratively, given a fixed set of hyperparametersa, b and ?.
+Let r be a PCFG rule.
+Letf?
+(r, sB,k) = Eq(zk|?B,k)[f(r; zk)], where f(r; zk)counts the number of times that rule r is applied inthe derivation zk.
+Let A ?
+?
+denote a rule fromG.
+The quantity f?
+(r, sB,k) is computed using theinside-outside (IO) algorithm.
+Fig.
+1 gives the vari-ational inference updates.Variational EM We use variational EM to fit thehyperparameters.
+Variational EM is an EM algo-rithm where the E step is replaced by variational in-ference (Fig.
+1).
+The M-step optimizes the hyperpa-rameters (a, b and ?)
+with respect to expected suffi-cient statistics under the variational distribution.
+Weuse Newton-Raphson for each (Boyd and Vanden-berghe, 2004); Fig.
+2 gives the objectives.3.1 Note about Recursive GrammarsWith recursive grammars, the stick-breaking pro-cess representation gives probability mass to eventswhich are ill-defined.
+In step 2(iii)(c) of the stick-breaking representation, we assign nonzero proba-bility to an event in which we choose to expand thecurrent tree using a subtree with the same index thatwe are currently still expanding (see footnote 2).
+In567short, with recursive grammars, we can get ?loops?inside the trees.We would still like to use recursion in the caseswhich are not ill-defined.
+In the case of recur-sive grammars, there is no problem with the stick-breaking representation and the order by which weenumerate the nonterminals.
+This is true because thestick-breaking process separates allocating the prob-abilities for each index in the stick and allocating theatoms for each index in the stick.Our variational distributions give probability 0 toany event which is ill-defined in the sense men-tioned above.
+Optimizing the variational bound inthis case is equivalent to optimizing the same vari-ational bound with a model p?
+that (i) starts with p,(ii) assigns probability 0 to ill-defined events, and(iii) renormalizes:Proposition 2.
+Let p(x, z) be a probability distri-bution, where z ?
+Z, and let S ?
+Z.
+Let Q = {q |q(z) = 0, ?z ?
+S}, a set of distributions.
+Then:argmaxq?QEq[log p(x, z)] = argmaxqEq[log p?
+(x, z)]where p?
+(x, z) is a probability distribution definedas p?
+(x, z) = p(x, z)/?z?S p(x, z) for z ?
+S and0 otherwise.For this reason, our variational approximation al-lows the use of recursive grammars.
+The use of re-cursive grammars with MCMC methods is problem-atic, since it has no corresponding probabilistic in-terpretation, enabled by zeroing events that are ill-defined in the variational distribution.
+There is nounderlying model such as p?, and thus the inferencealgorithm is invalid.3.2 Time ComplexityThe algorithm in Johnson et al (2006) works bysampling from a PCFG containing rewrite rules thatrewrite to a whole tree fragment.
+This requiresa procedure that uses the inside-outside algorithm.Despite the grammar being bigger (because of therewrite rules to a string), the asymptotic complexityof the IO algorithm stays O(|N|2|xi|3 + |N|3|xi|2)where |xi| is the length of the ith sentence.33This analysis is true for CNF grammars augmented withrules rewriting to a whole string, like those used in our study.
+?1A,i = 1?
+bA +?B?M?NBk=1 f?(A?
+sA,i, sB,k)?2A,i = aA + ibA+?i?1j=1?B?M?NBk=1 f?(A?
+sA,j , sB,k)?A,A??
+=?B?M?NBk=1 f?(A?
+?, sB,k)?A,A?sA,i = ?(?1A,i)??
+(?1A,i + ?2A,i)+?i?1j=1(?(?2A,i)??
+(?1A,i + ?2A,i))?A,A??
+= ?(?A,A??)??(??
+?A,A??
+)Figure 1: Updates for variational inference with adaptorgrammars.
+?
+is the digamma function.Our algorithm requires running the IO algorithmfor each yield in the variational distribution, for eachnonterminal, and for each sentence.
+However, IOruns with much smaller grammars coming from thegrammatons.
+The cost of running the IO algorithmon the yields in the sticks for A ?
+M can be takeninto account parsing a string that appears in the cor-pus with the full grammars.
+This leads to an asymp-totic complexity of O(|N|2|xi|3 + |N|3|xi|2) for theith sentence in the corpus each iteration.Asymptotically, both sampling and variationalEM behave the same.
+However, there are differentconstants that hide in these asymptotic runtimes: thenumber of iterations that the algorithm takes to con-verge (for which variational EM generally has an ad-vantage over sampling) and the number of additionalrewrite rules that rewrite to a string representing atree (for which MCMC has a relative advantage, be-cause it does not use a fixed set of strings; instead,the size of the grammars it uses grow as samplingproceeds).
+In ?4, we see that variational EM andsampling methods are similar in the time it takes tocomplete because of a trade-off between these twoconstants.
+Simple parallelization, however, whichis possible only with variational inference, providessignificant speed-ups.43.3 Heuristics for Variational InferenceFor the variational approximation from ?3, we needto decide on a set of strings, sA,i (for A ?
+M andi ?
+{1, .
+.
+.
+, NA}) to define the grammatons in the4Newman et al (2009) show how to parallelize sampling al-gorithms, but in general, parallelizing these algorithms is morecomplicated than parallelizing variational algorithms and re-quires further approximation.568max?A log ?(|RA|?A)?
+|RA| log ?
+(?A) + (?A ?
+1)(?A???RA?(?A??)??(?A???RA?A??
+))maxaA?NAi=1 aA(?(?2A,i)??
+(?1A,i + ?2A,i))+ log ?
+(aA + 1 + ibA)?
+log ?
+(ibA + aA)maxbA?NAi=1 ibA(?(?2A,i)??
+(?1A,i + ?2A,i))+ log ?
+(aA + 1 + ibA)?
+log ?(1?
+bA)?
+log ?
+(ibA + aA)Figure 2: Variational M-step updates.
+?
+is the gamma function.nonparametric stick.
+Any set of strings will givea valid approximation, but to make the variationalapproximation as accurate as possible, we requirethat: (i) the strings in the set must be likely to begenerated using the adaptor grammar as constituentsheaded by the relevant nonterminal, and (ii) stringsthat are more likely to be generated should be asso-ciated with a lower index in the stick.
+The reason forthe second requirement is the exponential decay ofcoefficients as the index increases.We show that a simple heuristic leads to an orderover the strings generated by the adaptor grammarsthat yields an accurate variational estimation.
+Webegin with a weighted context-free grammar Gheurthat has the same rules as in G, only the weight forall of its rules is 1.
+We then compute the quantity:c(A, s) =1n(n?i=1EGheur [fi(z;A, s)])?
+?
+log |s|(3)where fi(z;A, s) is a function computing the countof constituents headed by A with yield s in the treez for the sentence xi.
+This quantity can be com-puted by using the IO algorithm onGheur.
+The term?
+log |s| is subtracted to avoid preference for shorterconstituents, similar to Mochihashi et al (2009).While computing c(A, s) using the IO algorithm,we sort the set of all substrings of s according totheir expected counts (aggregated over all strings s).Then, we use the top NA strings in the sorted list forthe grammatons of A.53.4 DecodingThe variational inference algorithm gives a distribu-tions over parameters and hidden structures (throughthe grammatons).
+We experiment with two com-monly used decoding methods: Viterbi decoding5The requirement to select NA in advance is strict.
+We ex-perimented with dynamic expansions of the stick, in the spiritof Kurihara et al (2006) and Wang and Blei (2009), but we didnot achieve better performance and it had an adverse effect onruntime.
+For completeness, we give these results in ?4.and minimum Bayes risk decoding (MBR; Good-man, 1996).To parse a string with Viterbi (or MBR) decoding,we find the tree with highest score for the gramma-ton which is attached to that string.
+For all ruleswhich rewrite to strings in the resulting tree, weagain perform Viterbi (or MBR) decoding recur-sively using other grammatons.4 ExperimentsWe describe experiments with variational inferencefor adaptor grammars for word segmentation and de-pendency grammar induction.4.1 Word SegmentationWe follow the experimental setting of Johnson andGoldwater (2009), who present state-of-the-art re-sults for inference with adaptor grammars usingGibbs sampling on a segmentation problem.
+Weuse the standard Brent corpus (Brent and Cartwright,1996), which includes 9,790 unsegmented phone-mic representations of utterances of child-directedspeech from the Bernstein-Ratner (1987) corpus.Johnson and Goldwater (2009) test three gram-mars for this segmentation task.
+The first grammaris a character unigram grammar (GUnigram).
+Thesecond grammar is a grammar that takes into con-sideration collocations (GColloc) which includes therules { Sentence?
+Colloc, Sentence?
+Colloc Sen-tence, Colloc ?
+Word+, Word ?
+Char+ }.
+Thethird grammar incorporates more prior knowledgeabout the syllabic structure of English (GSyllable).GUnigram and GSyllable can be found in Johnsonand Goldwater (2009).
+Once an utterance is parsed,Word constituents denote segments.The value of ?
+(penalty term for string length) hadlittle effect on our results and was fixed at ?
+= ?0.2.When NA (number of strings used in the variationaldistributions) is fixed, we use NA = 15,000.
+We re-port results using Viterbi and MBR decoding.
+John-son and Goldwater (2009) experimented with two569this paper J&G 2009grammar model Vit.
+MBR SA MMGUnigramDir 0.49 0.84 0.57 0.54PY 0.49 0.84 0.81 0.75PY+inc 0.42 0.59 - -GColloc Dir 0.40 0.86 0.75 0.72PY 0.40 0.86 0.83 0.86PY+inc 0.43 0.60 - -G Syllable Dir 0.77 0.83 0.84 0.84PY 0.77 0.83 0.89 0.88PY+inc 0.75 0.76 - -Table 1: F1 performance for word segmentation on theBrent corpus.
+Dir.
+stands for Dirichlet Process adaptor(b = 0), PY stands for Pitman-Yor adaptor (b optimized),and PY+inc.
+stands for Pitman-Yor with iteratively in-creasing NA for A ?
+M (see footnote 5).
+J&G 2009 arethe results adapted from Johnson and Goldwater (2009);SA is sample average decoding, and MM is maximummarginal decoding.Truncated stick lengthF1 score65707580lllll l ll l l l l ll lllllll ll ll l l l l l2000 4000 6000 8000 10000 12000 14000Figure 3: F1 performance of GUnigram as influenced bythe length of the stick, NWord.decoding methods, sample average (SA) and maxi-mal marginal decoding (MM), which are closely re-lated to Viterbi and MBR, respectively.
+With MM,we marginalize the tree structure, rather than theword segmentation induced, similar to MBR decod-ing.
+With SA, we compute the probability of a wholetree, by averaging its count in the samples, an ap-proximation to finding the tree with highest proba-bility, like Viterbi.Table 1 gives the results for our experiments.
+No-tice that the results for the Pitman-Yor process andthe Dirichlet process are similar.
+When inspectingthe learned parameters, we noticed that the discountparameters (b) learned by the variational inferencealgorithm for the Pitman-Yor process are very closeto 0.
+In this case, the Pitman-Yor process is reducedto the Dirichlet process.Similar to Johnson and Goldwater?s comparisons,we see superior performance when using minimumBayes risk over Viterbi decoding.
+Further notice thatthe variational inference algorithm obtains signifi-cantly superior performance for simpler grammarsthan Johnson et al, while performance using the syl-lable grammar is lower.
+The results also suggest thatit is better to decide ahead on the set of strings avail-able in the sticks, instead of working gradually andincrease the size of the sticks as described in foot-note 5.
+We believe that the reason is that the varia-tional inference algorithm settles in a trajectory thatuses fewer strings, then fails to exploit the stringsthat are added to the stick later.
+Given that select-ing NA in advance is advantageous, we may inquireif choosing NA to be too large can lead to degradedperformance, because of fragmention of the gram-mar.
+Fig.
+3 suggests it is not the case, and per-formance stays steady after NA reaches a certainvalue.One of the advantages of variational approxima-tion over sampling methods is the ability to runfor fewer iterations.
+For example, with GUnigramconvergence typically takes 40 iterations with vari-ational inference, while Johnson and Goldwater(2009) ran their sampler for 2,000 iterations, forwhich 1,000 were for burning in.
+The inside-outsidealgorithm dominates the iteration?s runtime, bothfor sampling and variational EM.
+Each iterationwith sampling, however, takes less time, despite theasymptotic analysis in ?3.2, because of different im-plementations and the different number of rules thatrewrite to a string.
+We now give a comparison ofclock time for GUnigram for variational inferenceand sampling as described in Johnson and Goldwa-ter (2009).6 Replicating the experiment in Johnsonand Goldwater (first row in Table 1) took 2 hoursand 11 minutes.
+With the variational approximation,we had the following: (i) the preprocessing (?3.3)step took 114 seconds; (ii) each iteration took ap-proximately 204 seconds, with convergence after 40iterations, leading to 8,160 seconds of pure varia-6We used the code and data available at http://www.cog.brown.edu/?mj/Software.htm.
+The machineused for this comparison is a 64-bit machine with 2.6GHz CPU,4MB of cache memory and 8GB of RAM.570tional EM processing; (iii) parsing took another 952seconds.
+The total time is 2 hours and 34 minutes.At first glance it seems that variational inferenceis slower than MCMC sampling.
+However, note thatthe cost of the grammar preprocessing step is amor-tized over all experiments with the specific gram-mar, and the E-step with variational inference can beparallelized, while sampling requires an update of aglobal set of parameters after each tree update.
+Weran our algorithm on a cluster of 20 1.86GHz CPUsand achieved a significant speed-up: preprocessingtook 34 seconds, each variational EM iteration took43 seconds and parsing took 208 seconds.
+The totaltime was 47 minutes, which is 2.8 times faster thansampling.4.2 Dependency Grammar InductionWe conclude our experiments with preliminary re-sults for unsupervised syntax learning.
+This is a newapplication of adaptor grammars, which have so farbeen used in segmentation (Johnson and Goldwater,2009) and named entity recognition (Elsner et al,2009).The grammar we use is the dependency modelwith valence (DMV Klein and Manning, 2004) rep-resented as a probabilistic context-free grammar,GDMV (Smith, 2006).
+We note that GDMV is re-cursive; this is not a problem (?3.1).We used part-of-speech sequences from the WallStreet Journal Penn Treebank (Marcus et al, 1993),stripped of words and punctuation.
+We follow stan-dard parsing conventions and train on sections 2?21 and test on section 23 (while using sentences oflength 10 or less).
+Because of the unsupervised na-ture of the problem, we report results on the trainingset, in addition to the test set.The nonterminals that we adapted correspond tononterminals that define noun constituents.
+We thenuse the preprocessing step defined in ?3.3 with a uni-form grammar and take the top 3,000 strings for eachnonterminal of a noun constituent.The results are in Table 4.2.
+We report attach-ment accuracy, the fraction of parent-child relation-ships that the algorithm classified correctly.
+Noticethat the results are not very different for Viterbi andMBR decoding, unlike the case with word segmen-tation.
+It seems like the DMV grammar, appliedto this task, is more robust to changes in decod-model Vit.
+MBRtrainnon-Bayesian 48.2 48.3Dirichlet prior 48.3 48.6Adaptor grammar 54.0 ?53.7testnon-Bayesian 45.8 46.1Dirichlet prior 45.9 46.1Adaptor grammar 48.3 50.2Table 2: Attachment accuracy for different models fordependency grammar induction.
+Bold marks best overallaccuracy per evaluation set, and ?
+marks figures that arenot significantly worse (binomial sign test, p < 0.05).ing mechanism.
+Adaptor grammars improve perfor-mance over classic EM and variational EM with aDirichlet prior significantly.We note that adaptor grammars are not limited toa selection of a Dirichlet distribution as a prior forthe grammar rules.
+Our variational inference algo-rithm, for example, can be extended to use the lo-gistic normal prior instead of the Dirichlet, shownsuccessful by Cohen and Smith (2009).75 ConclusionWe described a variational inference algorithm foradaptor grammars based on a stick-breaking processrepresentation, which solves a problem with adaptorgrammars and recursive PCFGs.
+We tested it for asegmentation task, and showed results which are ei-ther comparable or an imporvement of state of theart.
+We showed that significant speed-ups can beobtained using parallelization of the algorithm.
+Wealso tested the algorithm on a novel task for adap-tor grammars, dependency grammar induction.
+Weshowed that an improvement can be obtained usingadaptor grammars over non-Bayesian and paramet-ric baselines.AcknowledgmentsThe authors would like to thank the anonymous review-ers, Jordan Boyd-Graber, Reza Haffari, Mark Johnson,and Chong Wang for their useful feedback and com-ments.
+This work was supported by the following grants:ONR 175-6343 and NSF CAREER 0745520 to Blei; NSFIIS-0836431 and IIS-0915187 to Smith.7The performance of Cohen and Smith (2009), like the per-formance of Headden et al (2009), is greater than what we re-port, but those developments are orthogonal to the contributionsof this paper.571ReferencesC.
+Antoniak.
+1974.
+Mixtures of Dirichlet processes withapplications to Bayesian nonparametric problems.
+TheAnnals of Statistics, 2(6):1152?1174.N.
+Bernstein-Ratner.
+1987.
+The phonology of parentchild speech.
+Children?s Language, 6.D.
+Blei and M. Jordan.
+2005.
+Variational inference forDirichlet process mixtures.
+Journal of Bayesian Anal-ysis, 1(1):121?144.S.
+Boyd and L. Vandenberghe.
+2004.
+Convex Optimiza-tion.
+Cambridge Press.M.
+Brent and T. Cartwright.
+1996.
+Distributional reg-ularity and phonotactic constraints are useful for seg-mentation.
+Cognition, 6:93?125.S.
+B. Cohen and N. A. Smith.
+2009.
+Shared logisticnormal distributions for soft parameter tying in unsu-pervised grammar induction.
+In Proc.
+of NAACL-HLT.S.
+B. Cohen, K. Gimpel, and N. A. Smith.
+2008.
+Logisticnormal priors for unsupervised probabilistic grammarinduction.
+In NIPS.J.
+Dean and S. Ghemawat.
+2004.
+MapReduce: Sim-plified data processing on large clusters.
+In Proc.
+ofOSDI.M.
+Elsner, E. Charniak, and M. Johnson.
+2009.
+Struc-tured generative models for unsupervised named-entity clustering.
+In Proc.
+of NAACL-HLT.S.
+Goldwater and T. L. Griffiths.
+2007.
+A fully Bayesianapproach to unsupervised part-of-speech tagging.
+InProc.
+of ACL.J.
+Goodman.
+1996.
+Parsing algorithms and metrics.
+InProc.
+of ACL.W.
+P. Headden, M. Johnson, and D. McClosky.
+2009.Improving unsupervised dependency parsing withricher contexts and smoothing.
+In Proc.
+of NAACL-HLT.M.
+Johnson and S. Goldwater.
+2009.
+Improving nonpa-rameteric Bayesian inference experiments on unsuper-vised word segmentation with adaptor grammars.
+InProc.
+of NAACL-HLT.M.
+Johnson, T. L. Griffiths, and S. Goldwater.
+2006.Adaptor grammars: A framework for specifying com-positional nonparameteric Bayesian models.
+In NIPS.M.
+Johnson, T. L. Griffiths, and S. Goldwater.
+2007.Bayesian inference for PCFGs via Markov chainMonte Carlo.
+In Proc.
+of NAACL.M.
+Johnson.
+2008a.
+Unsupervised word segmentationfor Sesotho using adaptor grammars.
+In Proceedingsof the Tenth Meeting of ACL Special Interest Group onComputational Morphology and Phonology.M.
+Johnson.
+2008b.
+Using adaptor grammars to identifysynergies in the unsupervised acquisition of linguisticstructure.
+In Proc.
+of ACL.M.
+I. Jordan, Z. Ghahramani, T. S. Jaakola, and L. K.Saul.
+1999.
+An introduction to variational methodsfor graphical models.
+Machine Learning, 37(2):183?233.A.
+Joshi.
+2003.
+Tree adjoining grammars.
+In R. Mitkov,editor, The Oxford Handbook of Computational Lin-guistics, pages 483?501.
+Oxford University Press.D.
+Klein and C. D. Manning.
+2004.
+Corpus-based induc-tion of syntactic structure: Models of dependency andconstituency.
+In Proc.
+of ACL.K.
+Kurihara, M. Welling, and N. A. Vlassis.
+2006.
+Ac-celerated variational Dirichlet process mixtures.
+InNIPS.P.
+Liang, S. Petrov, M. Jordan, and D. Klein.
+2007.
+Theinfinite PCFG using hierarchical Dirichlet processes.In Proc.
+of EMNLP.M.
+P. Marcus, B. Santorini, and M. A. Marcinkiewicz.1993.
+Building a large annotated corpus of En-glish: The Penn treebank.
+Computational Linguistics,19:313?330.D.
+Mochihashi, T. Yamada, and N. Ueda.
+2009.Bayesian unsupervised word segmentation with nestedPitman-Yor language modeling.
+In Proc.
+of ACL.D.
+Newman, A. Asuncion, P. Smyth, and M. Welling.2009.
+Distributed algorithms for topic models.
+Jour-nal of Machine Learning Research, 10:1801?1828.J.
+Pitman and M. Yor.
+1997.
+The two-parameter Poisson-Dirichlet distribution derived from a stable subordina-tor.
+Annals of Probability, 25(2):855?900.J.
+Pitman.
+2002.
+Combinatorial Stochastic Processes.Lecture Notes for St. Flour Summer School.
+Springer-Verlag, New York, NY.C.
+P. Robert and G. Casella.
+2005.
+Monte Carlo Statisti-cal Methods.
+Springer.J.
+Sethuraman.
+1994.
+A constructive definition of Dirich-let priors.
+Statistica Sinica, 4:639?650.N.
+A. Smith.
+2006.
+Novel Estimation Methods for Unsu-pervised Discovery of Latent Structure in Natural Lan-guage Text.
+Ph.D. thesis, Johns Hopkins University.K.
+Toutanova and M. Johnson.
+2007.
+A Bayesian LDA-based model for semi-supervised part-of-speech tag-ging.
+In Proc.
+of NIPS.M.
+J. Wainwright and M. I. Jordan.
+2008.
+Graphi-cal models, exponential families, and variational infer-ence.
+Foundations and Trends in Machine Learning,1:1?305.C.
+Wang and D. M. Blei.
+2009.
+Variational inference forthe nested Chinese restaurant process.
+In NIPS.572

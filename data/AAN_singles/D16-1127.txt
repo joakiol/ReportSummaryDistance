@@ -1,0 +1,349 @@
+Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, pages 1192?1202,Austin, Texas, November 1-5, 2016. c?2016 Association for Computational LinguisticsDeep Reinforcement Learning for Dialogue GenerationJiwei Li1, Will Monroe1, Alan Ritter2, Michel Galley3, Jianfeng Gao3 and Dan Jurafsky11Stanford University, Stanford, CA, USA2Ohio State University, OH, USA3Microsoft Research, Redmond, WA, USA{jiweil,wmonroe4,jurafsky}@stanford.edu, ritter.1492@osu.edu{mgalley,jfgao}@microsoft.comAbstractRecent neural models of dialogue generationoffer great promise for generating responsesfor conversational agents, but tend to be short-sighted, predicting utterances one at a timewhile ignoring their influence on future out-comes.
+Modeling the future direction of a di-alogue is crucial to generating coherent, inter-esting dialogues, a need which led traditionalNLP models of dialogue to draw on reinforce-ment learning.
+In this paper, we show how tointegrate these goals, applying deep reinforce-ment learning to model future reward in chat-bot dialogue.
+The model simulates dialoguesbetween two virtual agents, using policy gradi-ent methods to reward sequences that displaythree useful conversational properties: infor-mativity, coherence, and ease of answering (re-lated to forward-looking function).
+We evalu-ate our model on diversity, length as well aswith human judges, showing that the proposedalgorithm generates more interactive responsesand manages to foster a more sustained conver-sation in dialogue simulation.
+This work marksa first step towards learning a neural conversa-tional model based on the long-term success ofdialogues.1 IntroductionNeural response generation (Sordoni et al, 2015;Shang et al, 2015; Vinyals and Le, 2015; Li et al,2016a; Wen et al, 2015; Yao et al, 2015; Luanet al, 2016; Xu et al, 2016; Wen et al, 2016; Liet al, 2016b; Su et al, 2016) is of growing inter-est.
+The LSTM sequence-to-sequence (SEQ2SEQ)model (Sutskever et al, 2014) is one type of neuralgeneration model that maximizes the probability ofgenerating a response given the previous dialogueturn.
+This approach enables the incorporation of richcontext when mapping between consecutive dialogueturns (Sordoni et al, 2015) in a way not possible, forexample, with MT-based dialogue models (Ritter etal., 2011).Despite the success of SEQ2SEQ models in di-alogue generation, two problems emerge: First,SEQ2SEQ models are trained by predicting the nextdialogue turn in a given conversational context usingthe maximum-likelihood estimation (MLE) objectivefunction.
+However, it is not clear how well MLEapproximates the real-world goal of chatbot develop-ment: teaching a machine to converse with humans,while providing interesting, diverse, and informativefeedback that keeps users engaged.
+One concreteexample is that SEQ2SEQ models tend to generatehighly generic responses such as ?I don?t know?
+re-gardless of the input (Sordoni et al, 2015; Serbanet al, 2016; Li et al, 2016a).
+This can be ascribedto the high frequency of generic responses found inthe training set and their compatibility with a diverserange of conversational contexts.
+Yet ?I don?t know?is apparently not a good action to take, since it closesthe conversation down.Another common problem, illustrated in the twosample conversations on the left of Table 1, is thatthe system becomes stuck in an infinite loop of repet-itive responses.
+This is due to MLE-based SEQ2SEQmodels?
+inability to account for repetition.
+In exam-ple 2 (bottom left), the dialogue falls into an infiniteloop after three turns, with both agents generatingdull, generic utterances like i don?t know what youare talking about and you don?t know what you aresaying.
+Looking at the entire conversation, utterance(4) turns out to be a bad action to take because itoffers no way of continuing the conversation.11A similar rule is often suggested in improvisational comedy:https://en.wikipedia.org/wiki/Yes,_and...1192Baseline mutual information model (Li et al 2015) Proposed reinforcement learning modelA: Where are you going?
+(1) A: Where are you going?
+(1)B: I?m going to the restroom.
+(2) B: I?m going to the police station.
+(2)A: See you later.
+(3) A: I?ll come with you.
+(3)B: See you later.
+(4) B: No, no, no, no, you?re not going anywhere.
+(4)A: See you later.
+(5) A: Why?
+(5)B: See you later.
+(6) B: I need you to stay here.
+(6)... A: I don?t know what you are talking about.
+(7)... ...A: how old are you?
+(1) A: How old are you?
+(1)B: I?m 16.
+(2) B: I?m 16.
+Why are you asking?
+(2)A: 16?
+(3) A I thought you were 12.
+(3)B: I don?t know what you are talking about.
+(4) B: What made you think so?
+(4)A: You don?t know what you are saying.
+(5) A: I don?t know what you are talking about.
+(5)B: I don?t know what you are talking about .
+(6) B: You don?t know what you are saying.
+(6)A: You don?t know what you are saying.
+(7) ...... ...Table 1: Left Column: Dialogue simulation between two agents using a 4-layer LSTM encoder-decodertrained on the OpenSubtitles dataset.
+The first turn (index 1) is input by the authors.
+Then the two agentstake turns conversing, taking as input the other agent?s prior generated turn.
+The output is generated usingthe mutual information model (Li et al, 2015) in which an N-best list is first obtained using beam searchbased on p(t|s) and reranked by linearly combining the backward probability p(s|t), where t and s respectivelydenote targets and sources.
+Right Column: Dialogue simulated using the proposed reinforcement learningmodel.
+The new model has more forward-looking utterances (questions like ?Why are you asking??
+andoffers like ?I?ll come with you?)
+and lasts longer before it falls into conversational black holes.These challenges suggest we need a conversa-tion framework that has the ability to (1) integratedeveloper-defined rewards that better mimic the truegoal of chatbot development and (2) model the long-term influence of a generated response in an ongoingdialogue.To achieve these goals, we draw on the insights ofreinforcement learning, which have been widely ap-plied in MDP and POMDP dialogue systems (see Re-lated Work section for details).
+We introduce a neu-ral reinforcement learning (RL) generation method,which can optimize long-term rewards designed bysystem developers.
+Our model uses the encoder-decoder architecture as its backbone, and simulatesconversation between two virtual agents to explorethe space of possible actions while learning to maxi-mize expected reward.
+We define simple heuristic ap-proximations to rewards that characterize good con-versations: good conversations are forward-looking(Allwood et al, 1992) or interactive (a turn suggestsa following turn), informative, and coherent.
+The pa-rameters of an encoder-decoder RNN define a policyover an infinite action space consisting of all possibleutterances.
+The agent learns a policy by optimizingthe long-term developer-defined reward from ongo-ing dialogue simulations using policy gradient meth-ods (Williams, 1992), rather than the MLE objectivedefined in standard SEQ2SEQ models.Our model thus integrates the power of SEQ2SEQsystems to learn compositional semantic meanings ofutterances with the strengths of reinforcement learn-ing in optimizing for long-term goals across a conver-sation.
+Experimental results (sampled results at theright panel of Table 1) demonstrate that our approachfosters a more sustained dialogue and manages toproduce more interactive responses than standardSEQ2SEQ models trained using the MLE objective.2 Related WorkEfforts to build statistical dialog systems fall into twomajor categories.The first treats dialogue generation as a source-to-target transduction problem and learns mappingrules between input messages and responses from amassive amount of training data.
+Ritter et al (2011)frames the response generation problem as a statisti-1193cal machine translation (SMT) problem.
+Sordoni etal.
+(2015) improved Ritter et al?s system by rescor-ing the outputs of a phrasal SMT-based conversationsystem with a neural model that incorporates priorcontext.
+Recent progress in SEQ2SEQ models inspireseveral efforts (Vinyals and Le, 2015) to build end-to-end conversational systems which first apply anencoder to map a message to a distributed vector rep-resenting its semantics and generate a response fromthe message vector.
+Serban et al (2016) proposea hierarchical neural model that captures dependen-cies over an extended conversation history.
+Li et al(2016a) propose mutual information between mes-sage and response as an alternative objective functionin order to reduce the proportion of generic responsesproduced by SEQ2SEQ systems.The other line of statistical research focuses onbuilding task-oriented dialogue systems to solvedomain-specific tasks.
+Efforts include statisticalmodels such as Markov Decision Processes (MDPs)(Levin et al, 1997; Levin et al, 2000; Walker et al,2003; Pieraccini et al, 2009), POMDP (Young etal., 2010; Young et al, 2013; Gas?ic et al, 2013a;Gas?ic et al, 2014) models, and models that statisti-cally learn generation rules (Oh and Rudnicky, 2000;Ratnaparkhi, 2002; Banchs and Li, 2012; Nio et al,2014).
+This dialogue literature thus widely appliesreinforcement learning (Walker, 2000; Schatzmannet al, 2006; Gasic et al, 2013b; Singh et al, 1999;Singh et al, 2000; Singh et al, 2002) to train dialoguepolicies.
+But task-oriented RL dialogue systems of-ten rely on carefully limited dialogue parameters, orhand-built templates with state, action and reward sig-nals designed by humans for each new domain, mak-ing the paradigm difficult to extend to open-domainscenarios.Also relevant is prior work on reinforcement learn-ing for language understanding - including learningfrom delayed reward signals by playing text-basedgames (Narasimhan et al, 2015; He et al, 2016),executing instructions for Windows help (Branavanet al, 2011), or understanding dialogues that givenavigation directions (Vogel and Jurafsky, 2010).Our goal is to integrate the SEQ2SEQ and rein-forcement learning paradigms, drawing on the advan-tages of both.
+We are thus particularly inspired byrecent work that attempts to merge these paradigms,including Wen et al (2016)?
+training an end-to-endtask-oriented dialogue system that links input repre-sentations to slot-value pairs in a database?
+or Suet al (2016), who combine reinforcement learningwith neural generation on tasks with real users, show-ing that reinforcement learning improves dialogueperformance.3 Reinforcement Learning forOpen-Domain DialogueIn this section, we describe in detail the componentsof the proposed RL model.The learning system consists of two agents.
+Weuse p to denote sentences generated from the firstagent and q to denote sentences from the second.The two agents take turns talking with each other.A dialogue can be represented as an alternating se-quence of sentences generated by the two agents:p1, q1, p2, q2, ..., pi, qi.
+We view the generated sen-tences as actions that are taken according to a policydefined by an encoder-decoder recurrent neural net-work language model.The parameters of the network are optimized tomaximize the expected future reward using policysearch, as described in Section 4.3.
+Policy gradi-ent methods are more appropriate for our scenariothan Q-learning (Mnih et al, 2013), because we caninitialize the encoder-decoder RNN using MLE pa-rameters that already produce plausible responses,before changing the objective and tuning towards apolicy that maximizes long-term reward.
+Q-learning,on the other hand, directly estimates the future ex-pected reward of each action, which can differ fromthe MLE objective by orders of magnitude, thus mak-ing MLE parameters inappropriate for initialization.The components (states, actions, reward, etc.)
+of oursequential decision problem are summarized in thefollowing sub-sections.3.1 ActionAn action a is the dialogue utterance to generate.The action space is infinite since arbitrary-length se-quences can be generated.3.2 StateA state is denoted by the previous two dialogue turns[pi, qi].
+The dialogue history is further transformedto a vector representation by feeding the concatena-tion of pi and qi into an LSTM encoder model as1194described in Li et al (2016a).3.3 PolicyA policy takes the form of an LSTM encoder-decoder(i.e., pRL(pi+1|pi, qi) ) and is defined by its param-eters.
+Note that we use a stochastic representationof the policy (a probability distribution over actionsgiven states).
+A deterministic policy would result ina discontinuous objective that is difficult to optimizeusing gradient-based methods.3.4 Rewardr denotes the reward obtained for each action.
+In thissubsection, we discuss major factors that contributeto the success of a dialogue and describe how approx-imations to these factors can be operationalized incomputable reward functions.Ease of answering A turn generated by a machineshould be easy to respond to.
+This aspect of a turnis related to its forward-looking function: the con-straints a turn places on the next turn (Schegloff andSacks, 1973; Allwood et al, 1992).
+We propose tomeasure the ease of answering a generated turn byusing the negative log likelihood of responding tothat utterance with a dull response.
+We manually con-structed a list of dull responses S consisting 8 turnssuch as ?I don?t know what you are talking about?,?I have no idea?, etc., that we and others have foundoccur very frequently in SEQ2SEQ models of con-versations.
+The reward function is given as follows:r1 = ?1NS?s?S1Nslog pseq2seq(s|a) (1)where NS denotes the cardinality of NS and Ns de-notes the number of tokens in the dull response s.Although of course there are more ways to generatedull responses than the list can cover, many of theseresponses are likely to fall into similar regions in thevector space computed by the model.
+A system lesslikely to generate utterances in the list is thus alsoless likely to generate other dull responses.pseq2seq represents the likelihood output bySEQ2SEQ models.
+It is worth noting that pseq2seqis different from the stochastic policy functionpRL(pi+1|pi, qi), since the former is learned basedon the MLE objective of the SEQ2SEQ model whilethe latter is the policy optimized for long-term futurereward in the RL setting.
+r1 is further scaled by thelength of target S.Information Flow We want each agent to con-tribute new information at each turn to keep the di-alogue moving and avoid repetitive sequences.
+Wetherefore propose penalizing semantic similarity be-tween consecutive turns from the same agent.
+Lethpi and hpi+1 denote representations obtained fromthe encoder for two consecutive turns pi and pi+1.The reward is given by the negative log of the cosinesimilarity between them:r2 = ?
+log cos(hpi , hpi+1) = ?
+loghpi ?
+hpi+1?hpi??hpi+1?
+(2)Semantic Coherence We also need to measure theadequacy of responses to avoid situations in whichthe generated replies are highly rewarded but are un-grammatical or not coherent.
+We therefore considerthe mutual information between the action a and pre-vious turns in the history to ensure the generatedresponses are coherent and appropriate:r3 =1Nalog pseq2seq(a|qi, pi)+1Nqilog pbackwardseq2seq (qi|a)(3)pseq2seq(a|pi, qi) denotes the probability of generat-ing response a given the previous dialogue utterances[pi, qi].
+pbackwardseq2seq (qi|a) denotes the backward proba-bility of generating the previous dialogue utteranceqi based on response a. pbackwardseq2seq is trained in a simi-lar way as standard SEQ2SEQ models with sourcesand targets swapped.
+Again, to control the influ-ence of target length, both log pseq2seq(a|qi, pi) andlog pbackwardseq2seq (qi|a) are scaled by the length of targets.The final reward for action a is a weighted sum ofthe rewards discussed above:r(a, [pi, qi]) = ?1r1 + ?2r2 + ?3r3 (4)where ?1 + ?2 + ?3 = 1.
+We set ?1 = 0.25, ?2 =0.25 and ?3 = 0.5.
+A reward is observed after theagent reaches the end of each sentence.4 SimulationThe central idea behind our approach is to simulatethe process of two virtual agents taking turns talkingwith each other, through which we can explore the1195state-action space and learn a policy pRL(pi+1|pi, qi)that leads to the optimal expected reward.
+We adoptan AlphaGo-style strategy (Silver et al, 2016) byinitializing the RL system using a general responsegeneration policy which is learned from a fully su-pervised setting.4.1 Supervised LearningFor the first stage of training, we build on prior workof predicting a generated target sequence given dia-logue history using the supervised SEQ2SEQ model(Vinyals and Le, 2015).
+Results from supervisedmodels will be later used for initialization.We trained a SEQ2SEQ model with attention (Bah-danau et al, 2015) on the OpenSubtitles dataset,which consists of roughly 80 million source-targetpairs.
+We treated each turn in the dataset as a targetand the concatenation of two previous sentences assource inputs.4.2 Mutual InformationSamples from SEQ2SEQ models are often times dulland generic, e.g., ?i don?t know?
+(Li et al, 2016a)We thus do not want to initialize the policy modelusing the pre-trained SEQ2SEQ models because thiswill lead to a lack of diversity in the RL models?
+ex-periences.
+Li et al (2016a) showed that modelingmutual information between sources and targets willsignificantly decrease the chance of generating dullresponses and improve general response quality.
+Wenow show how we can obtain an encoder-decodermodel which generates maximum mutual informa-tion responses.As illustrated in Li et al (2016a), direct decodingfrom Eq 3 is infeasible since the second term requiresthe target sentence to be completely generated.
+In-spired by recent work on sequence level learning(Ranzato et al, 2015), we treat the problem of gen-erating maximum mutual information response as areinforcement learning problem in which a rewardof mutual information value is observed when themodel arrives at the end of a sequence.Similar to Ranzato et al (2015), we use policy gra-dient methods (Sutton et al, 1999; Williams, 1992)for optimization.
+We initialize the policy model pRLusing a pre-trained pSEQ2SEQ(a|pi, qi) model.
+Givenan input source [pi, qi], we generate a candidate listA = {a?|a?
+?
+pRL}.
+For each generated candi-date a?, we will obtain the mutual information scorem(a?, [pi, qi]) from the pre-trained pSEQ2SEQ(a|pi, qi)and pbackwardSEQ2SEQ(qi|a).
+This mutual information scorewill be used as a reward and back-propagated to theencoder-decoder model, tailoring it to generate se-quences with higher rewards.
+We refer the readers toZaremba and Sutskever (2015) and Williams (1992)for details.
+The expected reward for a sequence isgiven by:J(?)
+= E[m(a?, [pi, qi])] (5)The gradient is estimated using the likelihood ratiotrick:?J(?)
+= m(a?, [pi, qi])?
+log pRL(a?|[pi, qi]) (6)We update the parameters in the encoder-decodermodel using stochastic gradient descent.
+A curricu-lum learning strategy is adopted (Bengio et al, 2009)as in Ranzato et al (2015) such that, for every se-quence of length T we use the MLE loss for the firstL tokens and the reinforcement algorithm for theremaining T ?
+L tokens.
+We gradually anneal thevalue of L to zero.
+A baseline strategy is employed todecrease the learning variance: an additional neuralmodel takes as inputs the generated target and theinitial source and outputs a baseline value, similarto the strategy adopted by Zaremba and Sutskever(2015).
+The final gradient is thus:?J(?)
+= ?
+log pRL(a?|[pi, qi])[m(a?, [pi, qi])?
+b](7)4.3 Dialogue Simulation between Two AgentsWe simulate conversations between the two virtualagents and have them take turns talking with eachother.
+The simulation proceeds as follows: at theinitial step, a message from the training set is fed tothe first agent.
+The agent encodes the input messageto a vector representation and starts decoding to gen-erate a response output.
+Combining the immediateoutput from the first agent with the dialogue history,the second agent updates the state by encoding thedialogue history into a representation and uses thedecoder RNN to generate responses, which are sub-sequently fed back to the first agent, and the processis repeated.1196............mHow old are you?I?m 16, why are you asking??
+??
+?I?m 16Input Message.
+.
+.16?I thought you were 12.. .
+.. .
+.. .
+.Turn 1p1,2p1,3Turn 2q11,1q11,2q21,1q21,2q31,1q31,2.........??
+?Turn np1n,1p1n,2p1,1p2n,1p2n,2p3n,1p3n,2encode decode encode decode encode decodeFigure 1: Dialogue simulation between the two agents.Optimization We initialize the policy model pRLwith parameters from the mutual information modeldescribed in the previous subsection.
+We then usepolicy gradient methods to find parameters that leadto a larger expected reward.
+The objective to maxi-mize is the expected future reward:JRL(?)
+= EpRL(a1:T )[i=T?i=1R(ai, [pi, qi])] (8)where R(ai, [pi, qi]) denotes the reward resultingfrom action ai.
+We use the likelihood ratio trick(Williams, 1992; Glynn, 1990; Aleksandrov et al,1968) for gradient updates:?JRL(?)
+??i?
+log p(ai|pi, qi)i=T?i=1R(ai, [pi, qi])(9)We refer readers to Williams (1992) and Glynn(1990) for more details.4.4 Curriculum LearningA curriculum Learning strategy is again employedin which we begin by simulating the dialogue for 2turns, and gradually increase the number of simulatedturns.
+We generate 5 turns at most, as the numberof candidates to examine grows exponentially in thesize of candidate list.
+Five candidate responses aregenerated at each step of the simulation.5 Experimental ResultsIn this section, we describe experimental resultsalong with qualitative analysis.
+We evaluate dialoguegeneration systems using both human judgments andtwo automatic metrics: conversation length (numberof turns in the entire session) and diversity.5.1 DatasetThe dialogue simulation requires high-quality initialinputs fed to the agent.
+For example, an initial inputof ?why ??
+is undesirable since it is unclear howthe dialogue could proceed.
+We take a subset of10 million messages from the OpenSubtitles datasetand extract 0.8 million sequences with the lowestlikelihood of generating the response ?i don?t knowwhat you are taking about?
+to ensure initial inputsare easy to respond to.5.2 Automatic EvaluationEvaluating dialogue systems is difficult.
+Metrics suchas BLEU (Papineni et al, 2002) and perplexity havebeen widely used for dialogue quality evaluation (Liet al, 2016a; Vinyals and Le, 2015; Sordoni et al,2015), but it is widely debated how well these auto-matic metrics are correlated with true response qual-ity (Liu et al, 2016; Galley et al, 2015).
+Since thegoal of the proposed system is not to predict thehighest probability response, but rather the long-termsuccess of the dialogue, we do not employ BLEU orperplexity for evaluation2.2We found the RL model performs worse on BLEU score.
+Ona random sample of 2,500 conversational pairs, single referenceBLEU scores for RL models, mutual information models andvanilla SEQ2SEQ models are respectively 1.28, 1.44 and 1.17.BLEU is highly correlated with perplexity in generation tasks.1197Model # of simulated turnsSEQ2SEQ 2.68mutual information 3.40RL 4.48Table 2: The average number of simulated turnsfrom standard SEQ2SEQ models, mutual informa-tion model and the proposed RL model.Length of the dialogue The first metric we pro-pose is the length of the simulated dialogue.
+We saya dialogue ends when one of the agents starts gener-ating dull responses such as ?i don?t know?
+3 or twoconsecutive utterances from the same user are highlyoverlapping4.The test set consists of 1,000 input messages.
+Toreduce the risk of circular dialogues, we limit thenumber of simulated turns to be less than 8.
+Resultsare shown in Table 2.
+As can be seen, using mutualinformation leads to more sustained conversationsbetween the two agents.
+The proposed RL model isfirst trained based on the mutual information objec-tive and thus benefits from it in addition to the RLmodel.
+We observe that the RL model with dialoguesimulation achieves the best evaluation score.Diversity We report degree of diversity by calculat-ing the number of distinct unigrams and bigrams ingenerated responses.
+The value is scaled by the totalnumber of generated tokens to avoid favoring longsentences as described in Li et al (2016a).
+The re-sulting metric is thus a type-token ratio for unigramsand bigrams.For both the standard SEQ2SEQ model and the pro-posed RL model, we use beam search with a beamsize 10 to generate a response to a given input mes-sage.
+For the mutual information model, we firstgenerate n-best lists using pSEQ2SEQ(t|s) and thenlinearly re-rank them using pSEQ2SEQ(s|t).
+Resultsare presented in Table 4.
+We find that the proposedRL model generates more diverse outputs when com-Since the RL model is trained based on future reward rather thanMLE, it is not surprising that the RL based models achieve lowerBLEU score.3We use a simple rule matching method, with a list of 8phrases that count as dull responses.
+Although this can leadto both false-positives and -negatives, it works pretty well inpractice.4Two utterances are considered to be repetitive if they sharemore than 80 percent of their words.pared against both the vanilla SEQ2SEQ model andthe mutual information model.Human Evaluation We explore three settings forhuman evaluation: the first setting is similar to whatwas described in Li et al (2016a), where we employcrowdsourced judges to evaluate a random sample of500 items.
+We present both an input message and thegenerated outputs to 3 judges and ask them to decidewhich of the two outputs is better (denoted as single-turn general quality).
+Ties are permitted.
+Identicalstrings are assigned the same score.
+We measurethe improvement achieved by the RL model over themutual information model by the mean difference inscores between the models.For the second setting, judges are again presentedwith input messages and system outputs, but areasked to decide which of the two outputs is easier torespond to (denoted as single-turn ease to answer).Again we evaluate a random sample of 500 items,each being assigned to 3 judges.For the third setting, judges are presented with sim-ulated conversations between the two agents (denotedas multi-turn general quality).
+Each conversationconsists of 5 turns.
+We evaluate 200 simulated con-versations, each being assigned to 3 judges, who areasked to decide which of the simulated conversationsis of higher quality.Results for human evaluation are shown in Table 5.The proposed RL system does not introduce a signifi-cant boost in single-turn response quality (winning40 percent of time and losing 36 percent of time).This is in line with our expectations, as the RL modelis not optimized to predict the next utterance, butrather to increase long-term reward.
+The RL sys-tem produces responses that are significantly easierto answer than does the mutual information system,as demonstrated by the single-turn ease to answersetting (winning 52 percent of time and losing 23percent of time), and also significantly higher qualitymulti-turn dialogues, as demonstrated by the multi-turn general quality setting (winning 72 percent oftime).Qualitative Analysis and Discussion We show arandom sample of generated responses in Table 3 andsimulated conversations in Table 1 at the beginningof the paper.
+From Table 3, we can see that theRL based agent indeed generates more interactive1198Input Message Mutual Information Model RLHow old are you?
+I?m 16.
+I?m 16, why are you asking?What?s your full name?
+I have no idea.
+What?s yours?I don?t want to go home tonight.
+Really?
+Why?Do you have any feelings for me?
+I don?t know what you are talking about.
+I don?t want to hurt your feelings.How much time do you have here?
+Not long enough.
+Sorry, sir.
+Ten seconds.Shall we get started?
+Of course!
+Yes.
+We?ve got a lot of work to do here.Do you play football?
+No, i don?t Yes.
+I love football!We?d have to talk to him.
+I mean, he?s a good guy About what ?How come you never say it?
+Because I don?t want to hurt you.
+I don?t think it?s a good idea to say it.Table 3: Sampled responses generated from the mutual information models and the proposed RL model.Model Unigram BigramSEQ2SEQ 0.0062 0.015mutual information 0.011 0.031RL 0.017 0.041Table 4: Diversity scores (type-token ratios) for thestandard SEQ2SEQ model, mutual information modeland the proposed RL model.Setting RL-win RL-lose Tiesingle-turn general quality 0.40 0.36 0.24single-turn ease to answer 0.52 0.23 0.25multi-turn general quality 0.72 0.12 0.16Table 5: RL gains over the mutual information sys-tem based on pairwise human judgments.responses than the other baselines.
+We also find thatthe RL model has a tendency to end a sentence withanother question and hand the conversation over tothe user.
+From Table 1, we observe that the RL modelmanages to produce more interactive and sustainedconversations than the mutual information model.During error analysis, we found that although wepenalize repetitive utterances in consecutive turns,the dialogue sometimes enters a cycle with lengthgreater than one, as shown in Table 6.
+This can beascribed to the limited amount of conversational his-tory we consider.
+Another issue observed is that themodel sometimes starts a less relevant topic duringthe conversation.
+There is a tradeoff between rele-vance and less repetitiveness, as manifested in thereward function we define in Eq 4.The fundamental problem, of course, is that themanually defined reward function can?t possiblycover the crucial aspects that define an ideal conversa-tion.
+While the heuristic rewards that we defined areamenable to automatic calculation, and do captureA: What?s your name ?B: Daniel.A: How old are you ?B.
+Twelve.
+What?s your name ?A.
+Daniel.B: How old are you ?A: Twelve.
+What?s your name ?B: Daniel.A: How old are you ?B ...Table 6: An simulated dialogue with a cycle longerthan one.some aspects of what makes a good conversation,ideally the system would instead receive real rewardsfrom humans.
+Another problem with the currentmodel is that we can only afford to explore a verysmall number of candidates and simulated turns sincethe number of cases to consider grow exponentially.6 ConclusionWe introduce a reinforcement learning framework forneural response generation by simulating dialoguesbetween two agents, integrating the strengths of neu-ral SEQ2SEQ systems and reinforcement learningfor dialogue.
+Like earlier neural SEQ2SEQ models,our framework captures the compositional modelsof the meaning of a dialogue turn and generates se-mantically appropriate responses.
+Like reinforce-ment learning dialogue systems, our framework isable to generate utterances that optimize future re-ward, successfully capturing global properties of agood conversation.
+Despite the fact that our modeluses very simple, operationable heuristics for captur-ing these global properties, the framework generatesmore diverse, interactive responses that foster a moresustained conversation.1199AcknowledgementWe would like to thank Chris Brockett, Bill Dolanand other members of the NLP group at Microsoft Re-search for insightful comments and suggestions.
+Wealso want to thank Kelvin Guu, Percy Liang, ChrisManning, Sida Wang, Ziang Xie and other membersof the Stanford NLP groups for useful discussions.Jiwei Li is supported by the Facebook Fellowship, towhich we gratefully acknowledge.
+This work is par-tially supported by the NSF via Awards IIS-1514268,IIS-1464128, and by the DARPA Communicatingwith Computers (CwC) program under ARO primecontract no.
+W911NF- 15-1-0462.
+Any opinions,findings, and conclusions or recommendations ex-pressed in this material are those of the authors anddo not necessarily reflect the views of NSF, DARPA,or Facebook.ReferencesV.
+M. Aleksandrov, V. I. Sysoyev, and V. V. Shemeneva.1968.
+Stochastic optimization.
+Engineering Cybernet-ics, 5:11?16.Jens Allwood, Joakim Nivre, and Elisabeth Ahlse?n.
+1992.On the semantics and pragmatics of linguistic feedback.Journal of Semantics, 9:1?26.Dzmitry Bahdanau, Kyunghyun Cho, and Yoshua Bengio.2015.
+Neural machine translation by jointly learning toalign and translate.
+In Proc.
+of ICLR.Rafael E Banchs and Haizhou Li.
+2012.
+IRIS: a chat-oriented dialogue system based on the vector spacemodel.
+In Proceedings of the ACL 2012 System Demon-strations, pages 37?42.Yoshua Bengio, Je?ro?me Louradour, Ronan Collobert, andJason Weston.
+2009.
+Curriculum learning.
+In Pro-ceedings of the 26th annual international conferenceon machine learning, pages 41?48.
+ACM.SRK Branavan, David Silver, and Regina Barzilay.
+2011.Learning to win by reading manuals in a monte-carloframework.
+In Proceedings of the 49th Annual Meetingof the Association for Computational Linguistics: Hu-man Language Technologies-Volume 1, pages 268?277.Michel Galley, Chris Brockett, Alessandro Sordoni,Yangfeng Ji, Michael Auli, Chris Quirk, MargaretMitchell, Jianfeng Gao, and Bill Dolan.
+2015.deltaBLEU: A discriminative metric for generationtasks with intrinsically diverse targets.
+In Proc.
+of ACL-IJCNLP, pages 445?450, Beijing, China, July.Milica Gas?ic, Catherine Breslin, Matthew Henderson,Dongho Kim, Martin Szummer, Blaise Thomson, Pir-ros Tsiakoulis, and Steve Young.
+2013a.
+Pomdp-baseddialogue manager adaptation to extended domains.
+InProceedings of SIGDIAL.Milica Gasic, Catherine Breslin, Mike Henderson,Dongkyu Kim, Martin Szummer, Blaise Thomson, Pir-ros Tsiakoulis, and Steve Young.
+2013b.
+On-line policyoptimisation of bayesian spoken dialogue systems viahuman interaction.
+In Proceedings of ICASSP 2013,pages 8367?8371.
+IEEE.Milica Gas?ic, Dongho Kim, Pirros Tsiakoulis, CatherineBreslin, Matthew Henderson, Martin Szummer, BlaiseThomson, and Steve Young.
+2014.
+Incremental on-line adaptation of pomdp-based dialogue managers toextended domains.
+In Proceedings on InterSpeech.Peter W Glynn.
+1990.
+Likelihood ratio gradient estima-tion for stochastic systems.
+Communications of theACM, 33(10):75?84.Ji He, Jianshu Chen, Xiaodong He, Jianfeng Gao, LihongLi, Li Deng, and Mari Ostendorf.
+2016.
+Deep rein-forcement learning with a natural language action space.In Proceedings of the 54th Annual Meeting of the Asso-ciation for Computational Linguistics (Volume 1: LongPapers), pages 1621?1630, Berlin, Germany, August.Esther Levin, Roberto Pieraccini, and Wieland Eckert.1997.
+Learning dialogue strategies within the markovdecision process framework.
+In Automatic SpeechRecognition and Understanding, 1997.
+Proceedings.,1997 IEEE Workshop on, pages 72?79.
+IEEE.Esther Levin, Roberto Pieraccini, and Wieland Eckert.2000.
+A stochastic model of human-machine interac-tion for learning dialog strategies.
+IEEE Transactionson Speech and Audio Processing, 8(1):11?23.Jiwei Li, Michel Galley, Chris Brockett, Jianfeng Gao, andBill Dolan.
+2016a.
+A diversity-promoting objectivefunction for neural conversation models.
+In Proc.
+ofNAACL-HLT.Jiwei Li, Michel Galley, Chris Brockett, Georgios Sp-ithourakis, Jianfeng Gao, and Bill Dolan.
+2016b.
+Apersona-based neural conversation model.
+In Proceed-ings of the 54th Annual Meeting of the Association forComputational Linguistics (Volume 1: Long Papers),pages 994?1003, Berlin, Germany, August.Chia-Wei Liu, Ryan Lowe, Iulian V Serban, Michael Nose-worthy, Laurent Charlin, and Joelle Pineau.
+2016.
+Hownot to evaluate your dialogue system: An empiricalstudy of unsupervised evaluation metrics for dialogueresponse generation.
+arXiv preprint arXiv:1603.08023.Yi Luan, Yangfeng Ji, and Mari Ostendorf.
+2016.LSTM based conversation models.
+arXiv preprintarXiv:1603.09457.Volodymyr Mnih, Koray Kavukcuoglu, David Silver, AlexGraves, Ioannis Antonoglou, Daan Wierstra, and Mar-tin Riedmiller.
+2013.
+Playing Atari with deep rein-forcement learning.
+NIPS Deep Learning Workshop.1200Karthik Narasimhan, Tejas Kulkarni, and Regina Barzilay.2015.
+Language understanding for text-based gamesusing deep reinforcement learning.
+arXiv preprintarXiv:1506.08941.Lasguido Nio, Sakriani Sakti, Graham Neubig, TomokiToda, Mirna Adriani, and Satoshi Nakamura.
+2014.Developing non-goal dialog system based on examplesof drama television.
+In Natural Interaction with Robots,Knowbots and Smartphones, pages 355?361.
+Springer.Alice H Oh and Alexander I Rudnicky.
+2000.
+Stochasticlanguage generation for spoken dialogue systems.
+InProceedings of the 2000 ANLP/NAACL Workshop onConversational systems-Volume 3, pages 27?32.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2002.
+BLEU: a method for automatic eval-uation of machine translation.
+In Proceedings of the40th annual meeting on association for computationallinguistics, pages 311?318.Roberto Pieraccini, David Suendermann, KrishnaDayanidhi, and Jackson Liscombe.
+2009.
+Are we thereyet?
+Research in commercial spoken dialog systems.In Text, Speech and Dialogue, pages 3?13.
+Springer.Marc?Aurelio Ranzato, Sumit Chopra, Michael Auli,and Wojciech Zaremba.
+2015.
+Sequence level train-ing with recurrent neural networks.
+arXiv preprintarXiv:1511.06732.Adwait Ratnaparkhi.
+2002.
+Trainable approaches to sur-face natural language generation and their applicationto conversational dialog systems.
+Computer Speech &Language, 16(3):435?455.Alan Ritter, Colin Cherry, and William B Dolan.
+2011.Data-driven response generation in social media.
+InProceedings of EMNLP 2011, pages 583?593.Jost Schatzmann, Karl Weilhammer, Matt Stuttle, andSteve Young.
+2006.
+A survey of statistical user simula-tion techniques for reinforcement-learning of dialoguemanagement strategies.
+The knowledge engineeringreview, 21(02):97?126.Emanuel A. Schegloff and Harvey Sacks.
+1973.
+Openingup closings.
+Semiotica, 8(4):289?327.Iulian V Serban, Alessandro Sordoni, Yoshua Bengio,Aaron Courville, and Joelle Pineau.
+2016.
+Buildingend-to-end dialogue systems using generative hierar-chical neural network models.
+In Proceedings of AAAI,February.Lifeng Shang, Zhengdong Lu, and Hang Li.
+2015.
+Neuralresponding machine for short-text conversation.
+InProceedings of ACL-IJCNLP, pages 1577?1586.David Silver, Aja Huang, Chris J Maddison, Arthur Guez,Laurent Sifre, George Van Den Driessche, Julian Schrit-twieser, Ioannis Antonoglou, Veda Panneershelvam,Marc Lanctot, et al 2016.
+Mastering the game of gowith deep neural networks and tree search.
+Nature,529(7587):484?489.Satinder P Singh, Michael J Kearns, Diane J Litman, andMarilyn A Walker.
+1999.
+Reinforcement learning forspoken dialogue systems.
+In Nips, pages 956?962.Satinder Singh, Michael Kearns, Diane J Litman, Mar-ilyn A Walker, et al 2000.
+Empirical evaluation ofa reinforcement learning spoken dialogue system.
+InAAAI/IAAI, pages 645?651.Satinder Singh, Diane Litman, Michael Kearns, and Mari-lyn Walker.
+2002.
+Optimizing dialogue managementwith reinforcement learning: Experiments with the nj-fun system.
+Journal of Artificial Intelligence Research,pages 105?133.Alessandro Sordoni, Michel Galley, Michael Auli, ChrisBrockett, Yangfeng Ji, Meg Mitchell, Jian-Yun Nie,Jianfeng Gao, and Bill Dolan.
+2015.
+A neural networkapproach to context-sensitive generation of conversa-tional responses.
+In Proceedings of NAACL-HLT.Pei-Hao Su, Milica Gasic, Nikola Mrksic, Lina Rojas-Barahona, Stefan Ultes, David Vandyke, Tsung-HsienWen, and Steve Young.
+2016.
+Continuously learningneural dialogue management.
+arxiv.Ilya Sutskever, Oriol Vinyals, and Quoc V Le.
+2014.Sequence to sequence learning with neural networks.In Advances in neural information processing systems,pages 3104?3112.Richard S Sutton, David A McAllester, Satinder P Singh,Yishay Mansour, et al 1999.
+Policy gradient methodsfor reinforcement learning with function approximation.In NIPS, volume 99, pages 1057?1063.Oriol Vinyals and Quoc Le.
+2015.
+A neural conversa-tional model.
+In Proceedings of ICML Deep LearningWorkshop.Adam Vogel and Dan Jurafsky.
+2010.
+Learning to follownavigational directions.
+In Proceedings of ACL 2010,pages 806?814.Marilyn A Walker, Rashmi Prasad, and Amanda Stent.2003.
+A trainable generator for recommendations inmultimodal dialog.
+In Proceeedings of INTERSPEECH2003.Marilyn A. Walker.
+2000.
+An application of reinforce-ment learning to dialogue strategy selection in a spokendialogue system for email.
+Journal of Artificial Intelli-gence Research, pages 387?416.Tsung-Hsien Wen, Milica Gasic, Nikola Mrks?ic?, Pei-HaoSu, David Vandyke, and Steve Young.
+2015.
+Semanti-cally conditioned LSTM-based natural language gener-ation for spoken dialogue systems.
+In Proceedings ofEMNLP, pages 1711?1721, Lisbon, Portugal.Tsung-Hsien Wen, Milica Gasic, Nikola Mrksic, Lina MRojas-Barahona, Pei-Hao Su, Stefan Ultes, DavidVandyke, and Steve Young.
+2016.
+A network-basedend-to-end trainable task-oriented dialogue system.arXiv preprint arXiv:1604.04562.1201Ronald J Williams.
+1992.
+Simple statistical gradient-following algorithms for connectionist reinforcementlearning.
+Machine learning, 8(3-4):229?256.Zhen Xu, Bingquan Liu, Baoxun Wang, Chengjie Sun, andXiaolong Wang.
+2016.
+Incorporating loose-structuredknowledge into LSTM with recall gate for conversationmodeling.
+arXiv preprint arXiv:1605.05110.Kaisheng Yao, Geoffrey Zweig, and Baolin Peng.
+2015.Attention with intention for a neural network conversa-tion model.
+In NIPS workshop on Machine Learningfor Spoken Language Understanding and Interaction.Steve Young, Milica Gas?ic?, Simon Keizer, Franc?oisMairesse, Jost Schatzmann, Blaise Thomson, and KaiYu.
+2010.
+The hidden information state model: A prac-tical framework for pomdp-based spoken dialogue man-agement.
+Computer Speech & Language, 24(2):150?174.Steve Young, Milica Gasic, Blaise Thomson, and Jason DWilliams.
+2013.
+Pomdp-based statistical spoken di-alog systems: A review.
+Proceedings of the IEEE,101(5):1160?1179.Wojciech Zaremba and Ilya Sutskever.
+2015.
+Reinforce-ment learning neural Turing machines.
+arXiv preprintarXiv:1505.00521.1202

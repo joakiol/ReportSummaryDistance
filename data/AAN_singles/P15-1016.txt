@@ -1,0 +1,398 @@
+Proceedings of the 53rd Annual Meeting of the Association for Computational Linguisticsand the 7th International Joint Conference on Natural Language Processing, pages 156?166,Beijing, China, July 26-31, 2015.c?2015 Association for Computational LinguisticsCompositional Vector Space Models for Knowledge Base CompletionArvind Neelakantan, Benjamin Roth, Andrew McCallumDepartment of Computer ScienceUniversity of Massachusetts, AmherstAmherst, MA, 01003{arvind,beroth,mccallum}@cs.umass.eduAbstractKnowledge base (KB) completion addsnew facts to a KB by making inferencesfrom existing facts, for example by infer-ring with high likelihood nationality(X,Y)from bornIn(X,Y).
+Most previous methodsinfer simple one-hop relational synonymslike this, or use as evidence a multi-hop re-lational path treated as an atomic feature,like bornIn(X,Z)?
+containedIn(Z,Y).
+Thispaper presents an approach that reasonsabout conjunctions of multi-hop relationsnon-atomically, composing the implica-tions of a path using a recurrent neuralnetwork (RNN) that takes as inputs vec-tor embeddings of the binary relation inthe path.
+Not only does this allow usto generalize to paths unseen at trainingtime, but also, with a single high-capacityRNN, to predict new relation types notseen when the compositional model wastrained (zero-shot learning).
+We assem-ble a new dataset of over 52M relationaltriples, and show that our method im-proves over a traditional classifier by 11%,and a method leveraging pre-trained em-beddings by 7%.1 IntroductionConstructing large knowledge bases (KBs) sup-ports downstream reasoning about resolved enti-ties and their relations, rather than the noisy tex-tual evidence surrounding their natural languagementions.
+For this reason KBs have been of in-creasing interest in both industry and academia(Bollacker et al, 2008; Suchanek et al, 2007;Carlson et al, 2010).
+Such KBs typically con-tain many millions of facts, most of them (en-tity1,relation,entity2) ?triples?
+(also known as bi-nary relations) such as (Barack Obama, presi-dentOf, USA) and (Brad Pitt, marriedTo, AngelinaJolie).However, even the largest KBs are woefully in-complete (Min et al, 2013), missing many impor-tant facts, and therefore damaging their usefulnessin downstream tasks.
+Ironically, these missingfacts can frequently be inferred from other facts al-ready in the KB, thus representing a sort of incon-sistency that can be repaired by the application ofan automated process.
+The addition of new triplesby leveraging existing triples is typically known asKB completion.Early work on this problem focused on learn-ing symbolic rules.
+For example, Schoenmack-ers et al (2010) learns Horn clauses predictive ofnew binary relations by exhausitively exploring re-lational paths of increasing length, and selectingthose surpassing an accuracy threshold.
+(A ?path?is a sequence of triples in which the second entityof each triple matches the first entity of the nexttriple.)
+Lao et al (2011) introduced the Path Rank-ing Algorithm (PRA), which greatly improves ef-ficiency and robustness by replacing exhaustivesearch with random walks, and using unique pathsas features in a per-target-relation binary classifier.A typical predictive feature learned by PRA is thatCountryOfHeadquarters(X, Y) is implied by Is-BasedIn(X,A) and StateLocatedIn(A, B) and Coun-tryLocatedIn(B, Y).
+Given IsBasedIn(Microsoft,Seattle), StateLocatedIn(Seattle, Washington) andCountryLocatedIn(Washington, USA), we can in-fer the fact CountryOfHeadquarters(Microsoft,USA) using the predictive feature.
+In later work,Lao et al (2012) greatly increase available rawmaterial for paths by augmenting KB-schema rela-tions with relations defined by the text connectingmentions of entities in a large corpus (also knownas OpenIE relations (Banko et al, 2007)).However, these symbolic methods can producemany millions of distinct paths, each of which iscategorically distinct, treated by PRA as a dis-156tinct feature.
+(See Figure 1.)
+Even putting asidethe OpenIE relations, this limits the applicabilityof these methods to modern KBs that have thou-sands of relation types, since the number of dis-tinct paths increases rapidly with the number of re-lation types.
+If textually-defined OpenIE relationsare included, the problem is obviously far moresevere.Better generalization can be gained by operat-ing on embedded vector representations of rela-tions, in which vector similarity can be interpretedas semantic similarity.
+For example, Bordes et al(2013) learn low-dimensional vector representa-tions of entities and KB relations, such that vectordifferences between two entities should be closeto the vectors associated with their relations.
+Thisapproach can find relation synonyms, and thus per-form a kind of one-to-one, non-path-based relationprediction for KB completion.
+Similarly Nickelet al (2011) and Socher et al (2013a) performKB completion by learning embeddings of rela-tions, but based on matrices or tensors.
+Universalschema (Riedel et al, 2013) learns to perform rela-tion prediction cast as matrix completion (likewiseusing vector embeddings), but predicts textually-defined OpenIE relations as well as KB relations,and embeds entity-pairs in addition to individualentities.
+Like all of the above, it also reasonsabout individual relations, not the evidence of aconnected path of relations.This paper proposes an approach combining theadvantages of (a) reasoning about conjunctions ofrelations connected in a path, and (b) generaliza-tion through vector embeddings, and (c) reasoningnon-atomically and compositionally about the el-ements of the path, for further generalization.Our method uses recurrent neural networks(RNNs) (Werbos, 1990) to compose the semanticsof relations in an arbitrary-length path.
+At eachpath-step it consumes both the vector embeddingof the next relation, and the vector representing thepath-so-far, then outputs a composed vector (rep-resenting the extended path-so-far), which will bethe input to the next step.
+After consuming a path,the RNN should output a vector in the semanticneighborhood of the relation between the first andlast entity of the path.
+For example, after con-suming the relation vectors along the path MelindaGates ?
+Bill Gates ?
+Microsoft ?
+Seattle, ourmethod produces a vector very close to the rela-tion livesIn.founded inheadquartered in        headquarters located inbased inin the U.S.  state of located in the state of beautiful city inin statestate in the NW region of  located in countrystate part ofdemocratic state inMicrosoft Seattle WashingtonIsBasedIn StateLocatedIn CountryLocatedInCountryOfHeadquartersUSA????
+????
+???
+?Figure 1: Semantically similar paths connecting entity pair(Microsoft, USA).Our compositional approach allow us at testtime to make predictions from paths that were un-seen during training, because of the generaliza-tion provided by vector neighborhoods, and be-cause they are composed in non-atomic fashion.This allows our model to seamlessly perform in-ference on many millions of paths in the KB graph.In most of our experiments, we learn a separateRNN for predicting each relation type, but alterna-tively, by learning a single high-capacity composi-tion function for all relation types, our method canperform zero-shot learning?predicting new rela-tion types for which the composition function wasnever explicitly trained.Related to our work, new versions of PRA(Gardner et al, 2013; Gardner et al, 2014) usepre-trained vector representations of relations toalleviate its feature explosion problem?but thecore mechanism continues to be a classifier basedon atomic-path features.
+In the 2013 work manypaths are collapsed by clustering paths accord-ing to their relations?
+embeddings, and substitut-ing cluster ids for the original relation types.
+Inthe 2014 work unseen paths are mapped to nearbypaths seen at training time, where nearness is mea-sured using the embeddings.
+Neither is able to per-form zero-shot learning since there must be a clas-sifer for each predicted relation type.
+Furthermoretheir pre-trained vectors do not have the opportu-nity to be tuned to the KB completion task becausethe two sub-tasks are completely disentangled.An additional contribution of our work is anew large-scale data set of over 52 million triples,and its preprocessing for purposes of path-basedKB completion (can be downloaded from http://iesl.cs.umass.edu/downloads/inferencerules/release.tar.gz).
+Thedataset is build from the combination of Freebase(Bollacker et al, 2008) and Google?s entitylinking in ClueWeb (Orr et al, 2013).
+Rather thanGardner?s 1000 distinct paths per relation type, wehave over 2 million.
+Rather than Gardner?s 200157Microsoft SeattleWashingtonIsBasedIn StateLocatedInUSACountryLocatedInCompositonCompositonCountryOfHeadquarters~Figure 2: Vector Representations of the paths are computedby applying the composition function recursively.entity pairs, we use over 10k.
+All experimentalcomparisons below are performed on this newdata set.On this challenging large-scale dataset our com-positional method outperforms PRA (Lao et al,2012), and Cluster PRA (Gardner et al, 2013) by11% and 7% respectively.
+A further contributionof our work is a new, surprisingly strong baselinemethod using classifiers of path bigram features,which beats PRA and Cluster PRA, and statisti-cally ties our compositional method.
+Our analysisshows that our method has substantially differentstrengths than the new baseline, and the combi-nation of the two yields a 15% improvement overGardner et al (2013).
+We also show that our zero-shot model is indeed capable of predicting new un-seen relation types.2 BackgroundWe give background on PRA which we use to ob-tain a set of paths connecting the entity pairs andthe RNN model which we employ to model thecomposition function.2.1 Path Ranking AlgorithmSince it is impractical to exhaustively obtain theset of all paths connecting an entity pair in thelarge KB graph, we use PRA (Lao et al, 2011)to obtain a set of paths connecting the entity pairs.Given a training set of entity pairs for a relation,PRA heuristically finds a set of paths by perform-ing random walks from the source and target nodeskeeping the most common paths.
+We use PRA tofind millions of distinct paths per relation type.
+Wedo not use the random walk probabilities given byPRA since using it did not yield improvements inour experiments.2.2 Recurrent Neural NetworksRecurrent neural network (RNN) (Werbos, 1990)is a neural network that constructs vector repre-sentation for sequences (of any length).
+For exam-ple, a RNN model can be used to construct vec-tor representations for phrases or sentences (of anylength) in natural language by applying a compo-sition function (Mikolov et al, 2010; Sutskeveret al, 2014; Vinyals et al, 2014).
+The vectorrepresentation of a phrase (w1, w2) consisting ofwords w1and w2is given by f(W [v(w1); v(w2)])where v(w) ?
+Rdis the vector representation ofw, f is an element-wise non linearity function,[a; b] represents the concatenation two vectors aand b along with a bias term, and W ?
+Rd?2?d+1is the composition matrix.
+This operation canbe repeated to construct vector representations oflonger phrases.3 Recurrent Neural Networks for KBCompletionThis paper proposes a RNN model for KB comple-tion that reasons on the paths connecting an entitypair to predict missing relation types.
+The vec-tor representations of the paths (of any length) inthe KB graph are computed by applying the com-position function recursively as shown in Figure2.
+To compute the vector representations for thehigher nodes in the tree, the composition functionconsumes the vector representation of the node?stwo children nodes and outputs a new vector of thesame dimension.
+Predictions about missing rela-tion types are made by comparing the vector repre-sentation of the path with the vector representationof the relation using the sigmoid function.We represent each binary relation using a d-dimensional real valued vector.
+We model com-position using recurrent neural networks (Werbos,1990).
+We learn a separate composition matrix forevery relation that is predicted.Let vr(?)
+?
+Rdbe the vector representation ofrelation ?
+and vp(pi) ?
+Rdbe the vector represen-tation of path pi.
+vp(pi) denotes the relation vec-tor if path pi is of length one.
+To predict relation?
+= CountryOfHeadquarters, the vector represen-tation of the path pi = IsBasedIn ?
+StateLocate-dIn containing two relations IsBasedIn and State-LocatedIn is computed by (Figure 2),vp(pi) =f(W?
+[vr(IsBasedIn); vr(StateLocatedIn)])158where f = sigmoid is the element-wise non-linearity function, W??
+Rd?2d+1is the compo-sition matrix for ?
+= CountryOfHeadquarters and[a; b] represents the concatenation of two vectorsa ?
+Rd, b ?
+Rdalong with a bias feature to get anew vector [a; b] ?
+R2d+1.The vector representation of the path ?
+= Is-BasedIn ?
+StateLocatedIn ?
+CountryLocatedInin Figure 2 is computed similarly by,vp(?)
+=f(W?
+[vp(pi); vr( CountryLocatedIn)])where vp(pi) is the vector representation of path Is-BasedIn?
+StateLocatedIn.
+While computing thevector representation of a path we always traverseleft to right, composing the relation vector in theright with the accumulated path vector in the left1.This makes our model a recurrent neural network(Werbos, 1990).Finally, we make a prediction regarding Coun-tryOfHeadquarters(Microsoft, USA) using thepath ?
+= IsBasedIn ?
+StateLocatedIn ?
+Coun-tryLocatedIn by comparing the vector represen-tation of the path (vp(?))
+with the vector repre-sentation of the relation CountryOfHeadquarters(vr(CountryOfHeadquarters)) using the sigmoidfunction.3.1 Model TrainingWe train the model with the existing facts in aKB using them as positive examples and nega-tive examples are obtained by treating the unob-served instances as negative examples (Mintz etal., 2009; Lao et al, 2011; Riedel et al, 2013; Bor-des et al, 2013).
+Unlike in previous work that useRNNs(Socher et al, 2011; Iyyer et al, 2014; Irsoyand Cardie, 2014), a challenge with using themfor our task is that among the set of paths connect-ing an entity pair, we do not observe which of thepath(s) is predictive of a relation.
+We select thepath that is closest to the relation type to be pre-dicted in the vector space.
+This not only allowsfor faster training (compared to marginalization)but also gives improved performance.
+This tech-nique has been successfully used in models otherthan RNNs previously (Weston et al, 2013; Nee-lakantan et al, 2014).1we did not get significant improvements when we triedmore sophisticated ordering schemes for computing the pathrepresentations.Algorithm 1 Training Algorithm of RNN model for rela-tion ?1: Input: ?
+?= ?+??
+???,?
+?, number of itera-tions T , mini-batch size B2: Initialize vr,W?randomly3: for t = 1, 2, .
+.
+.
+, T do4: ?vr= 0, ?W?= 0 and b = 05: for ?
+= (?, ?)
+?
+?
+?do6: ?
+?= arg maxpi???(?)vp(pi).vr(?
+)7: Accumulate gradients to?vr, ?W?8: using path ?
+?.9: b = b+ 110: if b = B then11: Gradient Update for vr,W?12: ?vr= 0,?W?= 0 and b = 013: end if14: end for15: if b > 0 then16: Gradient Update for vr,W?17: end if18: end for19: Output: vr,W?We assume that we are given a KB (for exam-ple, Freebase enriched with SVO triples) contain-ing a set of entity pairs ?, set of relations ?
+anda set of observed facts ?+where ??
+= (?, ?)
+??+(?
+?
+?, ?
+?
+?)
+indicates a positive fact thatentity pair ?
+is in relation ?.
+Let ??(?)
+denote theset of paths connecting entity pair ?
+given by PRAfor predicting relation ?.In our task, we only observe the set of pathsconnecting an entity pair but we do not observewhich of the path(s) is predictive of the fact.
+Wetreat this as a latent variable (?
+?for the fact ?
+)and we assign ?
+?the path whose vector represen-tation has maximum dot product with the vectorrepresentation of the relation to be predicted.
+Forexample, ?
+?for the fact ?
+= (?, ?)
+?
+?+is givenby,?
+?= arg maxpi???(?)vp(pi).vr(?
+)During training, we assign ?
+?using the currentparameter estimates.
+We use the same procedureto assign ?
+?for unobserved facts that are used asnegative examples during training.We train a separate RNN model for predictingeach relation and the parameters of the model forpredicting relation ?
+?
+?
+are ?
+= {vr(?)??
+?
+?, W?}.
+Given a training set consisting of posi-159tive (?+?)
+and negative (???)
+instances2for relation?, the parameters are trained to maximize the loglikelihood of the training set with L-2 regulariza-tion.?
+?= arg max???=(?,?)?
+?+?P (y?= 1; ?)+??=(?,?)???
+?P (y?= 0; ?)?
+???
+?2where y?is a binary random variable which takesthe value 1 if the fact ?
+is true and 0 otherwise, andthe probability of a fact P (y?= 1; ?)
+is given by,P (y?= 1; ?)
+= sigmoid(vp(??).vr(?
+))where ?
+?= arg maxpi???(?)vp(pi).vr(?
+)and P (y?= 0; ?)
+= 1 ?
+P (y?= 1; ?).
+Therelation vectors and the composition matrix areinitialized randomly.
+We train the network us-ing backpropagation through structure (Goller andK?uchler, 1996).4 Zero-shot KB CompletionThe KB completion task involves predicting factson thousands of relations types and it is highly de-sirable that a method can infer facts about relationtypes without directly training for them.
+Given thevector representation of the relations, we show thatour model described in the previous section is ca-pable of predicting relational facts without explic-itly training for the target (or test) relation types(zero-shot learning).In zero-shot or zero-data learning (Larochelle etal., 2008; Palatucci et al, 2009), some labels orclasses are not available during training the modeland only a description of those classes are givenat prediction time.
+We make two modifications tothe model described in the previous section, (1)learn a general composition matrix, and (2) fix re-lation vectors with pre-trained vectors, so that wecan predict relations that are unseen during train-ing.
+This ability of the model to generalize to un-seen relations is beyond the capabilities of all pre-vious methods for KB inference (Schoenmackerset al, 2010; Lao et al, 2011; Gardner et al, 2013;Gardner et al, 2014).We learn a general composition matrix for allrelations instead of learning a separate composi-tion matrix for every relation to be predicted.
+So,2we sub-sample a portion of the set of all unobserved in-stances.for example, the vector representation of the pathpi = IsBasedIn?
+StateLocatedIn containing tworelations IsBasedIn and StateLocatedIn is com-puted by (Figure 2),vp(pi) =f(W [vr(IsBasedIn); vr(StateLocatedIn)])where W ?
+Rd?2d+1is the general compositionmatrix.We initialize the vector representations of thebinary relations (vr) using the representationslearned in Riedel et al (2013) and do not updatethem during training.
+The relation vectors are notupdated because at prediction time we would bepredicting relation types which are never seen dur-ing training and hence their vectors would neverget updated.
+We learn only the general composi-tion matrix in this model.
+We train a single modelfor a set of relation types by replacing the sigmoidfunction with a softmax function while computingprobabilities and the parameters of the composi-tion matrix are learned using the available train-ing data containing instances of few relations.
+Theother aspects of the model remain unchanged.To predict facts whose relation types are unseenduring training, we compute the vector represen-tation of the path using the general compositionmatrix and compute the probability of the fact us-ing the pre-trained relation vector.
+For example,using the vector representation of the path ?
+= Is-BasedIn ?
+StateLocatedIn ?
+CountryLocatedInin Figure 2, we can predict any relation irrespec-tive of whether they are seen at training by com-paring it with the pre-trained relation vectors.5 ExperimentsThe hyperparameters of all the models were tunedon the same held-out development data.
+All theneural network models are trained for 150 itera-tions using 50 dimensional relation vectors, andwe set the L2-regularizer and learning rate to0.0001 and 0.1 respectively.
+We halved the learn-ing rate after every 60 iterations and use mini-batches of size 20.
+The neural networks and theclassifiers were optimized using AdaGrad (Duchiet al, 2011).5.1 DataWe ran experiments on Freebase (Bollacker et al,2008) enriched with information from ClueWeb.160Entities 18MFreebase triples 40MClueWeb triples 12MRelations 25,994Relation types tested 46Avg.
+paths/relation 2.3MAvg.
+training facts/relation 6638Avg.
+positive test instances/relation 3492Avg.
+negative test instances/relation 43,160Table 1: Statistics of our dataset.We use the publicly available entity links to Free-base in the ClueWeb dataset (Orr et al, 2013).Hence, we create nodes only for Freebase enti-ties in our KB graph.
+We remove facts containing/type/object/type as they do not give useful pre-dictive information for our task.
+We get triplesfrom ClueWeb by considering sentences that con-tain two entities linked to Freebase.
+We extract thephrase between the two entities and treat them asthe relation types.
+For phrases that are of lengthgreater than four we keep only the first and lasttwo words.
+This helps us to avoid the time con-suming step of dependency parsing the sentenceto get the relation type.
+These triples are similar tofacts obtained by OpenIE (Banko et al, 2007).
+Toreduce noise, we select relation types that occur atleast 50 times.
+We evaluate on 46 relation types inFreebase that have the most number of instances.The methods are evaluated on a subset of facts inFreebase that were hidden during training.
+Table1 shows important statistics of our dataset.5.2 Predictive PathsTable 2 shows predictive paths for 4 relationslearned by the RNN model.
+The high quality ofunseen paths is indicative of the fact that the RNNmodel is able to generalize to paths that are neverseen during training.5.3 ResultsUsing our dataset, we compare the performance ofthe following methods:PRA Classifier is the method in Lao et al (2012)which trains a logistic regression classifier by cre-ating a feature for every path type.Cluster PRA Classifier is the method in Gard-ner et al (2013) which replaces relation types fromClueWeb triples with their cluster membership inthe KB graph before the path finding step.
+Af-ter this step, their method proceeds in exactly thesame manner as Lao et al (2012) training a logis-tic regression classifier by creating a feature forevery path type.
+We use pre-trained relation vec-tors from Riedel et al (2013) and use k-meansclustering to cluster the relation types to 25 clus-ters as done in Gardner et al (2013).Composition-Add uses a simple element-wise ad-dition followed by sigmoid non-linearity as thecomposition function similar to Yang et al (2014).RNN-random is the supervised RNN model de-scribed in section 3 with the relation vectors ini-tialized randomly.RNN is the supervised RNN model described insection 3 with the relation vectors initialized usingthe method in Riedel et al (2013).PRA Classifier-b is our simple extension to themethod in Lao et al (2012) which additionallyuses bigrams in the path as features.
+We add aspecial start and stop symbol to the path beforecomputing the bigram features.Cluster PRA Classifier-b is our simple extensionto the method in Gardner et al (2013) which ad-ditionally uses bigram features computed as previ-ously described.RNN + PRA Classifier combines the predictionsof RNN and PRA Classifier.
+We combine the pre-dictions by assigning the score of a fact as the sumof their rank in the two models after sorting themin ascending order.RNN + PRA Classifier-b combines the predictionsof RNN and PRA Classifier-b using the techniquedescribed previously.Table 3 shows the results of our experiments.The method described in Gardner et al (2014) isnot included in the table since the publicly avail-able implementation does not scale to our largedataset.
+First, we show that it is better to train themodels using all the path types instead of usingonly the top 1, 000 path types as done in previouswork (Gardner et al, 2013; Gardner et al, 2014).We can see that the RNN model performs signif-icantly better than the baseline methods of Lao etal.
+(2012) and Gardner et al (2013).
+The perfor-mance of the RNN model is not affected by initial-ization since using random vectors and pre-trainedvectors results in similar performance.A surprising result is the impressive perfor-mance of our simple extension to the classifierapproach.
+After the addition of bigram features,the naive PRA method is as effective as the Clus-161Relation: /book/written work/original language/ (book ?x?
+written in language ?y?
+)Seen paths:/book/written work/previous in series?
+/book/written work/author?
+/people/person/nationality?
+/people/person/nationality?1?
+/people/person/languages/book/written work/author?
+/people/ethnicity/people?1?
+/people/ethnicity/languages spokenUnseen paths:?in?
+?1- ?writer??1?
+/people/person/nationality?1?
+/people/person/languages/book/written work/author?
+addresses?
+/people/person/nationality?1?
+/people/person/languagesRelation: /people/person/place of birth/ (person ?x?
+born in place ?y?
+)Seen paths:?was,born,in??
+/location/mailing address/citytown?1?
+/location/mailing address/state province region?from??
+/location/location/contains?1Unseen paths:?born,in??
+/location/location/contains?
+?near??1?was,born,in??
+commonly,known,as?1Relation: /geography/river/cities/ (river ?x?
+flows through or borders ?y?
+)Seen paths:?at??
+/location/location/contains?1?meets,the??
+/transportation/bridge/body of water spanned?1?
+/location/location/contains?1?
+?in?Unseen paths:/geography/lake/outflow?1?
+/location/location/contains?1/geography/lake/outflow?1?
+/location/location/contains?1?
+?near?Relation: /people/family/members/ (person ?y?
+part of family ?x?
+)Seen paths:/royalty/monarch/royal line?1?
+/people/person/children?
+/royalty/monarch/royal line?
+/royalty/royal line/monarchs from this line/royalty/royal line/monarchs from this line?
+/people/person/parents?1?
+/people/person/parents?1?
+/people/person/parents?1Unseen paths:/royalty/monarch/royal line?1?
+?leader??1?
+?king??
+?was,married,to??1?of,the??1?
+?but,also,of??
+?married??
+?defended?
+?1Table 2: Predictive paths, according to the RNN model, for 4 target relations.
+Two examples of seen andunseen paths are shown for each target relation.
+Inverse relations are marked by?1, i.e, r(x, y) =?r?1(y, x), ?
+(x, y) ?
+r. Relations within quotes are OpenIE (textual) relation types.train withtop 1000 pathstrain withall pathsMethod MAP MAPPRA Classifier 43.46 51.31Cluster PRA Classifier 46.26 53.23Composition-Add 40.23 45.37RNN-random 45.52 56.91RNN 46.61 56.95PRA Classifier-b 48.09 58.13Cluster PRA Classifier-b 48.72 58.02RNN + PRA Classifier 49.92 58.42RNN + PRA Classifier-b 51.94 61.17Table 3: Results comparing different methods on 46 types.
+All the methods perform better when trainedusing all the paths than training using the top 1, 000 paths.
+When training with all the paths, RNNperforms significantly (p < 0.005) better than PRA Classifier and Cluster PRA Classifier.
+The smalldifference in performance between RNN and both PRA Classifier-b and Cluster PRA Classifier-b is notstatistically significant.
+The best results are obtained by combining the predictions of RNN with PRAClassifier-b which performs significantly (p < 10?5) better than both PRA Classifier-b and Cluster PRAClassifier-b.ter PRA method.
+The small difference in perfor-mance between RNN and both PRA Classifier-band Cluster PRA Classifier-b is not statisticallysignificant.
+We conjecture that our method hassubstantially different strengths than the new base-line.
+While the classifier with bigram features hasan ability to accurately memorize important localstructure, the RNN model generalizes better to un-162train withtop 1000 pathstrain withall pathsMethod MAP MAPRNN 43.82 50.10zero-shot 19.28 20.61Random 7.59Table 4: Results comparing the zero-shot modelwith supervised RNN and a random baseline on10 types.
+RNN is the fully supervised model de-scribed in section 3 while zero-shot is the modeldescribed in section 4.
+The zero-shot model with-out explicitly training for the target relation typesachieves impressive results by performing signifi-cantly (p < 0.05) better than a random baseline.seen paths that are very different from the pathsseen is training.
+Empirically, combining the pre-dictions of RNN and PRA Classifier-b achieves astatistically significant gain over PRA Classifier-b.5.3.1 Zero-shotTable 4 shows the results of the zero-shot modeldescribed in section 4 compared with the fully su-pervised RNN model (section 3) and a baselinethat produces a random ordering of the test facts.We evaluate on randomly selected 10 (out of 46)relation types, hence for the fully supervised ver-sion we train 10 RNNs, one for each relation type.For evaluating the zero-shot model, we randomlysplit the relations into two sets of equal size andtrain a zero-shot model on one set and test on theother set.
+So, in this case we have two RNNsmaking predictions on relation types that they havenever seen during training.
+As expected, the fullysupervised RNN outperforms the zero-shot modelby a large margin but the zero-shot model with-out using any direct supervision clearly performsmuch better than a random baseline.5.3.2 DiscussionTo investigate whether the performance of theRNNs were affected by multiple local optima is-sues, we combined the predictions of five differentRNNs trained using all the paths.
+Apart from RNNand RNN-random, we trained three more RNNswith different random initialization and the perfor-mance of the three RNNs individually are 57.09,57.11 and 56.91.
+The performance of the ensem-ble is 59.16 and their performance stopped im-proving after using three RNNs.
+So, this indicatesthat even though multiple local optima affects theperformance, it is likely not the only issue sincethe performance of the ensemble is still less thanthe performance of RNN + PRA Classifier-b.We suspect the RNN model does not capturesome of the important local structure as well asthe classifier using bigram features.
+To overcomethis drawback, in future work, we plan to explorecompositional models that have a longer memory(Hochreiter and Schmidhuber, 1997; Cho et al,2014; Mikolov et al, 2014).
+We also plan to in-clude vector representations for the entities anddevelop models that address the issue of polysemyin verb phrases (Cheng et al, 2014).6 Related WorkKB Completion includes methods such as Linand Pantel (2001), Yates and Etzioni (2007) andBerant et al (2011) that learn inference rules oflength one.
+Schoenmackers et al (2010) learngeneral inference rules by considering the set ofall paths in the KB and selecting paths that sat-isfy a certain precision threshold.
+Their methoddoes not scale well to modern KBs and also de-pends on carefully tuned thresholds.
+Lao et al(2011) train a simple logistic regression classifierwith NELL KB paths as features to perform KBcompletion while Gardner et al (2013) and Gard-ner et al (2014) extend it by using pre-trained re-lation vectors to overcome feature sparsity.
+Re-cently, Yang et al (2014) learn inference rules us-ing simple element-wise addition or multiplicationas the composition function.Compositional Vector Space Models have beendeveloped to represent phrases and sentences innatural language as vectors (Mitchell and Lap-ata, 2008; Baroni and Zamparelli, 2010; Yesse-nalina and Cardie, 2011).
+Neural networks havebeen successfully used to learn vector representa-tions of phrases using the vector representationsof the words in that phrase.
+Recurrent neural net-works have been used for many tasks such as lan-guage modeling (Mikolov et al, 2010), machinetranslation (Sutskever et al, 2014) and parsing(Vinyals et al, 2014).
+Recursive neural networks,a more general version of the recurrent neural net-works have been used for many tasks like pars-ing (Socher et al, 2011), sentiment classification(Socher et al, 2012; Socher et al, 2013c; Irsoyand Cardie, 2014), question answering (Iyyer etal., 2014) and natural language logical semantics(Bowman et al, 2014).
+Our overall approach is163similar to RNNs with attention (Bahdanau et al,2014; Graves, 2013) since we select a path amongthe set of paths connecting the entity pair to makethe final prediction.Zero-shot or zero-data learning was introducedin Larochelle et al (2008) for character recogni-tion and drug discovery.
+Palatucci et al (2009)perform zero-shot learning for neural decodingwhile there has been plenty of work in this direc-tion for image recognition (Socher et al, 2013b;Frome et al, 2013; Norouzi et al, 2014).7 ConclusionWe develop a compositional vector spacemodel for knowledge base completion usingrecurrent neural networks.
+In our challeng-ing large-scale dataset available at http://iesl.cs.umass.edu/downloads/inferencerules/release.tar.gz,our method outperforms two baseline methodsand performs competitively with a modifiedstronger baseline.
+The best results are obtainedby combining the predictions of our model withthe predictions of the modified baseline whichachieves a 15% improvement over Gardner etal.
+(2013).
+We also show that our model has theability to perform zero-shot inference.AcknowledgmentsWe thank Matt Gardner for releasing the PRAcode, and for answering numerous question aboutthe code and data.
+We also thank the StanfordNLP group for releasing the neural networks code.This work was supported in part by the Centerfor Intelligent Information Retrieval, in part byDARPA under agreement number FA8750-13-2-0020, in part by an award from Google, and inpart by NSF grant #CNS-0958392.
+The U.S. Gov-ernment is authorized to reproduce and distributereprints for Governmental purposes notwithstand-ing any copyright notation thereon.
+Any opinions,findings and conclusions or recommendations ex-pressed in this material are those of the authors anddo not necessarily reflect those of the sponsor.ReferencesDzmitry Bahdanau, Kyunghyun Cho, and Yoshua Ben-gio.
+2014.
+Neural machine translation by jointlylearning to align and translate.
+In ArXiv.Michele Banko, Michael J Cafarella, Stephen Soder-land, Matt Broadhead, and Oren Etzioni.
+2007.Open information extraction from the web.
+In Inter-national Joint Conference on Artificial Intelligence.Marco Baroni and Roberto Zamparelli.
+2010.
+Nounsare vectors, adjectives are matrices: Representingadjective-noun constructions in semantic space.
+InEmpirical Methods in Natural Language Process-ing.Jonathan Berant, Ido Dagan, and Jacob Goldberger.2011.
+Global learning of typed entailment rules.
+InAssociation for Computational Linguistics.Kurt Bollacker, Colin Evans, Praveen Paritosh, TimSturge, and Jamie Taylor.
+2008.
+Freebase: a col-laboratively created graph database for structuringhuman knowledge.
+In Proceedings of the ACM SIG-MOD International Conference on Management ofData.Antoine Bordes, Nicolas Usunier, Alberto Garc?
+?a-Dur?an, Jason Weston, and Oksana Yakhnenko.2013.
+Translating embeddings for modeling multi-relational data.
+In Advances in Neural InformationProcessing Systems.Samuel R. Bowman, Christopher Potts, and Christo-pher D Manning.
+2014.
+Recursive neural networksfor learning logical semantics.
+In CoRR.Andrew Carlson, Justin Betteridge, Bryan Kisiel, BurrSettles, Estevam R. Hruschka, and A.
+2010.
+Towardan architecture for never-ending language learning.In In AAAI.Cheng, Jianpeng Kartsaklis, and Edward Grefenstette.2014.
+Investigating the role of prior disambiguationin deep-learning compositional models of meaning.In In Learning Semantics workshop NIPS.Kyunghyun Cho, Bart van Merrienboer, Dzmitry Bah-danau, and Yoshua Bengio.
+2014.
+On the propertiesof neural machine translation: Encoder?decoder ap-proaches.
+In Workshop on Syntax, Semantics andStructure in Statistical Translation.John Duchi, Elad Hazan, and Yoram Singer.
+2011.Adaptive subgradient methods for online learningand stochastic optimization.
+In Journal of MachineLearning Research.Andrea Frome, Gregory S. Corrado, Jonathon Shlens,Samy Bengio, Jeffrey Dean, Marc?Aurelio Ranzato,and Tomas Mikolov.
+2013.
+Devise: A deep visual-semantic embedding model.
+In Neural InformationProcessing Systems.Matt Gardner, Partha Pratim Talukdar, Bryan Kisiel,and Tom M. Mitchell.
+2013.
+Improving learningand inference in a large knowledge-base using la-tent syntactic cues.
+In Empirical Methods in NaturalLanguage Processing.164Matt Gardner, Partha Talukdar, Jayant Krishnamurthy,and Tom Mitchell.
+2014.
+Incorporating vector spacesimilarity in random walk inference over knowledgebases.
+In Empirical Methods in Natural LanguageProcessing.Christoph Goller and Andreas K?uchler.
+1996.
+Learn-ing task-dependent distributed representations bybackpropagation through structure.
+In IEEE Trans-actions on Neural Networks.Alex Graves.
+2013.
+Generating sequences with recur-rent neural networks.
+In ArXiv.Sepp Hochreiter and J?urgen Schmidhuber.
+1997.
+Longshort-term memory.
+In Neural Computation.Ozan Irsoy and Claire Cardie.
+2014.
+Deep recursiveneural networks for compositionality in language.In Neural Information Processing Systems.Mohit Iyyer, Jordan Boyd-Graber, Leonardo Claudino,Richard Socher, and Hal Daum?e III.
+2014.
+A neuralnetwork for factoid question answering over para-graphs.
+In Empirical Methods in Natural LanguageProcessing.Ni Lao, Tom Mitchell, and William W. Cohen.
+2011.Random walk inference and learning in a large scaleknowledge base.
+In Conference on Empirical Meth-ods in Natural Language Processing.Ni Lao, Amarnag Subramanya, Fernando Pereira, andWilliam W. Cohen.
+2012.
+Reading the web withlearned syntactic-semantic inference rules.
+In JointConference on Empirical Methods in Natural Lan-guage Processing and Computational Natural Lan-guage Learning.Hugo Larochelle, Dumitru Erhan, and Yoshua Bengio.2008.
+Zero-data learning of new tasks.
+In NationalConference on Artificial Intelligence.Dekang Lin and Patrick Pantel.
+2001.
+Dirt - discoveryof inference rules from text.
+In International Con-ference on Knowledge Discovery and Data Mining.Tomas Mikolov, Martin Karafi?at, Lukas Burget, JanCernock?y, and Sanjeev Khudanpur.
+2010.
+Recur-rent neural network based language model.
+In An-nual Conference of the International Speech Com-munication Association.Tomas Mikolov, Armand Joulin, Sumit Chopra,Micha?el Mathieu, and Marc?Aurelio Ranzato.
+2014.Learning longer memory in recurrent neural net-works.
+In CoRR.Bonan Min, Ralph Grishman, Li Wan, Chang Wang,and David Gondek.
+2013.
+Distant supervision forrelation extraction with an incomplete knowledgebase.
+In HLT-NAACL, pages 777?782.Mike Mintz, Steven Bills, Rion Snow, and Dan Juraf-sky.
+2009.
+Distant supervision for relation extrac-tion without labeled data.
+In Association for Com-putational Linguistics and International Joint Con-ference on Natural Language Processing.Jeff Mitchell and Mirella Lapata.
+2008.
+Vector-basedmodels of semantic composition.
+In Association forComputational Linguistics.Arvind Neelakantan, Jeevan Shankar, Alexandre Pas-sos, and Andrew McCallum.
+2014.
+Efficient non-parametric estimation of multiple embeddings perword in vector space.
+In Empirical Methods in Nat-ural Language Processing.Maximilian Nickel, Volker Tresp, and Hans-PeterKriegel.
+2011.
+A three-way model for collectivelearning on multi-relational data.
+In InternationalConference on Machine Learning.Mohammad Norouzi, Tomas Mikolov, Samy Bengio,Yoram Singer, Jonathon Shlens, Andrea Frome,Greg Corrado, and Jeffrey Dean.
+2014.
+Zero-shotlearning by convex combination of semantic em-beddings.
+In International Conference on LearningRepresentations.Dave Orr, Amarnag Subramanya, EvgeniyGabrilovich, and Michael Ringgaard.
+2013.11 billion clues in 800 million documents: A webresearch corpus annotated with freebase concepts.http://googleresearch.blogspot.com/2013/07/11-billion-clues-in-800-million.html.Mark Palatucci, Dean Pomerleau, Geoffrey Hinton,and Tom Mitchell.
+2009.
+Zero-shot learning withsemantic output codes.
+In Neural Information Pro-cessing Systems.Sebastian Riedel, Limin Yao, Andrew McCallum, andBenjamin M. Marlin.
+2013.
+Relation extractionwith matrix factorization and universal schemas.
+InHLT-NAACL.Stefan Schoenmackers, Oren Etzioni, Daniel S. Weld,and Jesse Davis.
+2010.
+Learning first-order hornclauses from web text.
+In Empirical Methods in Nat-ural Language Processing.Richard Socher, Cliff Chiung-Yu Lin, Christopher D.Manning, and Andrew Y. Ng.
+2011.
+Parsing natu-ral scenes and natural language with recursive neuralnetworks.
+In Proceedings of the 26th InternationalConference on Machine Learning (ICML).Richard Socher, Brody Huval, Christopher D. Man-ning, and Andrew Y. Ng.
+2012.
+Semantic com-positionality through recursive matrix-vector spaces.In Joint Conference on Empirical Methods in Natu-ral Language Processing and Computational Natu-ral Language Learning.Richard Socher, Danqi Chen, Christopher D Manning,and Andrew Ng.
+2013a.
+Reasoning with neural ten-sor networks for knowledge base completion.
+In Ad-vances in Neural Information Processing Systems.Richard Socher, Milind Ganjoo, Christopher D Man-ning, and Andrew Ng.
+2013b.
+Zero-shot learningthrough cross-modal transfer.
+In Neural InformationProcessing Systems.165Richard Socher, Alex Perelygin, Jean Wu, JasonChuang, Christopher D. Manning, Andrew Y. Ng,and Christopher Potts.
+2013c.
+Recursive deep mod-els for semantic compositionality over a sentimenttreebank.
+In Conference on Empirical Methods inNatural Language Processing.Fabian M. Suchanek, Gjergji Kasneci, and GerhardWeikum.
+2007.
+Yago: A core of semantic knowl-edge.
+In Proceedings of the 16th International Con-ference on World Wide Web.Ilya Sutskever, Oriol Vinyals, and Quoc V. V Le.2014.
+Sequence to sequence learning with neuralnetworks.
+In Advances in Neural Information Pro-cessing Systems.Oriol Vinyals, Lukasz Kaiser, Terry Koo, Slav Petrov,Ilya Sutskever, and Geoffrey Hinton.
+2014.
+Gram-mar as a foreign language.
+In CoRR.Paul Werbos.
+1990.
+Backpropagation through time:what it does and how to do it.
+In IEEE.Jason Weston, Ron Weiss, and Hector Yee.
+2013.Nonlinear latent factorization by embedding multi-ple user interests.
+In ACM International Conferenceon Recommender Systems.Bishan Yang, Wen-tau Yih, Xiaodong He, JianfengGao, and Li Deng.
+2014.
+Embedding entities andrelations for learning and inference in knowledgebases.
+In CoRR.Alexander Yates and Oren Etzioni.
+2007.
+Unsuper-vised resolution of objects and relations on the web.In North American Chapter of the Association forComputational Linguistics.Ainur Yessenalina and Claire Cardie.
+2011.
+Compo-sitional matrix-space models for sentiment analysis.In Empirical Methods in Natural Language Process-ing.166

@@ -1,0 +1,175 @@
+Proceedings of the 51st Annual Meeting of the Association for Computational Linguistics, pages 690?696,Sofia, Bulgaria, August 4-9 2013. c?2013 Association for Computational LinguisticsScalable Modified Kneser-Ney Language Model EstimationKenneth Heafield?,?
+Ivan Pouzyrevsky?
+Jonathan H. Clark?
+Philipp Koehn?
+?University of Edinburgh10 Crichton StreetEdinburgh EH8 9AB, UK?Carnegie Mellon University5000 Forbes AvenuePittsburgh, PA 15213, USA?YandexZelenograd, bld.
+455 fl.
+128Moscow 124498, Russiaheafield@cs.cmu.edu ivan.pouzyrevsky@gmail.com jhclark@cs.cmu.edu pkoehn@inf.ed.ac.ukAbstractWe present an efficient algorithm to es-timate large modified Kneser-Ney mod-els including interpolation.
+Streamingand sorting enables the algorithm to scaleto much larger models by using a fixedamount of RAM and variable amount ofdisk.
+Using one machine with 140 GBRAM for 2.8 days, we built an unprunedmodel on 126 billion tokens.
+Machinetranslation experiments with this modelshow improvement of 0.8 BLEU pointover constrained systems for the 2013Workshop on Machine Translation task inthree language pairs.
+Our algorithm is alsofaster for small models: we estimated amodel on 302 million tokens using 7.7%of the RAM and 14.0% of the wall timetaken by SRILM.
+The code is open sourceas part of KenLM.1 IntroductionRelatively low perplexity has made modifiedKneser-Ney smoothing (Kneser and Ney, 1995;Chen and Goodman, 1998) a popular choice forlanguage modeling.
+However, existing estima-tion methods require either large amounts of RAM(Stolcke, 2002) or machines (Brants et al, 2007).As a result, practitioners have chosen to useless data (Callison-Burch et al, 2012) or simplersmoothing methods (Brants et al, 2007).Backoff-smoothed n-gram language models(Katz, 1987) assign probability to a word wn incontext wn?11 according to the recursive equationp(wn|wn?11 ) ={p(wn|wn?11 ), if wn1 was seenb(wn?11 )p(wn|wn2 ), otherwiseThe task is to estimate probability p and backoffb from text for each seen entry wn1 .
+This paperFilesystemMapReduce 1FilesystemIdentity MapReduce 2Filesystem ...MapReduce StepsFilesystemMapReduce 1Reduce 2...OptimizedFigure 1: Each MapReduce performs three copiesover the network when only one is required.
+Ar-rows denote copies over the network (i.e.
+to andfrom a distributed filesystem).
+Both options uselocal disk within each reducer for merge sort.contributes an efficient multi-pass streaming algo-rithm using disk and a user-specified amount ofRAM.2 Related WorkBrants et al (2007) showed how to estimateKneser-Ney models with a series of five MapRe-duces (Dean and Ghemawat, 2004).
+On 31 billionwords, estimation took 400 machines for two days.Recently, Google estimated a pruned Kneser-Neymodel on 230 billion words (Chelba and Schalk-wyk, 2013), though no cost was provided.Each MapReduce consists of one layer of map-pers and an optional layer of reducers.
+Mappersread from a network filesystem, perform optionalprocessing, and route data to reducers.
+Reducersprocess input and write to a network filesystem.Ideally, reducers would send data directly to an-other layer of reducers, but this is not supported.Their workaround, a series of MapReduces, per-forms unnecessary copies over the network (Fig-ure 1).
+In both cases, reducers use local disk.690Writing and reading from the distributed filesys-tem improves fault tolerance.
+However, the samelevel of fault tolerance could be achieved bycheckpointing to the network filesystem then onlyreading in the case of failures.
+Doing so would en-able reducers to start processing without waitingfor the network filesystem to write all the data.Our code currently runs on a single machinewhile MapReduce targets clusters.
+Appuswamy etal.
+(2013) identify several problems with the scale-out approach of distributed computation and putforward several scenarios in which a single ma-chine scale-up approach is more cost effective interms of both raw performance and performanceper dollar.Brants et al (2007) contributed Stupid Backoff,a simpler form of smoothing calculated at runtimefrom counts.
+With Stupid Backoff, they scaled to1.8 trillion tokens.
+We agree that Stupid Backoffis cheaper to estimate, but contend that this workmakes Kneser-Ney smoothing cheap enough.Another advantage of Stupid Backoff has beenthat it stores one value, a count, per n-gram in-stead of probability and backoff.
+In previous work(Heafield et al, 2012), we showed how to collapseprobability and backoff into a single value withoutchanging sentence-level probabilities.
+However,local scores do change and, like Stupid Backoff,are no longer probabilities.MSRLM (Nguyen et al, 2007) aims to scal-ably estimate language models on a single ma-chine.
+Counting is performed with streaming algo-rithms similarly to this work.
+Their parallel mergesort also has the potential to be faster than ours.The biggest difference is that their pipeline de-lays some computation (part of normalization andall of interpolation) until query time.
+This meansthat it cannot produce a standard ARPA file andthat more time and memory are required at querytime.
+Moreover, they use memory mapping on en-tire files and these files may be larger than physi-cal RAM.
+We have found that, even with mostly-sequential access, memory mapping is slower be-cause the kernel does not explicitly know whereto read ahead or write behind.
+In contrast, we usededicated threads for reading and writing.
+Perfor-mance comparisons are omitted because we wereunable to compile and run MSRLM on recent ver-sions of Linux.SRILM (Stolcke, 2002) estimates modifiedKneser-Ney models by storing n-grams in RAM.CorpusCountingAdjusting CountsDivisionSummingInterpolationModelFigure 2: Data flow in the estimation pipeline.Normalization has two threads per order: sum-ming and division.
+Thick arrows indicate sorting.It also offers a disk-based pipeline for initial steps(i.e.
+counting).
+However, the later steps storeall n-grams that survived count pruning in RAM.Without pruning, both options use the same RAM.IRSTLM (Federico et al, 2008) does not imple-ment modified Kneser-Ney but rather an approxi-mation dubbed ?improved Kneser-Ney?
+(or ?mod-ified shift-beta?
+depending on the version).
+Esti-mation is done in RAM.
+It can also split the corpusinto pieces and separately build each piece, intro-ducing further approximation.3 Estimation PipelineEstimation has four streaming passes: counting,adjusting counts, normalization, and interpolation.Data is sorted between passes, three times in total.Figure 2 shows the flow of data.3.1 CountingFor a language model of order N , this step countsall N -grams (with length exactly N ) by streamingthrough the corpus.
+Words near the beginning ofsentence also formN -grams padded by the marker<s> (possibly repeated multiple times).
+The endof sentence marker </s> is appended to each sen-tence and acts like a normal token.Unpruned N -gram counts are sufficient, solower-order n-grams (n < N ) are not counted.Even pruned models require unpruned N -gramcounts to compute smoothing statistics.Vocabulary mapping is done with a hash table.1Token strings are written to disk and a 64-bit Mur-1This hash table is the only part of the pipeline that cangrow.
+Users can specify an estimated vocabulary size formemory budgeting.
+In future work, we plan to support lo-cal vocabularies with renumbering.691Suffix3 2 1Z B AZ A BB B BContext2 1 3Z A BB B BZ B AFigure 3: In suffix order, the last word is primary.In context order, the penultimate word is primary.murHash2 token identifier is retained in RAM.Counts are combined in a hash table and spilledto disk when a fixed amount of memory is full.Merge sort also combines identical N -grams (Bit-ton and DeWitt, 1983).3.2 Adjusting CountsThe counts c are replaced with adjusted counts a.a(wn1 ) ={c(wn1 ), if n = N or w1 = <s>|v : c(vwn1 ) > 0|, otherwiseAdjusted counts are computed by streamingthrough N -grams sorted in suffix order (Figure 3).The algorithm keeps a running total a(wNi ) foreach i and compares consecutive N -grams to de-cide which adjusted counts to output or increment.Smoothing statistics are also collected.
+For eachlength n, it collects the number tn,k of n-gramswith adjusted count k ?
+[1, 4].tn,k = |{wn1 : a(wn1 ) = k}|These are used to compute closed-form estimates(Chen and Goodman, 1998) of discounts Dn(k)Dn(k) = k ?
+(k + 1)tn,1tn,k+1(tn,1 + 2tn,2)tn,kfor k ?
+[1, 3].
+Other cases are Dn(0) = 0 andDn(k) = Dn(3) for k ?
+3.
+Less formally, counts0 (unknown) through 2 have special discounts.3.3 NormalizationNormalization computes pseudo probability uu(wn|wn?11 ) =a(wn1 )?Dn(a(wn1 ))?x a(wn?11 x)and backoff bb(wn?11 ) =?3i=1Dn(i)|{x : a(wn?11 x) = i}|?x a(wn?11 x)2https://code.google.com/p/smhasher/The difficulty lies in computing denominator?x a(wn?11 x) for all wn?11 .
+For this, we sort incontext order (Figure 3) so that, for every wn?11 ,the entries wn?11 x are consecutive.
+One pass col-lects both the denominator and backoff3 terms|{x : a(wn?11 x) = i}| for i ?
+[1, 3].A problem arises in that denominator?x a(wn?11 x) is known only after streamingthrough all wn?11 x, but is needed immediatelyto compute each u(wn|wn?11 ).
+One option is tobuffer in memory, taking O(N |vocabulary|) spacesince each order is run independently in parallel.Instead, we use two threads for each order.
+Thesum thread reads ahead to compute?x a(wn?11 x)and b(wn?11 ) then places these in a secondarystream.
+The divide thread reads the input and thesecondary stream then writes records of the form(wn1 , u(wn|wn?11 ), b(wn?11 )) (1)The secondary stream is short so that data read bythe sum thread will likely be cached when read bythe divide thread.
+This sort of optimization is notpossible with most MapReduce implementations.Because normalization streams through wn?11 xin context order, the backoffs b(wn?11 ) are com-puted in suffix order.
+This will be useful later(?3.5), so backoffs are written to secondary files(one for each order) as bare values without keys.3.4 InterpolationChen and Goodman (1998) found that perplex-ity improves when the various orders within thesame model are interpolated.
+The interpolationstep computes final probability p according to therecursive equationp(wn|wn?11 ) = u(wn|wn?11 )+b(wn?11 )p(wn|wn?12 )(2)Recursion terminates when unigrams are interpo-lated with the uniform distributionp(wn) = u(wn) + b()1|vocabulary|where  denotes the empty string.
+The unknownword counts as part of the vocabulary and hascount zero,4 so its probability is b()/|vocabulary|.3Sums and counts are done with exact integer arithmetic.Thus, every floating-point value generated by our toolkit isthe result of O(N) floating-point operations.
+SRILM has nu-merical precision issues because it uses O(N |vocabulary|)floating-point operations to compute backoff.4SRILM implements ?another hack?
+that computespSRILM(wn) = u(wn) and pSRILM(<unk>) = b() when-ever p(<unk>) < 3?
+10?6, as it usually is.
+We implementboth and suspect their motivation was numerical precision.692Probabilities are computed by streaming in suf-fix lexicographic order: wn appears before wnn?1,which in turn appears before wnn?2.
+In this way,p(wn) is computed before it is needed to computep(wn|wn?1), and so on.
+This is implemented byjointly iterating through N streams, one for eachlength of n-gram.
+The relevant pseudo probabilityu(wn|wn?11 ) and backoff b(wn?11 ) appear in theinput records (Equation 1).3.5 JoiningThe last task is to unite b(wn1 ) computed in ?3.3with p(wn|wn?11 ) computed in ?3.4 for storage inthe model.
+We note that interpolation (Equation 2)used the different backoff b(wn?11 ) and so b(wn1 )is not immediately available.
+However, the back-off values were saved in suffix order (?3.3) and in-terpolation produces probabilities in suffix order.During the same streaming pass as interpolation,we merge the two streams.5 Suffix order is alsoconvenient because the popular reverse trie datastructure can be built in the same pass.64 SortingMuch work has been done on efficient disk-basedmerge sort.
+Particularly important is arity, thenumber of blocks that are merged at once.
+Lowarity leads to more passes while high arity in-curs more disk seeks.
+Abello and Vitter (1999)modeled these costs and derived an optimal strat-egy: use fixed-size read buffers (one for eachblock being merged) and set arity to the number ofbuffers that fit in RAM.
+The optimal buffer size ishardware-dependent; we use 64 MB by default.
+Toovercome the operating system limit on file han-dles, multiple blocks are stored in the same file.To further reduce the costs of merge sort, weimplemented pipelining (Dementiev et al, 2008).If there is enough RAM, input is lazily mergedand streamed to the algorithm.
+Output is cut intoblocks, sorted in the next step?s desired order, andthen written to disk.
+These optimizations elim-inate up to two copies to disk if enough RAMis available.
+Input, the algorithm, block sorting,and output are all threads on a chain of producer-consumer queues.
+Therefore, computation anddisk operations happen simultaneously.5Backoffs only exist if the n-gram is the context of somen+ 1-gram, so merging skips n-grams that are not contexts.6With quantization (Whittaker and Raj, 2001), the quan-tizer is trained in a first pass and applied in a second pass.010203040500 200 400 600 800 1000RAM(GB)Tokens (millions)SRISRI compactIRSTThis workFigure 4: Peak virtual memory usage.024681012140 200 400 600 800 1000CPUtime(hours)Tokens (millions)SRISRI compactIRSTThis workFigure 5: CPU usage (system plus user).Each n-gram record is an array of n vocabu-lary identifiers (4 bytes each) and an 8-byte countor probability and backoff.
+At peak, records arestored twice on disk because lazy merge sort isnot easily amenable to overwriting the input file.Additional costs are the secondary backoff file (4bytes per backoff) and the vocabulary in plaintext.5 ExperimentsExperiments use ClueWeb09.7 After spam filter-ing (Cormack et al, 2011), removing markup, se-lecting English, splitting sentences (Koehn, 2005),deduplicating, tokenizing (Koehn et al, 2007),and truecasing, 126 billion tokens remained.7http://lemurproject.org/clueweb09/6931 2 3 4 5393 3,775 17,629 39,919 59,794Table 1: Counts of unique n-grams (in millions)for the 5 orders in the large LM.5.1 Estimation ComparisonWe estimated unpruned language models in bi-nary format on sentences randomly sampled fromClueWeb09.
+SRILM and IRSTLM were run un-til the test machine ran out of RAM (64 GB).For our code, the memory limit was set to 3.5GB because larger limits did not improve perfor-mance on this small data.
+Results are in Figures4 and 5.
+Our code used an average of 1.34?1.87CPUs, so wall time is better than suggested in Fig-ure 5 despite using disk.
+Other toolkits are single-threaded.
+SRILM?s partial disk pipeline is notshown; it used the same RAM and took more time.IRSTLM?s splitting approximation took 2.5 timesas much CPU and about one-third the memory (fora 3-way split) compared with normal IRSTLM.For 302 million tokens, our toolkit used 25.4%of SRILM?s CPU time, 14.0% of the wall time,and 7.7% of the RAM.
+Compared with IRSTLM,our toolkit used 16.4% of the CPU time, 9.0% ofthe wall time, and 16.6% of the RAM.5.2 ScalingWe built an unpruned model (Table 1) on 126 bil-lion tokens.
+Estimation used a machine with 140GB RAM and six hard drives in a RAID5 configu-ration (sustained read: 405 MB/s).
+It took 123 GBRAM, 2.8 days wall time, and 5.4 CPU days.
+Asummary of Google?s results from 2007 on differ-ent data and hardware appears in ?2.We then used this language model as an ad-ditional feature in unconstrained Czech-English,French-English, and Spanish-English submissionsto the 2013 Workshop on Machine Translation.8Our baseline is the University of Edinburgh?sphrase-based Moses (Koehn et al, 2007) submis-sion (Durrani et al, 2013), which used all con-strained data specified by the evaluation (7 billiontokens of English).
+It placed first by BLEU (Pap-ineni et al, 2002) among constrained submissionsin each language pair we consider.In order to translate, the large model was quan-tized (Whittaker and Raj, 2001) to 10 bits andcompressed to 643 GB with KenLM (Heafield,8http://statmt.org/wmt13/Source Baseline LargeCzech 27.4 28.2French 32.6 33.4Spanish 31.8 32.6Table 2: Uncased BLEU results from the 2013Workshop on Machine Translation.2011) then copied to a machine with 1 TB RAM.Better compression methods (Guthrie and Hepple,2010; Talbot and Osborne, 2007) and distributedlanguage models (Brants et al, 2007) could reducehardware requirements.
+Feature weights were re-tuned with PRO (Hopkins and May, 2011) forCzech-English and batch MIRA (Cherry and Fos-ter, 2012) for French-English and Spanish-Englishbecause these worked best for the baseline.
+Un-cased BLEU scores on the 2013 test set are shownin Table 2.
+The improvement is remarkably con-sistent at 0.8 BLEU point in each language pair.6 ConclusionOur open-source (LGPL) estimation code is avail-able from kheafield.com/code/kenlm/and should prove useful to the community.
+Sort-ing makes it scalable; efficient merge sort makesit fast.
+In future work, we plan to extend to theCommon Crawl corpus and improve parallelism.AcknowledgementsMiles Osborne preprocessed ClueWeb09.
+Mo-hammed Mediani contributed to early designs.Jianfeng Gao clarified how MSRLM operates.This work used the Extreme Science and Engi-neering Discovery Environment (XSEDE), whichis supported by National Science Foundation grantnumber OCI-1053575.
+We used Stampede andTrestles under allocation TG-CCR110017.
+Sys-tem administrators from the Texas AdvancedComputing Center (TACC) at The University ofTexas at Austin made configuration changes onour request.
+This work made use of the resourcesprovided by the Edinburgh Compute and Data Fa-cility (http://www.ecdf.ed.ac.uk/).
+TheECDF is partially supported by the eDIKT ini-tiative (http://www.edikt.org.uk/).
+Theresearch leading to these results has received fund-ing from the European Union Seventh FrameworkProgramme (FP7/2007-2013) under grant agree-ment 287658 (EU BRIDGE).694ReferencesJames M. Abello and Jeffrey Scott Vitter, editors.1999.
+External memory algorithms.
+AmericanMathematical Society, Boston, MA, USA.Raja Appuswamy, Christos Gkantsidis, DushyanthNarayanan, Orion Hodson, and Antony Rowstron.2013.
+Nobody ever got fired for buying a cluster.Technical Report MSR-TR-2013-2, Microsoft Re-search.Dina Bitton and David J DeWitt.
+1983.
+Duplicaterecord elimination in large data files.
+ACM Trans-actions on database systems (TODS), 8(2):255?265.Thorsten Brants, Ashok C. Popat, Peng Xu, Franz J.Och, and Jeffrey Dean.
+2007.
+Large languagemodels in machine translation.
+In Proceedings ofthe 2007 Joint Conference on Empirical Methodsin Natural Language Processing and ComputationalLanguage Learning, pages 858?867, June.Chris Callison-Burch, Philipp Koehn, Christof Monz,Matt Post, Radu Soricut, and Lucia Specia.
+2012.Findings of the 2012 workshop on statistical ma-chine translation.
+In Proceedings of the SeventhWorkshop on Statistical Machine Translation, pages10?51, Montre?al, Canada, June.
+Association forComputational Linguistics.Ciprian Chelba and Johan Schalkwyk, 2013.
+Em-pirical Exploration of Language Modeling for thegoogle.com Query Stream as Applied to MobileVoice Search, pages 197?229.
+Springer, New York.Stanley Chen and Joshua Goodman.
+1998.
+An em-pirical study of smoothing techniques for languagemodeling.
+Technical Report TR-10-98, HarvardUniversity, August.Colin Cherry and George Foster.
+2012.
+Batch tun-ing strategies for statistical machine translation.
+InProceedings of the 2012 Conference of the NorthAmerican Chapter of the Association for Computa-tional Linguistics: Human Language Technologies,pages 427?436.
+Association for Computational Lin-guistics.Gordon V Cormack, Mark D Smucker, and Charles LAClarke.
+2011.
+Efficient and effective spam filteringand re-ranking for large web datasets.
+Informationretrieval, 14(5):441?465.Jeffrey Dean and Sanjay Ghemawat.
+2004.
+MapRe-duce: Simplified data processing on large clusters.In OSDI?04: Sixth Symposium on Operating Sys-tem Design and Implementation, San Francisco, CA,USA, 12.Roman Dementiev, Lutz Kettner, and Peter Sanders.2008.
+STXXL: standard template library for XXLdata sets.
+Software: Practice and Experience,38(6):589?637.Nadir Durrani, Barry Haddow, Kenneth Heafield, andPhilipp Koehn.
+2013.
+Edinburgh?s machine trans-lation systems for European language pairs.
+In Pro-ceedings of the ACL 2013 Eighth Workshop on Sta-tistical Machine Translation, Sofia, Bulgaria, Au-gust.Marcello Federico, Nicola Bertoldi, and Mauro Cet-tolo.
+2008.
+IRSTLM: an open source toolkit forhandling large scale language models.
+In Proceed-ings of Interspeech, Brisbane, Australia.David Guthrie and Mark Hepple.
+2010.
+Storing theweb in memory: Space efficient language mod-els with constant time retrieval.
+In Proceedings ofEMNLP 2010, Los Angeles, CA.Kenneth Heafield, Philipp Koehn, and Alon Lavie.2012.
+Language model rest costs and space-efficientstorage.
+In Proceedings of the 2012 Joint Confer-ence on Empirical Methods in Natural LanguageProcessing and Computational Natural LanguageLearning, Jeju Island, Korea.Kenneth Heafield.
+2011.
+KenLM: Faster and smallerlanguage model queries.
+In Proceedings of the SixthWorkshop on Statistical Machine Translation, Edin-burgh, UK, July.
+Association for Computational Lin-guistics.Mark Hopkins and Jonathan May.
+2011.
+Tuning asranking.
+In Proceedings of the 2011 Conference onEmpirical Methods in Natural Language Process-ing, pages 1352?1362, Edinburgh, Scotland, July.Slava Katz.
+1987.
+Estimation of probabilities fromsparse data for the language model component of aspeech recognizer.
+IEEE Transactions on Acoustics,Speech, and Signal Processing, ASSP-35(3):400?401, March.Reinhard Kneser and Hermann Ney.
+1995.
+Improvedbacking-off for m-gram language modeling.
+InProceedings of the IEEE International Conferenceon Acoustics, Speech and Signal Processing, pages181?184.Philipp Koehn, Hieu Hoang, Alexandra Birch, ChrisCallison-Burch, Marcello Federico, Nicola Bertoldi,Brooke Cowan, Wade Shen, Christine Moran,Richard Zens, Chris Dyer, Ondr?ej Bojar, Alexan-dra Constantin, and Evan Herbst.
+2007.
+Moses:Open source toolkit for statistical machine transla-tion.
+In Annual Meeting of the Association for Com-putational Linguistics (ACL), Prague, Czech Repub-lic, June.Philipp Koehn.
+2005.
+Europarl: A parallel corpusfor statistical machine translation.
+In Proceedingsof MT Summit.Patrick Nguyen, Jianfeng Gao, and Milind Mahajan.2007.
+MSRLM: a scalable language modelingtoolkit.
+Technical Report MSR-TR-2007-144, Mi-crosoft Research.695Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2002.
+BLEU: A method for automaticevalution of machine translation.
+In Proceedings40th Annual Meeting of the Association for Com-putational Linguistics, pages 311?318, Philadelphia,PA, July.Andreas Stolcke.
+2002.
+SRILM - an extensible lan-guage modeling toolkit.
+In Proceedings of the Sev-enth International Conference on Spoken LanguageProcessing, pages 901?904.David Talbot and Miles Osborne.
+2007.
+Randomisedlanguage modelling for statistical machine trans-lation.
+In Proceedings of ACL, pages 512?519,Prague, Czech Republic.Edward Whittaker and Bhiksha Raj.
+2001.Quantization-based language model compres-sion.
+In Proceedings of Eurospeech, pages 33?36,Aalborg, Denmark, December.696

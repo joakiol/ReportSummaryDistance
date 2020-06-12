@@ -1,0 +1,460 @@
+Proceedings of the 2013 Conference on Empirical Methods in Natural Language Processing, pages 1545?1556,Seattle, Washington, USA, 18-21 October 2013. c?2013 Association for Computational LinguisticsScaling Semantic Parsers with On-the-fly Ontology MatchingTom Kwiatkowski Eunsol Choi Yoav Artzi Luke ZettlemoyerComputer Science & EngineeringUniversity of WashingtonSeattle, WA 98195{tomk,eunsol,yoav,lsz}@cs.washington.eduAbstractWe consider the challenge of learning seman-tic parsers that scale to large, open-domainproblems, such as question answering withFreebase.
+In such settings, the sentences covera wide variety of topics and include manyphrases whose meaning is difficult to rep-resent in a fixed target ontology.
+For ex-ample, even simple phrases such as ?daugh-ter?
+and ?number of people living in?
+can-not be directly represented in Freebase, whoseontology instead encodes facts about gen-der, parenthood, and population.
+In this pa-per, we introduce a new semantic parsing ap-proach that learns to resolve such ontologi-cal mismatches.
+The parser is learned fromquestion-answer pairs, uses a probabilisticCCG to build linguistically motivated logical-form meaning representations, and includesan ontology matching model that adapts theoutput logical forms for each target ontology.Experiments demonstrate state-of-the-art per-formance on two benchmark semantic parsingdatasets, including a nine point accuracy im-provement on a recent Freebase QA corpus.1 IntroductionSemantic parsers map sentences to formal represen-tations of their underlying meaning.
+Recently, al-gorithms have been developed to learn such parsersfor many applications, including question answering(QA) (Kwiatkowski et al 2011; Liang et al 2011),relation extraction (Krishnamurthy and Mitchell,2012), robot control (Matuszek et al 2012; Kr-ishnamurthy and Kollar, 2013), interpreting instruc-tions (Chen and Mooney, 2011; Artzi and Zettle-moyer, 2013), and generating programs (Kushmanand Barzilay, 2013).In each case, the parser uses a predefined setof logical constants, or an ontology, to constructmeaning representations.
+In practice, the choiceof ontology significantly impacts learning.
+Forexample, consider the following questions (Q) andcandidate meaning representations (MR):Q1: What is the population of Seattle?Q2: How many people live in Seattle?MR1: ?x.population(Seattle, x)MR2: count(?x.person(x) ?
+live(x, Seattle))A semantic parser might aim to construct MR1 forQ1 and MR2 for Q2; these pairings align constants(count, person, etc.)
+directly to phrases (?Howmany,?
+?people,?
+etc.).
+Unfortunately, few ontologieshave sufficient coverage to support both meaningrepresentations, for example many QA databaseswould only include the population relation requiredfor MR1.
+Most existing approaches would, giventhis deficiency, simply aim to produce MR1 for Q2,thereby introducing significant lexical ambiguitythat complicates learning.
+Such ontological mis-matches become increasingly common as domainand language complexity increases.In this paper, we introduce a semantic parsing ap-proach that supports scalable, open-domain ontolog-ical reasoning.
+The parser first constructs a linguis-tically motivated domain-independent meaning rep-resentation.
+For example, possibly producing MR1for Q1 and MR2 for Q2 above.
+It then uses a learnedontology matching model to transform this represen-1545x : How many people visit the public library of New York annuallyl0 : ?x.eq(x, count(?y.people(y) ?
+?e.visit(y, ?z.public(z) ?
+library(z) ?
+of(z, new york), e) ?
+annually(e)))y : ?x.library.public library system.annual visits(x, new york public library)a : 13,554,002x : What works did Mozart dedicate to Joseph Haydnl0 : ?x.works(x) ?
+?e.dedicate(mozart, x, e) ?
+to(haydn, e)))y : ?x.dedicated work(x) ?
+?e.dedicated by(mozart, e) ?
+dedication(x, e) ?
+dedicated to(haydn, e)))a : { String Quartet No.
+19, Haydn Quartets, String Quartet No.
+16, String Quartet No.
+18, String Quartet No.
+17 }Figure 1: Examples of sentences x, domain-independent underspecified logical forms l0, fully specifiedlogical forms y, and answers a drawn from the Freebase domain.tation for the target domain.
+In our example, pro-ducing either MR1, MR2 or another more appropri-ate option, depending on the QA database schema.This two stage approach enables parsing withoutany domain-dependent lexicon that pairs words withlogical constants.
+Instead, word meaning is filledin on-the-fly through ontology matching, enablingthe parser to infer the meaning of previously un-seen words and more easily transfer across domains.Figure 1 shows the desired outputs for two exampleFreebase sentences.The first parsing stage uses a probabilistic combi-natory categorial grammar (CCG) (Steedman, 2000;Clark and Curran, 2007) to map sentences tonew, underspecified logical-form meaning represen-tations containing generic logical constants that arenot tied to any specific ontology.
+This approach en-ables us to share grammar structure across domains,instead of repeatedly re-learning different grammarsfor each target ontology.
+The ontology-matchingstep considers a large number of type-equivalentdomain-specific meanings.
+It enables us to incorpo-rate a number of cues, including the target ontologystructure and lexical similarity between the names ofthe domain-independent and dependent constants, toconstruct the final logical forms.During learning, we estimate a linear model overderivations that include all of the CCG parsing de-cisions and the choices for ontology matching.
+Fol-lowing a number of recent approaches (Clarke et al2010; Liang et al 2011), we treat all intermediatedecisions as latent and learn from data containingonly easily gathered question answer pairs.
+This ap-proach aligns naturally with our two-stage parsingsetup, where the final logical expression can be di-rectly used to provide answers.We report performance on two benchmarkdatasets: GeoQuery (Zelle and Mooney, 1996) andFreebase QA (FQ) (Cai and Yates, 2013a).
+Geo-Query includes a geography database with a smallontology and questions with relatively complex,compositional structure.
+FQ includes questions toFreebase, a large community-authored database thatspans many sub-domains.
+Experiments demonstratestate-of-the-art performance in both cases, includinga nine point improvement in recall for the FQ test.2 Formal OverviewTask Let an ontology O be a set of logical con-stants and a knowledge base K be a collection oflogical statements constructed with constants fromO.
+For example, K could be facts in Freebase (Bol-lacker et al 2008) and O would define the setof entities and relation types used to encode thosefacts.
+Also, let y be a logical expression that canbe executed against K to return an answer a =EXEC(y,K).
+Figure 1 shows example queries andanswers for Freebase.
+Our goal is to build a functiony = PARSE(x,O) for mapping a natural languagesentence x to a domain-dependent logical form y.Parsing We use a two-stage approach to definethe space of possible parses GEN(x,O) (Section 5).First, we use a CCG and word-class informationfrom Wiktionary1 to build domain-independent un-derspecified logical forms, which closely mirror thelinguistic structure of the sentence but do not useconstants from O.
+For example, in Figure 1, l0 de-notes the underspecified logical forms paired witheach sentence x.
+The parser then maps this interme-diate representation to a logical form that uses con-stants from O, such as the y seen in Figure 1.1www.wiktionary.com1546Learning We assume access to data containingquestion-answer pairs {(xi, ai) : i = 1 .
+.
+.
+n} anda corresponding knowledge base K. The learn-ing algorithm (Section 7.1) estimates the parame-ters of a linear model for ranking the possible en-tires in GEN(x,O).
+Unlike much previous work(e.g., Zettlemoyer and Collins (2005)), we do notinduce a CCG lexicon.
+The lexicon is open domain,using no symbols from the ontology O for K. Thisallows us to write a single set of lexical templatesthat are reused in every domain (Section 5.1).
+Theburden of learning word meaning is shifted to thesecond, ontology matching, stage of parsing (Sec-tion 5.2), and modeled with a number of new fea-tures (Section 7.2) as part of the joint model.Evaluation We evaluate on held out question-answer pairs in two benchmark domains, Freebaseand GeoQuery.
+Following Cai and Yates (2013a),we also report a cross-domain evaluation where theFreebase data is divided by topics such as sports,film, and business.
+This condition ensures that thetest data has a large percentage of previously unseenwords, allowing us to measure the effectiveness ofthe real time ontology matching.3 Related WorkSupervised approaches for learning semantic parsershave received significant attention, e.g.
+(Kate andMooney, 2006; Wong and Mooney, 2007; Muresan,2011; Kwiatkowski et al 2010, 2011, 2012; Joneset al 2012).
+However, these techniques requiretraining data with hand-labeled domain-specific log-ical expressions.
+Recently, alternative forms of su-pervision were introduced, including learning fromquestion-answer pairs (Clarke et al 2010; Lianget al 2011), from conversational logs (Artzi andZettlemoyer, 2011), with distant supervision (Kr-ishnamurthy and Mitchell, 2012; Cai and Yates,2013b), and from sentences paired with systembehavior (Goldwasser and Roth, 2011; Chen andMooney, 2011; Artzi and Zettlemoyer, 2013).
+Ourwork adds to these efforts by demonstrating a newapproach for learning with latent meaning represen-tations that scales to large databases like Freebase.Cai and Yates (2013a) present the most closelyrelated work.
+They applied schema matching tech-niques to expand a CCG lexicon learned with theUBL algorithm (Kwiatkowski et al 2010).
+This ap-proach was one of the first to scale to Freebase, butrequired labeled logical forms and did not jointlymodel semantic parsing and ontological reasoning.This method serves as the state of the art for ourcomparison in Section 9.We build on a number of existing algorithmicideas, including using CCGs to build meaning rep-resentations (Zettlemoyer and Collins, 2005, 2007;Kwiatkowski et al 2010, 2011), building deriva-tions to transform the output of the CCG parserbased on context (Zettlemoyer and Collins, 2009),and using weakly supervised margin-sensitive pa-rameter updates (Artzi and Zettlemoyer, 2011,2013).
+However, we introduce the idea of learningan open-domain CCG semantic parser; all previousmethods suffered, to various degrees, from the onto-logical mismatch problem that motivates our work.The challenge of ontological mismatch has beenpreviously recognized in many settings.
+Hobbs(1985) describes the need for ontological promiscu-ity in general language understanding.
+Many pre-vious hand-engineered natural language understand-ing systems (Grosz et al 1987; Alshawi, 1992; Bos,2008) are designed to build general meaning rep-resentations that are adapted for different domains.Recent efforts to build natural language interfaces tolarge databases, for example DBpedia (Yahya et al2012; Unger et al 2012), have also used hand-engineered ontology matching techniques.
+Faderet al(2013) recently presented a scalable approachto learning an open domain QA system, where onto-logical mismatches are resolved with learned para-phrases.
+Finally, the databases research commu-nity has a long history of developing schema match-ing techniques (Doan et al 2004; Euzenat et al2007), which has inspired more recent work on dis-tant supervision for relation extraction with Free-base (Zhang et al 2012).4 BackgroundSemantic Modeling We use the typed lambda cal-culus to build logical forms that represent the mean-ings of words, phrases and sentences.
+Logical formscontain constants, variables, lambda abstractions,and literals.
+In this paper, we use the term literal torefer to the application of a constant to a sequence of1547library of new yorkN N\N/NP NP?x.library(x) ?y?f?x.f(x) ?
+loc(x, y) NY C>N\N?f.
+?x.f(x) ?
+loc(x,NY C)<N?x.library(x) ?
+loc(x,NY C)Figure 2: A sample CCG parse.arguments.
+We include types for entities e, truth val-ues t, numbers i, events ev, and higher-order func-tions, such as ?e, t?
+and ?
+?e, t?, e?.
+We use David-sonian event semantics (Davidson, 1967) to explic-itly represent events using event-typed variables andconjunctive modifiers to capture thematic roles.Combinatory Categorial Grammars (CCG)CCGs are a linguistically-motivated formalismfor modeling a wide range of language phenom-ena (Steedman, 1996, 2000).
+A CCG is defined bya lexicon and a set of combinators.
+The lexiconcontains entries that pair words or phrases withCCG categories.
+For example, the lexical entrylibrary ` N : ?x.library(x) in Figure 2 pairsthe word ?library?
+with the CCG category that hassyntactic category N and meaning ?x.library(x).A CCG parse starts from assigning lexical entries towords and phrases.
+These are then combined usingthe set of CCG combinators to build a logical formthat captures the meaning of the entire sentence.
+Weuse the application, composition, and coordinationcombinators.
+Figure 2 shows an example parse.5 Parsing Sentences to MeaningsThe function GEN(x,O) defines the set of possiblederivations for an input sentence x.
+Each derivationd = ??,M?
+builds a logical form y using constantsfrom the ontology O. ?
+is a CCG parse tree thatmaps x to an underspecified logical form l0.
+M is anontological match that maps l0 onto the fully spec-ified logical form y.
+This section describes, withreference to the example in Figure 3, the operationsused by ?
+and M .5.1 Domain Independent ParsingDomain-independent CCG parse trees ?
+are builtusing a predefined set of 56 underspecified lexi-cal categories, 49 domain-independent lexical items,and the combinatory rules introduced in Section 4.An underspecified CCG lexical category has asyntactic category and a logical form containing noconstants from the domain ontology O.
+Instead, thelogical form includes underspecified constants thatare typed placeholders which will later be replacedduring ontology matching.
+For example, a nounmight be assigned the lexical category N : ?x.p(x),where p is an underspecified ?e, t?-type constant.During parsing, lexical categories are created dy-namically.
+We manually define a set of POS tags foreach underspecified lexical category, and use Wik-tionary as a tag dictionary to define the possible POStags for words and phrases.
+Each phrase is assignedevery matching lexical category.
+For example, theword ?visit?
+can be either a verb or a noun in Wik-tionary.
+We accordingly assign it all underspecifiedcategories for the classes, including:N :?x.p(x) , S\NP/NP :?x?y?ev.p(y, x, ev)for nouns and transitive verbs respectively.We also define domain-independent lexical itemsfor function words such as ?what,?
+?when,?
+and?how many,?
+?and,?
+and ?is.?
+These lexi-cal items pair a word with a lexical cate-gory containing only domain-independent con-stants.
+For example, how many ` S/(S\NP)/N :?f.?g.
+?x.eq(x, count(?y.f(y) ?
+g(y))) containsthe function count and the predicate eq.Figure 3a shows the lexical categories and combi-nator applications used to construct the underspeci-fied logical form l0.
+Underspecified constants in thisfigure have been labeled with the words that they areassociated with for readability.5.2 Ontological MatchingThe second, domain specific, step M maps the un-derspecified logical form l0 onto the fully specifiedlogical form y.
+The mapping from constants in l0to constants in y is not one-to-one.
+For example, inFigure 3, l0 contains 11 constants but y contains only2.
+The ontological match is a sequence of matchingoperations M = ?o1 .
+.
+.
+, on?
+that can transform thestructure of the logical form or replace underspeci-fied constants with constants from O.1548(a) Underspecified CCG parse ?
+: Map words onto underspecified lexical categories as described in Section 5.1.
+Usethe CCG combinators to combine lexical categories to give the full underpecified logical form l0.how many people visit the public library of new york annuallyS/(S\NP )/N N S\NP/NP NP/N N/N N N\N/NP NP AP?f.?g.
+?x.eq(x, count( ?x.People(x) ?x.?y.?ev.
+?f.
+?x.f(x) ?f.?x.f(x)?
+?x.Library(x) ?y.?f.
+?x.Of NewY ork ?ev.Annually(ev)?y.f(y) ?
+g(y))) V isit(y, x, ev) Public(x) (x, y) ?
+f(x)> ><>>> <>Sl0 : ?x.eq(x, count(?y.People(y) ?
+?e.V isit(y, ?z.Public(z) ?
+Library(z) ?
+Of(z,NewY ork)) ?
+Annually(e)))(b) Structure Matching Steps in M : Use the operators described in Section 5.2.1 and Figure 4 to transform l0.
+Ineach step one of the operators is applied to a subexpression of the existing logical form to generate a modified logicalform with a new underspecified constant marked in bold.l0 : ?x.eq(x, count(?y.People(y) ?
+?e.V isit(y, ?z.Public(z) ?
+Library(z) ?Of(z,NewY ork), e) ?Annually(e)))l1 : ?x.eq(x, count(?y.People(y) ?
+?e.V isit(y,PublicLibraryOfNewYork, e) ?Annually(e)))l2 : ?x.HowManyPeopleVisitAnnually(x, PublicLibraryOfNewY ork)))(c) Constant Matching Steps in M : Replace all underspecified constants in the transformed logical form with asimilarly typed constant from O, as described in Section 5.2.2.
+The underspecified constant to be replaced is markedin bold and constants from O are written in typeset.
+?x.HowManyPeopleV isitAnnually(x,PublicLibraryOfNewYork)l3 : 7?
+?x.HowManyPeopleV isitAnnually(x, new york public library)?x.HowManyPeopleVisitAnnually(x, new york public library)y : 7?
+?x.public library system.annual visits(x, new york public library)Figure 3: Example derivation for the query ?how many people visit the public library of new york annu-ally.?
+Underspecified constants are labelled with the words from the query that they are associated with forreadability.
+Constants from O, written in typeset, are introduced in step (c).Operator Definition and Conditions Examplea.CollapseLiteraltoConstantP (a1, .
+.
+.
+, an) 7?
+c?z.Public(z) ?
+Library(z) ?Of(z,NewY ork))7?
+PublicLibraryOfNewY orks.t.
+type(P (a1, .
+.
+.
+, an)) = type(c) Input and output have type e.type(c) ?
+{e, i} e is allowed in O.freev(P (a1, .
+.
+.
+, an)) = ?
+Input contains no free variables.b.CollapseLiteraltoLiteralP (a1, .
+.
+.
+, an) 7?
+Q(b1, .
+.
+.
+, bm)eq(x, count(?y.People(y) ?
+?e.V isit(y,PublicLibraryOfNewY ork) ?Annually(e)))7?
+CountPeopleV isitAnnually(x,PublicLibraryOfNewY ork)s.t.
+type(P (a1, .
+.
+.
+, an)) = type(Q(b1, .
+.
+.
+, bm)) Input and output have type t.type(Q) ?
+{type(c) : c ?
+O} New constant has type ?i, ?e, t?
+?, allowed in O.freev(P (a1, .
+.
+.
+, an)) = freev(Q(b1, .
+.
+.
+, bm)) Input and output contain single free variable x.
+{b1, .
+.
+.
+, bm} ?
+subexps(P (a1, .
+.
+.
+, an)) Arguments of output literal are subexpressions of input.c.
+SplitLiteralP (a1, .
+.
+.
+, ak, x, ak+1, .
+.
+.
+, an)7?
+Q(b1, .
+.
+.
+, x, .
+.
+.
+bn) ?Q??
+(c1, .
+.
+.
+, x, .
+.
+.
+cm)Dedicate(Mozart,Haydn, ev)7?
+Dedicate(Mozart, ev) ?Dedicate??
+(Haydn, ev)s.t.
+type(P (.
+.
+. ))
+= t Input has type t. This matches output type by definition.
+{type(Q), type(Q??)}
+?
+{type(c) : c ?
+O} New constants have allowed type ?e, ?ev, t??.
+{b1, .
+.
+.
+, bn, c1, .
+.
+.
+, cm} = {a1, .
+.
+.
+, an} All arguments of input literal are preserved in output.Figure 4: Definition of the operations used to transform the structure of the underspecified logical form l0 tomatch the ontology O.
+The function type(c) calculates a constant c?s type.
+The function freev(lf) returnsthe set of variables that are free in lf (not bound by a lambda term or quantifier).
+The function subexps(lf)generates the set of all subexpressions of the lambda calculus expression lf .15495.2.1 Structure MatchingThree structure matching operators, illustrated inFigure 4, are used to collapse or expand literals inl0.
+Collapses merge a subexpression from l0 to cre-ate a new underspecified constant, generating a log-ical form with fewer constants.
+Expansions split asubexpression from l0 to generate a new logical formcontaining one extra constant.Collapsing Operators The collapsing operatordefined in Figure 4a merges all constants in aliteral to generate a single constant of the sametype.
+This operator is used to map ?z.Public(z)?Library(z)?Of(z,NewY ork) to PublicLibraryOfNewY orkin Figure 3b.
+Its operation is limited to entity typedexpressions that do not contain free variables.The operator in Figure 4b, in contrast, can be usedto collapse the expression eq(x,count(?y.People(y)?
+?e.V isit(y,PublicLibraryOfNewY ork,e))?Annually(e))),which contains free variable x onto a new expressionCountPeopleV isitAnnually(x,PublicLibraryOfNewY ork).This is only possible when the type of the newlycreated constant is allowed in O and the variable xis free in the output expression.
+Subsets of conjunctscan be collapsed using the operator in Figure 4b bycreating ad-hoc conjunctions that encapsulate them.Disjunctions are treated similarly.Performing collapses on the underspecified logi-cal form allows non-contiguous phrases to be rep-resented in the collapsed form.
+In this exam-ple, the logical form representing the phrase ?howmany people visit?
+has been merged with the logi-cal form representing the non-adjacent adverb ?an-nually.?
+This generates a new underspecified con-stant that can be mapped onto the Freebase relationpublic library system annual visits that re-lates to both phrases.The collapsing operations preserve semantic type,ensuring that all logical forms generated by thederivation sequence are well typed.
+The full set ofallowed collapses of l0 is given by the transitive clo-sure of the collapsing operations.
+The size of thisset is limited by the number of constants in l0, sinceeach collapse removes at least one constant.
+At eachstep, the number of possible collapses is polynomialin the number of constants in l0 and exponential inthe arity of the most complex type in O.
+For do-mains of interest this arity is unlikely to be high andfor triple stores such as Freebase it is 2.Expansion Operators The fully specified logicalform y can contain constants relating to multiplewords in x.
+It can also use multiple constants to rep-resent the meaning of a single word.
+For example,Freebase does not contain a relation representing theconcept ?daughter?, instead using two relations rep-resenting ?female?
+and ?child?.
+The expansion oper-ator in Figure 4c allows a single predicate to be splitinto a pair of conjoined predicates sharing an argu-ment variable.
+For example, in Figure 1, the constantfor ?dedicate?
+is split in two to match its represen-tation in Freebase.
+Underspecified constants froml0 can be split once.
+For the experiments in Sec-tion 8, we constrain the expansion operator to workon event modifiers but the procedure generalizes toall predicates.5.2.2 Constant MatchingTo build an executable logical form y, all under-specified constants must be replaced with constantsfrom O.
+This is done through a sequence of con-stant replacement operations, each of which replacesa single underspecified constant with a constant ofthe same type from O.
+Two example replacementsare shown in Figure 3c.
+The output from the last re-placement operation is a fully specified logical form.6 Building and Scoring DerivationsThis section introduces a dynamic program used toconstruct derivations and a linear scoring model.6.1 Building DerivationsThe space of derivations is too large to explicitlyenumerate.
+However, each logical form (both finaland interim) can be constructed with many differ-ent derivations, and we only need to find the highestscoring one.
+This allows us to develop a simple dy-namic program for our two-stage semantic parser.We use a CKY style chart parser to calculate thek-best logical forms output by parses of x.
+We thenstore each interim logical form generated by an op-erator in M once in a hyper-graph chart structure.The branching factor of this hypergraph is polyno-mial in the number of constants in l0 and linear inthe size of O.
+Subsequently, there are too manypossible logical forms to enumerate explicitly; we1550prune as follows.
+We allow the top N scoring on-tological matches for each original subexpression inl0 and remove matches that differ from score fromthe maximum scoring match by more than a thresh-old ?
+.
+When building derivations, we apply constantmatching operators as soon as they are applicable tonew underspecified constants created by collapsesand expansions.
+This allows the scoring functionused by the pruning strategy to take advantage of allfeatures defined in Section 7.2.6.2 Ranking DerivationsGiven feature vector ?
+and weight vector ?, the scoreof a derivation d = ??,M?
+is a linear function thatdecomposes over the parse tree ?
+and the individualontology-matching steps o.SCORE(d) = ?(d)?
+(1)= ?(?)?
++?o?M?
+(o)?The function PARSE(x,O) introduced as our goal inSection 2 returns the logical form associated withthe highest scoring derivation of x:PARSE(x,O) = arg maxd?GEN(x,O)(SCORE(d))The features and learning algorithm used to estimate?
+are defined in the next section.7 LearningThis section describes an online learning algorithmfor question-answering data, along with the domain-independent feature set.7.1 Learning Model ParametersOur learning algorithm estimates the parameters ?from a set {(xi, ai) : i = 1 .
+.
+.
+n} of questions xipaired with answers ai from the knowledge baseK.
+Each derivation d generated by the parser isassociated with a fully specified logical form y =YIELD(d) that can be executed in K. A derivation dof xi is correct if EXEC(YIELD(d),K) = ai.
+We usea perceptron to estimate a weight vector ?
+that sup-port a separation of ?
+between correct and incorrectanswers.
+Figure 5 presents the learning algorithm.Input: Q/A pairs {(xi, ai) : i = 1 .
+.
+.
+n}; Knowledge baseK; Ontology O; Function GEN(x,O) that computes deriva-tions of x; Function YIELD(d)that returns logical form yieldof derivation d; Function EXEC(y,K) that calculates execu-tion of y in K; Margin ?
+; Number of iterations T .Output: Linear model parameters ?.Algorithm:For t = 1 .
+.
+.
+T, i = 1 .
+.
+.
+n :C = {d : d ?
+GEN(xi,O); EXEC(YIELD(d),K) = ai}W = {d : d ?
+GEN(xi,O); EXEC(YIELD(d),K) 6= ai}C?
+= argmaxd?C(?(d)?
+)W ?
+= {d : d ?W ; ?c ?
+C?
+s.t.
+?(c)?
+?
+?(d)?
+< ?
+)}If |C?| > 0 ?
+|W ?| > 0 :?
+= ?
++ 1|C?|?c?C?
+?(c)?1|W?|?e?W?
+?
+(e)Figure 5: Parameter estimation from Q/A pairs.7.2 FeaturesThe feature vector ?
+(d) introduced in Section 6.2decomposes over each of the derivation steps in d.CCG Parse Features Each lexical item in ?
+hasthree indicator features.
+The first indicates the num-ber of times each underspecified category is used.For example, the parse in Figure 3a uses the under-specified category N : ?x.p(x) twice.
+The secondfeature indicates (word, category) pairings ?
+e.g.that N : ?x.p(x) is paired with ?library?
+and ?pub-lic?
+once each in Figure 3a.
+The final lexical featureindicates (part-of-speech, category) pairings for allparts of speech associated with the word.Structural Features The structure matching op-erators (Section 5.2.1) in M generate new under-specified constants that define the types of constantsin the output logical form y.
+These operators arescored using features that indicate the type of eachcomplex-typed constant present in y and the iden-tity of domain-independent functional constants iny.
+The logical form y generated in Figure 3 containsone complex typed constant with type ?i, ?e, t??
+andno domain-independent functional constants.
+Struc-tural features allow the model to adapt to differentknowledge bases K. They allow it to determine, forexample, whether a numeric quantity such as ?pop-ulation?
+is likely to be explicitly listed in K or if itshould be computed with the count function.Lexical Features Each constant replacement op-erator (Section 5.2.2) in M replaces an underspec-1551ified constant cu with a constant cO from O. Theunderspecified constant cu is associated with the se-quence of words ~wu used in the CCG lexical en-tries that introduced it in ?.
+We assume that eachof the constants cO in O is associated with a stringlabel ~wO.
+This allows us to introduce five domain-independent features that measure the similarity of~wu and ~wO.The feature ?np(cu, cO) signals the replacementof an entity-typed constant cu with entity cO that haslabel ~wu.
+For the second example in Figure 1 thisfeature indicates the replacement of the underspeci-fied constant associated with the word ?mozart?
+withthe Freebase entity mozart.
+Stem and synonymyfeatures ?stem(cu, cO) and ?syn(cu, cO) signal theexistence of words wu ?
+~wu and wu ?
+~wO thatshare a stem or synonym respectively.
+Stems arecomputed with the Porter stemmer and synonymsare extracted from Wiktionary.
+A single Freebasespecific feature ?fp:stem(cu, cO) indicates a wordstem match between wu ?
+~wu and the word fillingthe most specific position in ~wu under Freebase?s hi-erarchical naming schema.A final feature ?gl(cu, cO) calculates the overlapbetween Wiktionary definitions for ~wu and ~wO.
+Letgl(w) be the Wiktionary definition for w. Then:?gl(cu, cO) =?wu?
+~wu;wO?
+~wO2?|gl(wO)?gl(wc)|| ~wO |?| ~wu|?|gl(wO)|+|gl(wc)|Domain-indepedent lexical features allow themodel to reason about the meaning of unseen words.In small domains, however, the majority of word us-ages may be covered by training data.
+We make useof this fact in the GeoQuery domain with features?m(cu, cO) that indicate the pairing of ~wu with cO.Knowledge Base Features Guided by the obser-vation that we generally want to create queries ywhich have answers in knowledge base K, we de-fine features to signal whether each operation couldbuild a logical form y with an answer in K.If a predicate-argument relation in y does notexist in K, then the execution of y against Kwill not return an answer.
+Two features indicatewhether predicate-argument relations in y exist inK.
+?direct(y,K) indicates predicate-argument applica-tions in y that exists in K. For example, if the appli-cation of dedicated by to mozart in Figure 1 ex-ists in Freebase, ?direct(y,K) will fire.
+?join(y,K)indicates entities separated from a predicate by onejoin in y, such as mozart and dedicated to in Fig-ure 1, that exist in the same relationship in K.If two predicates that share a variable in ydo not share an argument in that position in Kthen the execution of y against K will fail.
+Thepredicate-predicate ?pp(y,K) feature indicates pairsof predicates that share a variable in y but can-not occur in this relationship in K. For ex-ample, since the subject of the Freebase prop-erty date of birth does not take arguments oftype location, ?pp(y,K) will fire if y con-tains the logical form ?x?y.date of birth(x, y)?location(x).Both the predicate-argument and predicate-predicate features operate on subexpressions of y.We also define the execution features: ?emp(y,K) tosignal an empty answer for y in K; ?0(y,K) to sig-nal a zero-valued answer created by counting overan empty set; and ?1(y,K) to signal a one-valuedanswer created by counting over a singleton set.As with the lexical cues, we use knowledge basefeatures as soft constraints since it is possible fornatural language queries to refer to concepts that donot exist in K.8 Experimental SetupData We evaluate performance on the benchmarkGeoQuery dataset (Zelle and Mooney, 1996), and anewly introduced Freebase Query (FQ) dataset (Caiand Yates, 2013a).
+FQ contains 917 questions la-beled with logical form meaning representations forquerying Freebase.
+We gathered question answer la-bels by executing the logical forms against Freebase,and manually correcting any inconsistencies.Freebase (Bollacker et al 2008) is a large, col-laboratively authored database containing almost 40million entities and two billion facts, covering morethan 100 domains.
+We filter Freebase to cover thedomains contained in the FQ dataset resulting in adatabase containing 18 million entities, 2072 rela-tions, 635 types, 135 million facts and 81 domains,including for example film, sports, and business.
+Weuse this schema to define our target domain, allow-ing for a wider variety of queries than could be en-coded with the 635 collapsed relations previouslyused to label the FQ data.1552We report two different experiments on the FQdata: test results on the existing 642/275 train/testsplit and domain adaptation results where the data issplit three ways, partitioning the topics so that thelogical meaning expressions do not share any sym-bols across folds.
+We report on the standard 600/280training/test split for GeoQuery.Parameter Initialization and Training We ini-tialize weights for ?np and ?direct to 10, and weightsfor ?stem and ?join to 5.
+This promotes the use ofentities and relations named in sentences.
+We ini-tialize weights for ?pp and ?emp to -1 to favour log-ical forms that have an interpretation in the knowl-edge base K. All other feature weights are initial-ized to 0.
+We run the training algorithm for one it-eration on the Freebase data, at which point perfor-mance on the development set had converged.
+Thisfast convergence is due to the very small number ofmatching parameters used (5 lexical features and 8K features).
+For GeoQuery, we include the largerdomain specific feature set introduced in Section 7.2and train for 10 iterations.
+We set the pruning pa-rameters from Section 6.1 as follows: k = 5 forFreebase, k = 30 for GeoQuery, N = 50, ?
+= 10.Comparison Systems We compare performanceto state-of-the-art systems in both domains.
+OnGeoQuery, we report results from DCS (Lianget al 2011) without special initialization (DCS) andwith an small hand-engineered lexicon (DCS withL+).
+We also include results for the FUBL algo-rithm (Kwiatkowski et al 2011), the CCG learningapproach that is most closely related to our work.
+OnFQ, we compare to Cai and Yates (2013a) (CY13).Evaluation We evaluate by comparing the pro-duced question answers to the labeled ones, with nopartial credit.
+Because the parser can fail to pro-duce a complete query, we report recall, the percentof total questions answered correctly, and precision,the percentage of produced queries with correct an-swers.
+CY13 and FUBL report fully correct logicalforms, which is a close proxy to our numbers.9 ResultsQuantitative Analysis For FQ, we report resultson the test set and in the cross-domain setting, as de-fined in Section 8.
+Figure 6 shows both results.
+OurSetting System R P F1Test Our Approach 68.0 76.7 72.1CY13 59 67 63Cross Our Approach 67.9 73.5 71.5Domain CY13 60 69 65Figure 6: Results on the FQ dataset.R P F1All Features 68.6 72.0 70.3Without Wiktionary 67.2 70.7 68.9Without K Features 61.8 62.5 62.1Figure 7: Ablation Resultsapproach outperforms the previous state of the art,achieving a nine point improvement in test recall,while not requiring labeled logical forms in train-ing.
+We also see consistent improvements on bothscenarios, indicating that our approach is generaliz-ing well across topic domains.
+The learned ontologymatching model is able to reason about previouslyunseen ontological subdomains as well as if it wasprovided explicit, in-domain training data.We also performed feature ablations with 5-foldcross validation on the training set, as seen in Fig-ure 7.
+Both the Wiktionary features and knowledgebase features were helpful.
+Without the Wiktionaryfeatures, the model must rely on word stem matcheswhich, in combination with graph constraints, canstill recover many of the correct queries.
+However,without the knowledge base constraints, the modelproduces many queries that return empty answers,and significantly impacts overall performance.For GeoQuery, we report test results in Figure 8.Our approach outperforms the most closely relatedCCG model (FUBL) and DCS without initialization,but falls short of DCS with a small hand-built initiallexicon.
+Given the small size of the test set, it is fairto say that all algorithms are performing at state-of-the-art levels.
+This result demonstrates that our ap-RecallFUBL 88.6DCS 87.9DCS with L+ 91.1Our Approach 89.0Figure 8: GeoQuery Results1553Parse Failures (20%)1.
+Query in what year did motorola have the most revenue2 Query on how many projects was james walker a design engineerStructural Matching Failure (30%)Query how many children does jerry seinfeld have3.
+Labeled ?x.eq(x, count(?y.people.person.children(jerry seinfeld, y)))Predicted ?x.eq(x, count(?y.people.person.children(y, jerry seinfeld)))Incomplete Database (10%)Query how many countries participated in the 2006 winter olympics4.
+Labeled ?y.olympics.olympic games.number of countries(2006 winter olympics, y)Predicted ?y.eq(y, count(?y.olympic participation country.olympics participated in(x, 2006 winter olympics)))Query what programming languages were used for aol instant messenger5.
+Labeled ?y.computer.software.languages used(aol instant messenger, y)Predicted ?y.computer.software.languages used(aol instant messenger, y) ?
+computer.programming language(y)Lexical Ambiguity (35%)Query when was the frida kahlo exhibit at the philadelphia art museumLabeled ?y.
+?x.exhibition run.exhibition(x, frida kahlo)?6.
+exhibition venue.exhibitions at(philadelphia art museum, x) ?
+exhibition run.opened on(x, y)Predicted ?y.
+?x.exhibition run.exhibition(x, frida kahlo)?exhibition venue.exhibitions at(philadelphia art museum, x) ?
+exhibition run.closed on(x, y)Figure 9: Example error cases, with associated frequencies, illustrating system output and gold standardreferences.
+5% of the cases were miscellaneous or otherwise difficult to categorize.proach can handle the high degree of lexical ambi-guity in the FQ data, without sacrificing the abilityto understanding the rich, compositional phenomenathat are common in the GeoQuery data.Qualitative Analysis We also did a qualitativeanalysis of errors in the FQ domain.
+The modellearns to correctly produce complex forms that joinmultiple relations.
+However, there are a number ofsystematic error cases, grouped into four categoriesas seen in Figure 9.The first and second examples show parse fail-ures, where the underspecified CCG grammar didnot have sufficient coverage.
+The third shows afailed structural match, where all of the correct logi-cal constants are selected, but the argument order isreversed for one of the literals.
+The fourth and fifthexamples demonstrate a failures due to database in-completeness.
+In both cases, the predicted querieswould have returned the same answers as the gold-truth ones if Freebase contained all of the requiredfacts.
+Developing models that are robust to databaseincompleteness is a challenging problem for futurework.
+Finally, the last example demonstrates a lex-ical ambiguity, where the system was unable to de-termine if the query should include the opening dateor the closing date for the exhibit.10 ConclusionWe considered the problem of learning domain-independent semantic parsers, with application toQA against large knowledge bases.
+We introduceda new approach for learning a two-stage semanticparser that enables scalable, on-the-fly ontologicalmatching.
+Experiments demonstrated state-of-the-art performance on benchmark datasets, includingeffective generalization to previously unseen words.We would like to investigate more nuanced no-tions of semantic correctness, for example to supportmany of the essentially equivalent meaning repre-sentations we found in the error analysis.
+Althoughwe focused exclusively on QA applications, the gen-eral two-stage analysis approach should allow forthe reuse of learned grammars across a number ofdifferent domains, including robotics or dialog ap-plications, where data is more challenging to gather.11 AcknowledgementsThis research was supported in part by DARPA un-der the DEFT program through the AFRL (FA8750-13-2-0019) and the CSSG (N11AP20020), the ARO(W911NF-12-1-0197), the NSF (IIS-1115966), andby a gift from Google.
+The authors thank AnthonyFader, Nicholas FitzGerald, Adrienne Wang, DanielWeld, and the anonymous reviewers for their helpfulcomments and feedback.1554ReferencesAlshawi, H. (1992).
+The core language engine.
+TheMIT Press.Artzi, Y. and Zettlemoyer, L. (2011).
+Bootstrappingsemantic parsers from conversations.
+In Proceed-ings of the Conference on Empirical Methods inNatural Language Processing.Artzi, Y. and Zettlemoyer, L. (2013).
+Weakly super-vised learning of semantic parsers for mapping in-structions to actions.
+Transactions of the Associ-ation for Computational Linguistics, 1(1):49?62.Bollacker, K., Evans, C., Paritosh, P., Sturge, T., andTaylor, J.
+(2008).
+Freebase: a collaboratively cre-ated graph database for structuring human knowl-edge.
+In Proceedings of the ACM SIGMOD Inter-national Conference on Management of Data.Bos, J.
+(2008).
+Wide-coverage semantic analysiswith boxer.
+In Proceedings of the Conference onSemantics in Text Processing.Cai, Q. and Yates, A.
+(2013a).
+Large-scale semanticparsing via schema matching and lexicon exten-sion.
+In Proceedings of the Annual Meeting of theAssociation for Computational Linguistics.Cai, Q. and Yates, A.
+(2013b).
+Semantic parsingfreebase: Towards open-domain semantic pars-ing.
+In Proceedings of the Joint Conference onLexical and Computational Semantics.Chen, D. and Mooney, R. (2011).
+Learning to inter-pret natural language navigation instructions fromobservations.
+In Proceedings of the National Con-ference on Artificial Intelligence.Clark, S. and Curran, J.
+(2007).
+Wide-coverage ef-ficient statistical parsing with CCG and log-linearmodels.
+Computational Linguistics, 33(4):493?552.Clarke, J., Goldwasser, D., Chang, M., and Roth,D.
+(2010).
+Driving semantic parsing from theworld?s response.
+In Proceedings of the Confer-ence on Computational Natural Language Learn-ing.Davidson, D. (1967).
+The logical form of action sen-tences.
+Essays on actions and events, pages 105?148.Doan, A., Madhavan, J., Domingos, P., and Halevy,A.
+(2004).
+Ontology matching: A machinelearning approach.
+In Handbook on ontologies.Springer.Euzenat, J., Euzenat, J., Shvaiko, P., et al(2007).Ontology matching.
+Springer.Fader, A., Zettlemoyer, L., and Etzioni, O.
+(2013).Paraphrase-driven learning for open question an-swering.
+In Proceedings of the Annual Meeting ofthe Association for Computational Linguistics.Goldwasser, D. and Roth, D. (2011).
+Learning fromnatural instructions.
+In Proceedings of the In-ternational Joint Conference on Artificial Intelli-gence.Grosz, B. J., Appelt, D. E., Martin, P. A., andPereira, F. (1987).
+TEAM: An experiment inthe design of transportable natural language inter-faces.
+Artificial Intelligence, 32(2):173?243.Hobbs, J. R. (1985).
+Ontological promiscuity.
+InProceedings of the Annual Meeting on Associa-tion for Computational Linguistics.Jones, B. K., Johnson, M., and Goldwater, S. (2012).Semantic parsing with bayesian tree transducers.In Proceedings of the 50th Annual Meeting of theAssociation of Computational Linguistics.Kate, R. and Mooney, R. (2006).
+Using string-kernels for learning semantic parsers.
+In Pro-ceedings of the Conference of the Association forComputational Linguistics.Krishnamurthy, J. and Kollar, T. (2013).
+Jointlylearning to parse and perceive: Connecting nat-ural language to the physical world.
+Transactionsof the Association for Computational Linguistics,1(2).Krishnamurthy, J. and Mitchell, T. (2012).
+Weaklysupervised training of semantic parsers.
+In Pro-ceedings of the Joint Conference on EmpiricalMethods in Natural Language Processing andComputational Natural Language Learning.Kushman, N. and Barzilay, R. (2013).
+Using se-mantic unification to generate regular expressionsfrom natural language.
+In Proceedings of the Con-ference of the North American Chapter of the As-sociation for Computational Linguistics.1555Kwiatkowski, T., Goldwater, S., Zettlemoyer, L.,and Steedman, M. (2012).
+A probabilistic modelof syntactic and semantic acquisition from child-directed utterances and their meanings.
+Proceed-ings of the Conference of the European Chapterof the Association of Computational Linguistics.Kwiatkowski, T., Zettlemoyer, L., Goldwater, S.,and Steedman, M. (2010).
+Inducing probabilis-tic CCG grammars from logical form with higher-order unification.
+In Proceedings of the Confer-ence on Empirical Methods in Natural LanguageProcessing.Kwiatkowski, T., Zettlemoyer, L., Goldwater, S.,and Steedman, M. (2011).
+Lexical generalizationin CCG grammar induction for semantic parsing.In Proceedings of the Conference on EmpiricalMethods in Natural Language Processing.Liang, P., Jordan, M., and Klein, D. (2011).
+Learn-ing dependency-based compositional semantics.In Proceedings of the Conference of the Associ-ation for Computational Linguistics.Matuszek, C., FitzGerald, N., Zettlemoyer, L., Bo,L., and Fox, D. (2012).
+A joint model of languageand perception for grounded attribute learning.
+InProceedings of the International Conference onMachine Learning.Muresan, S. (2011).
+Learning for deep language un-derstanding.
+In Proceedings of the InternationalJoint Conference on Artificial Intelligence.Steedman, M. (1996).
+Surface Structure and Inter-pretation.
+The MIT Press.Steedman, M. (2000).
+The Syntactic Process.
+TheMIT Press.Unger, C., Bu?hmann, L., Lehmann, J.,Ngonga Ngomo, A., Gerber, D., and Cimiano, P.(2012).
+Template-based question answering overRDF data.
+In Proceedings of the InternationalConference on World Wide Web.Wong, Y. and Mooney, R. (2007).
+Learning syn-chronous grammars for semantic parsing withlambda calculus.
+In Proceedings of the Confer-ence of the Association for Computational Lin-guistics.Yahya, M., Berberich, K., Elbassuoni, S., Ramanath,M., Tresp, V., and Weikum, G. (2012).
+Naturallanguage questions for the web of data.
+In Pro-ceedings of the Conference on Empirical Methodsin Natural Language Processing.Zelle, J. and Mooney, R. (1996).
+Learning to parsedatabase queries using inductive logic program-ming.
+In Proceedings of the National Conferenceon Artificial Intelligence.Zettlemoyer, L. and Collins, M. (2005).
+Learningto map sentences to logical form: Structured clas-sification with probabilistic categorial grammars.In Proceedings of the Conference on Uncertaintyin Artificial Intelligence.Zettlemoyer, L. and Collins, M. (2007).
+Onlinelearning of relaxed CCG grammars for parsing tological form.
+In Proceedings of the Joint Confer-ence on Empirical Methods in Natural LanguageProcessing and Computational Natural LanguageLearning.Zettlemoyer, L. and Collins, M. (2009).
+Learn-ing context-dependent mappings from sentencesto logical form.
+In Proceedings of the Joint Con-ference of the Association for Computational Lin-guistics and International Joint Conference onNatural Language Processing.Zhang, C., Hoffmann, R., and Weld, D. S. (2012).Ontological smoothing for relation extractionwith minimal supervision.
+In Proceeds of theConference on Artificial Intelligence.1556

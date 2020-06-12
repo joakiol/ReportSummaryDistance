@@ -1,0 +1,423 @@
+Proceedings of the Fourteenth Conference on Computational Natural Language Learning, pages 213?222,Uppsala, Sweden, 15-16 July 2010. c?2010 Association for Computational LinguisticsDistributed Asynchronous Online Learningfor Natural Language ProcessingKevin Gimpel Dipanjan Das Noah A. SmithLanguage Technologies InstituteCarnegie Mellon UniveristyPittsburgh, PA 15213, USA{kgimpel,dipanjan,nasmith}@cs.cmu.eduAbstractRecent speed-ups for training large-scalemodels like those found in statistical NLPexploit distributed computing (either onmulticore or ?cloud?
+architectures) andrapidly converging online learning algo-rithms.
+Here we aim to combine the two.We focus on distributed, ?mini-batch?learners that make frequent updates asyn-chronously (Nedic et al, 2001; Langfordet al, 2009).
+We generalize existing asyn-chronous algorithms and experiment ex-tensively with structured prediction prob-lems from NLP, including discriminative,unsupervised, and non-convex learningscenarios.
+Our results show asynchronouslearning can provide substantial speed-ups compared to distributed and single-processor mini-batch algorithms with nosigns of error arising from the approximatenature of the technique.1 IntroductionModern statistical NLP models are notoriouslyexpensive to train, requiring the use of general-purpose or specialized numerical optimization al-gorithms (e.g., gradient and coordinate ascent al-gorithms and variations on them like L-BFGS andEM) that iterate over training data many times.Two developments have led to major improve-ments in training time for NLP models:?
+online learning algorithms (LeCun et al, 1998;Crammer and Singer, 2003; Liang and Klein,2009), which update the parameters of a modelmore frequently, processing only one or a smallnumber of training examples, called a ?mini-batch,?
+between updates; and?
+distributed computing, which divides trainingdata among multiple CPUs for faster processingbetween updates (e.g., Clark and Curran, 2004).Online algorithms offer fast convergence ratesand scalability to large datasets, but distributedcomputing is a more natural fit for algorithms thatrequire a lot of computation?e.g., processing alarge batch of training examples?to be done be-tween updates.
+Typically, distributed online learn-ing has been done in a synchronous setting, mean-ing that a mini-batch of data is divided amongmultiple CPUs, and the model is updated whenthey have all completed processing (Finkel et al,2008).
+Each mini-batch is processed only after theprevious one has completed.Synchronous frameworks are appealing in thatthey simulate the same algorithms that work ona single processor, but they have the drawbackthat the benefits of parallelism are only obtainablewithin one mini-batch iteration.
+Moreover, empir-ical evaluations suggest that online methods onlyconverge faster than batch algorithms when usingvery small mini-batches (Liang and Klein, 2009).In this case, synchronous parallelization will notoffer much benefit.In this paper, we focus our attention on asyn-chronous algorithms that generalize those pre-sented by Nedic et al (2001) and Langford et al(2009).
+In these algorithms, multiple mini-batchesare processed simultaneously, each using poten-tially different and typically stale parameters.
+Thekey advantage of an asynchronous framework isthat it allows processors to remain in near-constantuse, preventing them from wasting cycles wait-ing for other processors to complete their por-tion of the current mini-batch.
+In this way, asyn-chronous algorithms allow more frequent parame-ter updates, which speeds convergence.Our contributions are as follows:?
+We describe a framework for distributed asyn-chronous optimization (?5) similar to those de-scribed by Nedic et al (2001) and Langford etal.
+(2009), but permitting mini-batch learning.The prior work contains convergence results forasynchronous online stochastic gradient descent213for convex functions (discussed in brief in ?5.2).?
+We report experiments on three structured NLPtasks, including one problem that matchesthe conditions for convergence (named entityrecognition; NER) and two that depart from the-oretical foundations, namely the use of asyn-chronous stepwise EM (Sato and Ishii, 2000;Cappe?
+and Moulines, 2009; Liang and Klein,2009) for both convex and non-convex opti-mization.?
+We directly compare asynchronous algorithmswith multiprocessor synchronous mini-batch al-gorithms (e.g., Finkel et al, 2008) and tradi-tional batch algorithms.?
+We experiment with adding artificial delays tosimulate the effects of network or hardware traf-fic that could cause updates to be made with ex-tremely stale parameters.?
+Our experimental settings include both indi-vidual 4-processor machines as well as largeclusters of commodity machines implementingthe MapReduce programming model (Dean andGhemawat, 2004).
+We also explore effects ofmini-batch size.Our main conclusion is that, when small mini-batches work well, asynchronous algorithms of-fer substantial speed-ups without introducing er-ror.
+When large mini-batches work best, asyn-chronous learning does not hurt.2 Optimization SettingWe consider the problem of optimizing a functionf : Rd ?
+R with respect to its argument, denoted?
+= ?
+?1, ?2, .
+.
+.
+, ?d?.
+We assume that f is a sumof n convex functions (hence f is also convex):1f(?)
+=?ni=1 fi(?)
+(1)We initially focus our attention on functions thatcan be optimized using gradient or subgradientmethods.
+Log-likelihood for a probabilistic modelwith fully observed training data (e.g., conditionalrandom fields; Lafferty et al, 2001) is one exam-ple that frequently arises in NLP, where the fi(?
+)each correspond to an individual training exam-ple and the ?
+are log-linear feature weights.
+An-other example is large-margin learning for struc-tured prediction (Taskar et al, 2005; Tsochan-1We use ?convex?
+to mean convex-up when minimizingand convex-down, or concave, when maximizing.taridis et al, 2005), which can be solved by sub-gradient methods (Ratliff et al, 2006).For concreteness, we discuss the architecturein terms of gradient-based optimization, using thefollowing gradient descent update rule (for mini-mization problems):2?
+(t+1) ?
+?
+(t) ?
+?(t)g(?
+(t)) (2)where ?
+(t) is the parameter vector on the tth iter-ation, ?
+(t) is the step size on the tth iteration, andg : Rd ?
+Rd is the vector function of first deriva-tives of f with respect to ?:g(?)
+=??f??1(?
+), ?f?
+?2 (?
+), .
+.
+.
+,?f??d(?)?
+(3)We are interested in optimizing such functionsusing distributed computing, by which we mean toinclude any system containing multiple processorsthat can communicate in order to perform a singletask.
+The set of processors can range from twocores on a single machine to a MapReduce clusterof thousands of machines.Note our assumption that the computation re-quired to optimize f with respect to ?
+is, essen-tially, the gradient vector g(?
+(t)), which servesas the descent direction.
+The key to distribut-ing this computation is the fact that g(?
+(t)) =?ni=1 gi(?
+(t)), where gi(?)
+denotes the gradientof fi(?)
+with respect to ?.
+We now discuss severalways to go about distributing such a problem, cul-minating in the asynchronous mini-batch setting.3 Distributed Batch OptimizationGiven p processors plus a master processor, themost straightforward way to optimize f is to par-tition the fi so that for each i ?
+{1, 2, .
+.
+.
+, n},gi is computed on exactly one ?slave?
+processor.Let Ij denote the subset of examples assigned tothe jth slave processor (?pj=1 Ij = {1, .
+.
+.
+, n}and j 6= j?
+?
+Ij ?
+Ij?
+= ?).
+Processor j re-ceives the examples in Ij along with the neces-sary portions of ?
+(t) for calculating gIj (?
+(t)) =?i?Ijgi(?(t)).
+The result of this calculation isreturned to the master processor, which calculatesg(?
+(t)) =?j gIj (?
+(t)) and executes Eq.
+2 (orsomething more sophisticated that uses the sameinformation) to obtain a new parameter vector.It is natural to divide the data so that each pro-cessor is assigned approximately n/p of the train-ing examples.
+Because of variance in the expense2We use the term ?gradient?
+for simplicity, but subgradi-ents are sufficient throughout.214of calculating the different gi, and because of un-predictable variation among different processors?speed (e.g., variation among nodes in a cluster,or in demands made by other users), there can bevariation in the observed runtime of different pro-cessors on their respective subsamples.
+Each it-eration of calculating g will take as long as thelongest-running among the processors, whateverthe cause of that processor?s slowness.
+In comput-ing environments where the load on processors isbeyond the control of the NLP researcher, this canbe a major bottleneck.Nonetheless, this simple approach is widelyused in practice; approaches in which the gradientcomputation is distributed via MapReduce haverecently been described in machine learning andNLP (Chu et al, 2006; Dyer et al, 2008; Wolfe etal., 2008).
+Mann et al (2009) compare this frame-work to one in which each processor maintains aseparate parameter vector which is updated inde-pendently of the others.
+At the end of learning, theparameter vectors are averaged or a vote is takenduring prediction.
+A similar parameter-averagingapproach was taken by Chiang et al (2008) whenparallelizing MIRA (Crammer et al, 2006).
+Inthis paper, we restrict our attention to distributedframeworks which maintain and update a singlecopy of the parameters ?.
+The use of multipleparameter vectors is essentially orthogonal to theframework we discuss here and we leave the inte-gration of the two ideas for future exploration.4 Distributed Synchronous Mini-BatchOptimizationDistributed computing can speed up batch algo-rithms, but we would like to transfer the well-known speed-ups offered by online and mini-batchalgorithms to the distributed setting as well.
+Thesimplest way to implement mini-batch stochasticgradient descent (SGD) in a distributed computingenvironment is to divide each mini-batch (ratherthan the entire batch) among the processors thatare available and to update the parameters once thegradient from the mini-batch has been computed.Finkel et al (2008) used this approach to speedup training of a log-linear model for parsing.
+Theinteraction between the master processor and thedistributed computing environment is nearly iden-tical to the distributed batch optimization scenario.Where M (t) is the set of indices in the mini-batchprocessed on iteration t, the update is:?
+(t+1) ?
+?
+(t) ?
+?
+(t)?i?M(t) gi(?
+(t)) (4)The distributed synchronous framework canprovide speed-ups over a single-processor imple-mentation of SGD, but inevitably some processorswill end up waiting for others to finish processing.This is the same bottleneck faced by the batch ver-sion in ?3.
+While the time for each mini-batch isshorter than the time for a full batch, mini-batchalgorithms make far more updates and some pro-cessor cycles will be wasted in computing eachone.
+Also, more mini-batches imply that moretime will be lost due to per-mini-batch overhead(e.g., waiting for synchronization locks in shared-memory systems, or sending data and ?
+to the pro-cessors in systems without shared memory).5 Distributed Asynchronous Mini-BatchOptimizationAn asynchronous framework may use multipleprocessors more efficiently and minimize idle time(Nedic et al, 2001; Langford et al, 2009).
+In thissetting, the master sends ?
+and a mini-batchMk toeach slave k. Once slave k finishes processing itsmini-batch and returns gMk(?
+), the master imme-diately updates ?
+and sends a new mini-batch andthe new ?
+to the now-available slave k. As a result,slaves stay occupied and never need to wait on oth-ers to finish.
+However, nearly all gradient com-ponents are computed using slightly stale parame-ters that do not take into account the most recentupdates.
+Nedic et al (2001) proved that conver-gence is still guaranteed under certain conditions,and Langford et al (2009) obtained convergencerate results.
+We describe these results in more de-tail in ?5.2.The update takes the following form:?
+(t+1) ?
+?
+(t) ?
+?(t)?i?M(?
+(t)) gi(?(?
+(t))) (5)where ?
+(t) ?
+t is the start time of the mini-batchused for the tth update.
+Since we started pro-cessing the mini-batch at time ?
+(t) (using param-eters ?(?
+(t))), we denote the mini-batch M (?(t)).
+If?
+(t) = t, then Eq.
+5 is identical to Eq.
+4.
+That is,t?
+?
+(t) captures the ?staleness?
+of the parametersused to compute the gradient for the tth update.Asynchronous frameworks do introduce errorinto the training procedure, but it is frequentlythe case in NLP problems that only a small frac-tion of parameters is needed for each mini-batch215Input: number of examples n, mini-batch size m,random seed r?` ?
+?
+;seedRandomNumberGenerator (r);while converged (?)
+= false dog ?
+0;for j ?
+1 to m dok ?
+Uniform({1, .
+.
+.
+, n});g ?
+g + gk(?`);endacquireLock (?);?
+?
+updateParams (?, g);?` ?
+?
+;releaseLock (?
+);endAlgorithm 1: Procedure followed by each thread for multi-core asynchronous mini-batch optimization.
+?
+is the singlecopy of the parameters shared by all threads.
+The conver-gence criterion is left unspecified here.of training examples.
+For example, for simpleword alignment models like IBM Model 1 (Brownet al, 1993), only parameters corresponding towords appearing in the particular subsample ofsentence pairs are needed.
+The error introducedwhen making asynchronous updates should intu-itively be less severe in these cases, where dif-ferent mini-batches use small and mostly non-overlapping subsets of ?.5.1 ImplementationThe algorithm sketched above is general enoughto be suitable for any distributed system, but whenusing a system with shared memory (e.g., a singlemultiprocessor machine) a more efficient imple-mentation is possible.
+In particular, we can avoidthe master/slave architecture and simply start pthreads that each compute and execute updates in-dependently, with a synchronization lock on ?.
+Inour single-machine experiments below, we use Al-gorithm 1 for each thread.
+A different random seed(r) is passed to each thread so that they do not allprocess the same sequence of examples.
+At com-pletion, the result is contained in ?.5.2 Convergence ResultsWe now briefly summarize convergence resultsfrom Nedic et al (2001) and Langford et al(2009), which rely on the following assumptions:(i) The function f is convex.
+(ii) The gradientsgi are bounded, i.e., there exists C > 0 such that?gi(?(t))?
+?
+C. (iii) ?
+(unknown) D > 0 suchthat t ?
+?
+(t) < D. (iv) The stepsizes ?
+(t) satisfycertain standard conditions.In addition, Nedic et al require that all func-tion components are used with the same asymp-totic frequency (as t ?
+?).
+Their results arestrongest when choosing function components ineach mini-batch using a ?cyclic?
+rule: select func-tion fi for the kth time only after all functions havebeen selected k ?
+1 times.
+For a fixed step size?, the sequence of function values f(?
+(t)) con-verges to a region of the optimum that dependson ?, the maximum norm of any gradient vector,and the maximum delay for any mini-batch.
+Fora decreasing step size, convergence is guaranteedto the optimum.
+When choosing components uni-formly at random, convergence to the optimum isagain guaranteed using a decreasing step size for-mula, but with slightly more stringent conditionson the step size.Langford et al (2009) present convergence ratesvia regret bounds, which are linear in D. The con-vergence rate of asynchronous stochastic gradientdescent is O(?TD), where T is the total numberof updates made.
+In addition to the situation inwhich function components are chosen uniformlyat random, Langford et al provide results for sev-eral other scenarios, including the case in which anadversary supplies the training examples in what-ever ordering he chooses.Below we experiment with optimization of bothconvex and non-convex functions, using fixed stepsizes and decreasing step size formulas, and con-sider several values of D. Even when exploringregions of the experimental space that are not yetsupported by theoretical results, asynchronous al-gorithms perform well empirically in all settings.5.3 Gradients and Expectation-MaximizationThe theory applies when using first-order methodsto optimize convex functions.
+Though the functionit is optimizing is not usually convex, the EM algo-rithm can be understood as a hillclimber that trans-forms the gradient to keep ?
+feasible; it can alsobe understood as a coordinate ascent algorithm.Either way, the calculations during the E-step re-semble g(?).
+Several online or mini-batch vari-ants of the EM algorithm have been proposed, forexample incremental EM (Neal and Hinton, 1998)and online EM (Sato and Ishii, 2000; Cappe?
+andMoulines, 2009), and we follow Liang and Klein(2009) in referring to this latter algorithm as step-wise EM.
+Our experiments with asynchronousminibatch updates include a case where the log-likelihood f is convex and one where it is not.216task data n # params.
+eval.
+method convex?
+?6.1 named entityrecognition (CRF;Lafferty et al, 2001)CoNLL 2003 English(Tjong Kim Sang and DeMeulder, 2003)14,987sents.1.3M F1 SGD yes?6.2 word alignment (Model1, both directions;Brown et al, 1993)NAACL 2003 parallel textworkshop (Mihalcea andPedersen, 2003)300Kpairs14.2M ?2(E?F +F?E)AER EM yesS6.3 unsupervised POS(bigram HMM)Penn Treebank ?1?21(Marcus et al, 1993)41,825sents.2,043,226 (Johnson,2007)EM noTable 1: Our experiments consider three tasks.0 2 4 6 8 10 1284868890Wall clock time (hours)F1Asynchronous (4 processors)Synchronous (4 processors)Single?processorFigure 1: NER: Synchronousmini-batch SGD converges fasterin F1 than the single-processorversion, and the asynchronousversion converges faster still.
+Allcurves use a mini-batch size of 4.6 ExperimentsWe performed experiments to measure speed-upsobtainable through distributed online optimiza-tion.
+Since we will be considering different opti-mization algorithms and computing environments,we will primarily be interested in the wall-clocktime required to obtain particular levels of perfor-mance on metrics appropriate to each task.
+Weconsider three tasks, detailed in Table 1.For experiments on a single node, we used a64-bit machine with two 2.6GHz dual-core CPUs(i.e., 4 processors in all) with a total of 8GB ofRAM.
+This was a dedicated machine that was notavailable for any other jobs.
+We also conductedexperiments using a cluster architecture runningHadoop 0.20 (an implementation of MapReduce),consisting of 400 machines, each having 2 quad-core 1.86GHz CPUs with a total of 6GB of RAM.6.1 Named Entity RecognitionOur NER CRF used a standard set of features, fol-lowing Kazama and Torisawa (2007), along withtoken shape features like those in Collins (2002)and simple gazetteer features; a feature was in-cluded if and only it occurred at least once in train-ing data (total 1.3M).We used a diagonal Gaussianprior with a variance of 1.0 for each weight.We compared SGD on a single processor to dis-tributed synchronous SGD and distributed asyn-chronous SGD.
+For all experiments, we used afixed step size of 0.01 and chose each training ex-ample for each mini-batch uniformly at randomfrom the full data set.3 We report performance by3In preliminary experiments, we experimented with vari-0 2 4 6 8 10868890F1Synchronous (4 processors)Synchronous (2 processors)Single?processor0 2 4 6 8 10868890Wall clock time (hours)F1Asynchronous (4 processors)Asynchronous (2 processors)Single?processorFigure 2: NER: (Top) Synchronous optimization improvesvery little when moving from 2 to 4 processors due to theneed for load-balancing, leaving some processors idle forstretches of time.
+(Bottom) Asynchronous optimization doesnot require load balancing and therefore improves when mov-ing from 2 to 4 processors because each processor is in near-constant use.
+All curves use a mini-batch size of 4 and the?Single-processor?
+curve is identical in the two plots.plotting test-set accuracy against wall-time over12 hours.4Comparing Synchronous and AsynchronousAlgorithms Figure 1 shows our primary resultfor the NER experiments.
+When using all fouravailable processors, the asynchronous algorithmconverges faster than the other two algorithms.
+Er-ror due to stale parameters during gradient com-putation does not appear to cause any more varia-ous fixed step sizes and decreasing step size schedules, andfound a fixed step size to work best for all settings.4Decoding was performed offline (so as not to affect mea-surments) with models sampled every ten minutes.217tion in performance than experienced by the syn-chronous mini-batch algorithm.
+Note that the dis-tributed synchronous algorithm and the single-processor algorithm make identical sequences ofparameter updates; the only difference is theamount of time between each update.
+Since wesave models every ten minutes and not every ithupdate, the curves have different shapes.
+The se-quence of updates for the asynchronous algorithm,on the other hand, actually depends on the vagariesof the computational environment.
+Nonetheless,the asynchronous algorithm using 4 processors hasnearly converged after only 2 hours, while thesingle-processor algorithm requires 10?12 hoursto reach the same F1.Varying the Number of Processors Figure 2shows the improvement in convergence time byusing 4 vs. 2 processors for the synchronous (top)and asynchronous (bottom) algorithms.
+The ad-ditional two processors help the asynchronous al-gorithm more than the synchronous one.
+Thishighlights the key advantage of asynchronous al-gorithms: it is easier to keep all processors inconstant use.
+Synchronous algorithms might beimproved through load-balancing; in our experi-ments here, we simply assigned m/p examples toeach processor, wherem is the mini-batch size andp is the number of processors.
+When m = p, as inthe 4-processor curve in the upper plot of Figure 2,we assign a single example to each processor; thisis optimal in the sense that no other schedulingstrategy will process the mini-batch faster.
+There-fore, the fact that the 2-processor and 4-processorcurves are so close suggests that the extra two pro-cessors are not being fully exploited, indicatingthat the optimal load balancing strategy for a smallmini-batch still leaves processors under-used dueto the synchronous nature of the updates.The only bottleneck in the asynchronous algo-rithm is the synchronization lock during updating,required since there is only one copy of ?.
+ForCRFs with a few million weights, the update istypically much faster than processing a mini-batchof examples; furthermore, when using small mini-batches, the update vector is typically sparse.5 Forall experimental results presented thus far, we useda mini-batch size of 4.
+We experimented with ad-5In a standard implementation, the sparsity of the updatewill be nullified by regularization, but to improve efficiencyin practice the regularization penalty can be accumulated andapplied less frequently than every update.0 2 4 6 8 10 1285868788899091Wall clock time (hours)F1Asynchronous, no delayAsynchronous, ?
+= 5Single?processor, no delayAsynchronous, ?
+= 10Asynchronous, ?
+= 20Figure 3: NER: Convergence curves when a delay is incurredwith probability 0.25 after each mini-batch is processed.
+Thedelay durations (in seconds) are sampled fromN(?, (?/5)2),for several means ?.
+Each mini-batch (size = 4) takes lessthan a second to process, so if the delay is substantially longerthan the time required to process a mini-batch, the single-node version converges faster.
+While curves with ?
+= 10 and20 appear less smooth than the others, they are still headingsteadily toward convergence.ditional mini-batch sizes of 1 and 8, but there wasvery little difference in the resulting curves.Artificial Delays We experimented with addingartificial delays to the algorithm to explore howmuch overhead would be tolerable before paral-lelized computation becomes irrelevant.
+Figure 3shows results when each processor sleeps with0.25 probability for a duration of time betweencomputing the gradient on its mini-batch of dataand updating the parameters.
+The delay length ischosen from a normal distribution with the means(in seconds) shown and ?
+= ?/5 (truncated atzero).
+Since only one quarter of the mini-batcheshave an artificial delay, increasing ?
+increases theaverage parameter ?staleness?, letting us see howthe asynchronous algorithm fares with extremelystale parameters.The average time required to compute the gradi-ent for a mini-batch of 4 is 0.62 seconds.
+When theaverage delay is 1.25 seconds (?
+= 5), twice theaverage time for a mini-batch, the asynchronousalgorithm still converges faster than the single-node algorithm.
+In addition, even with substan-tial delays of 5?10 times the processing time for amini-batch, the asynchronous algorithm does notfail but proceeds steadily toward convergence.The practicality of using the asynchronous algo-rithm depends on the average duration for a mini-batch and the amount of expected additional over-head.
+We attempted to run these experiments on218AER Time (h:m)Single machine:Asynch.
+stepwise EM 0.274 1:58Synch.
+stepwise EM (4 proc.)
+0.274 2:08Synch.
+stepwise EM (1 proc.)
+0.272 6:57Batch EM 0.276 2:15MapReduce:Asynch.
+stepwise EM 0.281 5:41Synch.
+stepwise EM 0.273 27:03Batch EM 0.276 8:35Table 2: Alignment error rates and wall time after 20 itera-tions of EM for various settings.
+See text for details.a large MapReduce cluster, but the overhead re-quired for each MapReduce job was too large tomake this viable (30?60 seconds).6.2 Word AlignmentWe trained IBM Model 1 in both directions.
+Toalign test data, we symmetrized both directionalViterbi alignments using the ?grow-diag-final?heuristic (Koehn et al, 2003).
+We evaluated ourmodels using alignment error rate (AER).Experiments on a Single Machine We fol-lowed Liang and Klein (2009) in using syn-chronous (mini-batch) stepwise EM on a singleprocessor for this task.
+We used the same learningrate formula (?
+(t) = (t+2)?q, with 0.5 < q ?
+1).We also used asynchronous stepwise EM by usingthe same update rule, but gathered sufficient statis-tics on 4 processors of a single machine in paral-lel, analogous to our asynchronous method from?5.
+Whenever a processor was done gathering theexpected counts for its mini-batch, it updated thesufficient statistics vector and began work on thenext mini-batch.We used the sparse update described by Liangand Klein, which allows each thread to makeadditive updates to the parameter vector andto separately-maintained normalization constantswithout needing to renormalize after each update.When probabilities are needed during inference,normalizers are divided out on-the-fly as needed.We made 10 passes of asynchronous stepwiseEM to measure its sensitivity to q and the mini-batch size m, using different values of thesehyperparameters (q ?
+{0.5, 0.7, 1.0}; m ?
+{5000, 10000, 50000}), and selected values thatmaximized log-likelihood (q = 0.7, m = 10000).Experiments on MapReduce We implementedthe three techniques in a MapReduce framework.We implemented batch EM on MapReduce byconverting each EM iteration into two MapRe-duce jobs: one for the E-step and one for the M-step.6 For the E-step, we divided our data into24 map tasks, and computed expected counts forthe source-target parameters at each mapper.
+Next,we summed up the expected counts in one reducetask.
+For the M-step, we took the output fromthe E-step, and in one reduce task, normalizedeach source-target parameter by the total count forthe source word.7 To gather sufficient statisticsfor synchronous stepwise EM, we used 6 mappersand one reducer for a mini-batch of size 10000.For the asynchronous version, we ran four parallelasynchronous mini-batches, the sufficient statis-tics being gathered using MapReduce again foreach mini-batch with 6 map tasks and one reducer.Results Figure 4 shows log-likelihood for theEnglish?French direction during the first 80 min-utes of optimization.
+Similar trends were observedfor the French?English direction as well as forconvergence in AER.
+Table 2 shows the AER atthe end of 20 iterations of EM for the same set-tings.8 It takes around two hours to finish 20 iter-ations of batch EM on a single machine, while ittakes more than 8 hours to do so on MapReduce.This is because of the extra overhead of transfer-ring ?
+from a master gateway machine to mappers,from mappers to reducers, and from reducers backto the master.
+Synchronous and asynchronous EMsuffer as well.From Figure 4, we see that synchronous andasynchronous stepwise EM converge at the samerate when each is given 4 processors.
+The maindifference between this task and NER is the sizeof the mini-batch used, so we experimented withseveral values for the mini-batch size m. Fig-ure 5 shows the results.
+As m decreases, a largerfraction of time is spent updating parameters; thisslows observed convergence time even when us-ing the sparse update rule.
+It can be seen that,though synchronous and asynchronous stepwiseEM converge at the same rate with a large mini-batch size (m = 10000), asynchronous stepwise6The M-step could have been performed without MapRe-duce by storing all the parameters in memory, but memoryrestrictions on the gateway node of our cluster prevented this.7For the reducer in the M-step, the source served as thekey, and the target appended by the parameter?s expectedcount served as the value.8Note that for wall time comparison, we sample modelsevery five minutes.
+The time taken to write these modelsranges from 30 seconds to a minute, thus artificially elon-gating the total time for all iterations.21910 20 30 40 50 60 70 80?40?35?30?25?20Log?LikelihoodAsynch.
+Stepwise EM (4 processors)Synch.
+Stepwise EM (4 processors)Synch.
+Stepwise EM (1 processor)Batch EM (1 processor)10 20 30 40 50 60 70 80?40?35?30?25?20Wall clock time (minutes)Log?LikelihoodAsynch.
+Stepwise EM (MapReduce)Synch.
+Stepwise EM (MapReduce)Batch EM (MapReduce)Figure 4: English?French log-likelihood vs. wall clock timein minutes on both a single machine (top) and on a largeMapReduce cluster (bottom), shown on separate plots forclarity, though axis scales are identical.
+We show runs ofeach setting for the first 80 minutes, although EM was runfor 20 passes through the data in all cases (Table 2).
+Fastestconvergence is obtained by synchronous and asynchronousstepwise EM using 4 processors on a single node.
+While thealgorithms converge more slowly on MapReduce due to over-head, the asynchronous algorithm converges the fastest.
+Weobserved similar trends for the French?English direction.EM converges faster as m decreases.
+With largemini-batches, load-balancing becomes less impor-tant as there will be less variation in per-mini-batch observed runtime.
+These results suggest thatasynchronous mini-batch algorithms will be mostuseful for learning problems in which small mini-batches work best.
+Fortunately, however, we donot see any problems stemming from approxima-tion errors due to the use of asynchronous updates.6.3 Unsupervised POS TaggingOur unsupervised POS experiments use the sametask and approach of Liang and Klein (2009) andso we fix hyperparameters for stepwise EM basedon their findings (learning rate ?
+(t) = (t+2)?0.7).The asynchronous algorithm uses the same learn-ing rate formula as the single-processor algorithm.There is only a single t that is maintained and getsincremented whenever any thread updates the pa-rameters.
+Liang and Klein used a mini-batch sizeof 3, but we instead use a mini-batch size of 4 tobetter suit our 4-processor synchronous and asyn-chronous architectures.Like NER, we present results for unsupervisedtagging experiments on a single machine only, i.e.,not using a MapReduce cluster.
+For tasks like POStagging that have been shown to work best withsmall mini-batches (Liang and Klein, 2009), we10 20 30 40 50 60 70 80?35?30?25?20Wall clock time (minutes)Log?LikelihoodAsynch.
+(m = 10,000)Synch.
+(m = 10,000)Asynch.
+(m = 1,000)Synch.
+(m = 1,000)Asynch.
+(m = 100)Synch.
+(m = 100)Figure 5: English?French log-likelihood vs. wall clock timein minutes for stepwise EM with 4 processors for variousmini-batch sizes (m).
+The benefits of asynchronous updat-ing increase as m decreases.did not conduct experiments with MapReduce dueto high overhead per mini-batch.For initialization, we followed Liang and Kleinby initializing each parameter as ?i ?
+e1+ai ,ai ?
+Uniform([0, 1]).
+We generated 5 randommodels using this procedure and used each to ini-tialize each algorithm.
+We additionally used 2random seeds for choosing the ordering of exam-ples,9 resulting in a total of 10 runs for each al-gorithm.
+We ran each for six hours, saving mod-els every five minutes.
+After training completed,using each model we decoded the entire trainingdata using posterior decoding and computed thelog-likelihood.
+The results for 5 initial models andtwo example orderings are shown in Figure 6.
+Weevaluated tagging performance using many-to-1accuracy, which is obtained by mapping the HMMstates to gold standard POS tags so as to maximizeaccuracy, where multiple states can be mapped tothe same tag.
+This is the metric used by Liang andKlein (2009) and Johnson (2007), who report fig-ures comparable to ours.
+The asynchronous algo-rithm converges much faster than the single-nodealgorithm, allowing a tagger to be trained fromthe Penn Treebank in less than two hours usinga single machine.
+Furthermore, the 4-processorsynchronous algorithm improves only marginally9We ensured that the examples processed in the sequenceof mini-batches were identical for the 1-processor and 4-processor versions of synchronous stepwise EM, but theasynchronous algorithm requires a different seed for eachprocessor and, furthermore, the actual order of examples pro-cessed depends on wall times and cannot be controlled for.Nonetheless, we paired a distinct set of seeds for the asyn-chronous algorithm with each of the two seeds used for thesynchronous algorithms.2200 1 2 3 4 5 6?7.5?7?6.5?6 x 106Log?Likelihood0 1 2 3 4 5 650556065Wall clock time (hours)Accuracy (%)Asynch.
+Stepwise EM (4 processors)Synch.
+Stepwise EM (4 processors)Synch.
+Stepwise EM (1 processor)Batch EM (1 processor)0 1 2 3 4 5 6?7.5?7?6.5?6 x 106Log?Likelihood0 1 2 3 4 5 650556065Wall clock time (hours)Accuracy (%)Asynch.
+Stepwise EM (4 processors)Synch.
+Stepwise EM (4 processors)Synch.
+Stepwise EM (1 processor)Batch EM (1 processor)Figure 6: POS: Asynchronous stepwise EM converges faster in log-likelihood and accuracy than the synchronous versions.Curves are shown for each of 5 random initial models.
+One example ordering random seed is shown on the left, another on theright.
+The accuracy curves for batch EM do not appear because the highest accuracy reached is only 40.7% after six hours.over the 1-processor baseline.The accuracy of the asynchronous curves of-ten decreases slightly after peaking.
+We can sur-mise from the log-likelihood plot that the dropin accuracy is not due to the optimization be-ing led astray, but probably rather due to thecomplex relationship between likelihood and task-specific evaluation metrics in unsupervised learn-ing (Merialdo, 1994).
+In fact, when we exam-ined the results of synchronous stepwise EM be-tween 6 and 12 hours of execution, we found sim-ilar drops in accuracy as likelihood continued toimprove.
+From Figure 6, we conclude that theasynchronous algorithm has no harmful effect onlearned model?s accuracy beyond the choice to op-timize log-likelihood.While there are currently no theoretical conver-gence results for asynchronous optimization algo-rithms for non-convex functions, our results areencouraging for the prospects of establishing con-vergence results for this setting.7 DiscussionOur best results were obtained by exploiting mul-tiple processors on a single machine, while exper-iments using a MapReduce cluster were plaguedby communication and framework overhead.Since Moore?s Law predicts a continual in-crease in the number of cores available on a sin-gle machine but not necessarily an increase in thespeed of those cores, we believe that algorithmsthat can effectively exploit multiple processors ona single machine will be increasingly useful.
+Eventoday, applications in NLP involving rich-featurestructured prediction, such as parsing and transla-tion, typically use a large portion of memory forstoring pre-computed data structures, such as lex-icons, feature name mappings, and feature caches.Frequently these are large enough to prevent themultiple cores on a single machine from beingused for multiple experiments, leaving some pro-cessors unused.
+However, using multiple threadsin a single program allows these large data struc-tures to be shared and allows the threads to makeuse of the additional processors.We found the overhead incurred by the MapRe-duce programming model, as implemented inHadoop 0.20, to be substantial.
+Nonetheless,we found that asynchronously running multipleMapReduce calls at the same time, rather thanpooling all processors into a single MapReducecall, improves observed convergence with negli-gible effects on performance.8 ConclusionWe have presented experiments using an asyn-chronous framework for distributed mini-batchoptimization that show comparable performanceof trained models in significantly less time thantraditional techniques.
+Such algorithms keep pro-cessors in constant use and relieve the programmerfrom having to implement load-balancing schemesfor each new problem encountered.
+We expectasynchronous learning algorithms to be broadlyapplicable to training NLP models.Acknowledgments The authors thank Qin Gao, Garth Gib-son, Andre?
+Martins, Brendan O?Connor, Stephan Vogel, andthe reviewers for insightful comments.
+This work was sup-ported by awards from IBM, Google, computing resourcesfrom Yahoo, and NSF grants 0836431 and 0844507.221ReferencesP.
+F. Brown, V. J. Della Pietra, S. A. Della Pietra, andR.
+L. Mercer.
+1993.
+The mathematics of statisticalmachine translation: parameter estimation.
+Compu-tational Linguistics, 19(2):263?311.O.
+Cappe?
+and E. Moulines.
+2009.
+Online EM algo-rithm for latent data models.
+Journal of the RoyalStatistics Society: Series B (Statistical Methodol-ogy), 71.D.
+Chiang, Y. Marton, and P. Resnik.
+2008.
+On-line large-margin training of syntactic and structuraltranslation features.
+In Proc.
+of EMNLP.C.
+Chu, S. Kim, Y. Lin, Y. Yu, G. Bradski, A. Ng, andK.
+Olukotun.
+2006.
+Map-Reduce for machine learn-ing on multicore.
+In NIPS.S.
+Clark and J.R. Curran.
+2004.
+Log-linear models forwide-coverage CCG parsing.
+In Proc.
+of EMNLP.M.
+Collins.
+2002.
+Ranking algorithms for named-entity extraction: Boosting and the voted perceptron.In Proc.
+of ACL.K.
+Crammer and Y.
+Singer.
+2003.
+Ultraconservativeonline algorithms for multiclass problems.
+Journalof Machine Learning Research, 3:951?991.K.
+Crammer, O. Dekel, J. Keshet, S. Shalev-Shwartz,and Y.
+Singer.
+2006.
+Online passive-aggressive al-gorithms.
+Journal of Machine Learning Research,7:551?585.J.
+Dean and S. Ghemawat.
+2004.
+MapReduce: Sim-plified data processing on large clusters.
+In SixthSymposium on Operating System Design and Imple-mentation.C.
+Dyer, A. Cordova, A. Mont, and J. Lin.
+2008.
+Fast,easy, and cheap: Construction of statistical machinetranslation models with MapReduce.
+In Proc.
+of theThird Workshop on Statistical Machine Translation.J.
+R. Finkel, A. Kleeman, and C. D. Manning.
+2008.Efficient, feature-based, conditional random fieldparsing.
+In Proc.
+of ACL.M.
+Johnson.
+2007.
+Why doesn?t EM find good HMMPOS-taggers?
+In Proc.
+of EMNLP-CoNLL.J.
+Kazama and K. Torisawa.
+2007.
+A new perceptronalgorithm for sequence labeling with non-local fea-tures.
+In Proc.
+of EMNLP-CoNLL.P.
+Koehn, F. J. Och, and D. Marcu.
+2003.
+Statisticalphrase-based translation.
+In Proc.
+of HLT-NAACL.J.
+Lafferty, A. McCallum, and F. Pereira.
+2001.
+Con-ditional random fields: Probabilistic models for seg-menting and labeling sequence data.
+In Proc.
+ofICML.J.
+Langford, A. J. Smola, and M. Zinkevich.
+2009.Slow learners are fast.
+In NIPS.Y.
+LeCun, L. Bottou, Y. Bengio, and P. Haffner.
+1998.Gradient-based learning applied to document recog-nition.
+Proceedings of the IEEE, 86(11):2278?2324.P.
+Liang and D. Klein.
+2009.
+Online EM for unsuper-vised models.
+In Proc.
+of NAACL-HLT.G.
+Mann, R. McDonald, M. Mohri, N. Silberman, andD.
+Walker.
+2009.
+Efficient large-scale distributedtraining of conditional maximum entropy models.In NIPS.M.
+P. Marcus, B. Santorini, and M. A. Marcinkiewicz.1993.
+Building a large annotated corpus of En-glish: The Penn treebank.
+Computational Linguis-tics, 19:313?330.B.
+Merialdo.
+1994.
+Tagging English text with aprobabilistic model.
+Computational Linguistics,20(2):155?172.R.
+Mihalcea and T. Pedersen.
+2003.
+An evaluationexercise for word alignment.
+In HLT-NAACL 2003Workshop: Building and Using Parallel Texts: DataDriven Machine Translation and Beyond.R.
+Neal and G. E. Hinton.
+1998.
+A view of the EM al-gorithm that justifies incremental, sparse, and othervariants.
+In Learning in Graphical Models.A.
+Nedic, D. P. Bertsekas, and V. S. Borkar.
+2001.Distributed asynchronous incremental subgradientmethods.
+In Proc.
+of the March 2000 Haifa Work-shop: Inherently Parallel Algorithms in Feasibilityand Optimization and Their Applications.N.
+Ratliff, J. Bagnell, and M. Zinkevich.
+2006.
+Sub-gradient methods for maximum margin structuredlearning.
+In ICML Workshop on Learning in Struc-tured Outputs Spaces.M.
+Sato and S. Ishii.
+2000.
+On-line EM algorithm forthe normalized Gaussian network.
+Neural Compu-tation, 12(2).B.
+Taskar, V. Chatalbashev, D. Koller, and C. Guestrin.2005.
+Learning structured prediction models: Alarge margin approach.
+In Proc.
+of ICML.E.
+F. Tjong Kim Sang and F. De Meulder.
+2003.
+Intro-duction to the CoNLL-2003 shared task: Language-independent named entity recognition.
+In Proc.
+ofCoNLL.I.
+Tsochantaridis, T. Joachims, T. Hofmann, and Y. Al-tun.
+2005.
+Large margin methods for structured andinterdependent output variables.
+Journal of MachineLearning Research, 6:1453?1484.J.
+Wolfe, A. Haghighi, and D. Klein.
+2008.
+Fullydistributed EM for very large datasets.
+In Proc.
+ofICML.222

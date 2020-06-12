@@ -1,0 +1,212 @@
+Proceedings of the Third Workshop on Statistical Machine Translation, pages 199?207,Columbus, Ohio, USA, June 2008. c?2008 Association for Computational LinguisticsFast, Easy, and Cheap: Construction ofStatistical Machine Translation Models with MapReduceChristopher Dyer, Aaron Cordova, Alex Mont, Jimmy LinLaboratory for Computational Linguistics and Information ProcessingUniversity of MarylandCollege Park, MD 20742, USAredpony@umd.eduAbstractIn recent years, the quantity of parallel train-ing data available for statistical machine trans-lation has increased far more rapidly thanthe performance of individual computers, re-sulting in a potentially serious impedimentto progress.
+Parallelization of the model-building algorithms that process this data oncomputer clusters is fraught with challengessuch as synchronization, data exchange, andfault tolerance.
+However, the MapReduceprogramming paradigm has recently emergedas one solution to these issues: a powerfulfunctional abstraction hides system-level de-tails from the researcher, allowing programs tobe transparently distributed across potentiallyvery large clusters of commodity hardware.We describe MapReduce implementations oftwo algorithms used to estimate the parame-ters for two word alignment models and onephrase-based translation model, all of whichrely on maximum likelihood probability esti-mates.
+On a 20-machine cluster, experimentalresults show that our solutions exhibit goodscaling characteristics compared to a hypo-thetical, optimally-parallelized version of cur-rent state-of-the-art single-core tools.1 IntroductionLike many other NLP problems, output quality ofstatistical machine translation (SMT) systems in-creases with the amount of training data.
+Brants etal.
+(2007) demonstrated that increasing the quantityof training data used for language modeling signifi-cantly improves the translation quality of an Arabic-English MT system, even with far less sophisticatedbackoff models.
+However, the steadily increas-ing quantities of training data do not come with-out cost.
+Figure 1 shows the relationship betweenthe amount of parallel Arabic-English training dataused and both the translation quality of a state-of-the-art phrase-based SMT system and the time re-quired to perform the training with the widely-usedMoses toolkit on a commodity server.1 Buildinga model using 5M sentence pairs (the amount ofArabic-English parallel text publicly available fromthe LDC) takes just over two days.2 This representsan unfortunate state of affairs for the research com-munity: excessively long turnaround on experimentsis an impediment to research progress.It is clear that the needs of machine translation re-searchers have outgrown the capabilities of individ-ual computers.
+The only practical recourse is to dis-tribute the computation across multiple cores, pro-cessors, or machines.
+The development of parallelalgorithms involves a number of tradeoffs.
+First isthat of cost: a decision must be made between ?ex-otic?
+hardware (e.g., large shared memory machines,InfiniBand interconnect) and commodity hardware.There is significant evidence (Barroso et al, 2003)that solutions based on the latter are more cost ef-fective (and for resource-constrained academic in-stitutions, often the only option).Given appropriate hardware, MT researchersmust still contend with the challenge of developingsoftware.
+Quite simply, parallel programming is dif-ficult.
+Due to communication and synchronization1http://www.statmt.org/moses/2All single-core timings reported in this paper were per-formed on a 3GHz 64-bit Intel Xeon server with 8GB memory.19915 min30 min45 min1.5 hrs3 hrs6 hrs12 hrs1 day2 days10000  100000  1e+06  1e+07 0.30.350.40.450.50.550.6Time (seconds)Translation quality (BLEU)Corpus size (sentences)Training timeTranslation qualityFigure 1: Translation quality and training time as a func-tion of corpus size.issues, concurrent operations are notoriously chal-lenging to reason about.
+In addition, fault toleranceand scalability are serious concerns on commodityhardware prone to failure.
+With traditional paral-lel programming models (e.g., MPI), the developershoulders the burden of handling these issues.
+As aresult, just as much (if not more) effort is devoted tosystem issues as to solving the actual problem.Recently, Google?s MapReduce framework (Deanand Ghemawat, 2004) has emerged as an attractivealternative to existing parallel programming models.The MapReduce abstraction shields the programmerfrom having to explicitly worry about system-levelissues such as synchronization, data exchange, andfault tolerance (see Section 2 for details).
+The run-time is able to transparently distribute computationsacross large clusters of commodity hardware withgood scaling characteristics.
+This frees the program-mer to focus on actual MT issues.In this paper we present MapReduce implementa-tions of training algorithms for two kinds of modelscommonly used in statistical MT today: a phrase-based translation model (Koehn et al, 2003) andword alignment models based on pairwise lexi-cal translation trained using expectation maximiza-tion (Dempster et al, 1977).
+Currently, such modelstake days to construct using standard tools with pub-licly available training corpora; our MapReduce im-plementation cuts this time to hours.
+As an benefitto the community, it is our intention to release thiscode under an open source license.It is worthwhile to emphasize that we presentthese results as a ?sweet spot?
+in the complex designspace of engineering decisions.
+In light of possibletradeoffs, we argue that our solution can be consid-ered fast (in terms of running time), easy (in termsof implementation), and cheap (in terms of hard-ware costs).
+Faster running times could be achievedwith more expensive hardware.
+Similarly, a customimplementation (e.g., in MPI) could extract finer-grained parallelism and also yield faster runningtimes.
+In our opinion, these are not worthwhiletradeoffs.
+In the first case, financial constraintsare obvious.
+In the second case, the programmermust explicitly manage all the complexities thatcome with distributed processing (see above).
+Incontrast, our algorithms were developed within amatter of weeks, as part of a ?cloud computing?course project (Lin, 2008).
+Experimental resultsdemonstrate that MapReduce provides nearly opti-mal scaling characteristics, while retaining a high-level problem-focused abstraction.The remainder of the paper is structured as fol-lows.
+In the next section we provide an overview ofMapReduce.
+In Section 3 we describe several gen-eral solutions to computing maximum likelihood es-timates for finite, discrete probability distributions.Sections 4 and 5 apply these techniques to estimatephrase translation models and perform EM for twoword alignment models.
+Section 6 reviews relevantprior work, and Section 7 concludes.2 MapReduceMapReduce builds on the observation that manytasks have the same basic structure: a computation isapplied over a large number of records (e.g., parallelsentences) to generate partial results, which are thenaggregated in some fashion.
+The per-record compu-tation and aggregation function are specified by theprogrammer and vary according to task, but the ba-sic structure remains fixed.
+Taking inspiration fromhigher-order functions in functional programming,MapReduce provides an abstraction at the point ofthese two operations.
+Specifically, the programmerdefines a ?mapper?
+and a ?reducer?
+with the follow-ing signatures (square brackets indicate a list of ele-ments):map: ?k1, v1?
+?
+[?k2, v2?
+]reduce: ?k2, [v2]?
+?
+[?k3, v3?
+]200inputinputinputinputmapmapmapmapinputinputinputinputBarrier:?group?values?by?keysreducereducereduceoutputoutputoutputFigure 2: Illustration of the MapReduce framework: the?mapper?
+is applied to all input records, which generatesresults that are aggregated by the ?reducer?.Key/value pairs form the basic data structure inMapReduce.
+The ?mapper?
+is applied to every inputkey/value pair to generate an arbitrary number of in-termediate key/value pairs.
+The ?reducer?
+is appliedto all values associated with the same intermediatekey to generate output key/value pairs.
+This two-stage processing structure is illustrated in Figure 2.Under this framework, a programmer need onlyprovide implementations of map and reduce.
+On topof a distributed file system (Ghemawat et al, 2003),the runtime transparently handles all other aspectsof execution, on clusters ranging from a few to a fewthousand workers on commodity hardware assumedto be unreliable, and thus is tolerant to various faultsthrough a number of error recovery mechanisms.The runtime also manages data exchange, includ-ing splitting the input across multiple map workersand the potentially very large sorting problem be-tween the map and reduce phases whereby interme-diate key/value pairs must be grouped by key.For the MapReduce experiments reported in thispaper, we used Hadoop version 0.16.0,3 which isan open-source Java implementation of MapRe-duce, running on a 20-machine cluster (1 master,19 slaves).
+Each machine has two processors (run-ning at either 2.4GHz or 2.8GHz), 4GB memory(map and reduce tasks were limited to 768MB), and100GB disk.
+All software was implemented in Java.3http://hadoop.apache.org/Method 1Map1 ?A,B?
+?
+?
+?A,B?, 1?Reduce1 ?
+?A,B?, c(A,B)?Map2 ?
+?A,B?, c(A,B)?
+?
+??A,?
+?, c(A,B)?Reduce2 ??A,?
+?, c(A)?Map3 ?
+?A,B?, c(A,B)?
+?
+?A, ?B, c(A,B)?
+?Reduce3 ?A, ?B,c(A,B)c(A) ?
+?Method 2Map1 ?A,B?
+?
+?
+?A,B?, 1?
+; ??A,?
+?, 1?Reduce1 ?
+?A,B?,c(A,B)c(A) ?Method 3Map1 ?A,Bi?
+?
+?A, ?Bi : 1?
+?Reduce1 ?A, ?B1 :c(A,B1)c(A) ?, ?B2 :c(A,B2)c(A) ?
+?
+?
+?
+?Table 1: Three methods for computing PMLE(B|A).The first element in each tuple is a key and the secondelement is the associated value produced by the mappersand reducers.3 Maximum Likelihood EstimatesThe two classes of models under consideration areparameterized with conditional probability distribu-tions over discrete events, generally estimated ac-cording to the maximum likelihood criterion:PMLE(B|A) =c(A,B)c(A)=c(A,B)?B?
+c(A,B?
+)(1)Since this calculation is fundamental to both ap-proaches (they distinguish themselves only by wherethe counts of the joint events come from?in the caseof the phrase model, they are observed directly, andin the case of the word-alignment models they arethe number of expected events in a partially hiddenprocess given an existing model of that process), webegin with an overview of how to compute condi-tional probabilities in MapReduce.We consider three possible solutions to this prob-lem, shown in Table 1.
+Method 1 computes the countfor each pair ?A,B?, computes the marginal c(A),and then groups all the values for a given A together,such that the marginal is guaranteed to be first andthen the pair counts follow.
+This enables Reducer3to only hold the marginal value in memory as it pro-cesses the remaining values.
+Method 2 works simi-larly, except that the original mapper emits two val-ues for each pair ?A,B?
+that is encountered: one that201will be the marginal and one that contributes to thepair count.
+The reducer groups all pairs together bythe A value, processes the marginal first, and, likeMethod 1, must only keep this value in memory asit processes the remaining pair counts.
+Method 2 re-quires more data to be processed by the MapReduceframework, but only requires a single sort operation(i.e., fewer MapReduce iterations).Method 3 works slightly differently: rather thancomputing the pair counts independently of eachother, the counts of all the B events jointly occurringwith a particular A = a event are stored in an asso-ciative data structure in memory in the reducer.
+Themarginal c(A) can be computed by summing overall the values in the associative data structure andthen a second pass normalizes.
+This requires thatthe conditional distribution P (B|A = a) not haveso many parameters that it cannot be representedin memory.
+A potential advantage of this approachis that the MapReduce framework can use a ?com-biner?
+to group many ?A,B?
+pairs into a single valuebefore the key/value pair leaves for the reducer.4 Ifthe underlying distribution from which pairs ?A,B?has certain characteristics, this can result in a signifi-cant reduction in the number of keys that the mapperemits (although the number of statistics will be iden-tical).
+And since all keys must be sorted prior to thereducer step beginning, reducing the number of keyscan have significant performance impact.The graph in Figure 3 shows the performanceof the three problem decompositions on two modeltypes we are estimating, conditional phrase trans-lation probabilities (1.5M sentences, max phraselength=7), and conditional lexical translation prob-abilities as found in a word alignment model (500ksentences).
+In both cases, Method 3, which makesuse of more memory to store counts of all B eventsassociated with event A = a, completes at least 50%more quickly.
+This efficiency is due to the Zipfiandistribution of both phrases and lexical items in ourcorpora: a few frequent items account for a largeportion of the corpus.
+The memory requirementswere also observed to be quite reasonable for the4Combiners operate like reducers, except they run directlyon the output of a mapper before the results leave memory.They can be used when the reduction operation is associativeand commutative.
+For more information refer to Dean and Ghe-mawat (2004).02004006008001000120014001600Method1Method2Mathod3Time (seconds)Estimation methodPhrase pairsWord pairsFigure 3: PMLE computation strategies.Figure 4: A word-aligned sentence.
+Examplesof consistent phrase pairs include ?vi, i saw?,?la mesa pequen?a, the small table?, and?mesa pequen?a, small table?
+; but, note that, forexample, it is not possible to extract a consistent phrasecorresponding to the foreign string la mesa or the Englishstring the small.models in question: representing P (B|A = a) in thephrase model required at most 90k parameters, andin the lexical model, 128k parameters (i.e., the sizeof the vocabulary for language B).
+For the remainderof the experiments reported, we confine ourselves tothe use of Method 3.4 Phrase-Based TranslationIn phrase-based translation, the translation processis modeled by splitting the source sentence intophrases (a contiguous string of words) and translat-ing the phrases as a unit (Och et al, 1999; Koehnet al, 2003).
+Phrases are extracted from a word-aligned parallel sentence according to the strategyproposed by Och et al (1999), where every word ina phrase is aligned only to other words in the phrase,and not to any words outside the phrase bounds.
+Fig-ure 4 shows an example aligned sentence and someof the consistent subphrases that may be extracted.2021.5 min5 min20 min60 min3 hrs12 hrs2 days10000  100000  1e+06  1e+07Time (seconds)Corpus size (sentences)Moses training timeMapReduce training (38 M/R)Optimal (Moses/38)Figure 5: Phrase model extraction and scoring times atvarious corpus sizes.Constructing a model involves extracting all thephrase pairs ?e, f?
+and computing the conditionalphrase translation probabilities in both directions.5With a minor adjustment to the techniques intro-duced in Section 3, it is possible to estimate P (B|A)and P (A|B) concurrently.Figure 5 shows the time it takes to constructa phrase-based translation model using the Mosestool, running on a single core, as well as the timeit takes to build the same model using our MapRe-duce implementation.
+For reference, on the samegraph we plot a hypothetical, optimally-parallelizedversion of Moses, which would run in 138 of the timerequired for the single-core version on our cluster.6Although these represent completely different im-plementations, this comparison offers a sense ofMapReduce?s benefits.
+The framework provides aconceptually simple solution to the problem, whileproviding an implementation that is both scalableand fault tolerant?in fact, transparently so sincethe runtime hides all these complexities from the re-searcher.
+From the graph it is clear that the overheadassociated with the framework itself is quite low, es-pecially for large quantities of data.
+We concede thatit may be possible for a custom solution (e.g., withMPI) to achieve even faster running times, but weargue that devoting resources to developing such asolution would not be cost-effective.Next, we explore a class of models where the stan-5Following Och and Ney (2002), it is customary to combineboth these probabilities as feature values in a log-linear model.6In our cluster, only 19 machines actually compute, and eachhas two single-core processors.dard tools work primarily in memory, but where thecomputational complexity of the models is greater.5 Word AlignmentAlthough word-based translation models have beenlargely supplanted by models that make use of largertranslation units, the task of generating a word align-ment, the mapping between the words in the sourceand target sentences that are translationally equiva-lent, remains crucial to nearly all approaches to sta-tistical machine translation.The IBM models, together with a Hidden MarkovModel (HMM), form a class of generative mod-els that are based on a lexical translation modelP (fj |ei) where each word fj in the foreign sentencefm1 is generated by precisely one word ei in the sen-tence el1, independently of the other translation de-cisions (Brown et al, 1993; Vogel et al, 1996; Ochand Ney, 2000).
+Given these assumptions, we letthe sentence translation probability be mediated bya latent alignment variable (am1 in the equations be-low) that specifies the pairwise mapping betweenwords in the source and target languages.
+Assum-ing a given sentence length m for fm1 , the translationprobability is defined as follows:P (fm1 |el1) =?am1P (fm1 , am1 |el1)=?am1P (am1 |el1, fm1 )m?j=1P (fj |eaj )Once the model parameters have been estimated, thesingle-best word alignment is computed accordingto the following decision rule:a?m1 = argmaxam1P (am1 |el1, fm1 )m?j=1P (fj |eaj )In this section, we consider the MapReduce imple-mentation of two specific alignment models:1.
+IBM Model 1, where P (am1 |el1, fm1 ) is uniformover all possible alignments.2.
+The HMM alignment model whereP (am1 |el1, fm1 ) =?mj=1 P (aj |aj?1).203Estimating the parameters for these models is moredifficult (and more computationally expensive) thanwith the models considered in the previous section:rather than simply being able to count the word pairsand alignment relationships and estimate the mod-els directly, we must use an existing model to com-pute the expected counts for all possible alignments,and then use these counts to update the new model.7This training strategy is referred to as expectation-maximization (EM) and is guaranteed to always im-prove the quality of the prior model at each iteration(Brown et al, 1993; Dempster et al, 1977).Although it is necessary to compute a sum over allpossible alignments, the independence assumptionsmade in these models allow the total probability ofgenerating a particular observation to be efficientlycomputed using dynamic programming.8 The HMMalignment model uses the forward-backward algo-rithm (Baum et al, 1970), which is also an in-stance of EM.
+Even with dynamic programming,this requires O(Slm) operations for Model 1, andO(Slm2) for the HMM model, where m and l arethe average lengths of the foreign and English sen-tences in the training corpus, and S is the number ofsentences.
+Figure 6 shows measurements of the av-erage iteration run-time for Model 1 and the HMMalignment model as implemented in Giza++ (Ochand Ney, 2003), a state-of-the-art C++ implemen-tation of the IBM and HMM alignment models thatis widely used.
+Five iterations are generally neces-sary to train the models, so the time to carry out fulltraining of the models is approximately five times theper-iteration run-time.5.1 EM with MapReduceExpectation-maximization algorithms can be ex-pressed quite naturally in the MapReduce frame-work (Chu et al, 2006).
+In general, for discrete gen-erative models, mappers iterate over the training in-stances and compute the partial expected counts forall the unobservable events in the model that should7For the first iteration, when there is no prior model, aheuristic, random, or uniform distribution may be chosen.8For IBM Models 3-5, which are not our primary focus, dy-namic programming is not possible, but the general strategy forcomputing expected counts from a previous model and updat-ing remains identical and therefore the techniques we suggestin this section are applicable to those models as well.3 s10 s30 s90 s3m20s20 min60 min3 hrs10000  100000  1e+06Averageiterationlatency (seconds)Corpus size (sentences)Model 1HMMFigure 6: Per-iteration average run-times for Giza++ im-plementations of Model 1 and HMM training on corporaof various sizes.be associated with the given training instance.
+Re-ducers aggregate these partial counts to computethe total expected joint counts.
+The updated modelis estimated using the maximum likelihood crite-rion, which just involves computing the appropri-ate marginal and dividing (as with the phrase-basedmodels), and the same techniques suggested in Sec-tion 3 can be used with no modification for thispurpose.
+For word alignment models, Method 3is possible since word pairs distribute according toZipf?s law (meaning there is ample opportunity forthe combiners to combine records), and the numberof parameters for P (e|fj = f) is at most the num-ber of items in the vocabulary of E, which tends tobe on the order of hundreds of thousands of words,even for large corpora.Since the alignment models we are consideringare fundamentally based on a lexical translationprobability model, i.e., the conditional probabilitydistribution P (e|f), we describe in some detail howEM updates the parameters for this model.9 Usingthe model parameters from the previous iteration (orstarting from an arbitrary or heuristic set of param-eters during the first iteration), an expected count iscomputed for every l ?m pair ?ei, fj?
+for each par-allel sentence in the training corpus.
+Figure 7 illus-9Although computation of expected count for a word pairin a given training instance obviously depends on which modelis being used, the set of word pairs for which partial counts areproduced for each training instance, as well as the process of ag-gregating the partial counts and updating the model parameters,is identical across this entire class of models.204thebluehousemaison la bleue fleurflowerla maisonthe housela maison bleue la fleurthe blue house the flower(a)(b)Figure 7: Each cell in (a) contains the expected counts forthe word pair ?ei, fj?.
+In (b) the example training data ismarked to show which training instances contribute par-tial counts for the pair ?house, maison?.3 s10 s30 s90 s3m20s20 min60 min3 hrs10000  100000  1e+06Time (seconds)Corpus size (sentences)Optimal Model 1 (Giza/38)Optimal HMM (Giza/38)MapReduce Model 1 (38 M/R)MapReduce HMM (38 M/R)Figure 8: Average per-iteration latency to train HMMand Model 1 using the MapReduce EM trainer, comparedto an optimal parallelization of Giza++ across the samenumber of processors.trates the relationship between the individual train-ing instances and the global expected counts for aparticular word pair.
+After collecting counts, theconditional probability P (f |e) is computed by sum-ming over all columns for each f and dividing.
+Notethat under this training regime, a non-zero probabil-ity P (fj |ei) will be possible only if ei and fj co-occur in at least one training instance.5.2 Experimental ResultsFigure 8 shows the timing results of the MapReduceimplementation of Model 1 and the HMM alignmentmodel.
+Similar to the phrase extraction experiments,we show as reference the running time of a hy-pothetical, optimally-parallelized version of Giza++on our cluster (i.e., values in Figure 6 divided by38).
+Whereas in the single-core implementation theadded complexity of the HMM model has a signif-icant impact on the per-iteration running time, thedata exchange overhead dominates in the perfor-mance of both models in a MapReduce environment,making running time virtually indistinguishable.
+Forthese experiments, after each EM iteration, the up-dated model parameters (which are computed in adistributed fashion) are compiled into a compressedrepresentation which is then distributed to all theprocessors in the cluster at the beginning of the nextiteration.
+The time taken for this process is includedin the iteration latencies shown in the graph.
+In fu-ture work, we plan to use a distributed model repre-sentation to improve speed and scalability.6 Related workExpectation-maximization algorithms have beenpreviously deployed in the MapReduce frameworkin the context of several different applications (Chuet al, 2006; Das et al, 2007; Wolfe et al, 2007).Wolfe et al (2007) specifically looked at the perfor-mance of Model 1 on MapReduce and discuss howseveral different strategies can minimize the amountof communication required but they ultimately ad-vocate abandoning the MapReduce model.
+Whiletheir techniques do lead to modest performance im-provements, we question the cost-effectiveness ofthe approach in general, since it sacrifices many ofthe advantages provided by the MapReduce envi-ronment.
+In our future work, we instead intend tomake use of an approach suggested by Das et al(2007), who show that a distributed database run-ning in tandem with MapReduce can be used toprovide the parameters for very large mixture mod-els efficiently.
+Moreover, since the database is dis-tributed across the same nodes as the MapReducejobs, many of the same data locality benefits thatWolfe et al (2007) sought to capitalize on will beavailable without abandoning the guarantees of theMapReduce paradigm.Although it does not use MapReduce, the MTTKtool suite implements distributed Model 1, 2 andHMM training using a ?home-grown?
+paralleliza-tion scheme (Deng and Byrne, 2006).
+However, thetool relies on a cluster where all nodes have access tothe same shared networked file storage, a restrictionthat MapReduce does not impose.205There has been a fair amount of work inspired bythe problems of long latencies and excessive spacerequirements in the construction of phrase-basedand hierarchical phrase-based translation models.Several authors have advocated indexing the train-ing data with a suffix array and computing the nec-essary statistics during or immediately prior to de-coding (Callison-Burch et al, 2005; Lopez, 2007).Although this technique works quite well, the stan-dard channel probability P (f |e) cannot be com-puted, which is not a limitation of MapReduce.107 ConclusionsWe have shown that an important class of model-building algorithms in statistical machine transla-tion can be straightforwardly recast into the MapRe-duce framework, yielding a distributed solutionthat is cost-effective, scalable, robust, and exact(i.e., doesn?t resort to approximations).
+Alterna-tive strategies for parallelizing these algorithms ei-ther impose significant demands on the developer,the hardware infrastructure, or both; or, they re-quire making unwarranted independence assump-tions, such as dividing the training data into chunksand building separate models.
+We have furthershown that on a 20-machine cluster of commodityhardware, the MapReduce implementations have ex-cellent performance and scaling characteristics.Why does this matter?
+Given the difficulty of im-plementing model training algorithms (phrase-basedmodel estimation is difficult because of the size ofdata involved, and word-based alignment models area challenge because of the computational complex-ity associated with computing expected counts), ahandful of single-core tools have come to be widelyused.
+Unfortunately, they have failed to scale withthe amount of training data available.
+The long la-tencies associated with these tools on large datasetsimply that any kind of experimentation that relies onmaking changes to variables upstream of the wordalignment process (such as, for example, altering thetraining data f ?
+f ?, building a new model P (f ?|e),and reevaluating) is severely limited by this state ofaffairs.
+It is our hope that by reducing the cost of this10It is an open question whether the channel probabilityand inverse channel probabilities are both necessary.
+Lopez(2008) presents results suggesting that P (f |e) is not necessary,whereas Subotin (2008) finds the opposite.these pieces of the translation pipeline, we will see agreater diversity of experimental manipulations.
+To-wards that end, we intend to release this code underan open source license.For our part, we plan to continue pushing the lim-its of current word alignment models by moving to-wards a distributed representation of the model pa-rameters used in the expectation step of EM andabandoning the compiled model representation.
+Fur-thermore, initial experiments indicate that reorder-ing the training data can lead to better data local-ity which can further improve performance.
+Thiswill enable us to scale to larger corpora as well asto explore different uses of translation models, suchas techniques for processing comparable corpora,where a strict sentence alignment is not possible un-der the limitations of current tools.Finally, we note that the algorithms and tech-niques we have described here can be readily ex-tended to problems in other areas of NLP and be-yond.
+HMMs, for example, are widely used inASR, named entity detection, and biological se-quence analysis.
+In these areas, model estimationcan be a costly process, and therefore we believethis work will be of interest for these applicationsas well.
+It is our expectation that MapReduce willalso provide solutions that are fast, easy, and cheap.AcknowledgmentsThis work was supported by the GALE program ofthe Defense Advanced Research Projects Agency,Contract No.
+HR0011-06-2-0001.
+We would alsolike to thank the generous hardware support of IBMand Google via the Academic Cloud Computing Ini-tiative.
+Specifically, thanks go out to Dennis Quanand Eugene Hung from IBM for their tireless sup-port of our efforts.
+Philip Resnik and Miles Osborneprovided helpful comments on an early draft.
+Thelast author would like to thank Esther and Kiri fortheir kind support.ReferencesLuiz Andre?
+Barroso, Jeffrey Dean, and Urs Ho?lzle.
+2003.Web search for a planet: The Google cluster architec-ture.
+IEEE Micro, 23(2):22?28.Leonard E. Baum, Ted Petrie, George Soules, and Nor-man Weiss.
+1970.
+A maximization technique occur-206ring in the statistical analysis of probabilistic functionsof Markov chains.
+Annals of Mathematical Statistics,41(1):164?171.Thorsten Brants, Ashok C. Popat, Peng Xu, Franz J. Och,and Jeffrey Dean.
+2007.
+Large language models inmachine translation.
+In Proceedings of the 2007 JointConference on Empirical Methods in Natural Lan-guage Processing and Computational Natural Lan-guage Learning, pages 858?867, Prague, Czech Re-public.Peter F. Brown, Vincent J. Della Pietra, Stephen A.Della Pietra, and Robert L. Mercer.
+1993.
+The mathe-matics of statistical machine translation: parameter es-timation.
+Computational Linguistics, 19(2):263?311.Chris Callison-Burch, Colin Bannard, and JoshSchroeder.
+2005.
+Scaling phrase-based statisti-cal machine translation to larger corpora and longerphrases.
+In Proceedings of the 43rd Annual Meetingof the Association for Computational Linguistics (ACL2005), pages 255?262, Ann Arbor, Michigan.Cheng T. Chu, Sang K. Kim, Yi A. Lin, Yuanyuan Yu,Gary R. Bradski, Andrew Y. Ng, and Kunle Oluko-tun.
+2006.
+Map-Reduce for machine learning on mul-ticore.
+In Advances in Neural Information ProcessingSystems 19 (NIPS 2006), pages 281?288, Vancouver,British Columbia, Canada.Abhinandan S. Das, Mayur Datar, Ashutosh Garg, andShyam Rajaram.
+2007.
+Google news personalization:scalable online collaborative filtering.
+In Proceedingsof the 16th International Conference on World WideWeb (WWW 2007), pages 271?280, Banff, Alberta,Canada.Jeffrey Dean and Sanjay Ghemawat.
+2004.
+MapReduce:Simplified data processing on large clusters.
+In Pro-ceedings of the 6th Symposium on Operating SystemDesign and Implementation (OSDI 2004), pages 137?150, San Francisco, California.Arthur Dempster, Nan Laird, and Donald Rubin.
+1977.Maximum likelihood from incomplete data via the EMalgorithm.
+Journal of the Royal Statistics Society,39(1):1?38.Yonggang Deng and William J. Byrne.
+2006.
+MTTK:An alignment toolkit for statistical machine transla-tion.
+In Proceedings of the 2006 Human LanguageTechnology Conference of the North American Chap-ter of the Association for Computational Linguistics(HLT/NAACL 2006), Companion Volume, pages 265?268, New York, New York.Sanjay Ghemawat, Howard Gobioff, and Shun-Tak Le-ung.
+2003.
+The Google File System.
+In Proceedingsof the 19th ACM Symposium on Operating SystemsPrinciples (SOSP-03), pages 29?43, Bolton Landing,New York.Philipp Koehn, Franz Josef Och, and Daniel Marcu.2003.
+Statistical phrase-based translation.
+In Pro-ceedings of the 2003 Human Language TechnologyConference of the North American Chapter of the As-sociation for Computational Linguistics (HLT/NAACL2003), pages 48?54, Edmonton, Alberta, Canada.Jimmy Lin.
+2008.
+Exploring large-data issues in the cur-riculum: A case study with MapReduce.
+In Proceed-ings of the Third Workshop on Issues in Teaching Com-putational Linguistics at ACL 2008, Columbus, Ohio.Adam Lopez.
+2007.
+Hierarchical phrase-based trans-lation with suffix arrays.
+In Proceedings of the2007 Joint Conference on Empirical Methods in Natu-ral Language Processing and Computational NaturalLanguage Learning, pages 976?985, Prague, CzechRepublic.Adam Lopez.
+2008.
+Machine Translation by PatternMatching.
+Ph.D. dissertation, University of Maryland,College Park, MD.Franz Josef Och and Hermann Ney.
+2000.
+A comparisonof alignment models for statistical machine translation.In Proceedings of the 18th International Conferenceon Computational Linguistics (COLING 2000), pages1086?1090, Saarbrucken, Germany.Franz Josef Och and Hermann Ney.
+2002.
+Discrimini-tive training and maximum entropy models for statis-tical machine translation.
+In Proceedings of the 40thAnnual Meeting of the Association for ComputationalLinguistics (ACL 2002), pages 295?302, Philadelphia,Pennsylvania.Franz Josef Och and Hermann Ney.
+2003.
+A system-atic comparison of various statistical alignment mod-els.
+Computational Linguistics, 29(1):19?51.Franz Josef Och, Christoph Tillmann, and Hermann Ney.1999.
+Improved alignment models for statistical ma-chine translation.
+In Proceedings of the 1999 JointSIGDAT Conference on Empirical Methods in NaturalLanguage Processing and Very Large Corpora, pages20?28, College Park, Maryland.Michael Subotin.
+2008.
+Exponential models for machinetranslation.
+Master?s thesis, University of Maryland,College Park, MD.Stephan Vogel, Hermann Ney, and Christoph Tillmann.1996.
+HMM-based word alignment in statistical trans-lation.
+In Proceedings of the 16th conference on Com-putational linguistics (COLING 1996), pages 836?841, Copenhagen, Denmark.Jason Wolfe, Aria Delier Haghighi, and Daniel Klein.2007.
+Fully distributed EM for very large datasets.Technical Report UCB/EECS-2007-178, EECS De-partment, University of California, Berkeley.207

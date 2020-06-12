@@ -1,0 +1,355 @@
+Proceedings of NAACL-HLT 2013, pages 370?379,Atlanta, Georgia, 9?14 June 2013. c?2013 Association for Computational LinguisticsMinibatch and Parallelization for Online Large Margin Structured LearningKai Zhao11Computer Science Program, Graduate CenterCity University of New Yorkkzhao@gc.cuny.eduLiang Huang2,12Computer Science Dept, Queens CollegeCity University of New Yorkhuang@cs.qc.cuny.eduAbstractOnline learning algorithms such as perceptronand MIRA have become popular for manyNLP tasks thanks to their simpler architec-ture and faster convergence over batch learn-ing methods.
+However, while batch learningsuch as CRF is easily parallelizable, onlinelearning is much harder to parallelize: previ-ous efforts often witness a decrease in the con-verged accuracy, and the speedup is typicallyvery small (?3) even with many (10+) pro-cessors.
+We instead present a much simplerarchitecture based on ?mini-batches?, whichis trivially parallelizable.
+We show that, un-like previous methods, minibatch learning (inserial mode) actually improves the convergedaccuracy for both perceptron and MIRA learn-ing, and when combined with simple paral-lelization, minibatch leads to very significantspeedups (up to 9x on 12 processors) on state-of-the-art parsing and tagging systems.1 IntroductionOnline structured learning algorithms such as thestructured perceptron (Collins, 2002) and k-bestMIRA (McDonald et al 2005) have become moreand more popular for many NLP tasks such as de-pendency parsing and part-of-speech tagging.
+Thisis because, compared to their batch learning counter-parts, online learning methods offer faster conver-gence rates and better scalability to large datasets,while using much less memory and a much simplerarchitecture which only needs 1-best or k-best de-coding.
+However, online learning for NLP typicallyinvolves expensive inference on each example for 10or more passes over millions of examples, which of-ten makes training too slow in practice; for examplesystems such as the popular (2nd-order) MST parser(McDonald and Pereira, 2006) usually require theorder of days to train on the Treebank on a com-modity machine (McDonald et al 2010).There are mainly two ways to address this scala-bility problem.
+On one hand, researchers have beendeveloping modified learning algorithms that allowinexact search (Collins and Roark, 2004; Huang etal., 2012).
+However, the learner still needs to loopover the whole training data (on the order of mil-lions of sentences) many times.
+For example thebest-performing method in Huang et al(2012) stillrequires 5-6 hours to train a very fast parser.On the other hand, with the increasing popularityof multicore and cluster computers, there is a grow-ing interest in speeding up training via paralleliza-tion.
+While batch learning such as CRF (Laffertyet al 2001) is often trivially parallelizable (Chu etal., 2007) since each update is a batch-aggregate ofthe update from each (independent) example, onlinelearning is much harder to parallelize due to the de-pendency between examples, i.e., the update on thefirst example should in principle influence the de-coding of all remaining examples.
+Thus if we de-code and update the first and the 1000th examplesin parallel, we lose their interactions which is oneof the reasons for online learners?
+fast convergence.This explains why previous work such as the itera-tive parameter mixing (IPM) method of McDonaldet al(2010) witnesses a decrease in the accuraciesof parallelly-learned models, and the speedup is typ-ically very small (about 3 in their experiments) evenwith 10+ processors.We instead explore the idea of ?minibatch?
+for on-line large-margin structured learning such as percep-tron and MIRA.
+We argue that minibatch is advan-tageous in both serial and parallel settings.First, for minibatch perceptron in the serial set-370ting, our intuition is that, although decoding is doneindependently within one minibatch, updates aredone by averaging update vectors in batch, provid-ing a ?mixing effect?
+similar to ?averaged parame-ters?
+of Collins (2002) which is also found in IPM(McDonald et al 2010), and online EM (Liang andKlein, 2009).Secondly, minibatch MIRA in the serial settinghas an advantage that, different from previous meth-ods such as SGD which simply sum up the up-dates from all examples in a minibatch, a minibatchMIRA update tries to simultaneously satisfy an ag-gregated set of constraints that are collected frommultiple examples in the minibatch.
+Thus each mini-batch MIRA update involves an optimization overmany more constraints than in pure online MIRA,which could potentially lead to a better margin.
+Inother words we can view MIRA as an online versionor stepwise approximation of SVM, and minibatchMIRA can be seen as a better approximation as wellas a middleground between pure MIRA and SVM.1More interestingly, the minibatch architecture istrivially parallelizable since the examples withineach minibatch could be decoded in parallel on mul-tiple processors (while the update is still done in se-rial).
+This is known as ?synchronous minibatch?and has been explored by many researchers (Gim-pel et al 2010; Finkel et al 2008), but all previ-ous works focus on probabilistic models along withSGD or EM learning methods while our work is thefirst effort on large-margin methods.We make the following contributions:?
+Theoretically, we present a serial minibatchframework (Section 3) for online large-marginlearning and prove the convergence theoremsfor minibatch perceptron and minibatch MIRA.?
+Empirically, we show that serial minibatchcould speed up convergence and improve theconverged accuracy for both MIRA and percep-tron on state-of-the-art dependency parsing andpart-of-speech tagging systems.?
+In addition, when combined with simple (syn-chronous) parallelization, minibatch MIRA1This is similar to Pegasos (Shalev-Shwartz et al 2007) thatapplies subgradient descent over a minibatch.
+Pegasos becomespure online when the minibatch size is 1.Algorithm 1 Generic Online Learning.Input: dataD = {(x(t), y(t))}nt=1 and feature map ?Output: weight vector w1: repeat2: for each example (x, y) in D do3: C ?
+FINDCONSTRAINTS(x, y,w) .
+decoding4: if C 6= ?
+then UPDATE(w, C)5: until convergedleads to very significant speedups (up to 9x on12 processors) that are much higher than that ofIPM (McDonald et al 2010) on state-of-the-artparsing and tagging systems.2 Online Learning: Perceptron and MIRAWe first present a unified framework for onlinelarge-margin learning, where perceptron and MIRAare two special cases.
+Shown in Algorithm 1, theonline learner considers each input example (x, y)sequentially and performs two steps:1. find the set C of violating constraints, and2.
+update the weight vector w according to C.Here a triple ?x, y, z?
+is said to be a ?violating con-straint?
+with respect to model w if the incorrect la-bel z scores higher than (or equal to) the correctlabel y in w, i.e., w ?
+??
+(?x, y, z?)
+?
+0, where??
+(?x, y, z?)
+is a short-hand notation for the up-date vector ?
+(x, y) ?
+?
+(x, z) and ?
+is the featuremap (see Huang et al(2012) for details).
+The sub-routines FINDCONSTRAINTS and UPDATE are anal-ogous to ?APIs?, to be specified by specific instancesof this online learning framework.
+For example, thestructured perceptron algorithm of Collins (2002)is implemented in Algorithm 2 where FINDCON-STRAINTS returns a singleton constraint if the 1-bestdecoding result z (the highest scoring label accord-ing to the current model) is different from the truelabel y.
+Note that in the UPDATE function, C is al-ways a singleton constraint for the perceptron, butwe make it more general (as a set) to handle thebatch update in the minibatch version in Section 3.On the other hand, Algorith 3 presents the k-bestMIRA Algorithm of McDonald et al(2005) whichgeneralizes multiclass MIRA (Crammer and Singer,2003) for structured prediction.
+The decoder now371Algorithm 2 Perceptron (Collins, 2002).1: function FINDCONSTRAINTS(x, y,w)2: z ?
+argmaxs?Y(x) w ??
+(x, s) .
+decoding3: if z 6= y then return {?x, y, z?
+}4: else return ?5: procedure UPDATE(w, C)6: w?
+w + 1|C|?c?C ??
+(c) .
+(batch) updateAlgorithm 3 k-best MIRA (McDonald et al 2005).1: function FINDCONSTRAINTS(x, y,w)2: Z ?
+k-bestz?Y(x)w ??
+(x, z)3: Z ?
+{z ?
+Z | z 6= y,w ???
+(?x, y, z?)
+?
+0}4: return {(?x, y, z?, `(y, z)) | z ?
+Z}5: procedure UPDATE(w, C)6: w?
+argminw?:?
+(c,`)?C, w????(c)?`?w?
+?w?2finds the k-best solutions Z first, and returns a setof violating constraints in Z, The update in MIRAis more interesting: it searches for the new modelw?
+with minimum change from the current modelw so that w?
+corrects each violating constraint bya margin at least as large as the loss `(y, z) of theincorrect label z.Although not mentioned in the pseudocode, wealso employ ?averaged parameters?
+(Collins, 2002)for both perceptron and MIRA in all experiments.3 Serial MinibatchThe idea of serial minibatch learning is extremelysimple: divide the data into dn/me minibatchesof size m, and do batch updates after decodingeach minibatch (see Algorithm 4).
+The FIND-CONSTRAINTS and UPDATE subroutines remain un-changed for both perceptron and MIRA, althoughit is important to note that a perceptron batch up-date uses the average of update vectors, not the sum,which simplifies the proof.
+This architecture is of-ten called ?synchronous minibatch?
+in the literature(Gimpel et al 2010; Liang and Klein, 2009; Finkelet al 2008).
+It could be viewed as a middlegroundbetween pure online learning and batch learning.3.1 Convergence of Minibatch PerceptronWe denote C(D) to be the set of all possible violat-ing constraints in data D (cf.
+Huang et al(2012)):C(D) = {?x, y, z?
+| (x, y) ?
+D, z ?
+Y(x)?
+{y}}.Algorithm 4 Serial Minibatch Online Learning.Input: data D, feature map ?, and minibatch size mOutput: weight vector w1: Split D into dn/me minibatches D1 .
+.
+.
+Ddn/me2: repeat3: for i?
+1 .
+.
+.
+dn/me do .
+for each minibatch4: C ?
+?
+(x,y)?DiFINDCONSTRAINTS(x, y,w)5: if C 6= ?
+then UPDATE(w, C) .
+batch update6: until convergedA training set D is separable by feature map ?with margin ?
+> 0 if there exists a unit oracle vec-tor u with ?u?
+= 1 such that u ???
+(?x, y, z?)
+?
+?,for all ?x, y, z?
+?
+C(D).
+Furthermore, let radiusR ?
+???
+(?x, y, z?)?
+for all ?x, y, z?
+?
+C(D).Theorem 1.
+For a separable datasetD with margin?
+and radius R, the minibatch perceptron algorithm(Algorithms 4 and 2) will terminate after tminibatchupdates where t ?
+R2/?2.Proof.
+Let wt be the weight vector before the tthupdate; w0 = 0.
+Suppose the tth update happenson the constraint set Ct = {c1, c2, .
+.
+.
+, ca} wherea = |Ct|, and each ci = ?xi, yi, zi?.
+We convertthem to the set of update vectors vi = ??
+(ci) =??
+(?xi, yi, zi?)
+for all i.
+We know that:1. u ?
+vi ?
+?
+(margin on unit oracle vector)2. wt ?
+vi ?
+0 (violation: zi dominates yi)3.
+?vi?2 ?
+R2 (radius)Now the update looks likewt+1 = wt +1|Ct|?c?Ct??
+(c) = wt +1a?i vi.
+(1)We will bound ?wt+1?
+from two directions:1.
+Dot product both sides of the update equa-tion (1) with the unit oracle vector u, we haveu ?wt+1 = u ?wt +1a?i u ?
+vi?
+u ?wt +1a?i ?
+(margin)= u ?wt + ?
+(?i = a)?
+t?
+(by induction)372Since for any two vectors a and b we have?a??b?
+?
+a?b, thus ?u??wt+1?
+?
+u?wt+1 ?t?.
+As u is a unit vector, we have ?wt+1?
+?
+t?.2.
+On the other hand, take the norm of both sidesof Eq.
+(1):?wt+1?2 = ?wt +1a?i vi?2=?wt?2 + ?
+?i1avi?2 +2awt ?
+?i vi?
+?wt?2 + ?
+?i1avi?2 + 0 (violation)?
+?wt?2 +?i1a?vi?2 (Jensen?s)?
+?wt?2 +?i1aR2 (radius)=?wt?2 +R2 (?i = a)?tR2 (by induction)Combining the two bounds, we havet2?2 ?
+?wt+1?2 ?
+tR2thus the number of minibatch updates t ?
+R2/?2.Note that this bound is identical to that of pureonline perceptron (Collins, 2002, Theorem 1) and isirrelevant to minibatch size m. The use of Jensen?sinequality is inspired by McDonald et al(2010).3.2 Convergence of Minibatch MIRAWe also give a proof of convergence for MIRA withrelaxation.2 We present the optimization problem inthe UPDATE function of Algorithm 3 as a quadraticprogram (QP) with slack variable ?
+:wt+1 ?argminwt+1?wt+1 ?wt?2 + ?s.t.
+wt+1 ?
+vi ?
+`i ?
+?, for all(ci, `i) ?
+Ctwhere vi = ??
+(ci) is the update vector for con-straint ci.
+Consider the Lagrangian:L =?wt+1 ?wt?2 + ?
++|Ct|?i=1?i(`i ?w?
+?
+vi ?
+?
+)?i ?
+0, for 1 ?
+i ?
+|Ct|.2Actually this relaxation is not necessary for the conver-gence proof.
+We employ it here solely to make the proof shorter.It is not used in the experiments either.Set the partial derivatives to 0 with respect to w?
+and?
+we have:w?
+= w +?i ?ivi (2)?i ?i = 1 (3)This result suggests that the weight change can al-ways be represnted by a linear combination of theupdate vectors (i.e.
+normal vectors of the constrainthyperplanes), with the linear coefficencies sum to 1.Theorem 2 (convergence of minibatch MIRA).
+Fora separable dataset D with margin ?
+and radius R,the minibatch MIRA algorithm (Algorithm 4 and 3)will make t updates where t ?
+R2/?2.Proof.
+1.
+Dot product both sides of Equation 2with unit oracle vector u:u ?wt+1 = u ?wt +?i ?iu ?
+vi?u ?wt +?i ?i?
+(margin)=u ?wt + ?
+(Eq.
+3)=t?
+(by induction)2.
+On the other hand?wt+1?2 = ?wt +?i ?ivi?2=?wt?2 + ?
+?i ?ivi?2 + 2 wt ?
+?i ?ivi?
+?wt?2 + ?
+?i ?ivi?2 + 0 (violation)?
+?wt?2 +?i ?iv2i (Jensen?s)?
+?wt?2 +?i ?iR2 (radius)=?wt?2 +R2 (Eq.
+3)?tR2 (by induction)From the two bounds we have:t2?2 ?
+?wt+1?2 ?
+tR2thus within at most t ?
+R2/?2 minibatch up-dates MIRA will converge.4 Parallelized MinibatchThe key insight into parallelization is that the calcu-lation of constraints (i.e.
+decoding) for each exam-ple within a minibatch is completely independent of373update1342updateupdateupdate6587updateupdateupdateupdate1291011updateupdateupdateupdate15141316updateupdateupdateupdate?update31465872121514913161011?update?31465872121514913161011update?update?update12346587updateupdate910update121114131516updateupdateupdateupdate(a) IPM (b) unbalanced (c) balanced (d) asynchronousFigure 1: Comparison of various methods for parallelizing online learning (number of processors p = 4).
+(a) iterativeparameter mixing (McDonald et al 2010).
+(b) unbalanced minibatch parallelization (minibatch size m = 8).
+(c)minibatch parallelization after load-balancing (within each minibatch).
+(d) asynchronous minibatch parallelization(Gimpel et al 2010) (not implemented here).
+Each numbered box denotes the decoding of one example, and ?denotes an aggregate operation, i.e., the merging of constraints after each minibatch or the mixing of weights aftereach iteration in IPM.
+Each gray shaded box denotes time wasted due to synchronization in (a)-(c) or blocking in (d).Note that in (d) at most one update can happen concurrently, making it substantially harder to implement than (a)-(c).Algorithm 5 Parallized Minibatch Online Learning.Input: D, ?, minibatch sizem, and # of processors pOutput: weight vector wSplit D into dn/me minibatches D1 .
+.
+.
+Ddn/meSplit each Di into m/p groups Di,1 .
+.
+.
+Di,m/prepeatfor i?
+1 .
+.
+.
+dn/me do .
+for each minibatchfor j ?
+1 .
+.
+.m/p in parallel doCj ?
+?
+(x,y)?Di,j FINDCONSTRAINTS(x, y,w)C ?
+?jCj .
+in serialif C 6= ?
+then UPDATE(w, C) .
+in serialuntil convergedother examples in the same batch.
+Thus we can eas-ily distribute decoding for different examples in thesame minibatch to different processors.Shown in Algorithm 5, for each minibatchDi, wesplit Di into groups of equal size, and assign eachgroup to a processor to decode.
+After all processorsfinish, we collect all constraints and do an updatebased on the union of all constraints.
+Figure 1 (b) il-lustrates minibatch parallelization, with comparisonto iterative parameter mixing (IPM) of McDonald etal.
+(2010) (see Figure 1 (a)).This synchronous parallelization frameworkshould provide significant speedups over the serialmode.
+However, in each minibatch, inevitably,some processors will end up waiting for others tofinish, especially when the lengths of sentences varysubstantially (see the shaded area in Figure 1 (b)).To alleviate this problem, we propose ?per-minibatch load-balancing?, which rearranges thesentences within each minibatch based on theirlengths (which correlate with their decoding times)so that the total workload on each processor is bal-anced (Figure 1c).
+It is important to note that thisshuffling does not affect learning at all thanks to theindependence of each example within a minibatch.Basically, we put the shortest and longest sentencesinto the first thread, the second shortest and secondlongest into the second thread, etc.
+Although this isnot necessary optimal scheduling, it works well inpractice.
+As long as decoding time is linear in thelength of sentence (as in incremental parsing or tag-ging), we expect a much smaller variance in process-ing time on each processor in one minibatch, whichis confirmed in the experiments (see Figure 8).33In IPM, however, the waiting time is negligible, since theworkload on each processor is almost balanced, analogous toa huge minibatch (Fig.
+1a).
+Furthermore, shuffling does affectlearning here since each thread in IPM is a pure online learner.So our IPM implementation does not use load-balancing.3745 ExperimentsWe conduct experiments on two typical structuredprediction problems: incremental dependency pars-ing and part-of-speech tagging; both are done onstate-of-the-art baseline.
+We also compare ourparallelized minibatch algorithm with the iterativeparameter mixing (IPM) method of McDonald etal.
+(2010).
+We perform our experiments on acommodity 64-bit Dell Precision T7600 worksta-tion with two 3.1GHz 8-core CPUs (16 processorsin total) and 64GB RAM.
+We use Python 2.7?smultiprocessing module in all experiments.45.1 Dependency Parsing with MIRAWe base our experiments on our dynamic program-ming incremental dependency parser (Huang andSagae, 2010).5 Following Huang et al(2012), weuse max-violation update and beam size b = 8.
+Weevaluate on the standard Penn Treebank (PTB) us-ing the standard split: Sections 02-21 for training,and Section 22 as the held-out set (which is indeedthe test-set in this setting, following McDonald etal.
+(2010) and Gimpel et al(2010)).
+We then ex-tend it to employ 1-best MIRA learning.
+As statedin Section 2, MIRA separates the gold label y fromthe incorrect label z with a margin at least as largeas the loss `(y, z).
+Here in incremental dependencyparsing we define the loss function between a goldtree y and an incorrect partial tree z as the numberof incorrect edges in z, plus the number of correctedges in y which are already ruled out by z. ThisMIRA extension results in slightly higher accuracyof 92.36, which we will use as the pure online learn-ing baseline in the comparisons below.5.1.1 Serial MinibatchWe first run minibatch in the serial mode withvarying minibatch size of 4, 16, 24, 32, and 48 (seeFigure 2).
+We can make the following observations.First, except for the largest minibatch size of 48,minibatch learning generally improves the accuracy4We turn off garbage-collection in worker processes oth-erwise their running times will be highly unbalanced.
+We alsoadmit that Python is not the best choice for parallelization, e.g.,asychronous minibatch (Gimpel et al 2010) requires ?sharedmemory?
+not found in the current Python (see also Sec.
+6).5Available at http://acl.cs.qc.edu/.
+The versionwith minibatch parallelization will be available there soon.90.759191.2591.591.759292.2592.50  1  2  3  4  5  6  7  8accuracyonheld-outwall-clock time (hours)m=1m=4m=16m=24m=32m=48Figure 2: Minibatch with various minibatch sizes (m =4, 16, 24, 32, 48) for parsing with MIRA, compared topure MIRA (m = 1).
+All curves are on a single CPU.of the converged model, which is explained by ourintuition that optimization with a larger constraintset could improve the margin.
+In particular, m = 16achieves the highest accuracy of 92.53, which is a0.27 improvement over the baseline.Secondly, minibatch learning can reach high lev-els of accuracy faster than the baseline can.
+For ex-ample, minibatch of size 4 can reach 92.35 in 3.5hours, and minibatch of size 24 in 3.7 hours, whilethe pure online baseline needs 6.9 hours.
+In otherwords, just minibatch alone in serial mode can al-ready speed up learning.
+This is also explained bythe intuition of better optimization above, and con-tributes significantly to the final speedup of paral-lelized minibatch.Lastly, larger minibatch sizes slow down the con-vergence, with m = 4 converging the fastest andm = 48 the slowest.
+This can be explained by thetrade-off between the relative strengths from onlinelearning and batch update: with larger batch sizes,we lose the dependencies between examples withinthe same minibatch.Although larger minibatches slow down conver-gence, they actually offer better potential for paral-lelization since the number of processors p has to besmaller than minibatch size m (in fact, p should di-vide m).
+For example, m = 24 can work with 2, 3,4, 6, 8, or 12 processors while m = 4 can only workwith 2 or 4 and the speed up of 12 processors couldeasily make up for the slightly slower convergence37591.491.691.89292.292.40  1  2  3  4  5  6  7  8accuracybaselinem=24,p=1m=24,p=4m=24,p=1291.491.691.89292.292.40  1  2  3  4  5  6  7  8accuracywall-clock time (hours)baselineIPM,p=4IPM,p=12Figure 3: Parallelized minibatch is much faster than iter-ative parameter mixing.
+Top: minibatch of size 24 using4 and 12 processors offers significant speedups over theserial minibatch and pure online baselines.
+Bottom: IPMwith the same processors offers very small speedups.rate.
+So there seems to be a ?sweetspot?
+of mini-batch sizes, similar to the tipping point observed inMcDonald et al(2010) when adding more proces-sors starts to hurt convergence.5.1.2 Parallelized Minibatch vs. IPMIn the following experiments we use minibatchsize of m = 24 and run it in parallel mode on vari-ous numbers of processors (p = 2 ?
+12).
+Figure 3(top) shows that 4 and 12 processors lead to verysignificant speedups over the serial minibatch andpure online baselines.
+For example, it takes the 12processors only 0.66 hours to reach an accuracy of92.35, which takes the pure online MIRA 6.9 hours,amounting to an impressive speedup of 10.5.We compare our minibatch parallelization withthe iterative parameter mixing (IPM) of McDonaldet al(2010).
+Figure 3 (bottom) shows that IPM notonly offers much smaller speedups, but also con-verges lower, and this drop in accuracy worsens withmore processors.Figure 4 gives a detailed analysis of speedups.Here we perform both extrinsic and intrinsic com-parisons.
+In the former, we care about the time toreach a given accuracy; in this plot we use 92.27which is the converged accuracy of IPM on 12 pro-cessors.
+We choose it since it is the lowest accu-1234567891011122  4  6  8  10  12123456789101112speedupsnumber of processorsminibatch(extrinsic)minibatch(intrinsic)IPM(extrinsic)IPM(intrinsic)Figure 4: Speedups of minibatch parallelization vs. IPMon 1 to 12 processors (parsing with MIRA).
+Extrinsiccomparisons use ?the time to reach an accuracy of 92.27?for speed calculations, 92.27 being the converged accu-racy of IPM using 12 processors.
+Intrinsic comparisonsuse average time per iteration regardless of accuracy.racy among all converged models; choosing a higheraccuracy would reveal even larger speedups for ourmethods.
+This figure shows that our method offerssuperlinear speedups with small number of proces-sors (1 to 6), and almost linear speedups with largenumber of processors (8 and 12).
+Note that evenp = 1 offers a speedup of 1.5 thanks to serial mini-batch?s faster convergence; in other words, withinthe 9 fold speed-up at p = 12, parallelization con-tributes about 6 and minibatch about 1.5.
+By con-trast, IPM only offers an almost constant speedup ofaround 3, which is consistent with the findings ofMcDonald et al(2010) (both of their experimentsshow a speedup of around 3).We also try to understand where the speedupcomes from.
+For that purpose we study intrinsicspeedup, which is about the speed regardless of ac-curacy (see Figure 4).
+For our minibatch method,intrinsic speedup is the average time per iterationof a parallel run over the serial minibatch base-line.
+This answers the questions such as ?how CPU-efficient is our parallelization?
+or ?how much CPUtime is wasted?.
+We can see that with small num-ber of processors (2 to 4), the efficiency, defined asSp/p where Sp is the intrinsic speedup for p pro-cessors, is almost 100% (ideal linear speedup), butwith more processors it decreases to around 50%with p = 12, meaning about half of CPU time is37696.896.8596.996.959797.050  0.2  0.4  0.6  0.8  1  1.2  1.4  1.6  1.8accuracyonheld-outwall-clock time (hours)m=1m=16m=24m=48Figure 5: Minibatch learning for tagging with perceptron(m = 16, 24, 32) compared with baseline (m = 1) fortagging with perceptron.
+All curves are on single CPU.wasted.
+This wasting is due to two sources: first, theload-balancing problem worsens with more proces-sors, and secondly, the update procedure still runs inserial mode with p?
+1 processors sleeping.5.2 Part-of-Speech Tagging with PerceptronPart-of-speech tagging is usually considered as asimpler task compared to dependency parsing.
+Herewe show that using minibatch can also bring betteraccuracies and speedups for part-of-speech tagging.We implement a part-of-speech tagger with aver-aged perceptron.
+Following the standard splitting ofPenn Treebank (Collins, 2002), we use Sections 00-18 for training and Sections 19-21 as held-out.
+Ourimplementation provides an accuracy of 96.98 withbeam size 8.First we run the tagger on a single processor withminibatch sizes 8, 16, 24, and 32.
+As in Figure 5, weobserve similar convergence acceleration and higheraccuracies with minibatch.
+In particular, minibatchof size m = 16 provides the highest accuracy of97.04, giving an improvement of 0.06.
+This im-provement is smaller than what we observe in MIRAlearning for dependency parsing experiments, whichcan be partly explained by the fast convergence ofthe tagger, and that perceptron does not involve op-timization in the updates.Then we choose minibatch of size 24 to investi-gate the parallelization performance.
+As Figure 6(top) shows, with 12 processors our method takesonly 0.10 hours to converge to an accuracy of 97.00,compared to the baseline of 96.98 with 0.45 hours.We also compare our method with IPM as in Fig-96.896.8596.996.95970  0.2  0.4  0.6  0.8  1  1.2  1.4  1.6  1.8accuracy baselinem=24,p=1m=24,p=4m=24,p=1296.896.8596.996.95970  0.2  0.4  0.6  0.8  1  1.2  1.4  1.6  1.8accuracywall-clock time (hours)baselineIPM,p=4IPM,p=12Figure 6: Parallelized minibatch is faster than iterativeparameter mixing (on tagging with perceptron).
+Top:minibatch of size 24 using 4 and 12 processors offerssignificant speedups over the baselines.
+Bottom: IPMwith the same 4 and 12 processors offers slightly smallerspeedups.
+Note that IPM with 4 processors convergeslower than other parallelization curves.ure 6 (bottom).
+Again, our method converges fasterand better than IPM, but this time the differences aremuch smaller than those in parsing.Figure 7 uses 96.97 as a criteria to evaluate theextrinsic speedups given by our method and IPM.Again we choose this number because it is the lowestaccuracy all learners can reach.
+As the figure sug-gests, although our method does not have a higherpure parallelization speedup (intrinsic speedup), itstill outperforms IPM.We are interested in the reason why tagging ben-efits less from minibatch and parallelization com-pared to parsing.
+Further investigation reveals thatin tagging the working load of different processorsare more unbalanced than in parsing.
+Figure 8 showsthat, when p is small, waiting time is negligible, butwhen p = 12, tagging wastes about 40% of CPUcycles and parser about 30%.
+By contrast, thereis almost no waiting time in IPM and the intrinsicspeedup for IPM is almost linear.
+The communica-tion overhead is not included in this figure, but bycomparing it to the speedups (Figures 4 and 7), weconclude that the communication overhead is about10% for both parsing and tagging at p = 12.3771234567891011122  4  6  8  10  12123456789101112speeduprationumber of processorsminibatch(extrinsic)minibatch(intrinsic)IPM(extrinsic)IPM(intrinsic)Figure 7: Speedups of minibatch parallelization and IPMon 1 to 12 processors (tagging with perceptron).
+Extrin-sic speedup uses ?the time to reach an accuracy of 96.97?as the criterion to measure speed.
+Intrinsic speedup mea-sures the pure parallelization speedup.
+IPM has an al-most linear intrinsic speedup but a near constant extrinsicspeedup of about 3 to 4.01020304050602  4  6  8  10  12%of waitingtimenumber of processorsparser(balanced)tagger(balanced)parser(unbalanced)tagger(unbalanced)Figure 8: Percentage of time wasted due to synchroniza-tion (waiting for other processors to finish) (minibatchm = 24), which corresponds to the gray blocks in Fig-ure 1 (b-c).
+The number of sentences assigned to eachprocessor decreases with more processors, which wors-ens the unbalance.
+Our load-balancing strategy (Figure 1(c)) alleviates this problem effectively.
+The communica-tion overhead and update time are not included.6 Related Work and DiscussionsBesides synchronous minibatch and iterative param-eter mixing (IPM) discussed above, there is anothermethod of asychronous minibatch parallelization(Zinkevich et al 2009; Gimpel et al 2010; Chiang,2012), as in Figure 1.
+The key advantage of asyn-chronous over synchronous minibatch is that the for-mer allows processors to remain near-constant use,while the latter wastes a significant amount of timewhen some processors finish earlier than others in aminibatch, as found in our experiments.
+Gimpel etal.
+(2010) show significant speedups of asychronousparallelization over synchronous minibatch on SGDand EM methods, and Chiang (2012) finds asyn-chronous parallelization to be much faster than IPMon MIRA for machine translation.
+However, asyn-chronous is significantly more complicated to imple-ment, which involves locking when one processormakes an update (see Fig.
+1 (d)), and (in languageslike Python) message-passing to other processors af-ter update.
+Whether this added complexity is worth-while on large-margin learning is an open question.7 Conclusions and Future WorkWe have presented a simple minibatch paralleliza-tion paradigm to speed up large-margin structuredlearning algorithms such as (averaged) perceptronand MIRA.
+Minibatch has an advantage in both se-rial and parallel settings, and our experiments con-firmed that a minibatch size of around 16 or 24 leadsto a significant speedups over the pure online base-line, and when combined with parallelization, leadsto almost linear speedups for MIRA, and very signif-icant speedups for perceptron.
+These speedups aresignificantly higher than those of iterative parame-ter mixing of McDonald et al(2010) which werealmost constant (3?4) in both our and their own ex-periments regardless of the number of processors.One of the limitations of this work is that althoughdecoding is done in parallel, update is still done inserial and in MIRA the quadratic optimization step(Hildreth algorithm (Hildreth, 1957)) scales super-linearly with the number of constraints.
+This pre-vents us from using very large minibatches.
+Forfuture work, we would like to explore parallelizedquadratic optimization and larger minibatch sizes,and eventually apply it to machine translation.AcknowledgementWe thank Ryan McDonald, Yoav Goldberg, and HalDaume?, III for helpful discussions, and the anony-mous reviewers for suggestions.
+This work waspartially supported by DARPA FA8750-13-2-0041?Deep Exploration and Filtering of Text?
+(DEFT)Program and by Queens College for equipment.378ReferencesDavid Chiang.
+2012.
+Hope and fear for discriminativetraining of statistical translation models.
+J. MachineLearning Research (JMLR), 13:1159?1187.C.-T. Chu, S.-K. Kim, Y.-A.
+Lin, Y.-Y.
+Yu, G. Bradski,A.
+Ng, and K. Olukotun.
+2007.
+Map-reduce for ma-chine learning on multicore.
+In Advances in NeuralInformation Processing Systems 19.Michael Collins and Brian Roark.
+2004.
+Incrementalparsing with the perceptron algorithm.
+In Proceedingsof ACL.Michael Collins.
+2002.
+Discriminative training meth-ods for hidden markov models: Theory and experi-ments with perceptron algorithms.
+In Proceedings ofEMNLP.Koby Crammer and Yoram Singer.
+2003.
+Ultraconser-vative online algorithms for multiclass problems.
+J.Mach.
+Learn.
+Res., 3:951?991, March.Jenny Rose Finkel, Alex Kleeman, and Christopher D.Manning.
+2008.
+Efficient, feature-based, conditionalrandom field parsing.
+In Proceedings of ACL.Kevin Gimpel, Dipanjan Das, and Noah Smith.
+2010.Distributed asynchronous online learning for naturallanguage processing.
+In Proceedings of CoNLL.Clifford Hildreth.
+1957.
+A quadratic programming pro-cedure.
+Naval Research Logistics Quarterly, 4(1):79?85.Liang Huang and Kenji Sagae.
+2010.
+Dynamic program-ming for linear-time incremental parsing.
+In Proceed-ings of ACL 2010.Liang Huang, Suphan Fayong, and Yang Guo.
+2012.Structured perceptron with inexact search.
+In Proceed-ings of NAACL.John Lafferty, Andrew McCallum, and Fernando Pereira.2001.
+Conditional random fields: Probabilistic mod-els for segmenting and labeling sequence data.
+In Pro-ceedings of ICML.Percy Liang and Dan Klein.
+2009.
+Online em for unsu-pervised models.
+In Proceedings of NAACL.Ryan McDonald and Fernando Pereira.
+2006.
+On-line learning of approximate dependency parsing al-gorithms.
+In Proceedings of EACL.Ryan McDonald, Koby Crammer, and Fernando Pereira.2005.
+Online large-margin training of dependencyparsers.
+In Proceedings of the 43rd ACL.Ryan McDonald, Keith Hall, and Gideon Mann.
+2010.Distributed training strategies for the structured per-ceptron.
+In Proceedings of NAACL, June.Shai Shalev-Shwartz, Yoram Singer, and Nathan Srebro.2007.
+Pegasos: Primal estimated sub-gradient solverfor svm.
+In Proceedings of ICML.M.
+Zinkevich, A. J. Smola, and J. Langford.
+2009.
+Slowlearners are fast.
+In Advances in Neural InformationProcessing Systems 22.379

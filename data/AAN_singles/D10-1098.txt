@@ -1,0 +1,427 @@
+Proceedings of the 2010 Conference on Empirical Methods in Natural Language Processing, pages 1002?1012,MIT, Massachusetts, USA, 9-11 October 2010. c?2010 Association for Computational LinguisticsDomain Adaptation of Rule-Based Annotatorsfor Named-Entity Recognition TasksLaura Chiticariu Rajasekar Krishnamurthy Yunyao Li Frederick Reiss Shivakumar VaithyanathanIBM Research ?
+Almaden650 Harry Road, San Jose, CA 95120, USA{chiti, rajase, yunyaoli, frreiss}@us.ibm.com, shiv@almaden.ibm.comAbstractNamed-entity recognition (NER) is an impor-tant task required in a wide variety of ap-plications.
+While rule-based systems are ap-pealing due to their well-known ?explainabil-ity,?
+most, if not all, state-of-the-art resultsfor NER tasks are based on machine learningtechniques.
+Motivated by these results, we ex-plore the following natural question in this pa-per: Are rule-based systems still a viable ap-proach to named-entity recognition?
+Specif-ically, we have designed and implementeda high-level language NERL on top of Sys-temT, a general-purpose algebraic informa-tion extraction system.
+NERL is tuned to theneeds of NER tasks and simplifies the pro-cess of building, understanding, and customiz-ing complex rule-based named-entity annota-tors.
+We show that these customized annota-tors match or outperform the best publishedresults achieved with machine learning tech-niques.
+These results confirm that we canreap the benefits of rule-based extractors?
+ex-plainability without sacrificing accuracy.
+Weconclude by discussing lessons learned whilebuilding and customizing complex rule-basedannotators and outlining several research di-rections towards facilitating rule development.1 IntroductionNamed-entity recognition (NER) is the task of iden-tifying mentions of rigid designators from text be-longing to named-entity types such as persons, orga-nizations and locations (Nadeau and Sekine, 2007).While NER over formal text such as news articlesand webpages is a well-studied problem (Bikel etal., 1999; McCallum and Li, 2003; Etzioni et al,2005), there has been recent work on NER over in-formal text such as emails and blogs (Huang et al,2001; Poibeau and Kosseim, 2001; Jansche and Ab-ney, 2002; Minkov et al, 2005; Gruhl et al, 2009).The techniques proposed in the literature fall underthree categories: rule-based (Krupka and Hausman,2001; Sekine and Nobata, 2004), machine learning-based (O. Bender and Ney, 2003; Florian et al,2003; McCallum and Li, 2003; Finkel and Manning,2009; Singh et al, 2010) and hybrid solutions (Sri-hari et al, 2001; Jansche and Abney, 2002).1.1 MotivationAlthough there are well-established rule-based sys-tems to perform NER tasks, most, if not all, state-of-the-art results for NER tasks are based on machinelearning techniques.
+However, the rule-based ap-proach is still extremely appealing due to the associ-ated transparency of the internal system state, whichleads to better explainability of errors (Siniakov,2010).
+Ideally, one would like to benefit from thetransparency and explainability of rule-based tech-niques, while achieving state-of-the-art accuracy.A particularly challenging aspect of rule-basedNER in practice is domain customization ?
+cus-tomizing existing annotators to produce accurate re-sults in new domains.
+In machine learning-basedsystems, adapting to a new domain has tradition-ally involved acquiring additional labeled data andlearning a new model from scratch.
+However, recentwork has proposed more sophisticated approachesthat learn a domain-independent base model, whichcan later be adapted to specific domains (Florian et1002BASEBALL - MAJOR LEAGUE STANDINGS AFTER TUESDAY 'S GAMES NEW YORK 1996-08-28?
+?AMERICAN LEAGUE EASTERN DIVISION W L PCT GB NEW YORK 74 57 .565 -BALTIMORE 70 61 .534 4 BOSTON 68 65 .511 7?TEXAS AT KANSAS CITYBOSTON AT CALIFORNIANEW YORK AT SEATTLE?BASEBALL - ORIOLES WIN , YANKEESLOSE .
+BALTIMORE 1996-08-27?In Seattle , Jay Buhner 's eighth-inning single snapped a tie as the Seattle Mariners edged the New York Yankees 2-1 in the opener of a three-game series .New York starter Jimmy Key left the game in the first inning after Seattle shortstop Alex Rodriguez lined a shot off his left elbow .
+?Document d1 Document d2Customization Requirement : City, County or State names within sports articles may refer to a sports team  or to the location itself.Customization Solution (CS) :Within sports articles, Identify all occurrences of city/county/state as Organizations, Except when a contextual clue indicates that the reference is to the locationOrganization LocationFigure 1: Example Customization Requiremental., 2004; Blitzer et al, 2006; Jiang and Zhai, 2006;Arnold et al, 2008; Wu et al, 2009).
+Implement-ing a similar approach for rule-based NER typicallyrequires a significant amount of manual effort to (a)identify the explicit semantic changes required forthe new domain (e.g., differences in entity type def-inition), (b) identify the portions of the (complex)core annotator that should be modified for each dif-ference and (c) implement the required customiza-tion rules without compromising the extraction qual-ity of the core annotator.
+Domain customization ofrule-based NER has not received much attention inthe recent literature with a few exceptions (Petasis etal., 2001; Maynard et al, 2003; Zhu et al, 2005).1.2 Problem StatementIn this paper, we explore the following natural ques-tion: Are rule-based systems still a viable approachto named-entity recognition?
+Specifically, (a) Is itpossible to build, maintain and customize rule-basedNER annotators that match the state-of-the-art re-sults obtained using machine-learning techniques?and (b) Can this be achieved with a reasonableamount of manual effort?1.3 ContributionsIn this paper, we address the challenges mentionedabove by (i) defining a taxonomy of the differenttypes of customizations that a rule developer mayperform when adapting to a new domain (Sec.
+2), (ii)identifying a set of high-level operations requiredfor building and customizing NER annotators, and(iii) exposing these operations in a domain-specificNER rule language, NERL, developed on top of Sys-// Core rules identify Organization and Location candidates// Begin customization// Identify articles covering sports event from article title CR1 <SportsArticle>  Evaluate Regular Expressions <R1>// Identify locations in sports articlesCR2 Retain <Location> As <LocationMaybeOrg> If ContainedWithin <SportsArticle>// City/County/State references (e.g., New York) may refer to the sports team in that cityCR3 Retain <LocationMaybeOrg> If Matches Dictionaries<?cities.dict?,?counties.dict?,?states.dict?>// Some city references in sports articles may refer to the city (e.g., In Seattle )// These references should not be reclassified as OrganizationCR4 Discard <LocationMaybeOrg> If Matches Regular Expression <R2>on Left Context 2 Tokens// City references to sports teams are added to Organization and removed from LocationCR5 Augment <Organization> With <LocationMaybeOrg>// End customization// Continuation of core rules// Remove Locations that overlap with OrganizationsDiscard <Location> If Overlaps Concepts <Organization>Figure 2: Example Customization Rules in NERLtemT (Chiticariu et al, 2010), a general-purposealgebraic information extraction system (Sec.
+3).NERL is specifically geared towards building andcustomizing complex NER annotators and makes iteasy to understand a complex annotator that maycomprise hundreds of rules.
+It simplifies the iden-tification of what portions need to be modified fora given customization requirement.
+It also makesindividual customizations easier to implement, as il-lustrated by the following example.Suppose we have to customize a domain-independent rule-based NER annotator for theCoNLL corpus (Tjong et al, 2003).
+Consider thetwo sports-related news articles in Fig.
+1 from thecorpus, where city names such as ?New York?
+or?Seattle?
+can refer to either a Location or an Orga-nization (the sports team based in that city).
+In thedomain-independent annotator, city names were al-ways identified as Location, as this subtle require-ment was not considered during rule development.A customization to address this issue is shown inFig.
+1, which can be implemented in NERL with fiverules (Fig.
+2).
+This customization (explained in de-tail in Sec.
+3) improved the F?=1 score for Organi-zation and Location by approximately 9% and 3%,respectively (Sec.
+4).We used NERL to customize a domain-independent rule-based NER annotator for threedifferent domains ?
+CoNLL03 (Tjong et al, 2003),Enron (Minkov et al, 2005) and ACE05 (NIST,2005).
+Our experimental results (Sec.
+4.3) demon-strate that the customized annotators have extractionquality better than the best-known results for1003Affects Single Affects MultipleEntity Type Entity TypesIdentify New Instances CS , CDD , CDSD BRModify Existing instances CEB , CDD CATA, CGTable 1: Categorizing NER Customizationsindividual domains, which were achieved withmachine learning techniques.
+The fact that we areable to achieve such results across multiple domainsanswers our earlier question and confirms thatwe can reap the benefits of rule-based extractors?explainability without sacrificing accuracy.However, we found that even using NERL, theamount of manual effort and expertise required inrule-based NER may still be significant.
+In Sec.
+5,we report on the lessons learned and outline severalinteresting research directions towards simplifyingrule development and facilitating the adoption of therule-based approach towards NER.2 Domain Customization for NERWe consider NER tasks following the broad defini-tion put forth by (Nadeau and Sekine, 2007), for-mally defined as follows:Definition 1 Named entity recognition is the task ofidentifying and classifying mentions of entities withone or more rigid designators, as defined by (Kripke,1982).For instance, the identification of proper nounsrepresenting persons, organizations, locations, prod-uct names, proteins, drugs and chemicals are consid-ered as NER tasks.Based on our experience of customizing NER an-notators for multiple domains, we categorize thecustomizations involved into two main categories aslisted below.
+This categorization motivates the de-sign of NERL (Sec.
+3).Data-driven (CDD): The most common NER cus-tomization is data-driven, where the customizationsmostly involve the addition of new patterns anddictionary entries, driven by observations from thetraining data in the new domain.
+An example isthe addition of a new rule to identify locations fromthe beginning of news articles (e.g., ?BALTIMORE1995-08-27?
+and ?MURCIA , Spain 1996-09-10?
+).Application-driven: What is considered a validnamed entity and its corresponding type can varyacross application domains.
+The most common di-mensions on which the definition of a named entitycan vary are:Entity Boundary (CEB): Different application do-mains may have different definitions of where thesame entity starts or ends.
+For example, a Personmay (CoNLL03) or may not (Enron) include gener-ational markers (e.g.
+?Jr.?
+in ?Bush Jr.?
+or ?IV?
+in?Henry IV?
+).Ambiguous Type Assignment (CATA): The exacttype of a given named entity can be ambiguous.Different applications may assign different typesfor the same named entity.
+For instance, all in-stances of ?White House?
+may be considered as Lo-cation (CoNLL03), or be assigned as Facility or Or-ganization based on their context (ACE05).
+In fact,even within the same application domain, entitiestypically considered as of the same type may be as-signed differently.
+For example, given ?New Yorkbeat Seattle?
+and ?Ethiopia beat Uganda?, both?New York?
+and ?Ethiopia?
+are teams referred by theirlocations.
+However, (Tjong et al, 2003) considersthe former, which corresponds to a city, as an Orga-nization, and the latter, which corresponds to a coun-try, as a Location.Domain-Specific Definition (CDSD): Whether agiven term is even considered a named entity maydepend on the specific domain.
+As an example, con-sider the text ?Commercialization Meeting - SBeck,BHall, BSuperty, TBusby, SGandhi-Gupta?.
+Infor-mal names such as ?SBeck?
+and ?BHall?
+may be con-sidered as valid person names (Enron).Scope(CS): Each type of named entity usually con-tains several subtypes.
+For the same named en-tity task, different applications may choose to in-clude different sets of subtypes.
+For instance,roads and buildings are considered part of Locationin CoNLL03, while they are not included in ACE05.Granularity(CG): Name entity types are hierarchi-cal.
+Different applications may define NER tasksat different granularities.
+For instance, in ACE05,Organization and Location entity types were splitinto four entity types (Organization, Location, Geo-Political Entity and Facility).The different customizations are summarized asshown in Tab.
+1, based on the following criteria: (i)whether the customization identifies new instancesor modifies existing instances; and (ii) whether the1004customization affects single or multiple entities.
+Forinstance, CS identifies new instances for a single en-tity type, as it adds instances of a new subtype for anexisting entity type.
+Note that BR in the table de-notes the rules used to build the core annotator.3 Named Entity Rule Language3.1 Grammar vs. Algebraic NERTraditionally, rule-based NER systems were basedon the popular CPSL cascading grammar specifi-cation (Appelt and Onyshkevych, 1998).
+CPSL isdesigned so that rules that adhere to the standardcan be executed efficiently with finite state transduc-ers.
+Accordingly, the standard defines a rigid left-to-right execution model where a region of text can bematched by at most one rule according to a fixed rulepriority, and where overlapping annotations are dis-allowed in the output of each grammar phase.While it simplifies the design of CPSL engines,the rigidity of the rule matching semantics makesit difficult to express operations frequently used inrule-based information extraction.
+These limitationshave been recognized in the literature, and severalextensions have been proposed to allow more flex-ible matching semantics, and to allow overlappingannotations (Cunningham et al, 2000; Boguraev,2003; Drozdzynski et al, 2004).
+However, evenwith these extensions, common operations such asfiltering annotations (e.g.
+CR4 in Fig.
+2), are dif-ficult to express in grammars and often require anescape to custom procedural code.Recently, several declarative algebraic languageshave been proposed for rule-based IE systems, no-tably AQL (Chiticariu et al, 2010) and Xlog (Shenet al, 2007).
+These languages are not constrainedby the requirement that all rules map onto finite statetransducers, and therefore can express a significantlyricher semantics than grammar-based languages.
+Inparticular, the AQL rule language as implemented inSystemT (Chiticariu et al, 2010) can express manycommon operations used in rule-based informationextraction without requiring custom code.
+In addi-tion, the separation of extraction semantics from ex-ecution enables SystemT?s rule optimizer and effi-cient runtime engine.
+Indeed, as shown in (Chiti-cariu et al, 2010), SystemT can deliver an order ofmagitude higher annotation throughput compared toa state-of-the-art CPSL-based IE system.Since AQL is a general purpose information ex-traction rule language, similar to CPSL and JAPE,it exposes an expressive set of capabilities that gobeyond what is required for NER tasks.
+These ad-ditional capabilities can make AQL rules more ver-bose than is necessary for implementing rules in theNER domain.
+For example, Fig.
+3 shows how thesame customization rule CR4 from Fig.
+2 can beimplemented in JAPE or in AQL.
+Notice how im-plementing even a single customization may lead todefining complex rules (e.g.
+JAPE-R1, AQL-R1)and sometimes even using custom code (e.g.
+JAPE-R2).
+As illustrated by this example, the rules in AQLand JAPE tend to be complex since some operations?
+e.g., filtering the outputs of one rule based on theoutputs of another rule ?
+that are common in NERrule sets require multiple rules in AQL or multiplegrammar phases in JAPE.To make NER rules easier to develop and tounderstand, we designed and implemented NamedEntity Rule Language (NERL) on top of SystemT.NERL is a declarative rule language designed specif-ically for named entity recognition.
+The design ofNERL draws on our experience with building andcustomizing multiple complex NER annotators.
+Inparticular, we have identified the operations requiredin practice for such tasks, and expose these opera-tions as built-in constructs in NERL.
+In doing so, weensure that frequently performed operations can beexpressed succinctly, so as not to complicate the ruleset unnecessarily.
+As a result, NERL rules for namedentity recognition tasks are significantly more com-pact and easy to understand than the equivalent AQLrules.
+At the same time, NERL rules can easily becompiled to AQL, allowing our NER rule develop-ment framework to take advantage of the capabilitiesof the SystemT rule optimizer and efficient runtimeexecution engine.3.2 NERLFor the rest of this section, we focus on describ-ing the types of rules supported in NERL.
+In Sec.
+4,we shall demonstrate empirically that NERL can besuccessfully employed in building and customizingcomplex NER annotators.A NERL rule has the following form:IntConcept ?
+RuleBody(IntConcept1, IntConcept2, .
+.
+.
+)1005// Some city references in sports articles may refer to the city (e.g., In Seattle )// These references should not be reclassified as OrganizationCR4 Discard <LocationMaybeOrg> If Matches Regular Expression <R2> on Left Context 2 TokensRule in NERLJAPE Phase 1Rule : AmbiguousLocationContext({Token}[2]):context({AmbiguousLoc}): annot  :annot.AmbiguousLoc = {lc = context.string}JAPE Phase 2Rule : RetainValidLocation({AmbiguousLoc.lc =~ R2}):ambiguousloc -->{  // rule to discard ambiguous locationsAnnotationSet loc = bindings.get(?ambiguousloc");outputAS.removeAll(loc); }Rule : RetainValidLocation({Token}[2]):context({AmbiguousLoc}):loc    -->{   // Action part in Java to test R2 on left context // and delete annotationAnnotationSet loc = bindings.get(?loc");AnnotationSet context = bindings.get(?context");int begOffset = context.firstNode().getOffset().intValue(); int endOffset = context.lastNode().getOffset().intValue(); String mydocContent = doc.getContent().toString(); String contextString =mydocContent.substring(begOffset, endOffset);if (Pattern.matches(?R2?, contextString)) {outputAS.removeAll(loc); }}create view LocationMaybeOrgInvalid asselect LMO.value as valuefrom LocationMaybeOrg LMOwhere MatchesRegex(/R2/,LeftContextTok(LMO.value,2));create view LocationMaybeOrgValid as(select LMO.value as value from LocationMaybeOrg LMO)minus(select LMOI.value as value from LocationMaybeOrgInvalid LMOI);Two Alternative Rule sets in JAPE Equivalent Rule set in AQLJAPE-R1 JAPE-R2 AQL-R1Figure 3: Single Customization Rule expressed in NERL, JAPE and AQLIntuitively, a NERL rule creates an intermediate con-cept or named entity (IntConcept for short) by ap-plying a NERL rule on the input text and zero ormore previously defined intermediate concepts.NERL Rule Types The types of rules supported inNERL are summarized in Tab.
+2.
+In what follows,we illustrate these types by means of examples.Feature definition (FD): FD rules identify basicfeatures from text (e.g., FirstName, LastName andCapsWord features for identifying person names).Candidate definition (CD): CD rules identify com-plete occurrences of the target entity.
+For instance,the Sequence rule ?LastName followed by ?,?
+fol-lowed by FirstName?
+identifies person annotationsas a sequence of three tokens, where the first andthird tokens occur in dictionaries containing last andfirst names.Candidate Refinement (CR): CR rules are used torefine candidates generated for different annotationtypes.
+E.g., the Filter rule CR3 in Fig.
+2 retains Loca-tionMaybeOrg annotations that appear in one of sev-eral dictionaries.Consolidation (CO): CO rules are used to resolveoverlapping candidates generated by multiple CDrules.
+For instance, consider the text ?Please seethe following request from Dr. Kenneth Lim of theBAAQMD.?.
+A CD rule may identify ?Dr.
+KennethLim?
+as a person, while another CD rule may identify?Kenneth Lim?
+as a candidate person.
+A consolidationrule is then used to merge these two annotations toproduce a single annotation for ?Dr.
+Kenneth Lim?.NERL Examples Within these categories, threetypes of rules deserve special attention, as they cor-respond to frequently used operations and are specif-ically designed to ensure compactness of the rule-set.
+In contrast, as discussed earlier (Fig.
+3), each ofthese operations require several rules and possiblycustom code in existing rule-based IE systems.DynamicDict: The DynamicDict rule is used to createcustomized gazetteers on the fly.
+The following ex-ample shows the need for such a rule: While ?Clin-ton?
+does not always refer to a person?s last name(Clinton is the name of several cities in USA), indocuments containing a full person name with ?Clin-ton?
+as a last name (e.g., ?Hillary Clinton?)
+it is rea-sonable to annotate all references to the (possibly)ambiguous word ?Clinton?
+as a person.
+This goalcan be accomplished using the rule <Create DynamicDictionary using Person with length 1 to 2 tokens>,which creates a gazetteer on a per-document basis.Filter: The Filter rule is used to discard/retain cer-tain intermediate annotations based on predicates onthe annotation text and its local context.
+Examplefiltering predicates include?
+Discard C If Matches Regular Expression R?
+Retain C If Contains Dictionary D on Local Context LC?
+Discard C If Overlaps Concepts C1, C2, .
+.
+.ModifySpan: The ModifySpan rule is used to expandor trim the span of a candidate annotation.
+Forinstance, an Entity Boundary customization to in-clude generational markers as part of a Person anno-tation can be implemented using a ModifySpan rule<Expand Person Using Dictionary ?generation.dict?
+onRightContext 2 Tokens>.Using NERL Tab.
+2 shows how different types ofrules are used during rule building and customiza-tions.
+Since BR and CS involve identifying one1006Rule Category Syntax BR CDD CGCS CDSD CEB CATADictionary FD Evaluate Dictionaries < D1, D2, .
+.
+.
+> with flags?
+X XRegex FD Evaluate Regular Expressions < R1, R2, .
+.
+.
+> with flags?
+X XPoS FD Evaluate Part of Speech < P1, P2, .
+.
+.
+> with language < L >?
+X XDynamicDict FD Create Dynamic Dictionary using IntConcept with flags?
+X XSequence CD IntConceptorString multiplicity?
+(followed by IntConceptorString multiplicity?
+)+ X XFilter CR Discard/Retain IntConcept(As IntConcept)?If SatisfiesPredicate on LocalContext X X XModifySpan CR Trim/Expand IntConcept Using Dictionary < D >on LocalContext X XAugment CO Augment IntConcept With IntConcept X XConsolidate CO Consolidate IntConcept using ConsolidationPolicy X XTable 2: Description of rules supported in NERLor more entity (sub)types from scratch, all typesof rules are used.
+CDD and CDSD identify addi-tional instances for an existing type and thereforemainly rely on FD and CD rules.
+On the other hand,the customizations that modify existing instances(CEB ,CATA,CG) require CR and CO rules.Revisiting the example in Fig.
+2, CR rules wereused to implement a fairly sophisticated customiza-tion in a compact fashion, as follows.
+Rule CR1first identifies sports articles using a regular expres-sion based on the article title.
+Rule CR2 marksLocations within these articles as LocationMaybeOrgand Rule CR3 only retains those occurrences thatmatch a city, county or state name (e.g., ?Seattle?
+).Rule CR4 identifies occurrences that have a contex-tual clue confirming that the mention was to a lo-cation (e.g., ?In?
+or ?At?).
+These occurrences are al-ready classified correctly as Location and do not needto be changed.
+Finally, CR5 adds the remaining am-biguous mentions to Organization, which would bedeleted from Location by a subsequent core rule.4 Development and Customization of NERextractors with NERLUsing NERL, we have developed CoreNER, adomain-independent generic library for multipleNER extraction tasks commonly encountered inpractice, including Person, Organization, Location,EmailAddress, PhoneNumber, URL, and DateTime, butwe shall focus the discussion on the first three tasks(see Tab.
+3 for entity definitions), since they are themost challenging.
+In this section, we first overviewthe process of developing CoreNER (Sec.
+4.1).
+Wethen describe how we have customized CoreNERfor three different domains (Sec.
+4.2), and presenta quality comparison with best published results ob-tained with state-of-the-art machine learning tech-niques (Sec.
+4.3).
+The tasks we consider are not re-stricted to documents in a particular language, butdue to limited availability of non-English corporaand extractors for comparison, our evaluation usesEnglish-language text.
+In Sec.
+5 we shall elaborateon the difficulties encountered while building andcustomizing CoreNER using NERL and the lessonswe learned in the process.4.1 Developing CoreNERWe have built our domain independent CoreNER li-brary using a variety of formal and informal text(e.g.
+web pages, emails, blogs, etc.
+), and informa-tion from public data sources such as the US CensusBureau (Census, 2007) and Wikipedia.The development process proceeded as follows.We first collected dictionaries for each entitytype from different resources, followed by man-ual cleanup when needed to categorize entries col-lected into ?strong?
+and ?weak?
+dictionaries.
+Forinstance, we used US Census data to create severalname dictionaries, placing ambiguous entries suchas ?White?
+and ?Price?
+in a dictionary of ambigu-ous last names, while unambiguous entries such as?Johnson?
+and ?Williams?
+went to the dictionary forstrict last names.
+Second, we developed FD andCD rules to identify candidate entities based on theway named entities generally occur in text.
+E.g.,<Salutation CapsWord CapsWord> and <FirstName1007Type SubtypesPER individualLOCAddress, Boundary, Land-Region-Natural, Region-General,Region-International, Airport, Buildings-Grounds, Path, Plant,Subarea-Facility, Continent, Country-or-District, Nation,Population-Center, State-or-ProvinceORG Commercial, Educational, Government, Media, Medical-ScienceNon-GovernmentalTable 3: NER Task Types and SubtypesLastName> for Person, and <CapsWord{1,3} OrgSuf-fix> and <CapsWord{1,2} Industry> for Organization.We then added CR and CO rules to account forcontextual clues and overlapping annotations (e.g.,Delete Person annotations appearing within an Orga-nization annotation).The final CoreNER library consists of 104 FD (in-volving 68 dictionaries, 33 regexes and 3 dynamicdictionaries), 74 CD, 123 CR and 102 CO rules.4.2 Customizing CoreNERIn this section we describe the process of customiz-ing our domain-independent CoreNER library forseveral different datasets.
+We start by discussing ourchoice of datasets to use for customization.Datasets For a rigorous evaluation of CoreNER?scustomizability, we require multiple datasets satis-fying the following criteria: First, the datasets mustcover diverse sources and styles of text.
+Second,the set of the most challenging NER tasks Person,Organization and Location (see Tab.
+3) consideredin CoreNER should be applicable to them.
+Finally,they should be publicly available and preferablyhave associated published results, against which wecan compare our experimental results.
+Towards thisend, we chose the following public datasets.?
+CoNLL03 (Tjong et al, 2003): a collection ofReuters news stories.
+Consists of formal text.?
+Enron (Minkov et al, 2005): a collection ofemails with meeting information from the Enrondataset.
+Contains predominantly informal text.?
+ACE05 (NIST, 2005)1 a collection of broadcastnews, broadcast conversations and newswire re-ports.
+Consists of both formal and informal text.Customization Process The goal of customization1The evaluation test set is not publicly available.
+Thus, fol-lowing the example of (Florian et al, 2006), the publicly avail-able set is split into a 80%/20% data split, with the last 20% ofthe data in chronological order selected as test data.is to refine the original CoreNER (hence referredto as CoreNERorig) in order to improve its extrac-tion quality on the training set (in terms of F?=1)for each dataset individually.
+In addition, a devel-opment set is available for CoNLL03 (referred to asCoNLL03dev), therefore we seek to improve F?=1 onCoNLL03dev as well.The customization process for each dataset pro-ceeded as follows.
+First, we studied the entity defini-tions and identified their differences when comparedwith the definitions used for CoreNERorig (Tab.
+3).We then added rules to account for the differences.For example, the definition of Organization in theCoNLL03 dataset contained a sports organizationsubtype, which was not considered when develop-ing CoreNER.
+Therefore, we have used public datasources (e.g., Wikipedia) to collect and curate dic-tionaries of major sports associations and sport clubsfrom around the world.
+The new dictionaries, alongwith regular expressions identifying sports teams insports articles were used for defining FD and CDrules such as CR1 (Fig.
+2).
+Finally, CR and CO ruleswere added to filter invalid candidates and augmentthe Organization type with the new sports subtype(similar in spirit to rules CR4 and CR5 in Fig.
+2).In addition to the train and development sets, thecustomization process for CoNLL03 also involvedunlabeled data from the corpus as follows.
+1) Sincedata-driven rules (CDD) are often created based on afew instances from the training data, testing them onthe unlabeled data helped fine tune the rules for pre-cision.
+2) CoNLL03 is largely dominated by sportsnews, but only a subset of all sports were representedin the train dataset.
+Using the unlabeled data, wewere able to add CDD rules for five additional typesof sports, resulting in 0.31% improvement in F?=1score on CoNLL03dev.
+3) Unlabeled data was alsouseful in identifying domain-specific gazetteers byusing simple extraction rules followed by a man-ual cleanup phase.
+For instance, for CoNLL03 wecollected five gazetteers of organization and personnames from the unlabeled data, resulting in 0.45%improvement in recall for CoNLL03dev.The quality of the customization on the train col-lections is shown in Tab.
+5.
+The total number ofrules added during customization for each of thethree domains is listed in Tab.
+4.
+Notice how rulesof all four types are used both in the development1008FD CD CR COCoreNERorig 104 74 123 102CoreNERconll 179 56 284 71CoreNERenron 13 10 9 1CoreNERace 83 35 117 26Table 4: Rules added during customizationPrecision Recall F?=1CoreNERconll 97.64 95.60 96.61CoreNERenron 91.15 92.58 91.86CoreNERace 92.32 91.22 91.77Table 5: Quality of customization on train datasets (%)of the domain independent NER annotator, and dur-ing customizations for different domains.
+A total of8 person weeks were spent on customizations, andwe believe this effort is quite reasonable by rule-based extraction standards.
+For example, (Maynardet al, 2003) reports that customizing the ANNIEdomain independent NER annotator developed us-ing the JAPE grammar-based rule language for theACE05 dataset required 6 weeks (and subsequenttuning over the next 6 months), resulting in im-proving the quality to 82% for this dataset.
+As weshall discuss shortly, with similar manual effort, wewere able to achieve results outperforming state-of-art published results on three different datasets, in-cluding ACE05.
+However, one may rightfully ar-gue that the process is still too lengthy impeding thewidespread deployment of rule-based NER extrac-tion.
+We elaborate on the effort involved and thelessons learned in the process in Sec.
+5.4.3 Evaluation of CustomizationWe now present an experimental evaluation of thecustomizability of CoreNER.
+The main goals areto investigate: (i) the feasibility of CoreNER cus-tomization for different application domains; (ii)the effectiveness of such customization compared tostate-of-the-art results; (iii) the impact of differenttypes of customization (Tab.
+1); and (iv) how oftendifferent categories of NERL rules (Tab.
+2) are usedduring customization.We measured the effectiveness of customizationusing the improvement in extraction quality of thecustomized CoreNER over CoreNERorig.
+As shownin Tab.
+6, customization significantly improvedPrecision Recall F?=1CoNLL03devCoreNERorig 83.81 61.77 71.12CoreNERconll 96.49 93.76 95.11Improvement 12.68 31.99 13.99CoNLL03testCoreNERorig 77.21 54.87 64.15CoreNERconll 93.89 89.75 91.77Improvement 15.68 34.88 27.62EnronCoreNERorig 85.06 69.55 76.53CoreNERenron 88.41 82.39 85.29Improvement 3.35 12.84 8.76ACE2005CoreNERorig 57.23 57.41 57.32CoreNERace 90.11 87.82 88.95Improvement 32.88 30.41 31.63Table 6: Overall Improvement due to Customization (%)Precision Recall F?=1LOC CoreNERconll 97.17 95.37 96.26CoNLL03devFlorian 96.59 95.65 96.12ORG CoreNERconll 93.70 88.67 91.11Florian 90.85 89.63 90.24PER CoreNERconll 97.79 95.87 96.82Florian 96.08 97.12 96.60LOC CoreNERconll 93.11 91.61 92.35CoNLL03testFlorian 90.59 91.73 91.15ORG CoreNERconll 92.25 85.31 88.65Florian 85.93 83.44 84.67PER CoreNERconll 96.32 92.39 94.32Florian 92.49 95.24 93.85Enron PER CoreNERenron 87.27 81.82 84.46Minkov 81.1 74.9 77.9Table 7: Comparison with state-of-the-art results(%)F?=1 score for CoreNERorig across all datasets.
+2We note that the extraction quality ofCoreNERorig was low on CoNLL03 and ACE05mainly due to differences in entity type definitions.In particular, sports organizations, which occurredfrequently in the CoNLL03 collection, were notconsidered during the development of CoreNERorig,while in ACE05, ORG and LOC entity types weresplit into four entity types (Organization, Location,Geo-Political Entity and Facility).
+Customizationssuch as CS and CG address the above changesin named-entity type definition and substantiallyimprove the extraction quality of CoreNERorig.Next, we compare the extraction quality of the2CoNLL03dev and CoNLL03test correspond to the develop-ment and test sets for CoNLL03 respectively.1009customized CoreNER for CoNLL03 and Enron3 withthe corresponding best published results by (Florianet al, 2003) and (Minkov et al, 2005).
+Tab.
+7 showsthat our customized CoreNER outperforms the cor-responding state-of-the-art numbers for all the NERtasks on both CoNLL03 and Enron.
+4 These resultsdemonstrate that high-quality annotators can be builtby customizing CoreNERorig using NERL, with thefinal extraction quality matching that of state-of-the-art machine learning-based extractors.It is worthwhile noting that the best pub-lished results for CoNLL03 (Florian et al, 2003)were obtained by using four different classifiers(Robust Risk Minimization, Maximum Entropy,Transformation-based learning, and Hidden MarkovModel) and trying six different classifier combi-nation methods.
+Compared to the best publishedresult obtained by combining the four classifiers,the individual classifiers performed between 2.5-7.6% worse for Location, 5.6-15.2% for Organiza-tion and 3.9-14.0% for Person5.
+Taking this intoaccount, the extraction quality advantage of cus-tomized CoreNER is significant when comparedwith the individual state-of-the-art classifiers.Impact of Customizations by Type.
+While cus-tomizing CoreNER for the three datasets, all typesof changes described in Sec.
+2 were performed.
+Wemeasured the impact of each type of customizationby comparing the extraction quality of CoreNERorigwith CoreNERorig enhanced with all the customiza-tions of that type.
+From the results for CoNLL03(Tab.
+8), we make the following observations.?
+Customizations that identify additional subtypesof entities (CS) or modify existing instances formultiple types (CATA) have significant impact.This effect can be especially high when the miss-ing subtype appears very often in the new do-main (E.g., over 50% of the organizations inCoNLL03 are sports teams).?
+Data-driven customizations (CDD) rely on theaggregated impact of many rules.
+While individ-ual rules may have considerable impact on their3We cannot meaningfully compare our results against previ-ously published results for ACE05, which is originally used formention detection while CoreNER considers only NER tasks.4For Enron the comparison is reported only for Person, aslabeled data is available only for that type.5Extended version obtained via private communication.# rules added Precision Recall F?=1CEB 3CoNLL03devLOC ?0.21 ?0.22 ?0.22ORG ?1.35 ?0.38 ?0.59PER - - -CoNLL03testLOC ?0.30 ?0.36 ?0.33ORG ?0.54 ?0.12 ?0.20PER - - -CATA 5CoNLL03devLOC ?7.18 ?0.87 ?3.19ORG ?1.37 ?10.67 ?9.04PER ?0.04 - ?0.01CoNLL03testLOC ?7.73 ?1.20 ?3.77ORG ?1.37 ?11.62 ?14.18PER - - -CDSD 2CoNLL03devLOC ?0.85 - ?0.45ORG ?1.00 ?0.07 ?0.01PER - - -CoNLL03testLOC ?0.04 ?0.12 ?0.12ORG ?0.64 - ?0.04PER - - -CS 149CoNLL03devLOC ?1.63 ?0.21 ?0.85ORG ?11.44 ?40.79 ?39.73PER ?0.13 - ?0.05CoNLL03testLOC ?3.71 ?0.18 ?2.05ORG ?9.2 ?36.24 ?37.96PER ?0.58 - ?0.2CDD 431CoNLL03devLOC ?0.94 ?10.18 ?3.99ORG ?9.63 ?11.93 ?14.71PER ?6.12 ?28.5 ?18.84CoNLL03testLOC ?1.66 ?6.72 ?1.64ORG ?8.84 ?12.40 ?15.90PER ?9.15 ?31.48 ?22.21Table 8: Impact by customization type on CoNLL03(%)own (e.g., identifying all names that appear aspart of a player list increases the recall of PER byover 6% on both CoNLL03dev and CoNLL03test),the overall impact relies on the accumulative ef-fect of many small improvements.?
+Certain customizations (CEB and CDSD) pro-vide smaller quality improvements, both per ruleand in aggregate.5 Lessons LearnedOur experimental evaluation shows that rule-basedannotators can achieve quality comparable to that ofstate-of-the-art machine learning techniques.
+In thissection we discuss three important lessons learnedregarding the human effort involved in developingsuch rule-based extractors.Usefulness of NERL We found NERL very helpfulin that it provided a higher-level abstraction cateredspecifically towards NER tasks, thus hiding the com-plexity inherent in a general-purpose IE rule lan-guage.
+In doing so, NERL restricts the large spaceof operations possible within a general-purpose lan-guage to the small number of predefined ?templates?1010listed in Tab.
+2.
+(We have shown empirically that ourchoice of NERL rules is sufficient to achieve highaccuracy for NER tasks.)
+Therefore, NERL simpli-fies development and maintenance of complex NERextractors, since one does not need to worry aboutmultiple AQL statements or JAPE grammar phasesfor implementing a single conceptual operation suchas filtering (see Fig.
+3).Is NERL Sufficient?
+Even using NERL, buildingand customizing NER rules remains a labor inten-sive process.
+Consider the example of designing thefilter rule CR4 from Fig.
+3.
+First, one must exam-ine multiple false positive Location entities to evendecide that a filter rule is appropriate.
+Second, onemust understand how those false positives were pro-duced, and decide accordingly on the particular con-cept to be used as filter (LocationMaybeOrg in thiscase).
+Finally, one needs to decide how to build thefilter.
+Tab.
+9 lists all the attributes that need to bespecified for a Filter rule, along with examples ofthe search space for each rule attribute.Rule Attributes Examples of Search SpaceLocation Intermediate Concept to filterPredicate Type Matches Regex, Contains Dictionary, .
+.
+.Predicate Parameter Regular Expressions, Dictionary Entries, .
+.
+.Context Type Entity text, Left or Right contextContext Parameter k tokens, l charactersTable 9: Search space explored while adding a Filter ruleThis search space problem is not unique to filterrules.
+In fact, most rules in Tab.
+2 have two or morerule attributes.
+Therefore, designing an individualNERL rule remains a time-consuming ?trial and er-ror?
+process, in which multiple ?promising?
+combi-nations are implemented and evaluated individuallybefore deciding on a satisfactory final rule.Tooling for NERL The fact that NERL is a high-level language exposing a restricted set of operatorscan be exploited to reduce the human effort involvedin building NER annotators by enabling the follow-ing tools:Annotation Provenance Tools tracking prove-nance (Cheney et al, 2009) for NERL rules canhelp in explaining exactly which sequence of rulesis responsible for producing a given false positive,thereby enabling one to quickly identify ?misbe-haved?
+rules.
+For instance, one can quickly narrowdown the choices for the location where the filterrule CR4 (Fig.
+2) should be applied based on theprovenance of the false positives.
+Similarly, toolsfor explaining false positives in the spirit of (Huanget al, 2008), are also conceivable.Automatic Parameter Learning The most time-consuming part in building a rule often is to decidethe value of its parameters, especially for FD andCR rules.
+For instance, while defining a CR rule,one has to choose values for the Predicate parame-ter and the Context parameter (see Tab.
+9).
+Someparameter values can be learned ?
+for example, dic-tionaries (Riloff, 1993) and regular expressions (Liet al, 2008).Automatic Rule Refinement Tools automaticallysuggesting entire customization rules to a complexNERL program in the spirit of (Liu et al, 2010) canfurther reduce human effort in building NER anno-tators.
+With the help of such tools, one only needsto consider good candidate NERL rules suggestedby the system without having to go through theconventional manual ?trial and error?
+process.6 ConclusionIn this paper, we described NERL, a high-level rulelanguage for building and customizing NER annota-tors.
+We demonstrated that a complex NER annota-tor built using NERL can be effectively customizedfor different domains, achieving extraction qualitysuperior to the state-of-the-art numbers.
+However,our experience also indicates that the process of de-signing the rules themselves is still manual and time-consuming.
+Finally, we discuss how NERL opensup several interesting research directions towards thedevelopment of sophisticated tooling for automatingsome of the rule development tasks.ReferencesD.
+E. Appelt and B. Onyshkevych.
+1998.
+The commonpattern specification language.
+In TIPSTER workshop.A.
+Arnold, R. Nallapati, and W. W. Cohen.
+2008.Exploiting feature hierarchy for transfer learning innamed entity recognition.
+In ACL.D.
+M. Bikel, R. L. Schwartz, and R. M. Weischedel.1999.
+An algorithm that learns what?s in a name.
+InMachine Learning, volume 34, pages 211?231.J.
+Blitzer, R. Mcdonald, and F. Pereira.
+2006.
+Domainadaptation with structural correspondence learning.
+InEMNLP.1011B.
+Boguraev.
+2003.
+Annotation-based finite state pro-cessing in a large-scale nlp arhitecture.
+In RANLP.Census.
+2007.
+U.S. Census Bureau.http://www.census.gov.J.
+Cheney, L. Chiticariu, and W. Tan.
+2009.
+Provenancein databases: Why, how, and where.
+Foundations andTrends in Databases, 1(4):379?474.L.
+Chiticariu, R. Krishnamurthy, Y. Li, S. Raghavan,F.
+Reiss, and S. Vaithyanathan.
+2010.
+SystemT: Analgebraic approach to declarative information extrac-tion.
+In ACL.H.
+Cunningham, D. Maynard, and V. Tablan.
+2000.JAPE: a Java Annotation Patterns Engine (Second Edi-tion).
+Research Memorandum CS?00?10, Departmentof Computer Science, University of Sheffield.W.
+Drozdzynski, H. Krieger, J. Piskorski, U. Scha?fer, andF.
+Xu.
+2004.
+Shallow processing with unification andtyped feature structures ?
+foundations and applica-tions.
+Ku?nstliche Intelligenz, 1:17?23.O.
+Etzioni, M. Cafarella, D. Downey, A. Popescu,T.
+Shaked, S. Soderland, D. Weld, and A. Yates.
+2005.Unsupervised named-entity extraction from the web:an experimental study.
+Artif.
+Intell., 165(1):91?134.J.
+R. Finkel and C. D. Manning.
+2009.
+Nested namedentity recognition.
+In EMNLP.R.
+Florian, A. Ittycheriah, H. Jing, and T. Zhang.
+2003.Named entity recognition through classifier combina-tion.
+In CoNLL.R.
+Florian, H. Hassan, A. Ittycheriah, H. Jing, N. Kamb-hatla, X. Luo, N. Nicolov, and S. Roukos.
+2004.
+Astatistical model for multilingual entity detection andtracking.
+In NAACL-HLT.R.
+Florian, H. Jing, N. Kambhatla, and I. Zitouni.
+2006.Factorizing complex models: A case study in mentiondetection.
+In ACL.D.
+Gruhl, M. Nagarajan, J. Pieper, C. Robson, andA.
+Sheth.
+2009.
+Context and domain knowledge en-hanced entity spotting in informal text.
+In ISWC.J.
+Huang, G. Zweig, and M. Padmanabhan.
+2001.
+Infor-mation extraction from voicemail.
+In ACL.Jiansheng Huang, Ting Chen, AnHai Doan, and Jeffrey F.Naughton.
+2008.
+On the Provenance of Non-Answersto Queries over Extracted Data.
+PVLDB, 1(1):736?747.M.
+Jansche and S. Abney.
+2002.
+Information extractionfrom voicemail transcripts.
+In EMNLP.J.
+Jiang and C. Zhai.
+2006.
+Exploiting domain structurefor named entity recognition.
+In NAACL-HLT.Saul Kripke.
+1982.
+Naming and Necessity.
+Harvard Uni-versity Press.G.
+R. Krupka and K. Hausman.
+2001.
+IsoQuest Inc.: De-scription of the NetOwlTM extractor system as usedfor MUC-7.
+In MUC-7.Y.
+Li, R. Krishnamurthy, S. Raghavan, S. Vaithyanathan,and H. V. Jagadish.
+2008.
+Regular expression learningfor information extraction.
+In EMNLP.B.
+Liu, L. Chiticariu, V. Chu, H. V. Jagadish, and F. Reiss.2010.
+Automatic Rule Refinement for InformationExtraction.
+PVLDB, 3.D.
+Maynard, K. Bontcheva, and H. Cunningham.
+2003.Towards a semantic extraction of named entities.
+InRANLP.A.
+McCallum and W. Li.
+2003.
+Early results for namedentity recognition with conditional random fields, fea-ture induction and web-enhanced lexicons.
+In CoNLL.E.
+Minkov, R. C. Wang, and W. W. Cohen.
+2005.
+Ex-tracting personal names from emails: Applying namedentity recognition to informal text.
+In HLT/EMNLP.D.
+Nadeau and S. Sekine.
+2007.
+A survey of namedentity recognition and classification.
+Linguisticae In-vestigationes, 30(1):3?26.NIST.
+2005.
+The ace evaluation plan.F.
+J. Och O. Bender and H. Ney.
+2003.
+Maximum en-tropy models for named entity recognition.
+In CoNLL.G.
+Petasis, F. Vichot, F. Wolinski, G. Paliouras,V.
+Karkaletsis, and C. Spyropoulos.
+2001.
+Usingmachine learning to maintain rule-based named-entityrecognition and classification systems.
+In ACL.T.
+Poibeau and L. Kosseim.
+2001.
+Proper name ex-traction from non-journalistic texts.
+In ComputationalLinguistics in the Netherlands, pages 144?157.E.
+Riloff.
+1993.
+Automatically constructing a dictionaryfor information extraction tasks.
+In KDD.S.
+Sekine and C. Nobata.
+2004.
+Definition, dictionariesand tagger for extended named entity hierarchy.
+InConference on Language Resources and Evaluation.W.
+Shen, A. Doan, J. F. Naughton, and R. Ramakrishnan.2007.
+Declarative information extraction using data-log with embedded extraction predicates.
+In VLDB.S.
+Singh, D. Hillard, and C. Leggeteer.
+2010.
+Minimally-supervised extraction of entities from text advertise-ments.
+In NAACL-HLT.P.
+Siniakov.
+2010.
+GROPUS - an adaptive rule-based al-gorithm for information extraction.
+Ph.D. thesis, FreieUniversitat Berlin.R.
+Srihari, C. Niu, and W. Li.
+2001.
+A hybrid approachfor named entity and sub-type tagging.
+In ANLP.E.
+F. Tjong, K. Sang, and F. De Meulder.
+2003.
+Intro-duction to the CoNLL-2003 shared task: Language-independent named entity recognition.
+In CoNLL.D.
+Wu, W. S. Lee, N. Ye, and H. L. Chieu.
+2009.
+Domainadaptive bootstrapping for named entity recognition.In EMNLP.J.
+Zhu, V. Uren, and E. Motta.
+2005.
+Espotter: Adaptivenamed entity recognition for web browsing.
+In WM.1012

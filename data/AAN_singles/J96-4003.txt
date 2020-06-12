@@ -1,0 +1,544 @@
+Learning Bias and Phonological-RuleInductionDaniel Gildea*International Computer Science Institute& Univers i ty  of Cal i forn ia at BerkeleyDaniel Jurafsky tInternational Computer Science Institute& Univers i ty  of Co lo rado  at BoulderA fundamental debate in the machine learning of language has been the role of prior knowledgein the learning process.
+Purely nativist approaches, such as the Principles and Parameters model,build parameterized linguistic generalizations directly into the learning system.
+Purely empiricalapproaches use a general, domain-independent l arning rule (Error Back-Propagation, I stance-based Generalization, Minimum Description Length) to learn linguistic generalizations directlyfrom the data.In this paper we suggest hat an alternative to the purely nativist or purely empiricistlearning paradigms i to represent the prior knowledge of language as a set of abstract learningbiases, which guide an empirical inductive learning algorithm.
+We test our idea by examining themachine learning of simple Sound Pattern of English (S P E )-style phonological rules.
+We representphonological rules as finite-state transducers that accept underlying forms as input and generatesurface forms as output.
+We show that OSTIA, a general-purpose transducer induction algorithm,was incapable of learning simple phonological rules like flapping.
+We then augmented OSTIAwith three kinds of learning biases that are specific to natural anguage phonology, and that areassumed explicitly or implicitly by every theory of phonology: faithfulness (underlying segmentstend to be realized similarly on the surface), communi ty  (similar segments behave similarly),and context (phonological rules need access to variables in their context).
+These biases are sofundamental togenerative phonology that they are left implicit in many theories.
+But explicitlymodifying the OSTIA algorithm with these biases allowed it to learn more compact, accurate, andgeneral transducers, and our implementation successfully earns a number of rules from Englishand German.
+Furthermore, we show that some of the remaining errors in our augmented model aredue to implicit biases in the traditional SPE-style rewrite system that are not similarly representedin the transducer formalism, suggesting that while transducers may be formally equivalent toSPE-style rules, they may not have identical evaluation procedures.Because our biases were applied to the learning of very simple SPE-style rules, and to anon-psychologically-motivated an nonprobabilistic theory of purely deterministic transducers,we do not expect hat our model as implemented has any practical use as a phonological learningdevice, nor is it intended as a cognitive model of human learning.
+Indeed, because of the noiseand nondeterminism inherent o linguistic data, we feel strongly that stochastic algorithms forlanguage induction are much more likely to be a fruitful research direction.
+Our model is ratherintended to suggest the kind of biases that may be added to other empiricist induction models,and the way in which they may be added, in order to build a cognitively and computationallyplausible learning model for phonological rules.
+* 1947 Center Street, Berkeley, CA 94704.
+E-mail: gildea@cs.berkeley.edut Department of Linguistics, Boulder, CO 80302@ 1996 Association for Computational LinguisticsComputational Linguistics Volume 22, Number 41.
+IntroductionA fundamental debate in the machine learning of language has been the role of priorknowledge in the learning process.
+Nativist models suggest hat learning in a com-plex domain like natural anguage requires that the learning mechanism either havesome previous knowledge about language, or some learning bias that helps direct theformation of correct generalizations.
+In linguistics, theories of such prior knowledgeare referred to as Universal Grammar (UG); nativist linguistic models of learning as-sume, implicitly or explicitly, that some kind of prior knowledge that contributes tolanguage learning is innate, a product of evolution.
+Despite sharing this assumption,nativist researchers disagree strongly about the exact constitution of this UniversalGrammar.
+Many models, for example, assume that much of the prior knowledge thatchildren bring to bear in learning language is not linguistic at all, but derives fromconstraints imposed by our general cognitive architecture.
+Others, such the influen-tial Principles and Parameters model (Chomsky 1981), assert hat what is innate islinguistic knowledge itself, and that the learning process consists mainly of search-ing for the values of a relatively small number of parameters.
+Such nativist modelsof phonological learning include, for example, Dresher and Kaye's (1990) model ofthe acquisition of stress-assignment rules, and Tesar and Smolensky's (1993) model oflearning in Optimality Theory.Other scholars have argued that a purely nativist, parameterized learning algo-rithm is incapable of dealing with the noise, irregularity, and great variation of humanlanguage data, and that a more empiricist learning paradigm is possible.
+Such data-driven models include the stress acquisition models of Daelemans, Gillis, and Durieux(1994) (an application of Instance-based Learning \[Aha, Kibler, and Albert 1991\]) andGupta and Touretzky (1994) (an application of Error Back-Propagation), as well as Elli-son's (1992) Minimum-Description-Length-based model of the acquisition of the basicconcepts of syllabicity and the sonority hierarchy.
+In each of these cases a general,domain-independent learning rule (BP, IBL, MDL) is used to learn directly from thedata.In this paper we suggest hat an alternative to the purely nativist or purely em-piricist learning paradigms i to represent the prior knowledge of language as a set ofabstract learning biases, which guide an empirical inductive learning algorithm.
+Suchbiases are implicit, for example, in the work of Riley (1991) and Withgott and Chen(1993), who induced decision trees to predict he realization of a phone in its context.By initializing the decision-tree inducer with a set of phonological features, they es-sentially gave it a priori knowledge about the kind of phonological generalizationsthat the system might be expected to learn.Our idea is that abstract biases from the domain of phonology, whether innate (i.e.,part of UG) or merely learned prior to the learning of rules, can be used to guide adomain-independent mpirical induction algorithm.
+We test this idea by examining themachine learning of simple Sound Pattern of English (SPE)-style phonological rules(Chomsky and Halle 1968), beginning by representing phonological rules as finite-state transducers that accept underlying forms as input and generate surface formsas output.
+Johnson (1972) first observed that traditional phonological rewrite rulescan be expressed as regular (finite-state) relations if one accepts the constraint that norule may reapply directly to its own output.
+This means that finite-state transducers(FSTs) can be used to represent phonological rules, greatly simplifying the problem ofparsing the output of phonological rules in order to obtain the underlying, lexical forms(Koskenniemi 1983; Karttunen 1993; Pulman and Hepple 1993; Bird 1995; Bird andEllison 1994).
+The fact that the weaker generative capacity of FSTs makes them easier to498Gildea and Jurafsky Learning Bias and Phonological-Rule Inductionlearn than arbitrary context-sensitive rules has allowed the development of a numberof learning algorithms including those for deterministic finite-state automata (FSAs)(Freund et al 1993), deterministic transducers (Oncina, Garcia, and Vidal 1993), aswell as nondeterministic (stochastic) FSAs (Stolcke and Omohundro 1993; Stolcke andOmohundro 1994; Ron, Singer, and Tishby 1994).
+Like the empiricist models discussedabove, these algorithms are all general-purpose; none include any domain knowledgeabout phonology, or indeed natural anguage; at most they include a bias towardsimpler models (like the MDL-inspired algorithms of Ellison \[1992\]).Our experiments were based on the OSTIA (Oncina, Garcia, and Vidal 1993) al-gorithm, which learns general subsequential finite-state transducers (SFSTs; formallydefined in Section 2).
+We presented pairs of underlying and surface forms to OSTIA,and examined the resulting transducers.
+Although OSTIA is capable of learning ar-bitrary SFSTs in the limit, large dictionaries of actual English pronunciations did notgive enough samples to correctly induce phonological rules.We then augmented OSTIA with three kinds of learning biases, which are specificto natural language phonology, and are assumed explicitly or implicitly by every the-ory of phonology: faithfulness (underlying segments tend to be realized similarly onthe surface), community (similar segments behave similarly), and context (phonolog-ical rules need access to variables in their context).
+These biases are so fundamentalto generative phonology that they are left implicit in many theories.
+But explicitlymodifying the OSTIA algorithm with these biases allowed it to learn more compact,accurate, and general transducers, and our implementation successfully earns a num-ber of rules from English and German.
+The algorithm is also successful in learning thecomposition of multiple rules applied in series.
+The more difficult problem of decom-posing the learned underlying/surface correspondences into simple, individual rulesremains unsolved.Our transducer induction algorithm is not intended as a cognitive model of hu-man phonological learning.
+First, for reasons of simplicity, we base our model onsimple segmental SPE-style rules; it is not clear what the formal correspondence isof these rules to the more recent heoretical machinery of phonology (e.g., optimalityconstraints).
+Second, we assume that a cognitive model of automaton i duction wouldbe more stochastic and hence more robust than the OSTIA algorithm underlying ourwork.
+1Rather, our model is intended to suggest the kind of biases that may be added toempiricist induction models to build a learning model for phonological rules that iscognitively and computationally plausible.
+Furthermore, our model is not necessarilynativist; these biases may be innate, but they may also be the product of some otherearlier learning algorithm, as the results of Ellison (1992) and Brown et al (1992)suggest (see Section 5.2).
+So our results suggest hat assuming in the system somevery general and fundamental properties of phonological knowledge (whether innateor previously learned) and learning others empirically may provide a basis for futurelearning models.Ellison (1994), for example, has shown how to map the optimality constraintsof Prince and Smolensky (1993) to finite-state automata; given this result, models of1 Although our assumption of the simultaneous presentation of surface and underlying forms to thelearner may seem at first glance to be unnatural as well, it is quite compatible with certain theories ofword-based morphology.
+For example, in the word-based morphology of Aronoff (1976),word-formation rules apply only to already existing words.
+Thus the underlying form for anymorphological rule must be a word of the language.
+Even if this word-based morphology assumptionholds only for a subset of the language (see e.g., Orgun \[1995\]) it is not unreasonable to assume that apart of the learning process will involve previously-identified underlying/surface pairs.499Computational Linguistics Volume 22, Number 4automaton induction enriched in the way we suggest may contribute to the currentdebate on optimality learning.
+This may obviate the need to build in every phono-logical constraint, as for example nativist models of OT learning suggest (Prince andSmolensky 1993; Tesar and Smolensky 1993; Tesar 1995).
+We hope in this way to beginto help assess the role of computational phonology in answering the general questionof the necessity and nature of linguistic innateness in learning.The next sections (2 and 3) introduce the idea of representing phonological ruleswith transducers, and describe the OSTIA algorithm for inducing such transducers.Section 4 shows that the unaugmented OSTIA algorithm is unable to induce the correcttransducer for the simple flapping rule of American English.
+Section 5 then describeseach of the augmentations to OSTIA, based on the faithfulness, community, and contextprinciples.
+We conclude with some observations about computational complexity andthe inherent bias of the context-sensitive rewrite-rule formalism.2.
+Transducer RepresentationRule-based variation in phonology has traditionally been represented with context-sensitive rewrite rules.
+For example, in American English an underlying t is realizedas a flap (a tap of the tongue on the alveolar idge) after a stressed vowel and zero ormore r's, and before an unstressed vowel.
+In the rewrite-rule formalism of Chomskyand Halle (1968), this rule would be represented as in (1).
+(1) t --~ dx / Q r* __  VSince Johnson's (1972) work, researchers have proposed a number of differentways to represent such phonological rules by transducers.
+The most popular methodis the two-level formalism of Koskenniemi (1983), based on Johnson (1972) and the(belatedly published) work of Kaplan and Kay (1994), and various implementationsand extensions (summarized and contrasted in Karttunen \[1993\]).
+The basic intuitionof two-level phonology is that a rule that rewrites an underlying string as a surfacestring can be implemented as a transducer that reads from an underlying tape andwrites to a surface tape.
+Figure 1 shows an example of a transducer that implementsthe flapping rule in (1).
+Each arc has an input symbol and an output symbol, separatedby a colon.
+A single symbol (such as t or V) is a shorthand for a symbol that is the samein the input and output (i.e., t : t  or V:V).
+Either the input or the output symbols canbe null; a null input symbol is used for an insertion of a phone; a null output symbolfor a deletion.
+A transduction of an input string to an output string corresponds to apath through the transducer, where the input string is formed by concatenating theinput symbols of the arcs taken, and the output string by concatenating the outputsymbols of the arcs.
+The transducer's input string is the phonologically underlyingform, while the transducer's output is the surface form.
+A transduction is valid if thereis a corresponding path beginning in state 0 and ending in an accepting state (indicatedby double circles in the figure).
+Table 1 shows our phone set--an ASCII symbol setbased on the ARPA-sponsored ARPAbet alhabet--with the IPA equivalents.More recently, Bird and Ellison (1994) show that a one-level finite-state automa-ton can model richer phonological structure, such as the multitier representations ofautosegmental phonology.
+In their model, each tier is represented by a finite-state au-tomaton, and autosegmental association by the synchronization of two automata.
+Thissynchronized-automata-based rather than transducer-based model generalizes overthe two-level models of Koskenniemi (1983) and Karttunen (1993) but also the three-level models of Lakoff (1993), Goldsmith (1993), and Touretzky and Wheeler (1990).500Gildea and Jurafsky Learning Bias and Phonological-Rule InductionCVIV / ~  t:dx?"
+"(9Ex: batterUnder yingI bJaell t \[erJSurface:\[ blael dxler IFigure 1Nondeterministic ransducer for English flapping.
+Labels on arcs are of the form (inputsymbol):(output symbol).
+Labels with no colon indicate identical input and output symbols.
+"V" indicates any unstressed vowel, "V" any stressed vowel, "dx" a flap, and "C" anyconsonant other than "t', "r" or "dx'.In order to take advantage of recent work in transducer induction, we have chosento use the transducer rather than synchronized-automata approach, representing rulesas subsequential finite-state transducers (Berstel \[1979\]; subsequential transducers willbe defined below).
+Since the focus of our research is on adding prior knowledge tohelp guide an induction algorithm, rather than the particular automaton approachchosen, we expect our results to inform future work on the induction of other typesof automata.Subsequential finite-state transducers are a subtype of finite-state transducers withthe following properties:....The transducer is deterministic, that is, there is only one arc leaving agiven state for each input symbol.Each time a transition is made, exactly one symbol of the input string isconsumed.A unique end-of-string symbol is introduced.
+At the end of each inputstring, the transducer makes an additional transition on the end-of-stringsymbol.All states are accepting.The length of the output string associated with a transition of a subsequentialtransducer is unconstrained.
+For our purposes, the key property is the first, becausedeterminism is essential to the state-merging of the OSTIA algorithm.
+Subsequentialtransducers are essentially the most general type of deterministic transducers.
+Thesecond property is merely a convention; any transducer with multiple input symbolson an arc can easily be transformed into one with single arcs with one symbol each.The introduction of an end-of-string symbol serves to expand the range of functionsthat can be represented.
+Finally, in a deterministic transducer, there is no need to501Computational Linguistics Volume 22, Number 4Table 1A slightly expanded ARPAbet phoneset(including alveolar flap, syllabic nasals andliquids, and reduced vowels), and thecorresponding IPA symbols.
+Vowels may beannotated with the numbers 1and 2 toindicate primary and secondary stress,respectively.IPA ARPAbet IPA ARPAbetb b p pd d t tg g k k(1 aa s s~e ae z zA ah f sh3 ao 3 zhC eh f f3" er v vI, ih 0 thi iy 6 dho ow tf  cha) uh 3 jhu uw h hhffw aw(ff ay y ye ey r r3 y oy w w1 el 1 11211 em m men n nax I 3 ngix r dxaxrdistinguish between accepting and non-accepting states, as there can be no ambiguityabout which path is taken through the states.A subsequential  relation is any relation between strings that can represented bythe input to output relation of a subsequential finite-state transducer.
+While subse-quential relations are formally a subset of regular relations, any relation over a finiteinput language is subsequential if each input has only one possible output.A sample phonological rule, the flapping rule for English shown in (1), is re-peated in (2a).
+(2b) shows a positive application of the rule; (2c) shows a case wherethe conditions for the rule are not met.
+The rule realizes an underlying t as a flapafter a stressed vowel and zero or more r's, and before an unstressed vowel.
+Thesubsequential transducer for (2a) is shown in Figure 2.
+(2) a.t--*dx/gr*_Vb.
+latter:l ael t er--* i ael dx erc.
+laughter: i ael f t er--* I ael I t erThe most significant difference between our subsequential transducers and two-level models is that the two-level transducers described by Karttunen (1993) are non-502Gildea and Jurafsky Learning Bias and Phonological-Rule Inductiontc /S tar t  state ~_  Ex: batterr V b lael l t  ler Ic ~ T c \ ,A :,e Seen stressedV ?
+dxV rl;;v NV?"
+vowe,# :t k , ,~\ ] .\ Flapping aboutto occurFigure 2Subsequential transducer for English flapping; "#" is the end-of-string symbol.deterministic.
+In addition, Karttunen's transducers may have only zero or one symbolas either the input or output of an arc, and they have no special end-of-string symbol.Finally, his transducers explicitly include both accepting and non-accepting states.
+Allstates of a subsequential transducer are valid final states.
+It is possible for a transduc-tion to fail by finding no next transition to make, but this occurs only on bad input,for which no output string is possible.These representational differences between the two formalisms lead to differentways of handling certain classes of phonological rules, particularly those that dependon the context o the right of the affected symbol.
+The subsequential transducer doesnot emit any output until enough of the right-hand context has been seen to determinehow the input symbol is to be realized.
+Figure 2 shows the subsequential equivalentof Figure 1.
+This transducer emits no output upon seeing a t when the machine is atstate 1.
+Rather, the machine goes to state 2 and waits to see if the next input symbolis the requisite unstressed vowel; depending on this next input symbol, the machinewill emit the t or a dx along with the next input symbol when it makes the transitionfrom state 2 to state 0.In contrast, the nondeterministic two-level-style transducer shown in Figure 1 hastwo possible arcs leaving state 1 upon seeing a t,  one with t as output and one withdx.
+If the machine takes the wrong transition, the subsequent transitions will leave thetransducer in a non-accepting state, or a state will be reached with no transition onthe current input symbol.
+Either way, the transduction will fail.Generating a surface form from an underlying form is more efficient with a subse-quential transducer than with a nondeterministic transducer, as no search is necessaryin a deterministic machine.
+Running the transducer backwards to parse a surface forminto possible underlying forms, however, remains nondeterministic in subsequentialtransducers.
+In addition, a subsequential transducer may require many more statesthan a nondeterministic transducer to represent the same rule.
+Our reason for choos-ing subsequential transducers, then, is solely that efficient echniques exist for learningthem, as we will see in the next section.
+In particular, the algorithm we chose is ableto learn from only positive evidence.
+Other algorithms make use of negative videncein the form of transductions marked as invalid, or questions directed at an informant.503Computational Linguistics Volume 22, Number 4Input pairs:bat: batter: band:I blaeltlerl I blaclnld\[I blael~erl I blaelnl d lM J  b:OM2./ ae:O MT.Y~ A M' l#:baedxerMLYn : 0 ~ d .. 0 -~)# : b ae n ~l QFigure 3Initial tree transducer for bat, batter, and band with flapping applied.This use of positive-only evidence is significant for both cognitive reasons (childrenhave been shown to make little use of negative vidence) and practical ones (positiveexamples, but not negative xamples, are easily derived automatically from corpora).3.
+The OSTIA AlgorithmOur phonological-rule induction algorithm is based on augmenting the Onward Subse-quential Transducer Inference Algorithm (OSTIA) of Oncina, Garcfa, and Vidal (1993).This section outlines the OSTIA algorithm to provide background for the modificationsthat follow; see their original paper for further details.OSTIA takes as input a training set of valid input-output pairs for the transductionto be learned.
+The algorithm begins by constructing a tree transducer that covers allthe training samples according to the following procedure: for each input pair, thealgorithm walks from the initial state taking one transition on each input symbol, asif doing a transduction.
+When there is no move on the next input symbol from thepresent state, a new branch is grown on the tree.
+The entire output string of eachtransduction is initially stored as the output on the last arc of the transduction, thatis, the arc corresponding to the end-of-string symbol.
+An example of an initial treetransducer constructed by this process is shown in Figure 3.As the next step, the output symbols are "pushed forward" as far as possibletowards the root of the tree.
+This process begins at the leaves of the tree and worksits way to the root.
+At each step, the longest common prefix of the outputs on all thearcs leaving one state is removed from the output strings of all the arcs leaving thestate and suffixed to the (single) arc entering the state.
+This process continues untilthe longest common prefix of the outputs of all arcs leaving each state is the nullstring--the definition of an onward transducer.
+The result of making the transducerof Figure 3 onward is shown in Figure 4.At this point, the transducer covers all and only the strings of the training set.OSTIA now attempts to generalize the transducer, by merging some of its states to-gether.
+For each pair of states (s, t) in the transducer, the algorithm will attempt omerge s with t, building a new state with all of the incoming and outgoing transitionsof s and t. The result of the first merging operation on the transducer of Figure 4 isshown in Figure 5.A conflict arises whenever two states are merged that have outgoing arcs with thesame input symbol.
+When this occurs, an attempt is made to merge the destination504Gildea and Jurafsky Learning Bias and Phonological-Rule Induction-n:nd  ~ .
+7 ) ~Figure 4Onward tree transducer for bat, batter, and band with flapping applied.Figure 5Result of merging states 0 and 1 of Figure 4.ae~ n" d =Q?
+ae" aeKLd .rn : rn P '~ ,dFigure 6Example push-back operation and state merger.
+Input words and and amp.states of the two conflicting arcs.
+First, all output symbols beyond the longest commonprefix of the outputs of the two arcs are "pushed back" to arcs further down the tree.This operation is only allowed under certain conditions that guarantee that the trans-ductions accepted by the machine are preserved.
+The push-back operation allows thetwo arcs to be combined into one and their destination states to be merged.
+An exam-ple of a push-back operation and subsequent merger on a transducer for the wordsand and amp is shown in Figure 6.
+This method of resolving conflicts repeats until noconflicts remain, or until resolution is impossible.
+In the latter case, the transducer isrestored to its configuration before the merger causing the original conflict, and thealgorithm proceeds by attempting tomerge the next pair of states.505Computational Linguistics Volume 22, Number 4Table 2Unmodified OSTIA learningflapping on 49,280-word testset.
+Error rates are thepercentage of incorrecttransductions.Samples States %Error6,250 19 2.3212,500 257 16.4025,000 141 4.4650,000 192 3.144.
+Problems Using OSTIA to Learn Phonological RulesThe OSTIA algorithm can be proven to learn any subsequential relation in the limit.That is, given an infinite sequence of valid input/output pairs, it will at some pointderive the target ransducer f om the samples een so far.
+When trying to learn phono-logical rules from finite linguistic data, however, we found that the algorithm wasunable to learn a correct, minimal transducer.We tested the algorithm using a synthetic orpus of 99,279 input/output pairs.Each pair consisted of an underlying pronunciation of an individual word of Englishand a machine generated "surface pronunciation."
+The underlying string of each pairwas taken from the phoneme-based CMU pronunciation dictionary (CMU 1993).
+Thesurface string was generated from each underlying form by mechanically applyingthe one or more rules we were attempting to induce in each experiment.In our first experiment, we applied the flapping rule (repeated again in (3)) totraining corpora of between 6,250 and 50,000 words.
+Figure 7 shows the transducerinduced from 25,000 training samples, and Table 2 shows some performance r sults.For obvious reasons we have left off the labels on the arcs in Figure 7.
+The only differ-ence between underlying and surface forms in both the training and test sets in thisexperiment is the substitution ofdx for a t in words where flapping applies.
+Therefore,inaccuracies in predicting output strings represent real errors in the transducer, ratherthan manifestations of other phonological phenomena.
+(3) t--* dx /~ ' r *__VFigure 7 and Table 2 show OSTIA's failure to learn the simple flapping rule.
+Recallthat the optimal transducer, shown in Figure 2, has only 3 states, and would haveno error on the test set of synthetic data.
+OSTIA's induced transducer not only ismuch more complex (between 19 and 257 states) but has a high percentage of error.In addition, giving the model more training data does not seem to help it induce asmaller or better model; the best transducer was the one with the smallest number oftraining samples.Since OSTIA can learn any subsequential relation in the limit, why these difficul-ties with the phonological-rule induction task?
+The key provision here, of course, is"the limit"; we are clearly not giving OSTIA sufficient raining data.
+There are tworeasons this data may not be present in any reasonable training set.
+First, the neces-sary number of sample transductions may be several times the size of any naturallanguage's vocabulary.
+Thus even the entire vocabulary of a language may be insuffi-506Gildea and Jurafsky Learning Bias and Phonological-Rule InductionFigure 7First attempt of OSTIA to learn flapping.
+Transducer induced on 25,000 samples.b:baeae :0n:ndd 'O~#'0 = t:O=t 1 ~er : dx erM.J#:tInputs:batbatterbandFigure 8Final result of merging process on transducer f om Figure 4.cient in size to learn an efficient or correct ransducer.
+Second, even if the vocabularywere larger, the necessary sample may require types of strings that are not foundin the language for phonotactic or other reasons.
+Systematic phonological constraintssuch as syllable structure may make it impossible to obtain the set of examples thatwould be necessary for OSTIA to learn the target rule.
+For example, given one trainingset of examples of English flapping, the algorithm induced a transducer that realizesan underlying t as dx either in the environment "Qr*_V or after a sequence of sixconsonants.
+This is possible since such a transducer will accurately cover the trainingset, as no English words contain six consonants followed by a t. The lack of naturallanguage bias causes the transducer to miss correct generalizations and learn incorrecttransductions.507Computational Linguistics Volume 22, Number 4One example of an unnatural induction is shown in Figure 8, the final transducerinduced by OSTIA on the three-word training set of Figure 4.
+OSTIA has a tendencyto produce overly "clumped" transducers, as illustrated by the arcs with output b aeand n d in Figure 8, or even Figure 4.
+The transducer of Figure 8 will insert an aeafter any b, and delete any ae from the input.
+OSTIA's default behavior is to emit theremainder of the output string for a transduction as soon as enough input symbolshave been seen to uniquely identify the input string in the training set.
+This resultsin machines that may, seemingly at random, insert or delete sequences of four orfive segments.
+This causes the machines to generalize in linguistically implausibleways, i.e., producing output strings incorrectly bearing little relation to their input.
+Inaddition, the incorrect distribution of output symbols prevents the optimal merging ofstates during the learning process, resulting in large and inaccurate transducers.
+Thehigher number of states reduces the number of training examples that pass througheach state, making incorrect state mergers possible and introducing errors on test data.A second problem is OSTIA's lack of generalization.
+The vocabulary of a lan-guage is full of accidental phonological gaps.
+Without an ability to use knowledgeabout phonological features to generalize across phones, OSTIA's transducers havemissing transitions for certain phones from certain states.
+For example, the transducerof Figure 8 will fail completely upon seeing any symbol other than er or end-of-stringafter a t. Of course this transducer is only trained on three samples, but the sameproblem occurs with transducers trained on large corpora.As a final example, if the OSTIA algorithm is trained on cases of flapping in whichthe preceding environment is every stressed vowel but one, the algorithm has no wayof knowing that it can generalize the environment to all stressed vowels.
+Again, thealgorithm needs knowledge about classes of segments to fill in these accidental gapsin training data coverage.5.
+Augmenting the Learner with Phonological KnowledgeIn order to give OSTIA the prior knowledge about phonology to deal with the prob-lems in Section 4, we augmented it with three biases, each of which is assumed explic-itly or implicitly by most if not all theories of phonology.
+These biases are intended toexpress universal constraints about the domain of natural anguage phonology.Faithfulness: Underlying segments tend to be realized similarly on the surface.Community: Phonologically similar segments behave similarly.Context: Phonological rules need access to variables in their context.As discussed above, our algorithm is not intended as a direct model of humanlearning of phonology.
+Rather, since only by adding these biases was a general-purposealgorithm able to learn phonological rules, and since most theories of phonology as-sume these biases as part of their model, we suggest hat these biases may be part ofthe prior knowledge or state of the learner.5.1 FaithfulnessAs we saw above, the unaugmented OSTIA algorithm often outputs long clumps ofsegments when seeing a single input phone.
+Although each particular clump may becorrect for the exact input example that contained it, it is rarely the case in generalthat a certain segment is invariably followed by a string of six other specific segments.Thus the model will tend to produce errors when it sees this input phone in a similar508Gildea and Jurafsky Learning Bias and Phonological-Rule Inductionih m p oa l  r t ah n sI I I I  //11ih m p oal dx all n t sFigure 9Alignment of importance with flapping, r-deletion and t-insertion.left context.
+This behavior is caused by a paucity of training data, but even with areasonably large training set, we found it was often the case that some particularstrings of segments happened to only occur once.In order to resolve this problem, and the related cases of arbitrary phone-deletionwe saw above, we need to appeal to the fact that theories of generative phonologyhave always assumed that, all things being equal, surface forms tend to resemble un-derlying forms.
+This assumption was implicit, for example, in Chomsky and Halle's(1968) MDL-based evaluation procedure for phonological rule systems.
+They rankedthe "value" of a grammar by the inverse of the number of symbols in the system.
+Ac-cording to this metric, clearly, a grammar that does not contain "trivial" rules mappingan underlying phonology unit to an identical unit on the surface is preferable to anotherwise identical grammar that has such rules.
+Later work in Autosegmental Phonol-ogy and Feature Geometry extended this assumption by restricting the domain of in-dividual phonological rules to changes in an individual node in a feature-geometricrepresentation.Recent wo-level theories of Optimality Theory (e.g., McCarthy and Prince 1995)make the assumption of faithfulness (which is similar to Chomsky and Halle's) moreexplicit.
+These theories propose a constraint called FAITHFULNESS, which requires thatthe phonological output string match its input.
+Such a constraint is ranked below allother constraints in the optimality constraint ranking (since otherwise no surface formcould be distinct from its underlying form), and is used to rule out the infinite setof candidates produced by GEN that bear no relation to the underlying form.
+Com-putational models of morphology have made use of a similar faithfulness bias.
+Ling(1994), for example, applied a faithfulness heuristic (called passthrough) as a defaultin a ID3-based decision-tree induction system for learning the past tense of Englishverbs.
+Orgun (1996) extends the two-level optimality-theoretic concept of faithfulnessto require a kind of monotonicity from the underlying to the surface form: his MATCHconstraint requires that every element of an output string contain all the informationin the corresponding element of an input string.Our model of faithfulness preserves the insight that, barring a specific phonolog-ical constraint o the contrary, an underlying element will be identical to its surfacecorrespondent.
+But like Orgun's version, our model extends this bias to suggest hat,all things being equal, a changed surface form will also be close to its underlyingform in phonological feature space.
+In order to implement such a faithfulness bias inOSTIA, our algorithm guesses the most probable segment-to-segment alignment be-tween the input and output strings, and uses this information to distribute the outputsymbols among the arcs of the initial tree transducer.
+This is demonstrated for theword importance in Figures 9 and 10.This new distribution of output symbols along the arcs of the initial tree transducerno longer guarantees the onwardness of the transducer.
+(Although in fact, the finaltransducers induced by our new method do tend to be onward.)
+Onwardness happens509Computational Linguistics Volume 22, Number 4Figure 10Resulting initial transducer for importance.Table 3Phonological features used in alignment.vocalic consonant sonorant rhoticadvanced front high lowback rounded tense voicedw-offglide y-offglide coronal anteriordistributed nasal lateral continuantstrident syllabic silent flapstress primary-stressto be an invariant of the unmodif ied OSTIA algorithm, but it is not essential to theworking of the algorithm.
+2Our modification proceeds in two stages: first, a dynamic programming method isused to compute a correspondence b tween input and output segments, and second,the alignment is used to distribute output symbols on the inital tree transducer.The alignment is calculated using the algorithm of Wagner and Fischer (1974),which calculates the insertions, deletions, and substitutions that make up the minimumedit distance between the underlying and surface strings.
+The costs of edit operationsare based on phonological features; we used the 26 binary articulatory features inTable 3.This feature set was chosen merely because it was commonly used in other speechrecognition experiments in our laboratory; none of our experiments or results de-pended in any way on this particular choice of features, or on their binary ratherthan privative or multivalued nature.
+For example, the decision-tree pruning algo-rithm discussed in Section 5.2.2, which successfully generalized about the importanceof stressed vowels to the flapping rule, would have functioned identically with anyfeature set capable of distinguishing stressed from unstressed vowels.The cost function for substitutions was equal to the number of features changedbetween the two segments.
+The cost of insertions and deletions was arbitrarily set at 6(roughly one quarter the maximum possible substitution cost).
+From the sequence ofedit operations, an alignment between input and output segments is calculated.
+Dueto the shallow nature of the rules in question, the exact parameters used to calculatealignment are not very significant.When building the initial tree transducer, the alignment is used to ensure that nooutput symbol appears on an arc further up the tree than the corresponding inputsymbol.
+To resolve conflicts between the output symbols for a given arc, symbols may2 No matter what alignment isused, we are guaranteed that at least he correspondence learned will besome generalization that preserves the behavior of the training set.
+For the theoretical property oflanguage identification i  the limit, we must be guaranteed that the alignments used are correct: hatis, the alignment must not show an output symbol to correspond toan input symbol that comes afterthe input symbol that, in the target ransducer, generates the output symbol.
+This is because, whileoutput symbols can be pushed back, the state-merging process cannot push the symbols forward if thealignment has caused them to be placed too far down the tree.
+For the shallow rules examined in thispaper, finding the correct alignment is trivial.510Gildea and Jurafsky Learning Bias and Phonological-Rule Induction?
+#.
+O'~Q#'0 ~@Figure 11Initial tree transducer constructed with alignment information.
+Note that output symbols havebeen pushed back across state 3 during the construction.V + { oy2, aw2, uh2 }trC Q C, V-{uh2, uhl, ayl, 0( ~  erl, er2, oyl } ~~ V - { oy2, aw2, uh2 ~V:dxV \ __ /r : tr  \ f -  ~"#: t  ~ )Figure 12Flapping transducer induced with alignment, rained on 25,000 samples.be pushed back down the tree as is done when merging states.
+The exact process usedto build the initial tree transducer is described below.When adding a new arc to the tree, all the unused output segments up to andincluding those that map to the arc's input segment become the new arc's output,and are now marked as having been used.
+When walking down branches of the treeto add a new input/output sample, we calculate the longest common prefix, n, ofthe sample's unused output and the output of each arc along the path.
+The next nsymbols of the transduction's output are now marked as having been used.
+If thelength, 1, of the arc's output string is greater than n, it is necessary to push back thelast I - n symbols onto arcs further down the tree.
+A tree transducer constructed by thisprocess is shown in Figure 11, for comparison with the unaligned version in Figure 4.The final transducer produced with the alignment algorithm is shown in Figure 12.Purely to make the diagram easier to read we have used C and V to represent the setof consonants and of vowels on the arcs' labels.
+It is important to note that the learningalgorithm did not have any knowledge of the concepts of vowel and consonant, otherthan through the features used to calculate alignment.The size and accuracy of the transducers produced by the alignment algorithmare summarized in Table 4.
+Note that the use of alignment information in creatingthe initial tree transducer dramatically decreases the number of states in the learned511Computational Linguistics Volume 22, Number 4Table 4Results using alignment information on English flapping.OSTIA without AlignmentSamples States % ErrorOSTIA with AlignmentStates % Error6,250 19 2.32 3 0.3412,500 257 16.40 3 0.1425,000 141 4.46 3 0.0650,000 192 3.14 3 0.01Table 5Results on r-deletion usingalignment information.r-deletionSamples States % Error6,250 4 0.4812,500 3 0.2125,000 6 0.1850,000 35 0.30transducer as well as the error performance on test data.
+The improved algorithminduced a flapping transducer with the minimum number of states (3) with as few as6,250 samples.The use of alignment information also reduced the learning time; the additionalcost of calculating alignments is more than compensated for by quicker merging ofstates.
+There was still a small amount of error in the final transducer, and in the nextsection we show how this remaining error was reduced still further.The algorithm also successfully induced transducers with the minimum numberof states for the t-insertion and t-deletion rules in (5) and (6), given only 6,250 sam-ples.
+For the r-deletion rule in (4), the algorithm induced a machine that was notthe theoretical minimal machine (3 states), as Table 5 shows.
+We discuss these resultsbelow.
+(4) r --* O/ \[+vocalic\] _ \[+consonantal\](5) O ~ t /Ls(6) t--*O/n--\[ +v?calic \]-stressIn our second experiment, we applied our learning algorithm to a more difficultproblem: inducing multiple rules at once.
+One of the important properties of finite-statephonology is that transducers for two rules can be automatically combined to producea transducer for the two rules run in series.
+With our deterministic transducers, thetransducers are joined via composition.
+Any ordering relationships are preserved inthis composed transducer--the order of the rules corresponds to the order in which512Gildea and Jurafsky Learning Bias and Phonological-Rule InductionTable 6Results on three rules composed.OSTIA with AlignmentSamples States % Error6,250 6 0.9312,500 5 0.2025,000 5 0.0950,000 5 0.04the transducers were composed.
+3Our goal was to learn such a composed transducer directly from the originalunderlying and ultimate surface forms.
+The simple rules we used in our experimentcontain no feeding (the output of one rule creating the necessary environment foranother ule) or bleeding (a rule deleting the necessary environment, causing anotherrule not to apply) relationships among rules.
+Thus the order of their application is notsignificant.
+However the learning problem remains unchanged if the rules are requiredto apply in some particular order.Setting r-deletion aside for the present, a data set was constructed by applyingthe t-insertion rule in (5), the t-deletion rule in (6), and the flapping rule alreadyseen in (3) one after another.
+The minimum number of states for a subsequentialtransducer performing the composition of the three rules is five.
+As is seen in Table 6,our algorithm successfully induces a transducer of minimum size given 12,500 or moresample transductions.5.2 Community5.2.1 Decision-Tree Induction.
+A second class of problems with our baseline OSTIAresulted from a lack of generalization across segments.
+Any training set of wordsfrom a language is likely to be full of accidental phonological gaps.
+Without an abilityto use knowledge about phonological features to generalize across phones, OSTIA'stransducers have missing transitions for certain phones from certain states.
+This causeserrors when transducing previously unseen words after training is complete.
+Considerthe transducer in Figure 12, reproduced below as Figure 13.One class of errors in this transducer is caused by the input "falling off" the model.That is, a transduction may fail because the model has no transition specified from agiven state for some phone.
+This is the case with (7), where there is no transition fromstate 1 on phone uh2.
+(7) showroom: sh owl r uh2 m--* sh owl rA second class of errors is caused by an incorrect ransition; with (8), for example,the transducer incorrectly fails to flap after oy2 because, upon seeing oy2 in state 0,the machine stays in state 0, rather than making the transition to state 1.3 When using nondeterministic transducers, for example, those of Karttunen described in Section 2,multiple rules are represented byintersecting, rather than composing, transducers.
+In such a system,for two rules to apply correctly, the output must lie in the intersection fthe outputs accepted by thetransducers for each rule on the input in question.
+We have not attempted tocreate an OSTIA-likeinduction algorithm for nondeterministic transducers.513Computational Linguistics Volume 22, Number 4V + { oy2, aw2, uh2 }r~ Q C, V -{  uh2, uhl, ayl, ~(d~ ~"~ er 1, er2, o yl} _ ~- { oy2, aw2, uh~ :: ttVcNNN / :$\ .
+_ _ /r :tr x f  ~?
+"#: t  ~ , )Figure 13Flapping transducer induced with alignment.
+For simplicity, some of the phones missing fromthe transitions from state 2 to 0 and from 1 to 0 have been omitted.
+For clarity of explication,set-subtraction notation is used to show which vowels do not cause transitions between states0 and 1.
+(8) exploiting: ehl k s p 1 oy2 t ih ng-~ ehl k s p 1 oy2 t ih ngBoth of these problems are caused by insufficiently general labels on the transitionarcs in Figure 13.
+Compare Figure 13 with the correct ransducer in Figure 2.
+We haveused set-subtraction notation in Figure 13 to highlight the differences.
+Notice that inthe correct ransducer, the arc from state 1 to state 0 is labeled with C and V, while inthe incorrect ransducer the transition is missing six of the vowels.
+These vowels weresimply never seen at this position in the input.The intuition that OSTIA is missing, then, is the idea that phonological constraintsare sensitive to phonological features that pick out certain equivalence classes of seg-ments.
+Since the beginning of generative grammar, and based on Jakobson's earlyinsistence on the importance of binary oppositions (Jakobson 1968; Jakobson, Fant,and Halle 1952), phonological features, and not the segment, have generally formedthe vocabulary over which linguistic rules are formed.
+Giving such knowledge toOSTIA would allow it to hypothesize that if every vowel it has seen has acted acertain way, that the rest of them might act similarly.This phonological feature knowledge may be innate or may merely be learnedextremely early.
+There is a significant body of psychological results, for example, indi-cating that infants one to four months of age are already sensitive to the phonologicaloppositions which characterize phonemic ontrasts; Eimas et al (1971), for example,showed that infants were able to distinguish the syllables /ba /  and /pa/ ,  but wereunable to distinguish acoustic differences that were of a similar magnitude but thatdo not form phonemic ontrast in any language.
+Similar studies have shown that thissensitivity appears to be cross-linguistic.
+But it is by no means necessary to assumethat this knowledge is innate.
+Ellison (1992) showed that a purely empiricist inductionalgorithm, based on the information-theoretic metric of choosing a minimum-lengthrepresentation, was able to induce the concepts "V" and "C" in a number of differentlanguages.
+Promising results from another field of linguistic learning, syntactic part-of-speech induction, suggest that an empiricist approach may be feasible.
+Brown et al(1992) used a purely data-driven greedy, incremental clustering algorithm to deriveword-classes for n-gram grammars; their algorithm successfully induced classes like514Gildea and Jurafsky Learning Bias and Phonological-Rule InductionV(~t  ..- r ( ,~r~, .~C VVcVC :tC "~J ' "~ / t : ~r :tr ~ 9.
+VFigure 14Flapping transducer induced from 50,000 samples.
+"days of the week," "male personal name," "body-part noun," and "auxiliary."
+Onlyfuture research will determine whether phonological constraints are innate, or merelylearned extremely early, and whether empiricist algorithms like Ellison's will be ableto induce a full phonological ontology without them.Whether phonological features may be innately guided or derived from earlierinduction, then, the community bias suggests adding knowledge of them to OSTIA.We did this by augmenting OSTIA to use phonological feature knowledge to generalizethe arcs of the transducer, producing transducers that are slightly more general than theones OSTIA produced in our previous experiments.
+Our intuition was that these moregeneral transducers would correctly classify stressed vowels together as environmentsfor flapping, and similarly solve other problems caused by gaps in training data.In the rest of this section we will describe how these generalized transducers areproduced and tested.
+To peek ahead at the results of the algorithm, however, considerFigure 14.
+The algorithm produced the arcs of Figure 14 by generalizing the arcs fromFigure 13 above.
+The difference is that the arcs in Figure 13 have more general labels.The mechanism works by applying the standard ata-driven decision-tree induc-tion algorithm (based on Quinlan's \[1986\] ID3 algorithm) to learn a decision tree overthe arcs of the transducer.
+We add prior knowledge to the induction by adding lan-guage bias; that is, the induction language will use phonological features as a languagefor making decisions.
+The resulting decision trees describe the behavior of the machineat a given state in terms of the next input symbol by generalizing from the arcs leavingthe state.
+Since we are generalizing over arcs at a given state of an induced transducer,rather than directly from the original training set of transductions, the input to theID3 algorithm is limited to the number of phonemes, and is not proportional to thesize of the original training set.We begin by briefly summarizing the decision-tree induction algorithm.
+A decisiontree takes a set of properties that describe an object and outputs a decision about thatobject.
+It represents the process of making a decision as a rooted tree, in which eachinternal node represents a test of the value of a given property, and each leaf noderepresents a decision.
+A decision about an object is reached by descending the tree, ateach node taking the branch indicated by the object's value for the property at thatnode.
+The decision is then read off from the leaf node reached.
+We will use decisiontrees to decide what actions and outputs a transducer should produce given certainphonological inputs.
+Thus the internal nodes of the tree will correspond to tests of thevalues of phonological features, while the leaf nodes will correspond to state transitionsand outputs from the transducer.The ID3 algorithm is given a set of objects, each labeled with feature values and adecision, and builds a decision tree for a problem given.
+It does this by iteratively515Computational Linguistics Volume 22, Number 4choosing the single feature that best splits the data, i.e., that is the information-theoretically best single predictor of the decision for the samples.
+A node is built forthis feature, and examples are divided into subsets based on their values for it.
+Thesevalues are attached to the new node's children, and the algorithm is run again on thechildren's ubsets, until each leaf node has a set of samples that are all of the same cat-egory.
+Thus for each state in a transducer, we gave the algorithm the set of arcs leavingthe state (the samples), the phonological features of the next input symbol (the fea-tures), and the output/transition behaviors of the automaton (the decisions).
+Becausewe used binary phonological features, we obtained binary decision trees (althoughwe could just as easily have used multivalued features).
+The alignment informationpreviously calculated between input and output strings is used again in determiningwhich arcs have the same behavior.
+Two arcs are considered to have the same behav-ior if the same phonological features have changed between the input segment andthe output segment that corresponds to it, and if the preceding and following outputsegments of the two arcs are identical.
+The same 26 binary phonological features usedin calculating edit distance were used to classify segments in the decision trees.
+It isworth noting that conflicts in the input to the ID3 algorithm (where the same pathto a leaf covers examples that behave differently) are impossible: no two phonemesagree in every feature, and because our transducers are deterministic, there is at mostone arc leaving a state labeled with a given input phoneme.Figure 15 shows a resulting decision tree that generalized the transducer in Fig-ure 13 to avoid the problem of certain inputs "falling off" the transducer.
+We auto-matically induced this decision tree from the arcs leaving state 1 in the machine ofFigure 13.
+The outcomes at the leaves of the decision tree specify the output of thenext transition to be taken in terms of the input segment, as well as as the transition'sdestination state.
+We use square brackets to indicate which phonological features ofthe input segment are changed in the output; the empty brackets in Figure 15 simplyindicate that the output segment is identical to the input segment.
+Note that if the un-derlying phone is a t (\[-rhotic,-voice,-continuant,-high,+coronal\]), the machine jumpsto state 2.
+If the underlying phone is an r, the machine outputs r and goes to state 1.Otherwise, the machine outputs its input and moves to state 0.Because the decision tree specifies a state transition and an output string for everypossible combination of phonological features, one can no longer "fall off" the ma-chine, no matter what the next input segment is.
+Thus in a transducer built using thenewly induced ecision tree for state 1, such as the machine in Figure 18, the arc fromstate 1 to state 0 is taken on seeing any vowel, including the six vowels missing fromthe arc of the machine in Figure 13.Our decision trees superficially resemble the organization of phonological fea-tures into functionally related classes proposed in the Feature Geometry paradigm(see McCarthy \[1988\] for a review).
+Feature-geometric theories traditionally proposeda unique, language-universal grouping of distinctive features to explain the fact thatphonological processes often operate on coherent subclasses of the phonological fea-tures.
+For example, facts such as the common cross-linguistic occurrence of rules ofnasal assimilation, which assimilate the place of articulation of nasals to the place ofthe following consonant, suggest a natural class place that groups together (at least)the labial and coronal features.
+The main difference between decision trees and fea-ture geometry trees is the scope of the proposed generalizations; where a decisiontree is derived empirically from the environment of a single state of a transducer, fea-ture geometry is often assumed to be unique and universal (although recent work hasquestioned this assumption; see, for example, Padgett \[1995a, b\]).
+Information-theoreticdistance metrics imilar to those in the ID3 algorithm were used by McCarthy (1988,516Gildea and Jurafsky Learning Bias and Phonological-Rule Inductionrhoticvoiced consonant / \  / \continuant 1 1 3 / \high / \coronal I / \1 2Outcomes:1: Output: \[ \], Destination State: 02: Output: nil, Destination State: 23: Output: \[ \], Destination State: 1On end of string: Output: nil, Destination State: 0Figure 15Example decision tree.
+This tree describes the behavior of state 1 of the transducer in Figure 2.\[ \] in the output string indicates the arc's input symbol (with no features changed).101), who used a cluster analysis on a dictionary of Arabic to argue for a particularfeature-geometric grouping; the relationship between feature geometries and empiricalclassification algorithms like decision trees clearly bears further investigation.To recapitulate, the transducers induced by OSTIA suffered from undergeneral-ization in a number of ways.
+Because OSTIA had no knowledge of similarities amongphones, the induced transducer often had no transition specified for a given phone,or had an incorrect one specified.
+We took the arcs leaving each state of our trans-ducers and used a decision-tree induction algorithm to replace them by a smootherand more general set of arcs.
+In the next section we show how these arcs were furthergeneralized.5.2.2 Further Genera l i zat ion:  Dec is ion  Tree Pruning.
+Although inducing decisiontrees on the arcs of the transducer improved the generalization behavior of our trans-ducers, we found that some transducers needed to be generalized even further.
+Con-sider again the English flapping rule, which applies in the context of a precedingstressed vowel.
+Our algorithm first learned an incorrect ransducer whose decisiontree for state 0 is shown in Figure 16.
+In this transducer all arcs leaving state 0 cor-rectly lead to the flapping state on stressed vowels, except for those stressed vowelsthat happen not to have occurred before an instance of flapping in the training set.
+Forthese unseen vowels (which consisted of the vowel uh and the diphthongs oy and owall with secondary stress), the transducer incorrectly returns to state 0.
+In this case, wewish the algorithm to make the generalization that the rule applies after all stressedvowels.Again, this correct generalization (all stressed vowels) is expressible as a (singlenode) decision tree over the phonological features of the input phones.
+But the keyinsight is that the current transducer is incorrect because the absence of particular517Computational Linguistics Volume 22, Number 4stress j - - -< .
+.prim-stress / --..<.tensew-offglide / ' xrounded 12 highy-offglide 12 12Outcomes:1: Output: \[ \], Destination State: 02: Output: \[ \], Destination State: 1On end of string: Output: nil, Destination State: 0Figure 16Decision tree before pruning.
+The initial state of the flapping transducer.training patterns (the three particular stressed vowels) caused the decision tree tomake a number of complex unnecessary decisions.
+This problem can be solved bypruning the decision trees at each state of the machine.
+Pruning is done by steppingthrough each state of the machine and pruning as many branches as possible fromthe fringe of the current state's decision tree.
+Each time a branch is pruned, one of thechildren's outcomes is picked arbitrarily for the new leaf, and the entire training setof transductions i  tested to see if the new transducer still produces the right output.As discussed in Section 6, this is computationally quite expensive.
+If any errors arefound, testing is repeated using the outcome of the pruned node's other child (e.g.,the leaf with the positive rather than negative value for the feature being tested at thepruned node).
+If errors are still found, the pruning operation is undone.
+This processcontinues at the fringe of the decision tree until no more pruning is possible.
+Figure 17shows the correct decision tree for flapping, obtained by pruning the tree in Figure 16.The process of pruning the decision trees is complicated by the fact that the prun-ing operations allowed at one state depend on the status of the trees at each otherstate.
+Thus it is necessary to make several passes through the states, attempting ad-ditional pruning at each pass, until no more improvement is possible.
+Testing eachpruning operation against he entire training set is expensive, but in the case of syn-thetic data it gives the best results.
+For other applications it may be desirable to keepa cross-validation set for this purpose.518Gildea and Jurafsky Learning Bias and Phonological-Rule Inductionstress1 2Figure 17The same decision tree after pruning.V ~  t ~, r ~VcVc : tcr : t r  ~ ,~ ~"V:dxv \ -y#:t  vFigure 18Flapping transducer induced from 50,000 samples (same as Figure 14).Table 7Results on three rules composed;12,500 training size, 49,280 test size.Method States % ErrorOSTIA 329 22.09Alignment 5 0.20Add D-trees 5 0.04Prune D-trees 5 0.01The transducer obtained for the flapping rule after pruning decision trees is shownin Figure 18.
+In contrast to Figure 13, the arcs now correspond to the natural classesof consonants, tressed vowels, and unstressed vowels.
+The only difference betweenour result and the hand-drawn transducer in Figure 2 is the transition from state 1upon seeing a stressed vowel--this will be discussed in Section 7.The effects of adding decision trees at each state of the machine for the compositionof t-insertion, t-deletion, and flapping are shown in Table 7.Figure 19 shows the final transducer induced from this corpus of 12,500 wordswith pruned decision trees.
+We will discuss the remaining 0.01% error in Section 7below.We conclude our discussion of the community bias by seeing how a more on-lineimplementation f the bias might have helped our algorithm induce a transducer forr-deletion.
+Recall that the failure of the algorithm on r-deletion shown in Table 5 wasnot due to the difficulty of deletion per se, since our algorithm successfully learnsthe t-deletion rule.
+Rather, we believe that the difficulty with r-deletion is the broadcontext in which the rule applies: after any vowel and before any consonant.
+Since oursegment set distinguishes three degrees of stress for each vowel, the alphabet size is 72;we believe this was simply too large for the algorithm without some prior concept of"vowel" and "consonant."
+While our decision tree augmentation adds these conceptsto the algorithm, it only does so only after the initial transducer has been induced, andso cannot help in building the initial transducer.
+We need some method of interleaving519Computational Linguistics Volume 22, Number 4vF-'V,"r C s Seen  stressedvInitial ~ - -state c, v, vt:c:'E\]t 7',, "I \V: t \ [ lT-insetion aboutT-deletion about \ to occurto occur F'~apping aboutto occurFigure 19Three-rule transducer induced from 12,500 samples.
+\[\] indicates that the input symbol isemitted with no features changed.the generalization of segments into classes, performed by the decision trees, and theinduction of the structure of the transducer by merging states.
+Making generalizationsabout input segments would in effect reduce the alphabet size on the fly, making thelearning of structure asier.5.3 The Context PrincipleOur final problem with the unaugmented OSTIA algorithm concerns phonologicalrules that are both very general and also contain rightward context effects.
+In theserules, the transducer must wait to see the right-hand context of a rule before emittingthe rule's output, and the rule applies to a general enough set of phones that additionalstates are necessary to store information about the pending output.
+In such cases, aseparate state is necessary for each phone to which the rule applies.
+Thus, becausesubsequential transducers are an inefficient model of these sorts of rules, representingthem leads to an explosion in the number of states of the machine, and an inability torepresent certain generalizations.
+One example of such state explosion is the Germanrule to devoice word-final stops:-sonorant \](9) -continuant --* \[ -voiced \ ] / _  #In this case, a separate state must be created for each stop subject o devoicing, asin Figure 20.
+Upon seeing a voiced stop, the transducer jumps to the appropriate state,without emitting any output.
+If the end-of-word symbol follows, the correspondingunvoiced stop will be emitted.
+If any other symbol follows, however, the original520Gildea and Jurafsky Learning Bias and Phonological-Rule Inductionb:b b :g  #:p~,~-  \[\]:g\[\] "K ,~ N .
+_ d :d  d :b ) )bg:d:dFigure 20Transducer for word-final stop devoicing.
+\[\] indicates that the input symbol is emitted with nofeatures changed.voiced stop will be emitted, along with the current input symbol.
+In essence, thealgorithm has learned three distinct rules:(10) b --, p / _ #(11) d ---* t / _ #(12) g ---+ k / _ #Because of the inability to refer to previous input symbols, it is impossible to makea subsequential transducer that captures the generalization of the rule in (9).
+Whilethe larger transducer of Figure 20 is accurate, the smaller transducer is desirable fora number of reasons.
+First, rules applying to larger classes of phones will lead to aneven greater explosion in the number of states.
+Second, depending on the particulartraining data, this lack of generalization can cause the transducer to make mistakeson learning such rules.
+As mentioned in Section 4, smaller transducers significantlyimprove the general accuracy of the learning algorithm.We turn to the context principle for an intuition about how to solve this problem.The context principle suggests that phonological rules refer to variables in their context.We found that subsequential transducers tend to handle leftward context much betterthan rightward context.
+This is because a separate state is only necessary for eachdistinct context in which segments behave differently.
+The behavior of different phoneswithin each context is represented by the different arcs, without making separate statesnecessary.
+Thus our transducers only needed to be modified to deal with rightwardcontext.
+4 Our solution is to add a simple kind of memory to the model of transduction.The transducer keeps track of the input symbols een so far.
+Just as the generalizedarcs can now specify one of their output symbols as being the current input symbolwith certain phonological features changed, they are now able to reference previous4 The rules previously discussed in this paper avoid this problem because they apply to only one phone.521Computational Linguistics Volume 22, Number 4b : -1\[\]d : -1\[\]g : -1\[\]\[\] : 0\[\] # : -1\ [  -voiced +tense \]~ b:O ~ 1  d:g :O\[1 :-1\[1 0\[\]Figure 21Word-final stop devoicing with variables.
+Variables are denoted by a number indicating theposition of the input segment being referred to and a set of phonological features to change.Thus 0\[\] simply denotes the current input segment, while -1\[-voiced -}-tense\] means theunvoiced, tense version of the previous input segment.
+-1\[\] -0\[\] indicates that the machineoutputs a string consisting of the previous input segment followed by the current segment.input symbols.
+The transducer for word-final stop devoicing using variables is shownin Figure 21.It is important o note that while we are changing the model of transduction,we are not increasing its formal power.
+As long as the alphabet is of finite size, anymachine using variables can be translated into a potentially much larger machine withseparate states for each possible value the variables can take.When constructing the algorithm's original tree transducer, variables can be in-cluded in the output strings of the transducer's arcs.
+When performing a transduc-tion, variables are interpreted as referring to a certain symbol in the input string withspecific phonological features changed.
+The variables contain two pieces of informa-tion: an index of the input segment referenced by the variable relative to the currentposition in the index string, and a (possibly empty) list of phonological feature valuesto change in the input segment.After calculating alignment information for each input/output pair, all outputsymbols determined to have arisen from substitutions (that is, all output segmentsother than those arising from insertions) are rewritten in variable notation.
+The vari-able's index is the relative index of the corresponding input segment as calculated bythe alignment; he features pecified by the variable are only those that have changedfrom the input segment.
+Thus rewriting each output symbol in variable notation isdone in constant time and adds nothing to the algorithm's computational complexity.When performing the state mergers of the OSTIA algorithm, two variables areconsidered to be the same symbol if they agree in both components: the index and listof phonological features.
+This allows arcs that previously had different output stringsto merge, as for example in the arc from state 1 to state 0 of Figure 21, which is ageneralization over the arcs into state 0 in Figure 20.We applied the modified algorithm with variables in the output strings to theproblem of the German rule that devoices word-final stops.
+Our data set was con-structed from the CELEX lexical database (Celex 1993), which contains pronunciationsfor 359,611 word forms--including various inflected forms of the same lexeme.
+Forour experiments we used the CELEX pronunciations a the surface forms, and gener-ated underlying forms by revoicing the (devoiced) final stop for the appropriate forms(those for which the word's orthography ends in a voiced stop).
+Although the segmentset used was slightly different from that of the English data, the same set of 26 binaryarticulatory features was used.
+Results are shown in Table 8.522Gildea and Jurafsky Learning Bias and Phonological-Rule InductionTable 8Results on German word-final stop devoicing;50,000-word test set.No variables Using variablesSamples States % Error States % Error700 8 0.218 8 7.99610,000 11 0.240 11 0.56820,000 24 0.392 2 0.00050,000 19 0.098 2 0.000\[1 : 011 b0 Qd:l~g :O\[\] : -111 011# : -1 \ [  -voiced +tense \]Figure 22Transducer induced for word-final stop devoicing.
+\[\] indicates that the input symbol is emittedwith no features changed.Using the model of transduction augmented with variables, a machine with theminimum two states and perfect performance on test data was induced with 20,000samples and greater.
+This machine is shown in Figure 22.
+The only difference betweenthis transducer and the hand-drawn transducer of Figure 21 is that the arcs leavingstate 1 go to state 0 rather than looping back to state 1.
+Thus the transducer will fail toperform devoicing when two voiced stops occur at the end of a word.
+As the corpuscontains no such cases, no errors were produced.
+As we will discuss in Section 7, thisis similar to what occurred in the machine induced for flapping.5.3.1 Search Over Sequences of State Mergers.
+The results quoted in the previoussection were achieved with a slightly different method than those for the English data.The difference lies in the order in which state mergers are attempted, and can havesignificant effects in the results.We performed experiments using two versions of the algorithm, varying the orderin which the algorithm tries to merge pairs of states.
+The mergers are performed ina nested loop over the states of the initial tree transducer.
+The ordering of states forthis loop in the original OSTIA algorithm as described in Oncina, Garcia, and Vidal(1993) is the lexicographic ordering of the string of input symbols as one walks fromthe root of the tree to the state in question.
+This is the method used in the first columnof results in Table 9.
+In the second column of results, the ordering of the states wassimply the order of their creation as the sample transductions were read as input.
+Thisis also the method used in the results previously described for the various Englishrules.The correctness of the algorithm requires that the states be ordered such that statenumbers always increase as one walks outward from the root of the tree.
+This stillleaves a large space of permissible orderings, and, as can be seen from our results,the ordering chosen can have a significant effect on the algorithm's outcome.
+While523Computational Linguistics Volume 22, Number 4Table 9Results on German word-final stop devoicing; 50,000-word test set.Lexicographic ordering of states Input-based ordering of statesSamples States % Error States % Error700 8 7.996 6 0.00410,000 11 0.568 8 0.28820,000 2 0.000 12 0.29650,000 2 0.000 9 0.034neither method is consistently better in the German experiments, we found that lexico-graphic orderings performed more poorly than the input-based ordering of the inputsamples for the English experiments, s The lexicographic ordering of the original algo-rithm is not always optimal.
+Furthermore, results with lexicographic orderings varywith the ordering of segments used.
+The segment ordering used for the results inTable 9 grouped similar segments together, and performed better than a randomizedsegment ordering.
+Presumably this is because the ordering rouping similar segmentstogether causes tates reached on similar input symbols to be merged, which is bothlinguistically reasonable and necessary in order to generate the correct ransducer.The underlying principle of the algorithm is to generalize by reducing the numberof states in the transducer.
+Because the OSTIA algorithm tends to settle in local minimawhen merging states, the problem becomes one of searching the space of permissibleorderings of state mergers.
+Some linguistically based heuristic for ordering states mightproduce more consistent results on different ypes of phonological rules, perhaps byreordering the remaining states as the initial states are merged.6.
+ComplexityThe OSTIA algorithm as described by Oncina, Garcfa, and Vidal (1993) had a worst-case complexity of O(nB(m + k) + nmk), where n is the sum of all the input strings'lengths, m is the length of the longest output string, and k is the size of the inputalphabet; Oncina, Garcfa, and Vidal's (1993) experiments showed the average casetime to grow more slowly.
+We will discuss the complexity implication of each of ourenhancements to the algorithm.The calculation of alignment information adds a preprocessing step to the al-gorithm that requires O(nm) time for the dynamic programming string-alignmentalgorithm.
+After the initial tree is constructed using the alignment information, theabove-mentioned worst-case bound still applies for the process of merging states; itdoes not require that the initial tree be onward.
+Since this modification only alters theinitial tree transducer, the behavior of the main state-merging loop of the OSTIA algo-rithm is essentially unchanged.
+In practice, we found the use of alignment informationsignificantly sped up the algorithm by allowing states to collapse more quickly.
+In anycase, the O(nm) complexity of the preprocessing step is subsumed by the O(nmk) termof OSTIA's complexity.5 The behavior of the input-based ordering depends on the ordering of the training set.
+We used arandom ordering of our training set, but a corpus-based ordering would not be significantly different.While more frequent words tend to be seen earlier in a corpus, there is no reason to think that morefrequent words provide better chances of successful state mergers.524Gildea and Jurafsky Learning Bias and Phonological-Rule InductionThe induction of decision trees adds a new stage after the OSTIA algorithm com-pletes.
+The number of nodes in each decision tree is bounded by O(k), since there are atmost k arcs out of a given state.
+Calculating information content of a given feature canbe done in O(k) time because k is an upper bound on the number of possible outcomesof the decision tree.
+Therefore, choosing the feature with the maximum informationcontent can be done in O(fk) time, where f is the number of features, and the entiredecision tree can be learned in O(/k 2) time.
+Since there are at most n states, this stageof the algorithm is O(nfk2).
+However, because k is relatively small and because deci-sion trees are induced only after merging states down to a small number, decision-treeinduction in fact takes only a fraction the time of any other step of computation.
+Theprocess of pruning the trees, however, is very expensive, as the entire training set isverified after each pruning operation.
+Since each verification of the input is O(nk), andthere are O(k) nodes at each of O(n) states to attempt to prune, one iteration throughthe set of states attempting pruning at each state is therefore O(n2k2).
+There are atmost O(nk) iterations through the states, since at least one node of one state's decisiontree must be pruned in each iteration.
+Therefore, the entire pruning process is O(n3k3).This is a rather pessimistic bound since pruning occurs after state merger, and thereare generally far less than nk states left.
+In fact, adding input pairs makes finding thesmallest possible automaton more likely, and reduces the number of states at whichpruning is necessary.
+Nevertheless the verification of pruning operations dominatesall other steps of computation.Once alignment information for each input/output pair has been computed, anoutput symbol can be rewritten in variable notation in constant ime.
+Using vari-ables can increase the size of the output alphabet, but none of the complexity cal-culations depend on this size.
+Therefore using variables is essentially free and con-tributes nothing to overall complexity.
+After adding all the steps together, we geto(ng(m + k) + nmk + r//'k 2 ?
+n3k 3) time.
+Thus, even using the expensive method ofverifying the entire training set after each pruning operation, the entire algorithm isstill polynomial.
+Furthermore, our additions have not worsened the complexity of thealgorithm with respect o n, the total number of input string symbols.On a typical run on 10,000 German words with final stop devoicing applied using aSPARC 10, calculating alignment information, rewriting each output string in variablenotation and building the initial tree transducer took 19 seconds, the state mergingtook 5 seconds, inducing the decision trees took under I second, and the pruning took16 minutes and 1 second.
+When running on 50,000 words from the same data set,alignment, variable notation, and building the initial tree took 1 minute 37 seconds,the state merging took 4 minutes 44 seconds, inducing decision trees took 2 secondsand pruning decision trees took 2 hours, 9 minutes and 9 seconds.7.
+Another Implicit BiasAn examination of the final few errors (three samples) in the induced flapping andthree-rule transducers in Section 5.2.2 turned out to demonstrate a significant problemin the assumption that an SPE-style rule is isomorphic to a regular elation.While the learned transducer correctly makes the generalization that flapping oc-curs after any stressed vowel, it does not flap after two stressed vowels in a row:sky-writing: s k ayl r ay2 t ih ng ~ s k ayl r ay2 t ih ngsky-writers: s k ayl r ay2 t er z --~ s k ayl r ay2 t er zgyrating:jh ayl r ey2 t ih ng --+ jh ayl r ey2 t ih ng525Computational Linguistics Volume 22, Number 4This is possible because no samples containing two stressed vowels in a row (orseparated by an r as here) immediately followed by a flap were in the training data.This transducer will flap a t after any odd number of stressed vowels, rather thansimply after any stressed vowel.
+Such a rule seems quite unnatural phonologically,and makes for an odd SPE-style context-sensitive rewrite rule.
+The SPE frameworkassumed (Chomsky and Halle 1968, 330) that the well-known Minimum DescriptionLength (MDL) criterion be applied as an evaluation metric for phonological systems.Any sort of MDL criterion applied to a system of rewrite rules would prefer a rulesuch as(13) t--*dx/V__Vto a rule such as(14) t --* dx / 9 ( "V 9 )* _ Vwhich is the equivalent of the transducer learned from the training data.
+Similarly,the transducer learned for word-final stop devoicing would fail to perform devoicingwhen a word ends in two voiced stops, as it too returns to its state 0 upon seeing asecond voiced stop, rather than staying in state 1.These kinds of errors suggest hat while a phonological rewrite rule can be ex-pressed as a regular relation, the evaluation procedures for the two mechanisms(rewrite rules and transducers) must be different; the correct flapping transducer is inno way smaller than the incorrect one.
+In other words, the traditional formalism ofcontext-sensitive rewrite rules contains implicit biases about how phonological rulesusually work that are not present in the transducer system.8.
+Related WorkRecent work in the machine learning of phonology includes algorithms for learningboth segmental and nonsegmental information.
+Nonsegmental pproaches includethose of Daelemans, Gillis, and Durieux (1994) for learning stress systems, as wellas approaches to learning morphology such as Gasser's (1993) system for inducingSemitic morphology, and Ellison's (1992) extensive work on syllabicity, sonority, andharmony.
+Since our approach learns only segmental structure, a more relevant com-parison is with other algorithms for inducing segmental structure.Johnson (1984) gives one of the first computational lgorithms for phonologicalrule induction.
+His algorithm works for rules of the form(15) a --* b/Cwhere C is the feature matrix of the segments around a. Johnson's algorithm sets upa system of constraint equations that C must satisfy, by considering both the positivecontexts, i.e., all the contexts Ci in which a b occurs on the surface, as well as all thenegative contexts Cj in which an a occurs on the surface.
+The set of all positive andnegative contexts will not generally determine a unique rule, but will determine aset of possible rules.
+Johnson then proposes that principles from Universal Grammarmight be used to choose between candidate rules, although e does not suggest anyparticular principles.Johnson's ystem, while embodying an important insight about he use of positiveand negative contexts for learning, did not generalize to insertion and deletion rules,526Gildea and Jurafsky Learning Bias and Phonological-Rule Inductionand it is not clear how to extend his system to modern autosegmental phonologicalsystems.
+Touretzky, Elvgren, and Wheeler (1990) extended Johnson's insight by usingthe version spaces algorithm of Mitchell (1981) to induce phonological rules in theirMany Maps architecture.
+Like Johnson's, their system looks at the underlying andsurface realizations of single segments.
+For each segment, he system uses the versionspace algorithm to search for the proper statement of the context.
+The model also hasa separate algorithm that handles harmonic effects by looking for multiple segmentalchanges in the same word, and has separate processes to deal with epenthesis anddeletion rules.
+Touretzky, Elvgren, and Wheeler's approach seems quite promising;our use of decision trees to generalize ach state is a similar use of phonologicalfeature information to form generalizations.Riley (1991) and Withgott and Chen (1993) first proposed a decision-tree approachto segmental mapping.
+A decision tree is induced for each segment, classifying pos-sible realizations of the segment in terms of contextual factors such as stress and thesurrounding segments.
+One problem with these particular approaches i that sincethe decision tree for each segment is learned separately, the technique has difficultyforming generalizations about he behavior of similar segments.
+In addition, no gener-alizations are made about segments in similar contexts, or about long-distance depen-dencies.
+In a transducer-based formalism, generalizations about segments in similarcontexts follow naturally from generalizations about the behavior of individual seg-ments.
+The context is represented by the current state of the machine, which in turndepends on the behavior of the machine on the previous egments.
+A possible adjust-ment to the decision-tree approach to capture some of these generalizations wouldbe to augment he decision tree with information about the features of the outputsegment, or about features of more distant phones, perhaps about nearby syllables.9.
+Conc lus ionOur goal in this paper has been to explore the role of prior knowledge in phonologi-cal learning.
+We showed that a domain-independent, empiricist induction algorithm,OSTIA, failed to induce minimal transducers even for very simple rules like flapping.But adding three domain-specific learning biases to OSTIA allowed it to successfullylearn transducers implementing simple phonological rules of English and German:faithfulness (underlying segments tend to be realized similarly on the surface), commu-nity (similar segments behave similarly), and context (phonological rules need accessto variables in their context).
+These biases are so fundamental to generative phonologythat, although they are present in some respect in every phonological theory, they areleft implicit in most.
+Furthermore, we have shown that some of the remaining errorsin our augmented model are due to implicit biases in the traditional SPE-style rewritesystem that are not similarly represented in the transducer formalism, suggesting thatwhile transducers may be formally equivalent o rewrite rules, they may not haveidentical evaluation procedures.Because our biases were applied to the learning of very simple SPE-style rules, andto a nonprobabilistic theory of purely deterministic transducers, we do not expect hatour model as implemented has any practical use as a phonological learning device.Indeed, because of the noise and nondeterminism inherent o linguistic data, we feelstrongly that stochastic algorithms for language induction are much more likely to bea fruitful research direction (e.g., Kupiec 1992; Lucke 1993; Stolcke and Omohundro1993, 1994; Ron, Singer, and Tishby 1994).
+But we believe that the biases we haverelied on to improve the OSTIA algorithm may also prove useful when applied tosuch stochastic linguistic-rule induction algorithms.
+For example Wooters and Stolcke527Computational Linguistics Volume 22, Number 4(1994) used the Stolcke and Omohundro model-merging algorithm to induce word-pronunciation HMMs for a speech recognition system.
+This algorithm has no domainknowledge about phonology, and so is unable to classify together similar phones, orgeneralize across phones that were missing in the input data.
+Adding phonologicalfeature biases to such a model could improve its generalization performance just as itimproved OSTIA.In summary, we believe that augmenting an empirical earning element with rela-tively abstract learning biases is a very fruitful ground for research between the oftenrestated strict nativist and strict empiricist language learning paradigms.AcknowledgmentsMany thanks to Jerry Feldman for adviceand encouragement, to IsabelGaliano-Ronda for her help with the OSTIAalgorithm, and to Eric Fosler, SharonInkelas, Lauri Karttunen, Jos60ncina,Orhan Orgun, Ronitt Rubinfeld, StuartRussell, Andreas Stolcke, Gary Tajchman,four anonymous COLI reviewers, and ananonymous reviewer for ACL-95.
+This workwas partially funded by ICSI.ReferencesAha, David W., Dennis Kibler, and Marc K.Albert.
+1991.
+Instance-based learningalgorithms.
+Machine Learning, 6:37-66.Aronoff, Mark.
+1976.
+Word-Formation iGenerative Grammar.
+Linguistic InquiryMonograph no.
+1.
+MIT Press, Cambridge,MA.Berstel, Jean.
+1979.
+Transductions andContext-free Languages.
+Teubner, Stuttgart.Bird, Steven.
+1995.
+Computational Phonology:A Constraint-based Approach.
+CambridgeUniversity Press, Cambridge.Bird, Steven and T. Mark Ellison.
+1994.One-level phonology: Autosegmentalrepresentations and rules as finiteautomata.
+Computational Linguistics, 20(1).Brown, Peter E, Vincent J. Della Pietra,Peter V. deSouza, Jennifer C. Lai, andRobert L. Mercer.
+1992.
+Class-basedn-gram models of natural anguage.Computational Linguistics, 18(4):467-479.Celex.
+1993.
+The CELEX lexical database.Centre for Lexical Information, MaxPlanck Institute for Psycholinguistics.Chomsky, Noam.
+1981.
+Lectures onGovernment and Binding.
+Foris, Dordrecht.Chomsky, Noam and Morris Halle.
+1968.The Sound Pattern of English.
+Harper andRow, New York.CMU.
+1993.
+The Camegie MellonPronouncing Dictionary v0.1.
+CarnegieMellon University.Daelemans, Walter, Steven Gillis, and GertDurieux.
+1994.
+The acquisition of stress: Adata-oriented approach.
+ComputationalLinguistics, 20(3):421-451.Dresher, Elan and Jonathan Kaye.
+1990.
+Acomputational learning model formetrical phonology.
+Cognition, 34:137-195.Eimas, P. D., E. R. Siqueland, P. Jusczyk,and J. Vigorito.
+1971.
+Speech perception iinfants.
+Science, 171:303-306.Ellison, T. Mark.
+1992.
+The Machine Learningof Phonological Structure.
+Ph.D. thesis,University of Western Australia.Ellison, T. Mark.
+1994.
+Phonologicalderivation in optimality theory.
+InCOLING-94.Freund, Y., M. Kearns, D. Ron, R. Rubinfeld,R.
+Schapire, and L. Sellie.
+1993.
+Efficientlearning of typical finite automata fromrandom walks.
+In Proceedings ofthe 25thACM Symposium on Theory of Computing,pages 315-324.Gasser, Michael.
+1993.
+Learning words intime: Towards a modular connectionistaccount of the acquisition of receptivemorphology.
+Unpublished manuscript.Goldsmith, John.
+1993.
+Harmonicphonology.
+In John Goldsmith, editor, TheLast Phonological Rule.
+University ofChicago Press, Chicago, pages 21-60.Gupta, Prahlad and David S. Touretzky.1994.
+Connectionist models and linguistictheory: Investigations of stress ystems inlanguage.
+Cognitive Science, 18:1-50.Jakobson, Roman.
+1968.
+Child Language,Aphasia, and Phonological Universals.Mouton, The Hague.Jakobson, Roman, Gunnar Fant, and MorrisHalle.
+1952.
+Preliminaries to Speech Analysis.MIT Press, Cambridge, MA.Johnson, C. Douglas.
+1972.
+Formal Aspects ofPhonological Description.
+Mouton, TheHague.Johnson, Mark.
+1984.
+A discovery procedurefor certain phonological rules.
+InProceedings ofthe Tenth InternationalConference on Computational Linguistics,pages 344-347, Stanford.Kaplan, Ronald M. and Martin Kay.
+1994.Regular models of phonological rulesystems.
+Computational Linguistics,528Gildea and Jurafsky Learning Bias and Phonological-Rule Induction20(3):331-378.Karttunen, Lauri.
+1993.
+Finite-stateconstraints.
+In John Goldsmith, editor, TheLast Phonological Rule.
+University ofChicago Press, Chicago.Koskenniemi, Kimmo.
+1983.
+Two-levelmorphology: A general computationalmodel of word-form recognition andproduction.
+Publication No.
+11,Department of General Linguistics,University of Helsinki.Kupiec, Julian.
+1992.
+Hidden Markovestimation for unrestricted stochasticcontext-free grammars.
+In Proceedings ofICASSP-92, pages 177-180, San Francisco.Lakoff, George.
+1993.
+Cognitive phonology.In John Goldsmith, editor, The LastPhonological Rule.
+University of ChicagoPress, Chicago.Ling, Charles X.
+1994.
+Learning the pasttense of English verbs: The symbolicpatter associator vs. connectionist models.Journal of Artificial Intelligence Research,1:209-229.Lucke, Helmut.
+1993.
+Inference of stochasticcontext-free grammar rules from exampledata using the theory of Bayesian beliefpropagation.
+In Eurospeech 93, pages1195-1198, Berlin.McCarthy, John J.
+1988.
+Feature geometryand dependency: A review.
+Phonetica,45:84-108.McCarthy, John J. and Alan Prince.
+1995.Prosodic morphology.
+In J. Goldsmith,editor, Handbook of Phonological Theory.Basil Blackwell Ltd., pages 318-366.Mitchell, Tom M. 1981.
+Generalization assearch.
+In Bonnie Lynn Webber andNils J. Nilsson, editors, Readings inArti~'cial Intelligence.
+Morgan Kaufmann,Los Altos, pages 517-542.Oncina, JosG Pedro Garcfa, and EnriqueVidal.
+1993.
+Learning subsequentialtransducers for pattern recognition tasks.IEEE Transactions on Pattern Analysis andMachine Intelligence, 15:448-458, May.Orgun, Orhan.
+1995.
+A declaritive theory ofphonology-morphology interleaving.Unpublished manuscript, University ofCalifornia-Berkeley, Department ofLinguistics, October.Orgun, Orhan.
+1996.
+Correspondence andidentity constraints in two-leveloptimality theory.
+In Proceedings ofthe 14thWest Coast Conference on Formal Linguistics(WCCFL-95).Padgett, Jaye.
+1995a.
+Feature classes.
+InPapers in Optimality Theory.
+GLSA, UMass,Amherst.
+University of MassachusettsOccasional Papers (UMOP) 18.Padgett, Jaye.
+1995b.
+Partial class behaviorand nasal place assimilation.
+InProceedings ofthe Arizona PhonologyConference: Workshop on Features inOptimality Theory, Coyote Working Papers,University of Arizona, Tucson.
+To appear.Prince, Alan and Paul Smolensky.
+1993.Optimality theory: Constraint interactionin generative grammar.
+Unpublishedmanuscript, Rutgers University.Pulman, Stephen G. and Mark R. Hepple.1993.
+A feature-based formalism fortwo-level phonology: A description andimplementation.
+Computer Speech andLanguage, 7:333-358.Quinlan, J. R. 1986.
+Induction of decisiontrees.
+Machine Learning, 1:81-106.Riley, Michael D. 1991.
+A statistical modelfor generating pronunciation networks.
+InIEEE ICASSP-91, pages 737-740.Ron, Dana, Yoram Singer, and NaftaliTishby.
+1994.
+The power of amnesia.
+InJack Cowan, Gerald Tesauro, and JoshuaAlspector, editors, Advances in NeuralInformation Processing Systems 6.
+MorganKaufmann, San Mateo, CA.Stolcke, Andreas and Stephen Omohundro.1993.
+Hidden Markov model induction byBayesian model merging.
+In Advances inNeural Information Processing Systems 5.Morgan Kaufman, San Mateo, CA.Stolcke, Andreas and Stephen Omohundro.1994.
+Best-first model merging for hiddenMarkov model induction.
+TechnicalReport TR-94-003, ICSI, Berkeley, CA,January.Tesar, Bruce.
+1995.
+Computational OptimalityTheory.
+Ph.D. thesis, University ofColorado, Boulder.Tesar, Bruce and Paul Smolensky.
+1993.
+Thelearnability of optimality theory: Analgorithm and some basic complexityresults.
+Technical Report CU-CS-678-93,University of Colorado at Boulder,Department of Computer Science.Touretzky, David S., Gillette Elvgren, III,and Deirdre W. Wheeler.
+1990.Phonological rule induction: Anarchitectural solution.
+In Proceedings ofthe12th Annual Conference ofthe CognitiveScience Society (COGSCI-90), pages348-355.Touretzky, David S. and Deirdre W.Wheeler.
+1990.
+A computational basis forphonology.
+In Advances in NeuralInformation Processing Systems 2, pages372-379.Wagner, R. A. and M. J. Fischer.
+1974.
+Thestring-to-string correction problem.Journal of the Association for ComputationMachinery, 21:168-173.Withgott, M. M. and E R. Chen.
+1993.529Computational Linguistics Volume 22, Number 4Computation Models of American Speech.Center for the Study of Language andInformation.Wooters, Chuck and Andreas Stolcke.
+1994.Multiple-pronunciation lexical modelingin a speaker-independent speechunderstanding system.
+In ICSLP-94.530

@@ -1,0 +1,261 @@
+Proceedings of the NAACL HLT Workshop on Software Engineering, Testing, and Quality Assurance for Natural Language Processing, pages 31?39,Boulder, Colorado, June 2009. c?2009 Association for Computational LinguisticsTightly Packed Tries: How to Fit Large Models into Memory,and Make them Load Fast, TooUlrich GermannUniversity of Toronto andNational Research Council Canadagermann@cs.toronto.eduEric Joanis Samuel LarkinNational Research Council Canada National Research Council CanadaEric.Joanis@cnrc-nrc.gc.ca Samuel.Larkin@cnrc-nrc.gc.caAbstractWe present Tightly Packed Tries (TPTs), acompact implementation of read-only, com-pressed trie structures with fast on-demandpaging and short load times.We demonstrate the benefits of TPTs for stor-ing n-gram back-off language models andphrase tables for statistical machine transla-tion.
+Encoded as TPTs, these databases re-quire less space than flat text file representa-tions of the same data compressed with thegzip utility.
+At the same time, they can bemapped into memory quickly and be searcheddirectly in time linear in the length of the key,without the need to decompress the entire file.The overhead for local decompression duringsearch is marginal.1 IntroductionThe amount of data available for data-driven Nat-ural Language Processing (NLP) continues to grow.For some languages, language models (LM) are nowbeing trained on many billions of words, and par-allel corpora available for building statistical ma-chine translation (SMT) systems can run into tensof millions of sentence pairs.
+This wealth of dataallows the construction of bigger, more comprehen-sive models, often without changes to the fundamen-tal model design, for example by simply increasingthe n-gram size in language modeling or the phraselength in phrase tables for SMT.The large sizes of the resulting models pose an en-gineering challenge.
+They are often too large to fitentirely in main memory.
+What is the best way toorganize these models so that we can swap informa-tion in and out of memory as needed, and as quicklyas possible?This paper presents Tightly Packed Tries (TPTs),a compact and fast-loading implementation of read-only trie structures for NLP databases that storeinformation associated with token sequences, suchas language models, n-gram count databases, andphrase tables for SMT.In the following section, we first recapitulatesome basic data structures and encoding techniquesthat are the foundations of TPTs.
+We then lay outthe organization of TPTs.
+Section 3 discusses com-pression of node values (i.e., the information asso-ciated with each key).
+Related work is discussed inSection 4.
+In Section 5, we report empirical resultsfrom run-time tests of TPTs in comparison to otherimplementations.
+Section 6 concludes the paper.2 Fundamental data structures andencoding techniques2.1 TriesTries (Fredkin, 1960), also known as prefix trees, area well-established data structure for compactly stor-ing sets of strings that have common prefixes.
+Eachstring is represented by a single node in a tree struc-ture with labeled arcs so that the sequence of arc la-bels from the root node to the respective node ?spellsout?
+the token sequence in question.
+If we augmentthe trie nodes with additional information, tries canbe used as indexing structures for databases that relyon token sequences as search keys.
+For the remain-der of this paper, we will refer to such additional31total count 20a 13aa 10ab 3b 72013 710 3a ba b(a) Count table (b) Trie representationfield 32-bit 64-bitindex entry: token ID 4 4index entry: pointer 4 8start of index (pointer) 4 8overhead of index structurenode value}x ytotal (in bytes) 12 + x 20 + y0 13 offset of root node1 10 node value of ?aa?2 0 size of index to child nodes of ?aa?
+in bytes3 3 node value of ?ab?4 0 size of index to child nodes of ?ab?
+in bytes5 13 node value of ?a?6 4 size of index to child nodes of ?a?
+in bytes7 a index key for ?aa?
+coming from ?a?8 4 relative offset of node ?aa?
+(5 ?
+4 = 1)9 b index key for ?ab?
+coming from ?a?10 2 relative offset of node ?ab?
+(5 ?
+2 = 3)11 7 node value of ?b?12 0 size of index to child nodes of ?b?
+in bytes13 20 root node value14 4 size of index to child nodes of root in bytes15 a index key for ?a?
+coming from root16 8 relative offset of node ?a?
+(13 ?
+8 = 5)17 b index key for ?b?
+coming from root18 2 relative offset of node ?b?
+(13 ?
+2 = 11)(c) Memory footprint per node in an implemen-tation using memory pointers(d) Trie representation in a contiguous byte array.In practice, each field may vary in length.Figure 1: A count table (a) stored in a trie structure (b) and the trie?s sequential representation in a file (d).
+As thesize of the count table increases, the trie-based storage becomes more efficient, provided that the keys have commonprefixes.
+(c) shows the memory footprint per trie node when the trie is implemented as a mutable structure using directmemory pointers.information as the node value.
+Figure 1b shows acount table (Figure 1a) represented as a trie.Tries offer two main advantages over other index-ing structures, e.g., binary search trees.
+First, theyare more compact because overlapping prefixes arestored only once.
+And second, unless the set of keysis extremely small, lookup is faster than with binarysearch trees.
+While the latter need time logarithmicin the number of keys, trie-based search is linear inthe length of the search key.2.2 Representing tries in memoryMutable trie implementations usually represent triesas collections of fixed-size records containing thenode value and a pointer or reference to an index-ing structure (henceforth: index) that maps from arcor token labels to the respective child nodes.
+Linksto child nodes are represented by object referencesor C-style memory pointers.
+To simplify the discus-sion, we assume in the following that the code con-sistently uses pointers.
+Since integers are faster tocompare and require less space to store than char-acter strings, token labels are best represented asinteger IDs.
+With typical vocabulary sizes rangingfrom hundreds of thousands to several million dis-tinct items, 32-bit integers are the data type of choiceto store token IDs.1This type of implementation offers flexibility andfast lookup but has two major drawbacks.
+First, loadtimes are significant (cf.
+Tables 1 and 3).
+Since eachnode is created individually, the entire trie must betraversed at load time.
+In addition, all the informa-tion contained in the database must be copied ex-plicitly from the OS-level file cache into the currentprocess?s memory.Second, these implementations waste memory,especially on 64-bit machines.
+Depending on thearchitecture, memory pointers require 4 or 8 byesof memory.
+In theory, a 64-bit pointer allows us toaddress 16 exabytes (16 million terabytes) of mem-ory.
+In practice, 20 to 30 bits per 64-bit pointer willremain unused on most state-of-the-art computingequipment.The use of 32-bit integers to represent token IDsalso wastes memory.
+Even for large corpora, the size116 bits have been used occasionally in the past (Clarksonand Rosenfeld, 1997; Whittaker and Raj, 2001) but limit thevocabulary ca.
+64 K tokens.32of the token vocabulary is on the order of severalmillion distinct items or below.
+The Google 1T webn-gram database (Brants and Franz, 2006), for ex-ample, has a vocabulary of only ca.
+13 million dis-tinct items, which can be represented in 24 bits, let-ting 8 bits go to waste if IDs are represented as 32-bitintegers.An alternative is to represent the trie in a singlecontiguous byte array as shown in Figure 1d.
+Foreach node, we store the node value, the size of theindex, and the actual index as a list of alternating to-ken IDs and byte offsets.
+Byte offsets are computedas the distance (in bytes) between the first byte ofthe child node and the first byte of its parent.
+Thetrie is represented in post-order because this is themost efficient way to write it out to a file duringconstruction.
+For each node, we need to store thebyte offsets of its children.
+When we write tries tofile in post-order, this information is available by thetime we need it.
+The only exception is the root node,whose offset is stored at the beginning of the file ina fixed-length field and updated at the very end.This representation scheme has two advantages.First, since node references are represented as rela-tive offsets within the array, the entire structure canbe loaded or mapped (cf.
+Section 2.5) into memorywithout an explicit traversal.
+And secondly, it al-lows symbol-level compression of the structure withlocal, on-the-fly decompression as needed.2.3 Trie compression by variable-length codingVariable-length coding is a common technique forlossless compression of information.
+It exploits theuneven distribution of token frequencies in the un-derlying data, using short codes for frequently oc-curring symbols and long codes for infrequent sym-bols.
+Natural language data with its Zipfian distri-bution of token frequencies lends itself very well tovariable-length coding.
+Instead of using more elab-orate schemes such as Huffman (1952) coding, wesimply assign token IDs in decreasing order of fre-quency.
+Each integer value is encoded as a sequenceof digits in base-128 representation.
+Since the pos-sible values of each digit (0?127) fit into 7 bits, theeighth bit in each byte is available as a flag bit toindicate whether or not more digits need to be read.Given the address of the first byte of a compressedinteger representation, we know when to stop read-ing subsequent bytes/digits by looking at the flagbit.2TPTs use two variants of this variable-length in-teger encoding, with different interpretations of theflag bit.
+For ?stand-alone?
+values (node values, ifthey are integers, and the size of the index), the flagbit is set to 1 on the last digit of each number, and to0 otherwise.
+When compressing node indices (i.e.,the lists of child nodes and the respective arc labels),we use the flag bit on each byte to indicate whetherthe byte belongs to a key (token ID) or to a value(byte offset).2.4 Binary search in compressed indicesIn binary search in a sorted list of key-value pairs,we recursively cut the search range in half by choos-ing the midpoint of the current range as the newlower or upper bound, depending on whether thekey at that point is less or greater than the searchkey.
+The recursion terminates when the search keyis found or it has been determined that it is not in thelist.With compressed indices, it is not possible to de-termine the midpoint of the list precisely, becauseof the variable-length encoding of keys and values.However, the alternation of flag bits between keysand values in the index encoding allows us to rec-ognize each byte in the index as either a ?key byte?or a ?value byte?.
+During search, we jump approx-imately to the middle of the search range and thenscan bytes backwards until we encounter the begin-ning of a key, which will either be the byte at thevery start of the index range or a byte with the flagbit set to ?1?
+immediately preceded by a byte withthe flag bit set to ?0?.
+We then read the respectivekey and compare it against the search key.2.5 Memory mappingMemory mapping is a technique to provide fastfile access through the OS-level paging mechanism.Memory mapping establishes a direct mapping be-tween a file on disk and a region of virtual memory,2This is a common technique for compact representationof non-negative integers.
+In the Perl world it is know asBER (Binary Encoded Representation) compressed integer for-mat (see the chapter perlpacktut in the Perl documenta-tion).
+Apache Lucene and Hadoop, among many other softwareprojects, also define variable-length encoded integer types.33often by providing direct access to the kernel?s filecache.
+Transfer from disk to memory and vice versais then handled by the virtual memory manager; theprogram itself can access the file as if it was mem-ory.
+There are several libraries that provide mem-ory mapping interfaces; we used the Boost IostreamsC++ library.3 One nice side-effect of memory map-ping the entire structure is that we can relegate thedecision as to when to fall back on disk to the oper-ating system, without having to design and code ourown page management system.
+As long as RAMis available, the data will reside in the kernel?s filecache; as memory gets sparse, the kernel will startdropping pages and re-loading them from disk asneeded.
+In a computer network, we can furthermorerely on the file server?s file cache in addition to theindividual host?s file cache to speed up access.2.6 Additional tweaksIn order to keep the trie representation as small aspossible, we shift key values in the indices two bitsto the left and pad them with two binary flags.
+Oneindicates whether or not a node value is actuallystored on the respective child node.
+If this flag isset to 0, the node is assumed to have an externallydefined default value.
+This is particularly useful forstoring sequence counts.
+Due to the Zipfian distri-bution of frequencies in natural language data, thelower the count, the more frequent it is.
+If we de-fine the threshold for storing counts as the defaultvalue, we don?t need to store that value for all thesequences that barely meet the threshold.The second flag indicates whether the node is ter-minal or whether it has children.
+Terminal nodeshave no index, so we don?t need to store the indexsize of 0 on these nodes.
+In fact, if the value of ter-minal nodes can be represented as an integer, we canstore the node?s value directly in the index of its par-ent and set the flag accordingly.At search time, these flags are interpreted andthe value shifted back prior to comparison with thesearch key.To speed up search at the top level, the index atthe root of the trie is implemented as an array of fileoffsets and flags, providing constant time access totop-level trie nodes.3Available at http://www.boost.org.3 Encoding node valuesInformation associated with each token sequence isstored directly in a compact format ?on the node?in the TPT representation.
+Special reader functionsconvert the packed node value into whatever struc-ture best represents the node value in memory.
+Inthis section, we discuss the encoding of node valuesfor various sequence-based NLP databases, namelysequence count tables, language models, and phrasetables for SMT.3.1 Count tablesThe representation of count tables is straightfor-ward: we represent the count as a compressed inte-ger.
+For representing sequence co-occurrence counts(e.g., bilingual phrase co-occurrences), we concate-nate the two sequences with a special marker (an ex-tra token) at the concatenation point.3.2 Back-off language modelsBack-off language models (Katz, 1987) of ordern define the conditional probability P(wi |wi?1i?n+1)recursively as follows.P(wi |wi?1i?n+1)={ P?
+(wi |wi?1i?n+1) if found?
+(wi?1i?n+1) ?
+P?
+(wi |wi?1i?n+2) otherwise(1)Here, P?
+(wi |wi?1i?n+1) is a smoothed estimateof P(wi |wi?1i?n+1), ?
+(wi?1i?n+1) is the back-offweight (a kind of normalization constant), andwi?1i?n+1 is a compact notation for the sequencewi?n+1, .
+.
+.
+, wi?1.In order to retrieve the value P?
+(wi |wi?1i?n+1), wehave to retrieve up to n values from the data base.In the worst case, the language model contains noprobability values P?
+(wi | context) for any contextbut back-off weights for all possible contexts up tolength n ?
+1.
+Since the contexts wi?1i?n+1, .
+.
+.
+, wi?1i?1have common suffixes, it is more efficient to orga-nize the trie as a backwards suffix tree (Bell et al,1990), that is, to represent the context sequences inright-to-left order in the trie.
+On each node in thetrie, we store the back-off weight for the respectivecontext, and the list of possible successor words andtheir conditional probabilities.
+The SRI languagemodeling toolkit (Stolcke, 2002) organizes its triestructure in the same way.34Probability values and back-off weights are storedvia value IDs that are assigned in decreasing order ofvalue frequency in the model and encoded as com-pressed integers.
+The list of successor words andtheir probability IDs is represented in the same wayas the nodes?
+indices, i.e., as a sorted list of ?wordID, probability value ID?
+pairs in compressed for-mat.3.3 Phrase tables for SMTPhrase tables for phrase-based SMT list for everysource phrase a number of target phrases and foreach phrase pair a number of numerical scores thatare usually combined in a linear or log-linear modelduring translation.To achieve a very compact representation of targetphrases, we organize all target phrases in the table ina ?bottom-up?
+trie: instead of storing on each nodea list of arcs leading to children, we store the node?slabel and its parent.
+Each phrase can thus be repre-sented by a single integer that gives the location ofthe leaf node; we can restore the respective phraseby following the path from the leaf to the root.Phrase pair scores are entropy-encoded and storedwith variable-length encoding.
+Since we have sev-eral entropy-encoded values to store for each phrasepair, and several phrases for each source phrase,we can achieve greater compression with optimallysized ?bit blocks?
+instead of the octets we have usedso far.
+By way of a historical accident, we are cur-rently still using indicator bits on each bit block toindicate whether additional blocks need to be read; amore principled approach would have been to switchto proper Huffman (1952) coding.
+The optimal sizesof the bit blocks are calculated separately for eachtranslation table prior to encoding and stored in thecode book that maps from score IDs to actual scores.4 Related workThe challenges of managing huge models have beenaddressed by a number of researchers in recentyears.4.1 Array offsets instead of memory pointersThe CMU-Cambridge language modeling toolkit(Clarkson and Rosenfeld, 1997) represents the con-text trie in contiguous arrays of fixed-size noderecords, where each array corresponds to a certain?layer?
+of the trie.
+Instead of memory pointers, linksbetween nodes are represented by offsets into therespective array.
+With some additional bookkeep-ing, the toolkit manages to store array offsets inonly 16 bits (see Whittaker and Raj (2001) for de-tails).
+Quantization of probability values and back-off weights is used to reduce the amount of mem-ory needed to store probability values and back-offweights (see Section 4.4 below).4.2 Model filteringMany research systems offer the option to filter themodels at load time or offline, so that only infor-mation pertaining to tokens that occur in a given in-put is kept in memory; all other database entries areskipped.
+Language model implementations that of-fer model filtering at load time include the SRILMtoolkit (Stolcke, 2002) and the Portage LM imple-mentation (Badr et al, 2007).
+For translation ta-bles, the Moses system (Koehn et al, 2007) as wellas Portage offer model filtering (Moses: offline;Portage: offline and/or at load time).
+Model filteringrequires that the input is known when the respectiveprogram is started and therefore is not feasible forserver implementations.4.3 On-demand loadingA variant of model filtering that is also viable forserver implementations is on-demand loading.
+Inthe context of SMT, Zens and Ney (2007) store thephrase table on disk, represented as a trie with rela-tive offsets, so that sections of the trie can be loadedinto memory without rebuilding them.
+During trans-lation, only those sections of the trie that actuallymatch the input are loaded into memory.
+They re-port that their approach is ?not slower than the tradi-tional approach?, which has a significant load timeoverhead.
+They do not provide a comparison of pureprocessing speed ignoring the initial table load timeoverhead of the ?traditional approach?.IRSTLM (Federico and Cettolo, 2007) offers theoption to use a custom page manager that relegatespart of the structure to disk via memory-mappedfiles.
+The difference with our use of memory map-ping is that IRSTLM still builds the structure inmemory and then swaps part of it out to disk.354.4 Lossy compression and pruningLarge models can also be reduced in size by lossycompression.
+Both SRILM and IRSTLM offer toolsfor language model pruning (Stolcke, 1998): if prob-ability values for long contexts can be approximatedwell by the back-off computation, the respective en-tries are dropped.Another form of lossy compression is the quan-tization of probability values and back-off weights.Whittaker and Raj (2001) use pruning, quantizationand difference encoding to store language model pa-rameters in as little as 4 bits per value, reducing lan-guage model sizes by to 60% with ?minimal lossin recognition performance.?
+Federico and Bertoldi(2006) show that the performance of an SMT systemdoes not suffer if LM parameters are quantized into256 distinct classes (8 bits per value).Johnson et al (2007) use significance tests toeliminate poor candidates from phrase tables forSMT.
+They are able to eliminate 90% of the phrasetable entries without an adverse effect on translationquality.Pruning and lossy compression are orthogonal tothe approach taken in TPTs.
+The two approachescan be combined to achieve even more compact lan-guage models and phrase tables.4.5 Hash functionsAn obvious alternative to the use of trie structuresis the use of hash functions that map from n-gramsto slots containing associated information.
+Withhash-based implementations, the keys are usuallynot stored at all in the database; hash collisions andtherefore lookup errors are the price to be paid forcompact storage.
+This risk can be controlled bythe design of the hash function.
+Talbot and Brants(2008) show that Bloomier filters (Chazelle et al,2004) can be used to create perfect hash functionsfor language models.
+This guarantees that there areno collisions between existing entries in the databasebut does not eliminate the risk of false positives foritems that are not in the database.For situations where space is at a premium andspeed negotiable (e.g., in interactive context-basedspelling correction, where the number of lookups isnot in the range of thousands or millions per sec-ond), Church et al (2007) present a compressed tri-gram model that combines Stolcke (1998) pruningwith Golomb (1966) coding of inter-arrival times inthe (sparse) range of hash values computed by thehash function.
+One major drawback of their methodof storage is that search is linear in the total num-ber of keys in the worst case (usually mediated byauxiliary data structures that cache information).Since hash-based implementations of tokensequence-based NLP databases usually don?t storethe search keys, it is not possible to iterate throughsuch databases.4.6 Distributed implementationsBrants et al (2007) present an LM implementationthat distributes very large language models over anetwork of language model servers.
+The delay dueto network latency makes it inefficient to issue indi-vidual lookup requests to distributed language mod-els.
+As Brants et al point out: ?Onboard memory isaround 10,000 times faster?
+than access via the net-work.
+Instead, requests are batched and sent to theserver in chunks of 1,000 or 10,000 requests.5 ExperimentsWe present here the results of empirical evalua-tions of the effectiveness of TPTs for encoding n-gram language models and phrase tables for SMT.We have also used TPTs to encode n-gram countdatabases such as the Google 1T web n-gramdatabase (Brants and Franz, 2006), but are not ableto provide detailed results within the space limita-tions of this paper.45.1 Perplexity computation with 5-gramlanguage modelsWe compared the performance of TPT-encoded lan-guage models against three other language modelimplementations: the SRI language modeling toolkit(Stolcke, 2002), IRSTLM (Federico and Cettolo,2007), and the language model implementation cur-rently used in the Portage SMT system (Badr et al,2007), which uses a pointer-based implementationbut is able to perform fast LM filtering at load time.The task was to compute the perplexity of a text of4Bottom line: the entire Google 1T web n-gram data basefits into about 16 GB (file/virtual memory), compared to 24 GBas gzip-compressed text files (file only).36Table 1: Memory use and runtimes of different LM implementations on a perplexity computation task.file/mem.
+size (GB) 1st run (times in sec.)
+2nd run (times in sec.
+)file virt.
+real b/ng1 ttfr2 wall usr sys cpu ttfr wall usr sys cpufullmodelloaded SRILM3 5.2 16.3 15.3 42.2 940 1136 217 31 21% 846 1047 215 30 23%SRILM-C4 5.2 13.0 12.9 33.6 230 232 215 14 98% 227 229 213 14 98%IRST 5.1 5.5 5.4 14.2 614 615 545 13 90% 553 555 544 11 100%IRST-m5 5.1 5.5 1.6 14.2 548 744 545 8 74% 547 549 544 5 100%IRST-Q6 3.1 3.5 3.4 9.1 588 589 545 9 93% 551 553 544 8 100%IRST-Qm 3.1 3.5 1.4 9.1 548 674 546 7 81% 548 549 544 5 99%Portage 8.0 10.5 10.5 27.2 120 122 90 15 85% 110 112 90 14 92%TPT 2.9 3.4 1.4 7.5 2 127 2 2 2% 1 2 1 1 98%filtered7 SRILM 5.2 6.0 5.9 111 112 90 12 91% 99 99 90 9 99%SRILM-C 5.2 4.6 4.5 112 113 93 11 91% 100 105 93 8 99%Portage 8.0 4.5 4.4 120 122 75 11 70% 80 81 74 7 99%Notes: 1 Bytes per n-gram (Amount of virtual memory used divided by total number of n-grams).
+2 Time to first response(first value returned).
+This was measured in a separate experiment, so the times reported sometimes do not match those in theother columns exactly.
+3 Node indices stored in hashes.
+4 ?Compact?
+mode: node indices stored in sorted arrays instead ofhashes.
+5 Uses a custom paging mechanism to reduce memory requirements; 6 Values are quantized into 256 discrete classes,so that each value can be stored in 1 byte.
+7 Models filtered on evaluation text at load time.Table 2: Language model statistics.Gigaword Hansardunigrams 8,135,668 211,055bigrams 47,159,160 4,045,363trigrams 116,206,275 6,531,5504-grams 123,297,762 9,776,5735-grams 120,416,442 9,712,384file size (ARPA format) 14.0 GB 1.1 GBfile size (ARPA .gz) 3.7 GB 225 MB10,000 lines (275,000 tokens) with a 5-gram lan-guage model trained on the English Gigaword cor-pus (Graff, 2003).
+Some language model statisticsare given in Table 2.We measured memory use and total run time intwo runs: the first run was with an empty OS-levelfile cache, forcing the system to read all data fromthe hard disk.
+The second run was immediately af-ter the first run, utilizing whatever information wasstill cached by the operating system.
+All experi-ments were run successively on the same 64-bit ma-chine with 16 GB of physical memory.5 In order toeliminate distortions by variances in the network andfile server load at the time the experiments were run,only locally mounted disks were used.The results of the comparison are shown in Ta-ble 1.
+SRILM has two modi operandi: one uses5Linux kernel version 2.6.18 (SUSE) on an Intel R?
+Xeon R?2.33 GHz processor with 4 MB cache.hashes to access child nodes in the underlying trieimplementation, the other one (SRILM-C) sortedarrays.
+The ?faster?
+hash-based implementationpushes the architecture beyond its limitations: thesystem starts thrashing and is therefore the slowestby a wide margin.The most significant bottleneck in the TPT im-plementation is disk access delay.
+Notice the hugedifference in run-time between the first and the sec-ond run.
+In the first run, CPU utilization is merely2%: the program is idle most of the time, waiting forthe data from disk.
+In the second run, the file is stillcompletely in the system?s file cache and is avail-able immediately.
+When processing large amountsof data in parallel on a cluster, caching on the clus-ter?s file server will benefit all users of the respectivemodel, once a particular page has been requested forthe first time by any of them.Another nice feature of the TPT implementationis the short delay between starting the program andbeing able to perform the first lookup: the first n-gram probability is available after only 2 seconds.The slightly longer wall time of TPLMs (?tightlypacked language models?)
+in comparison to thePortage implementation is due to the way the datafile is read: Portage reads it sequentially, whileTPLMs request the pages in more or less randomorder, resulting in slightly less efficient disk access.37Table 3: Model load times and translation speed for batch translation with the Portage SMT system.# ofsentencesper batchBaseline TPPT + Baseline LM TPLM + Baseline PT TPPT + TPLMloadtime w/s1 w/s2 loadtime w/s1 w/s2 loadtime w/s1 w/s2 loadtime3 w/s1 w/s247 210s 5.4 2.4 16s 5.0 4.6 178s 5.9 2.67 < 1s 5.5 5.510 187s 5.5 0.8 16s 5.1 3.6 170s 5.6 0.91 < 1s 5.6 5.61 ?
+?
+?
+15s 5.0 1.0 154s 5.5 0.12 < 1s 5.3 5.2Baseline: Portage?s implementation as pointer structure with load-time filtering.TP: Tightly packed; PT: phrase table; LM: language model1 words per second, excluding load time (pure translation time after model loading)2 words per second, including load time (bottom line translation speed)5.2 TPTs in statistical machine translationTo test the usefulness of TPTs in a more realistic set-ting, we integrated them into the Portage SMT sys-tem (Sadat et al, 2005) and ran large-scale transla-tions in parallel batch processes on a cluster.
+Bothlanguage models and translation tables were en-coded as TPTs and compared against the nativePortage implementation.
+The system was trained onca.
+5.2 million parallel sentences from the CanadianHansard (English: 101 million tokens; French: 113million tokens).
+The language model statistics aregiven in Table 2; the phrase table contained about60.6 million pairs of phrases up to length 8.
+The testcorpus of 1134 sentences was translated from En-glish into French in batches of 1, 10, and 47 or 48sentences.6Translation tables were not pre-filtered a priori tocontain only entries matching the input.
+Pre-filteredtables are smaller and therefore faster to read, whichis advantageous when the same text is translated re-peatedly; the set-up we used more closely resem-bles a system in production that has to deal with un-known input.
+Portage does, however, filter modelsat load time to reduce memory use.
+The total (real)memory use for translations was between 1 and 1.2GB, depending on the batch job, for all systems.Table 3 shows the run-time test results.
+Ignoringmodel load times, the processing speed of the cur-rent Portage implementation and TPTs is compara-ble.
+However, when we take into account load times(which must be taken into account under realisticconditions), the advantages of the TPT implemen-tation become evident.6The peculiar number 47/48 is the result of using the defaultbatch size used in minimum error rate training of the system inother experiments.6 ConclusionsWe have presented Tightly Packed Tries, a compactimplementation of trie structures for NLP databasesthat provide a good balance between compactnessand speed.
+They are only slightly (if at all) slowerbut require much less memory than pointer-basedimplementations.
+Extensive use of the memory-mapping mechanism provides very short load timesand allows memory sharing between processes.
+Un-like solutions that are custom-tailored to specificmodels (e.g., trigram language models), TPTs pro-vide a general strategy for encoding all types of NLPdatabases that rely on token sequences for indexinginformation.
+The novelty in our approach lies in thecompression of the indexing structure itself, not justof the associated information.
+While the underlyingmechanisms are well-known, we are not aware ofany work so far that combines them to achieve fast-loading, compact and fast data structures for large-scale NLP applications.ReferencesBadr, G., E. Joanis, S. Larkin, and R. Kuhn.2007.
+?Manageable phrase-based statistical ma-chine translation models.?
+5th Intl.
+Conf.
+on Com-puter Recognition Systems (CORES).
+Wroclaw,Poland.Bell, T. C., J. G. Cleary, and I. H. Witten.
+1990.
+TextCompression.
+Prentice Hall.Brants, T. and A. Franz.
+2006.
+?Web 1T 5-gram Ver-sion 1.?
+LDC Catalogue Number LDC2006T13.Brants, T., A. C. Popat, P. Xu, F. J. Och, and J. Dean.2007.
+?Large language models in machine trans-38lation.?
+EMNLP-CoNLL 2007, 858?867.
+Prague,Czech Republic.Chazelle, B., J. Kilian, R. Rubinfeld, and A. Tal.2004.
+?The Bloomier filter: An efficient datastructure for static support lookup tables.?
+15thAnnual ACM-SIAM Symposium on Discrete Algo-rithms.
+New Orleans, LA, USA.Church, K., T. Hart, and J. Gao.
+2007.
+?Compress-ing trigram language models with Golomb cod-ing.?
+EMNLP-CoNLL 2007, 199?207.
+Prague,Czech Republic.Clarkson, P. R. and R. Rosenfeld.
+1997.
+?Statisticallanguage modeling using the CMU-Cambridgetoolkit.?
+EUROSPEECH 1997, 2707?2710.Rhodes, Greece.Federico, M. and N. Bertoldi.
+2006.
+?How many bitsare needed to store probabilities for phrase-basedtranslation??
+Workshop on Statistical MachineTranslation, 94?101.
+New York City.Federico, M. and M. Cettolo.
+2007.
+?Efficient han-dling of n-gram language models for statisticalmachine translation.?
+Second Workshop on Statis-tical Machine Translation, 88?95.
+Prague, CzechRepublic.Fredkin, E. 1960.
+?Trie memory.?
+Communicationsof the ACM, 3(9):490?499.Golomb, S. W. 1966.
+?Run-length encodings.?
+IEEETransactions on Information Theory, 12(3):399?401.Graff, D. 2003.
+?English Gigaword.?
+LDC Cata-logue Number LDC2003T05.Huffman, D. A.
+1952.
+?A method for the construc-tion of minimum-redundancy codes.?
+Proceed-ings of the IRE, 40(9):1098?1102.
+Reprinted inResonance 11(2).Johnson, H., J. Martin, G. Foster, and R. Kuhn.2007.
+?Improving translation quality by discard-ing most of the phrasetable.?
+EMNLP-CoNLL2007, 967?975.
+Prague, Czech Republic.Katz, S. M. 1987.
+?Estimation of probabilitiesfrom sparse data for the language model com-ponent of a speech recognizer.?
+IEEE Transac-tions on Acoustics, Speech, and Signal Process-ing, 35(3):400?401.Koehn, P., H. Hoang, A. Birch, C. Callison-Burch,M.
+Federico, N. Bertoldi, B. Cowan, W. Shen,C.
+Moran, R. Zens, C. Dyer, O. Bojar, A. Con-stantin, and E. Herbst.
+2007.
+?Moses: Opensource toolkit for statistical machine translation.
+?ACL 2007 Demonstration Session.
+Prague, CzechRepublic.Sadat, F., H. Johnson, A. Agbago, G. Foster,R.
+Kuhn, J. Martin, and A. Tikuisis.
+2005.?PORTAGE: A phrase-based machine translationsystem.?
+ACL Workshop on Building and Us-ing Parallel Texts, 133?136.
+Ann Arbor, MI,USA.
+Also available as NRC-IIT publicationNRC-48525.Stolcke, A.
+1998.
+?Entropy-based pruning ofbackoff language models.?
+DARPA BroadcastNews Transcription and Understanding Work-shop, 270?274.
+Lansdowne, VA, USA.Stolcke, A.
+2002.
+?SRILM ?
+an extensible lan-guage modeling toolkit.?
+Intl.
+Conf.
+on SpokenLanguage Processing.
+Denver, CO, USA.Talbot, D. and T. Brants.
+2008.
+?Randomizedlanguage models via perfect hash functions.
+?ACL 2008, 505?513.
+Columbus, Ohio.Whittaker, E. W. D. and B. Raj.
+2001.?Quantization-based language model com-pression.?
+EUROSPEECH 2001, 33?36.
+Aalborg,Denmark.Zens, R. and H. Ney.
+2007.
+?Efficient phrase-tablerepresentation for machine translation with ap-plications to online MT and speech translation.
+?NAACL-HLT 2007 2007, 492?499.
+Rochester,New York.39

@@ -1,0 +1,1434 @@
+Learning Dependency-BasedCompositional SemanticsPercy Liang?University of California, BerkeleyMichael I.
+Jordan?
+?University of California, BerkeleyDan Klein?University of California, BerkeleySuppose we want to build a system that answers a natural language question by representing itssemantics as a logical form and computing the answer given a structured database of facts.
+Thecore part of such a system is the semantic parser that maps questions to logical forms.
+Semanticparsers are typically trained from examples of questions annotated with their target logical forms,but this type of annotation is expensive.Our goal is to instead learn a semantic parser from question?answer pairs, where the logicalform is modeled as a latent variable.
+We develop a new semantic formalism, dependency-basedcompositional semantics (DCS) and define a log-linear distribution over DCS logical forms.
+Themodel parameters are estimated using a simple procedure that alternates between beam searchand numerical optimization.
+On two standard semantic parsing benchmarks, we show that oursystem obtains comparable accuracies to even state-of-the-art systems that do require annotatedlogical forms.No rights reserved.
+This work was authored as part of the Contributor?s official duties as an Employee ofthe United States Government and is therefore a work of the United States Government.
+In accordance with17 U.S.C.
+105, no copyright protection is available for such works under U.S. law.1.
+IntroductionOne of the major challenges in natural language processing (NLP) is building systemsthat both handle complex linguistic phenomena and require minimal human effort.
+Thedifficulty of achieving both criteria is particularly evident in training semantic parsers,where annotating linguistic expressions with their associated logical forms is expensivebut until recently, seemingly unavoidable.
+Advances in learning latent-variable models,however, have made it possible to progressively reduce the amount of supervision?
+Computer Science Division, University of California, Berkeley, CA 94720, USA.E-mail: pliang@cs.stanford.edu.??
+Computer Science Division and Department of Statistics, University of California, Berkeley, CA 94720,USA.
+E-mail: jordan@cs.berkeley.edu.?
+Computer Science Division, University of California, Berkeley, CA 94720, USA.E-mail: klein@cs.berkeley.edu.Submission received: 12 September 2011; revised submission received: 19 February 2012; accepted forpublication: 18 April 2012.doi:10.1162/COLI a 00127Computational Linguistics Volume 39, Number 2required for various semantics-related tasks (Zettlemoyer and Collins 2005; Branavanet al2009; Liang, Jordan, and Klein 2009; Clarke et al2010; Artzi and Zettlemoyer 2011;Goldwasser et al2011).
+In this article, we develop new techniques to learn accuratesemantic parsers from even weaker supervision.We demonstrate our techniques on the concrete task of building a system to answerquestions given a structured database of facts; see Figure 1 for an example in the domainof U.S. geography.
+This problem of building natural language interfaces to databases(NLIDBs) has a long history in NLP, starting from the early days of artificial intelligencewith systems such as LUNAR (Woods, Kaplan, and Webber 1972), CHAT-80 (Warrenand Pereira 1982), and many others (see Androutsopoulos, Ritchie, and Thanisch [1995]for an overview).
+We believe NLIDBs provide an appropriate starting point for semanticparsing because they lead directly to practical systems, and they allow us to temporarilysidestep intractable philosophical questions on how to represent meaning in general.Early NLIDBs were quite successful in their respective limited domains, but becausethese systems were constructed frommanually built rules, they became difficult to scaleup, both to other domains and to more complex utterances.
+In response, against thebackdrop of a statistical revolution in NLP during the 1990s, researchers began to buildsystems that could learn from examples, with the hope of overcoming the limitations ofrule-based methods.
+One of the earliest statistical efforts was the CHILL system (Zelleand Mooney 1996), which learned a shift-reduce semantic parser.
+Since then, there hasbeen a healthy line of work yielding increasingly more accurate semantic parsers byusing new semantic representations andmachine learning techniques (Miller et al1996;Zelle and Mooney 1996; Tang andMooney 2001; Ge andMooney 2005; Kate, Wong, andMooney 2005; Zettlemoyer and Collins 2005; Kate andMooney 2006;Wong andMooney2006; Kate and Mooney 2007; Wong and Mooney 2007; Zettlemoyer and Collins 2007;Kwiatkowski et al2010, 2011).Although statistical methods provided advantages such as robustness and portabil-ity, however, their application in semantic parsing achieved only limited success.
+Oneof the main obstacles was that these methods depended crucially on having examplesof utterances paired with logical forms, and this requires substantial human effort toobtain.
+Furthermore, the annotators must be proficient in some formal language, whichdrastically reduces the size of the annotator pool, dampening any hope of acquiringenough data to fulfill the vision of learning highly accurate systems.In response to these concerns, researchers have recently begun to explore the pos-sibility of learning a semantic parser without any annotated logical forms (Clarke et alFigure 1The concrete objective: A system that answers natural language questions given a structureddatabase of facts.
+An example is shown in the domain of U.S. geography.390Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsFigure 2Our statistical methodology consists of two steps: (i) semantic parsing (p(z | x;?
+)): an utterance xis mapped to a logical form z by drawing from a log-linear distribution parametrized by avector ?
+; and (ii) evaluation ([[z]]w): the logical form z is evaluated with respect to the world w(database of facts) to deterministically produce an answer y.
+The figure also shows an exampleconfiguration of the variables around the graphical model.
+Logical forms z are represented aslabeled trees.
+During learning, we are given w and (x, y) pairs (shaded nodes) and try to inferthe latent logical forms z and parameters ?.2010; Artzi and Zettlemoyer 2011; Goldwasser et al2011; Liang, Jordan, andKlein 2011).It is in this vein that we develop our present work.
+Specifically, given a set of (x, y)example pairs, where x is an utterance (e.g., a question) and y is the correspondinganswer, we wish to learn a mapping from x to y.
+What makes this mapping particularlyinteresting is that it passes through a latent logical form z, which is necessary to capturethe semantic complexities of natural language.
+Also note that whereas the logical formz was the end goal in much of earlier work on semantic parsing, for us it is just anintermediate variable?a means towards an end.
+Figure 2 shows the graphical modelwhich captures the learning setting we just described: The question x, answer y, andworld/database w are all observed.
+We want to infer the logical forms z and theparameters ?
+of the semantic parser, which are unknown quantities.Although liberating ourselves from annotated logical forms reduces cost, it doesincrease the difficulty of the learning problem.
+The core challenge here is programinduction: On each example (x, y), we need to efficiently search over the exponentialspace of possible logical forms (programs) z and find ones that produce the targetanswer y, a computationally daunting task.
+There is also a statistical challenge: Howdo we parametrize the mapping from utterance x to logical form z so that it can belearned from only the indirect signal y?
+To address these two challenges, we must firstdiscuss the issue of semantic representation.
+There are two basic questions here: (i) what391Computational Linguistics Volume 39, Number 2should the formal language for the logical forms z be, and (ii) what are the compositionalmechanisms for constructing those logical forms?The semantic parsing literature has considered many different formal languagesfor representing logical forms, including SQL (Giordani and Moschitti 2009), Prolog(Zelle and Mooney 1996; Tang and Mooney 2001), a simple functional query languagecalled FunQL (Kate, Wong, and Mooney 2005), and lambda calculus (Zettlemoyer andCollins 2005), just to name a few.
+The construction mechanisms are equally diverse, in-cluding synchronous grammars (Wong and Mooney 2007), hybrid trees (Lu et al2008),Combinatory Categorial Grammars (CCG) (Zettlemoyer and Collins 2005), and shift-reduce derivations (Zelle and Mooney 1996).
+It is worth pointing out that the choice offormal language and the construction mechanism are decisions which are really moreorthogonal than is often assumed?the former is concerned with what the logical formslook like; the latter, with how to generate a set of possible logical forms compositionallygiven an utterance.
+(How to score these logical forms is yet another dimension.
+)Existing systems are rarely based on the joint design of the formal language andthe construction mechanism; one or the other is often chosen for convenience fromexisting implementations.
+For example, Prolog and SQL have often been chosen asformal languages for convenience in end applications, but they were not designedfor representing the semantics of natural language, and, as a result, the constructionmechanism that bridges the gap between natural language and formal language isgenerally complex and difficult to learn.
+CCG (Steedman 2000) is quite popular incomputational linguistics (for example, see Bos et al[2004] and Zettlemoyer and Collins[2005]).
+In CCG, logical forms are constructed compositionally using a small handfulof combinators (function application, function composition, and type raising).
+For awide range of canonical examples, CCG produces elegant, streamlined analyses, butits success really depends on having a good, clean lexicon.
+During learning, there isoften a great amount of uncertainty over the lexical entries, which makes CCG morecumbersome.
+Furthermore, in real-world applications, we would like to handle disflu-ent utterances, and this further strains CCG by demanding either extra type-raisingrules and disharmonic combinators (Zettlemoyer and Collins 2007) or a proliferation ofredundant lexical entries for each word (Kwiatkowski et al2010).To cope with the challenging demands of program induction, we break away fromtradition in favor of a new formal language and construction mechanism, which we calldependency-based compositional semantics (DCS).
+The guiding principle behind DCSis to provide a simple and intuitive framework for constructing and representing logicalforms.
+Logical forms in DCS are tree structures calledDCS trees.
+The motivation is two-fold: (i) DCS trees are meant to parallel syntactic dependency trees, which facilitatesparsing; and (ii) a DCS tree essentially encodes a constraint satisfaction problem, whichcan be solved efficiently using dynamic programming to obtain the denotation of a DCStree.
+In addition, DCS provides a mark?execute construct, which provides a uniformway of dealing with scope variation, a major source of trouble in any semantic for-malism.
+The construction mechanism in DCS is a generalization of labeled dependencyparsing, which leads to simple and natural algorithms.
+To a linguist, DCS might appearunorthodox, but it is important to keep in mind that our primary goal is effectiveprogram induction, not necessarily to model new linguistic phenomena in the traditionof formal semantics.Armed with our new semantic formalism, DCS, we then define a discriminativeprobabilistic model, which is depicted in Figure 2.
+The semantic parser is a log-lineardistribution over DCS trees z given an utterance x.
+Notably, z is unobserved, and we in-stead observe only the answer y, which is obtained by evaluating z on a world/database392Liang, Jordan, and Klein Learning Dependency-Based Compositional Semanticsw.
+There are an exponential number of possible trees z, and usually dynamic program-ming can be used to efficiently search over trees.
+However, in our learning setting(independent of the semantic formalism), we must enforce the global constraint thatz produces y.
+This makes dynamic programming infeasible, so we use beam search(though dynamic programming is still used to compute the denotation of a fixed DCStree).
+We estimate the model parameters with a simple procedure that alternates be-tween beam search and optimizing a likelihood objective restricted to those beams.
+Thisyields a natural bootstrapping procedure in which learning and search are integrated.We evaluated our DCS-based approach on two standard benchmarks, GEO, a U.S.geography domain (Zelle and Mooney 1996), and JOBS, a job queries domain (Tang andMooney 2001).
+On GEO, we found that our system significantly outperforms previouswork that also learns from answers instead of logical forms (Clarke et al2010).
+Whatis perhaps a more significant result is that our system obtains comparable accuracies tostate-of-the-art systems that do rely on annotated logical forms.
+This demonstrates theviability of training accurate systems with much less supervision than before.The rest of this article is organized as follows: Section 2 introduces DCS, our newsemantic formalism.
+Section 3 presents our probabilistic model and learning algorithm.Section 4 provides an empirical evaluation of our methods.
+Section 5 situates this workin a broader context, and Section 6 concludes.2.
+RepresentationIn this section, we present the main conceptual contribution of this work, dependency-based compositional semantics (DCS), using the U.S. geography domain (Zelle andMooney 1996) as a running example.
+To do this, we need to define the syntax andsemantics of the formal language.
+The syntax is defined in Section 2.2 and is quitestraightforward: The logical forms in the formal language are simply trees, which wecallDCS trees.
+In Section 2.3, we give a type-theoretic definition ofworlds (also knownas databases or models) with respect to which we can define the semantics of DCS trees.The semantics, which is the heart of this article, contains two main ideas: (i) usingtrees to represent logical forms as constraint satisfaction problems or extensions thereof,and (ii) dealing with cases when syntactic and semantic scope diverge (e.g., for general-ized quantification and superlative constructions) using a new construct which we callmark?execute.
+We start in Section 2.4 by introducing the semantics of a basic versionof DCS which focuses only on (i) and then extend it to the full version (Section 2.5) toaccount for (ii).Finally, having fully specified the formal language, we describe a constructionmechanism for mapping a natural language utterance to a set of candidate DCS trees(Section 2.6).2.1 NotationOperations on tuples will play a prominent role in this article.
+For a sequence1 v =(v1, .
+.
+.
+, vk), we use |v| = k to denote the length of the sequence.
+For two sequences uand v, we use u+ v = (u1, .
+.
+.
+,u|u|, v1, .
+.
+.
+, v|v|) to denote their concatenation.1 We use the term sequence to refer to both tuples (v1, .
+.
+.
+, vk ) and arrays [v1, .
+.
+.
+, vk].
+For our purposes, thereis no functional difference between tuples and arrays; the distinction is convenient when we start to talkabout arrays of tuples.393Computational Linguistics Volume 39, Number 2For a sequence of positive indices i = (i1, .
+.
+.
+, im), let vi = (vi1 , .
+.
+.
+, vim ) consist of thecomponents of v specified by i; we call vi the projection of v onto i.
+We use negativeindices to exclude components: v?i = (v(1,...,|v|)\i).
+We can also combine sequences ofindices by concatenation: vi,j = vi + vj.
+Some examples: if v = (a, b, c, d), then v2 = b,v3,1 = (c, a), v?3 = (a, b, d), v3,?3 = (c, a, b, d).2.2 Syntax of DCS TreesThe syntax of the DCS formal language is built from two ingredients, predicates andrelations: Let P be a set of predicates.
+We assume that P contains a special nullpredicate ?, domain-independent predicates (e.g., count, <, >, and =), anddomain-specific predicates (for the U.S. geography domain, state, river,border, etc.).
+Right now, think of predicates as just labels, which have yetto receive formal semantics. LetR be the set of relations.
+Note that unlike the predicates P , which canvary across domains, the relationsR are fixed.
+The full set of relations areshown in Table 1.
+For now, just think of relations as labels?their semanticswill be defined in Section 2.4.The logical forms in DCS are called DCS trees.
+A DCS tree is a directed rooted treein which nodes are labeled with predicates and edges are labeled with relations; eachnode also maintains an ordering over its children.
+Formally:Definition 1 (DCS trees)Let Z be the set of DCS trees, where each z ?
+Z consists of (i) a predicate z.p ?
+P and (ii)a sequence of edges z.e = (z.e1, .
+.
+.
+, z.em).
+Each edge e consists of a relation e.r ?
+R (seeTable 1) and a child tree e.c ?
+Z .We will either draw a DCS tree graphically or write it compactly as ?p; r1 :c1; .
+.
+.
+; rm :cm?where p is the predicate at the root node and c1, .
+.
+.
+, cm are its m children connected viaedges labeled with relations r1, .
+.
+.
+, rm, respectively.
+Figure 3(a) shows an example of aDCS tree expressed using both graphical and compact formats.Table 1Possible relations that appear on edges of DCS trees.
+Basic DCS uses only the join and aggregaterelations; the full version of DCS uses all of them.RelationsRName Relation Description of semantic functionjoinjj?
+for j, j?
+?
+{1, 2, .
+.
+. }
+j-th component of parent = j?-th component of childaggregate ?
+parent = set of feasible values of childextract E mark node for extractionquantify Q mark node for quantification, negationcompare C mark node for superlatives, comparativesexecute Xi for i ?
+{1, 2 .
+.
+.
+}?
+process marked nodes specified by i394Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsFigure 3(a) An example of a DCS tree (written in both the mathematical and graphical notations).
+Eachnode is labeled with a predicate, and each edge is labeled with a relation.
+(b) A DCS tree zwithonly join relations encodes a constraint satisfaction problem, represented here as a lambdacalculus formula.
+For example, the root node label city corresponds to a unary predicatecity(c), the right child node label loc corresponds to a binary predicate loc() (where  is apair), and the edge between them denotes the constraint c1 = 1 (where the indices correspond tothe two labels on the edge).
+(c) The denotation of z is the set of feasible values for the root node.A DCS tree is a logical form, but it is designed to look like a syntactic dependencytree, only with predicates in place of words.
+As we?ll see over the course of this section,it is this transparency between syntax and semantics provided by DCS which leads to asimple and streamlined compositional semantics suitable for program induction.2.3 WorldsIn the context of question answering, the DCS tree is a formal specification of thequestion.
+To obtain an answer, we still need to evaluate the DCS tree with respect toa database of facts (see Figure 4 for an example).
+We will use the term world to referFigure 4We use the domain of U.S. geography as a running example.
+The figure presents an example of aworld w (database) in this domain.
+A world maps each predicate to a set of tuples.
+For example,the depicted world wmaps the predicate loc to the set of pairs of places and their containers.Note that functions (e.g., population) are also represented as predicates for uniformity.
+Somepredicates (e.g., count) map to an infinite number of tuples and would be represented implicitly.395Computational Linguistics Volume 39, Number 2to this database (it is sometimes also called a model, but we avoid this term to avoidconfusion with the probabilistic model for learning that we will present in Section 3.1).Throughout this work, we assume the world is fully observed and fixed, which is arealistic assumption for building natural language interfaces to existing databases, butquestionable for modeling the semantics of language in general.2.3.1 Types and Values.
+To define a world, we start by constructing a set of values V .The exact set of values depends on the domain (we will continue to use U.S. geog-raphy as a running example).
+Briefly, V contains numbers (e.g., 3 ?
+V), strings (e.g.,Washington ?
+V), tuples (e.g., (3,Washington) ?
+V), sets (e.g., {3,Washington} ?
+V), andother higher-order entities.To be more precise, we construct V recursively.
+First, define a set of primitive valuesV, which includes the following: Numeric values.
+Each value has the form x : t ?
+V, where x ?
+R is a realnumber and t ?
+{number, ordinal, percent, length, .
+.
+. }
+is a tag.
+The tagallows us to differentiate 3, 3rd, 3%, and 3 miles?this will be important inSection 2.6.3.
+We simply write x for the value x :number. Symbolic values.
+Each value has the form x : t ?
+V, where x is a string (e.g.,Washington) and t ?
+{string, city, state, river, .
+.
+. }
+is a tag.
+Again, thetag allows us to differentiate, for example, the entitiesWashington :cityandWashington :state.Now we build the full set of values V from the primitive values V.
+To define V , weneed a bit more machinery: To avoid logical paradoxes, we construct V in increasingorder of complexity using types (see Carpenter [1998] for a similar construction).
+Thecasual reader can skip this construction without losing any intuition.Define the set of types T to be the smallest set that satisfies the following properties:1.
+The primitive type  ?
+T ;2.
+The tuple type (t1, .
+.
+.
+, tk) ?
+T for each k ?
+0 and each non-tuple typeti ?
+T for i = 1, .
+.
+.
+, k; and3.
+The set type {t} ?
+T for each tuple type t ?
+T .Note that {}, {{}}, and (()) are not valid types.For each type t ?
+T , we construct a corresponding set of values Vt:1.
+For the primitive type t = , the primitive values V have already beenspecified.
+Note that these types are rather coarse: Primitive values withdifferent tags are considered to have the same type .2.
+For a tuple type t = (t1, .
+.
+.
+, tk), Vt is the cross product of the values of itscomponent types:Vt = {(v1, .
+.
+.
+, vk) : ?i, vi ?
+Vti} (1)396Liang, Jordan, and Klein Learning Dependency-Based Compositional Semantics3.
+For a set type t = {t?
+}, Vt contains all subsets of its element type t?
+:Vt = {s : s ?
+Vt?}
+(2)With this last condition, we ensure that all elements of a set must have thesame type.
+Note that a set is still allowed to have values with different tags(e.g., {(Washington :city), (Washington :state)} is a valid set, which mightdenote the semantics of the utterance things named Washington).
+Anotherdistinction is that types are domain-independent whereas tags tend to bemore domain-specific.Let V = ?t?T Vt be the set of all possible values.A world maps each predicate to its semantics, which is a set of tuples (see Figure 4for an example).
+First, let TTUPLE ?
+T be the tuple types, which are the ones of the form(t1, .
+.
+.
+, tk) for some k. Let V{TUPLE} denote all the sets of tuples (with the same type):V{TUPLE}def=?t?TTUPLEV{t} (3)Now we define a world formally.Definition 2 (World)A world w : P ?
+V{TUPLE} ?
+{V} is a function that maps each non-null predicate p ?P\{?}
+to a set of tuples w(p) ?
+V{TUPLE} and maps the null predicate ?
+to the set of allvalues (w(?)
+= V).For a set of tuplesAwith the same arity, let ARITY(A) = |x|, where x ?
+A is arbitrary;if A is empty, then ARITY(A) is undefined.
+Now for a predicate p ?
+P and world w,define ARITYw(p), the arity of predicate pwith respect to w, as follows:ARITYw(p) ={1 if p = ?ARITY(w(p)) if p = ?
+(4)The null predicate has arity 1 by fiat; the arity of a non-null predicate p is inherited fromthe tuples in w(p).Remarks.
+In higher-order logic and lambda calculus, we construct function types andvalues, whereas in DCS, we construct tuple types and values.
+The two are equivalentin representational power, but this discrepancy does point out the fact that lambdacalculus is based on function application, whereas DCS, as we will see, is based ondeclarative constraints.
+The set type {(, )} in DCS corresponds to the function type?
+(?
+bool).
+In DCS, there is no explicit bool type?it is implicitly represented byusing sets.2.3.2 Examples.
+The world w maps each domain-specific predicate to a set of tuples(usually a finite set backed by a database).
+For the U.S. geography domain, w has a397Computational Linguistics Volume 39, Number 2predicate that maps to the set of U.S. states (state), another predicate that maps to theset of pairs of entities and where they are located (loc), and so on:w(state) = {(California :state), (Oregon :state), .
+.
+. }
+(5)w(loc) = {(San Francisco :city,California :state), .
+.
+. }
+(6).
+.
+.
+(7)To shorten notation, we use state abbreviations (e.g., CA = California :state).The world w also specifies the semantics of several domain-independent predicates(think of these as helper functions), which usually correspond to an infinite set of tuples.Functions are represented in DCS by a set of input?output pairs.
+For example, thesemantics of the countt predicate (for each type t ?
+T ) contains pairs of sets S and theircardinalities |S|:w(countt) = {(S, |S|) : S ?
+V{(t)}} ?
+V{({(t)},)} (8)As another example, consider the predicate averaget (for each t ?
+T ), which takes aset of key?value pairs (with keys of type t) and returns the average value.
+For notationalconvenience, we treat an arbitrary set of pairs S as a set-valued function: We let S1 = {x :(x, y) ?
+S} denote the domain of the function, and abusing notation slightly, we definethe function S(x) = {y : (x, y) ?
+S} to be the set of values y that co-occur with the givenx.
+The semantics of averaget contains pairs of sets and their averages:w(averaget) =???
+(S, z) : S ?
+V{(t,)}, z = |S1|?1?x?S1??|S(x)|?1?y?S(x)y??????
+V{({(t,)},)}(9)Similarly, we can define the semantics of argmint and argmaxt, which each takes a set ofkey?value pairs and returns the keys that attain the smallest (largest) value:w(argmint) ={(S, z) : S ?
+V{(t,)}, z ?
+argminx?S1min S(x)}?
+V{({(t,)},t)} (10)w(argmaxt) ={(S, z) : S ?
+V{(t,)}, z ?
+argmaxx?S1max S(x)}?
+V{({(t,)},t)} (11)The extra min and max is needed because S(x) could contain more than one value.
+Wealso impose that w(argmint) contains only (S, z) such that y is numeric for all (x, y) ?
+S;thus argmint denotes a partial function (same for argmaxt).These helper functions are monomorphic: For example, countt only computescardinalities of sets of type {(t)}.
+In practice, we mostly operate on sets of primitives(t = ).
+To reduce notation, we omit t to refer to this version: count = count, average =average, and so forth.398Liang, Jordan, and Klein Learning Dependency-Based Compositional Semantics2.4 Semantics of DCS Trees without Mark?Execute (Basic Version)The semantics or denotation of a DCS tree z with respect to a world w is denoted zw.First, we define the semantics of DCS trees with only join relations (Section 2.4.1).
+Inthis case, a DCS tree encodes a constraint satisfaction problem (CSP); this is importantbecause it highlights the constraint-based nature of DCS and also naturally leads to acomputationally efficient way of computing denotations (Section 2.4.2).
+We then allowDCS trees to have aggregate relations (Section 2.4.3).
+The fragment of DCS which hasonly join and aggregate relations is called basic DCS.2.4.1 Basic DCS Trees as Constraint Satisfaction Problems.
+Let z be a DCS tree with onlyjoin relations on its edges.
+In this case, z encodes a CSP as follows: For each node x in z,the CSP has a variable with value a(x); the collection of these values is referred to as anassignment a.
+The predicates and relations of z introduce constraints:1. a(x) ?
+w(p) for each node x labeled with predicate p ?
+P ; and2.
+a(x)j = a(y)j?
+for each edge (x, y) labeled withjj?
+?
+R, which says that thej-th component of a(x) must equal the j?-th component of a(y).We say that an assignment a is feasible if it satisfies these two constraints.
+Next, for a nodex, defineV(x) = {a(x) : assignment a is feasible} as the set of feasible values for x?theseare the ones that are consistent with at least one feasible assignment.
+Finally, we definethe denotation of the DCS tree z with respect to the world w to be zw = V(x0), wherex0 is the root node of z.Figure 3(a) shows an example of a DCS tree.
+The corresponding CSP has four vari-ables c,m, , s.2 In Figure 3(b), we have written the equivalent lambda calculus formula.The non-root nodes are existentially quantified, the root node c is ?-abstracted, andall constraints introduced by predicates and relations are conjoined.
+The ?-abstractionof c represents the fact that the denotation is the set of feasible values for c (note theequivalence between the Boolean function ?c.p(c) and the set {c : p(c)}).Remarks.
+Note that CSPs only allow existential quantification and conjunction.
+Whydid we choose this particular logical subset as a starting point, rather than allowinguniversal quantification, negation, or disjunction?
+There seems to be something fun-damental about this subset, which also appears in Discourse Representation Theory(DRT) (Kamp and Reyle 1993; Kamp, van Genabith, and Reyle 2005).
+Briefly, logicalforms in DRT are called Discourse Representation Structures (DRSs), each of whichcontains (i) a set of existentially quantified discourse referents (variables), (ii) a set ofconjoined discourse conditions (constraints), and (iii) nested DRSs.
+If we exclude nestedDRSs, a DRS is exactly a CSP.3 The default existential quantification and conjunction arequite natural for modeling cross-sentential anaphora: New variables can be added to2 Technically, the node is c and the variable is a(c), but we use c to denote the variable to simplify notation.3 Unlike the CSPs corresponding to DCS trees, the CSPs corresponding to DRSs need not betree-structured, though economical DRT (Bos 2009) imposes a tree-like restriction on DRSs forcomputational reasons.399Computational Linguistics Volume 39, Number 2a DRS and connected to other variables.
+Indeed, DRT was originally motivated by thesephenomena (see Kamp and Reyle [1993] for more details).4Tree-structured CSPs can capture unboundedly complex recursive structures?suchas cities in states that border states that have rivers that.
+.
+.
+.
+Trees are limited, however, inthat they are unable to capture long-distance dependencies such as those arising fromanaphora.
+For example, in the phrase a state with a river that traverses its capital, its bindsto state, but this dependence cannot be captured in a tree structure.
+A solution isto simply add an edge between the its node and the state node that forces the twonodes to have the same value.
+The result is still a well-defined CSP, though not a tree-structured one.
+The situation would become trickier if we were to integrate the otherrelations (aggregate, mark, and execute).
+We might be able to incorporate some ideasfrom Hybrid Logic Dependency Semantics (Baldridge and Kruijff 2002; White 2006),given that hybrid logic extends the tree structures of modal logic with nominals, therebyallowing a node to freely reference other nodes.
+In this article, however, we will stick totrees and leave the full exploration of non-trees for future work.2.4.2 Computation of Join Relations.
+So far, we have given a declarative definition of thedenotation zw of a DCS tree z with only join relations.
+Now we will show how tocompute zw efficiently.
+Recall that the denotation is the set of feasible values for theroot node.
+In general, finding the solution to a CSP is NP-hard, but for trees, we canexploit dynamic programming (Dechter 2003).
+The key is that the denotation of a treedepends on its subtrees only through their denotations:?p;j1j?1:c1; ?
+?
+?
+;jmj?m:cm?w= w(p) ?m?i=1{v : vji = tj?i , t ?
+ciw} (12)On the right-hand side of Equation (12), the first termw(p) is the set of values that satisfythe node constraint, and the second term consists of an intersection across all m edgesof {v : vji = tj?i , t ?
+ciw}, which is the set of values v which satisfy the edge constraintwith respect to some value t for the child ci.To further flesh out this computation, we express Equation (12) in terms of twooperations: join and project.
+Join takes a cross product of two sets of tuples and retainsthe resulting tuples that match the join constraint:A j,j?
+B = {u+ v : u ?
+A, v ?
+B,uj = vj?}
+(13)Project takes a set of tuples and retains a fixed subset of the components:A[i] = {vi : v ?
+A} (14)The denotation in Equation (12) can now be expressed in terms of these join and projectoperations:?p;j1j?1:c1; ?
+?
+?
+;jmj?m:cm?w= ((w(p) j1,j?1 c1w)[i] ?
+?
+?
+jm,j?m cmw)[i] (15)4 DRT started the dynamic semantics tradition where meanings are context-change potentials, a naturalway to capture anaphora.
+The DCS formalism presented here does not deal with anaphora, so we give ita purely static semantics.400Liang, Jordan, and Klein Learning Dependency-Based Compositional Semanticswhere i = (1, .
+.
+.
+, ARITYw(p)).
+Projecting onto i retains only components correspondingto p.The time complexity for computing the denotation of a DCS tree zw scales linearlywith the number of nodes, but there is also a dependence on the cost of performing thejoin and project operations.
+For details on howwe optimize these operations and handleinfinite sets of tuples (for predicates such as count), see Liang (2011).The denotation of DCS trees is defined in terms of the feasible values of a CSP, andthe recurrence in Equation (15) is only one way of computing this denotation.
+In light ofthe extensions to come, however, we now consider Equation (15) as the actual definitionrather than just a computational mechanism.
+It will still be useful to refer to the CSP inorder to access the intuition of using declarative constraints.2.4.3 Aggregate Relation.
+Thus far, we have focused on DCS trees that only use joinrelations, which are insufficient for capturing higher-order phenomena in language.
+Forexample, consider the phrase number of major cities.
+Suppose that number correspondsto the count predicate, and that major cities maps to the DCS tree ?city; 11 :?major??.
+Wecannot simply join countwith the root of this DCS tree because count needs to be joinedwith the set of major cities (the denotation of ?city; 11 :?major??
+), not just a single city.We therefore introduce the aggregate relation (?)
+that takes a DCS subtree andreifies its denotation so that it can be accessed by other nodes in its entirety.
+Consider atree ??;?
+:c?, where the root is connected to a child c via ?.
+The denotation of the root issimply the singleton set containing the denotation of c:??;?
+:c?w = {(cw)} (16)Figure 5(a) shows the DCS tree for our running example.
+The denotation of themiddle node is {(s)}, where s is all major cities.
+Everything above this node is anordinary CSP: s constrains the count node, which in turns constrains the root node to|s|.
+Figure 5(b) shows another example of using the aggregate relation ?.
+Here, the noderight above ?
+is constrained to be a set of pairs of major cities and their populations.The average predicate then computes the desired answer.To represent logical disjunction in natural language, we use the aggregate relationand two predicates, union and contains, which are defined in the expected way:w(union) = {(A,B,C) : C = A ?
+B,A ?
+V{},B ?
+V{}} (17)w(contains) = {(A, x) : x ?
+A,A ?
+V{}} (18)where A,B,C ?
+V{} are sets of primitive values (see Section 2.3.1).
+Figure 5(c) showsan example of a disjunctive construction: We use the aggregate relations to constructtwo sets, one containing Oregon, and the other containing states bordering Oregon.
+Wetake the union of these two sets; contains takes the set and reads out an element, whichthen constrains the city node.Remarks.
+A DCS tree that contains only join and aggregate relations can be viewed asa collection of tree-structured CSPs connected via aggregate relations.
+The tree struc-ture still enables us to compute denotations efficiently based on the recurrences inEquations (15) and (16).Recall that a DCS tree with only join relations is a DRS without nested DRSs.
+Theaggregate relation corresponds to the abstraction operator in DRT and is one way of401Computational Linguistics Volume 39, Number 2Figure 5Examples of DCS trees that use the aggregate relation (?)
+to (a) compute the cardinality of a set,(b) take the average over a set, (c) represent a disjunction over two conditions.
+The aggregaterelation sets the parent node deterministically to the denotation of the child node.
+Nodes withthe special null predicate ?
+are represented as empty nodes.making nested DRSs.
+It turns out that the abstraction operator is sufficient to obtainthe full representational power of DRT, and subsumes generalized quantification anddisjunction constructs in DRT.
+By analogy, we use the aggregate relation to handledisjunction (Figure 5(c)) and generalized quantification (Section 2.5.6).DCS restricted to join relations is less expressive than first-order logic because itdoes not have universal quantification, negation, and disjunction.
+The aggregate rela-tion is analogous to lambda abstraction, and in basic DCS we use the aggregate relationto implement those basic constructs using higher-order predicates such as not, every,and union.
+We can also express logical statements such as generalized quantification,which go beyond first-order logic.2.5 Semantics of DCS Trees with Mark?Execute (Full Version)Basic DCS includes two types of relations, join and aggregate, but it is already quiteexpressive.
+In general, however, it is not enough just to be able to express the meaningof a sentence using some logical form; we must be able to derive the logical formcompositionally and simply from the sentence.Consider the superlative constructionmost populous city, which has a basic syntacticdependency structure shown in Figure 6(a).
+Figure 6(b) shows that we can in principle402Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsFigure 6Two semantically equivalent DCS trees are shown in (b) and (c).
+The DCS tree in (b), which usesthe join and aggregate relations in the basic DCS, does not align well with the syntactic structureof most populous city (a), and thus is undesirable.
+The DCS tree in (c), by using the mark?executeconstruct, aligns much better, with city rightfully dominating its modifiers.
+The full version ofDCS allows us to construct (c), which is preferable to (b).already use a DCS tree with only join and aggregate relations to express the correctsemantics of the superlative construction.
+Note, however, that the two structures arequite divergent?the syntactic head is city and the semantic head is argmax.
+This diver-gence runs counter to a principal desideratum of DCS, which is to create a transparentinterface between coarse syntax and semantics.In this section, we introduce mark and execute relations, which will allow us touse the DCS tree in Figure 6(c) to represent the semantics associated with Figure 6(a);these two are more similar than (a) and (b).
+The focus of this section is on this mark?execute construct?usingmark and execute relations to give proper semantically scopeddenotations to syntactically scoped tree structures.The basic intuition of the mark?execute construct is as follows: We mark a nodelow in the tree with a mark relation; then, higher up in the tree, we invoke it with acorresponding execute relation (Figure 7).
+For our example in Figure 6(c), we mark thepopulation node, which puts the child argmax in a temporary store; when we executethe city node, we fetch the superlative predicate argmax from the store and invoke it.This divergence between syntactic and semantic scope arises in other linguisticcontexts besides superlatives, such as quantification and negation.
+In each of thesecases, the general template is the same: A syntactic modifier low in the tree needs tohave semantic force higher in the tree.
+A particularly compelling case of this divergencehappenswith quantifier scope ambiguity (e.g., Some river traverses every city5), where the5 The two meanings are: (i) there is a river x such that x traverses every city; and (ii) for every city x, someriver traverses x.403Computational Linguistics Volume 39, Number 2Figure 7The template for the mark?execute construct.
+A mark relation (one of E, Q, C) ?stores?
+themodifier.
+Then an execute relation (of the form Xi for indices i) higher up ?recalls?
+themodifier and applies it at the desired semantic point.quantifiers appear in fixed syntactic positions, but the surface and inverse scope read-ings correspond to different semantically scoped denotations.
+Analogously, a single syn-tactic structure involving superlatives can also yield two different semantically scopeddenotations?the absolute and relative readings (e.g., state bordering the largest state6).The mark?execute construct provides a unified framework for dealing all these formsof divergence between syntactic and semantic scope.
+See Figures 8 and 9 for concreteexamples of this construct.2.5.1 Denotations.We now formalize the mark?execute construct.
+We saw that the mark?execute construct appears to act non-locally, putting things in a store and retrievingthem later.
+This means that if we want the denotation of a DCS tree to only dependon the denotations of its subtrees, the denotations need to contain more than the set offeasible values for the root node, as was the case for basic DCS.
+We need to augment de-notations to include information about all marked nodes, because these can be accessedby an execute relation higher up in the tree.More specifically, let z be a DCS tree and d = zw be its denotation.
+The denotationd consists of n columns.
+The first column always corresponds to the root node of z,and the rest of the columns correspond to non-root marked nodes in z.
+In the examplein Figure 10, there are two columns, one for the root state node and the other for sizenode, which is marked by C. The columns are ordered according to a pre-order traversalof z, so column 1 always corresponds to the root node.
+The denotation d contains a set ofarrays d.A, where each array represents a feasible assignment of values to the columnsof d; note that we quantify over non-marked nodes, so they do not correspond to anycolumn in the denotation.
+For example, in Figure 10, the first array in d.A corresponds toassigning (OK) to the state node (column 1) and (TX, 2.7e5) to the size node (column 2).If there are no marked nodes, d.A is basically a set of tuples, which corresponds to adenotation in basic DCS.
+For each marked node, the denotation d also maintains a store6 The two meanings are: (i) a state that borders Alaska (which is the largest state); and (ii) a state with thehighest score, where the score of a state x is the maximum size of any state that x borders (Alaska isirrelevant here because no states border it).404Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsFigure 8Examples of DCS trees that use the mark?execute construct with the E and Q mark relations.
+(a) The head verb borders, which needs to be returned, has a direct object statesmodified bywhich.
+(b) The quantifier no is syntactically dominated by state but needs to take wider scope.
+(c) Two quantifiers yield two possible readings; we build the same basic structure, markingboth quantifiers; the choice of execute relation (X12 versus X21) determines the reading.
+(d) Weuse two mark relations, Q on river for the negation, and E on city to force the quantifier to becomputed for each value of city.with information to be retrieved when that marked node is executed.
+A store ?
+for amarked node contains the following: (i) the mark relation ?.r (C in the example), (ii) thebase denotation ?.b, which essentially corresponds to denotation of the subtree rooted atthe marked node excluding the mark relation and its subtree (?size?w in the example),and (iii) the denotation of the child of the mark relation (?argmax?w in the example).The store of any unmarked nodes is always empty (?
+= ?
+).Definition 3 (Denotations)Let D be the set of denotations, where each denotation d ?
+D consists of a set of arrays d.A, where each array a = [a1, .
+.
+.
+, an] ?
+d.A is a sequence ofn tuples for some n ?
+0; and405Computational Linguistics Volume 39, Number 2Figure 9Examples of DCS trees that use the mark?execute construct with the E and C relation.
+(a,b,c)Comparatives and superlatives are handled as follows: For each value of the node markedby E, we compute a number based on the node marked by C; based on this information,a subset of the values is selected as the possible values of the root node.
+(d) Analog of quantifierscope ambiguity for superlatives: The placement of the execute relation determines an absoluteversus relative reading.
+(e) Interaction between a quantifier and a superlative: The lower executerelation computes the largest city for each state; the second execute relation invokes most andenforces that the major constraint holds for the majority of states.406Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsFigure 10Example of the denotation for a DCS tree (with the compare relation C).
+This denotation has twocolumns, one for each active node?the root node state and the marked node size. a sequence of n stores d.?
+= (d.?1, .
+.
+.
+, d.?n), where each store ?
+contains amark relation ?.r ?
+{E, Q, C, ?
+}, a base denotation ?.b ?
+D ?
+{?
+}, and achild denotation ?.c ?
+D ?
+{?
+}.Note that denotations are formally defined without reference to DCS trees (just as setsof tuples were in basic DCS), but it is sometimes useful to refer to the DCS tree thatgenerates that denotation.For notational convenience, we write d as ?
+?A; (r1, b1, c1); .
+.
+.
+; (rn, bn, cn)??.
+Also letd.ri = d.?i.r, d.bi = d.?i.b, and d.ci = d.?i.c.
+Let d{?i = x} be the denotation which isidentical to d, except with d.?i = x; d{ri = x}, d{bi = x}, and d{ci = x} are definedanalogously.
+We also define a project operation for denotations: ??A;???
+[i] def= ??
+{ai : a ?A};?i??.
+Extending this notation further, we use ?
+to denote the indices of the non-initialcolumns with empty stores (i > 1 such that d.?i = ?).
+We can then use d[??]
+to representprojecting away the non-initial columns with empty stores.
+For the denotation d inFigure 10, d[1] keeps column 1, d[??]
+keeps both columns, and d[2,?2] swaps the twocolumns.In basic DCS, denotations are sets of tuples, which works quite well for repre-senting the semantics of wh-questions such as What states border Texas?
+But what aboutpolar questions such as Does Louisiana border Texas?
+The denotation should be a simpleBoolean value, which basic DCS does not represent explicitly.
+Using our new deno-tations, we can represent Boolean values explicitly using zero-column structures: truecorresponds to a singleton set containing just the empty array (dT = ??
+{[ ]}??)
+and falseis the empty set (dF = ?????
+).Having described denotations as n-column structures, we now give the formalmapping from DCS trees to these structures.
+As in basic DCS, this mapping is definedrecursively over the structure of the tree.
+We have a recurrence for each case (the firstline is the base case, and each of the others handles a different edge relation):?p?w = ??
+{[v] : v ?
+w(p)}; ???
+[base case] (19)?p; e;jj?
+:c?w= ?p; e?w ?
+?j,j?cw [join] (20)?p; e;?
+:c?w = ?p; e?w ???,?
+?
+(cw)[aggregate] (21)407Computational Linguistics Volume 39, Number 2?p; e; Xi :c?w = ?p; e?w ???,?
+xi(cw) [execute] (22)?p; e; E :c?w =M(?p; e?w, E, cw) [extract] (23)?p; e; C :c?w =M(?p; e?w, C, cw) [compare] (24)?p; Q :c; e?w =M(?p; e?w, Q, cw) [quantify] (25)We define the operations ?
+?j,j?,?,Xi, andM in the remainder of this section.2.5.2 Base Case.
+Equation (19) defines the denotation for a DCS tree z with a single nodewith predicate p. The denotation of z has one column whose arrays correspond to thetuples w(p); the store for that column is empty.2.5.3 Join Relations.
+Equation (20) defines the recurrence for join relations.
+On the left-hand side,?p; e;jj?
+:c?is a DCS tree with p at the root, a sequence of edges e followed bya final edge with relationjj?
+connected to a child DCS tree c. On the right-hand side, wetake the recursively computed denotation of ?p; e?, the DCS tree without the final edge,and perform a join-project-inactive operation (notated ??j,j?)
+with the denotation of thechild DCS tree c.The join-project-inactive operation joins the arrays of the two denotations (this isthe core of the join operation in basic DCS?see Equation (13)), and then projects awaythe non-initial empty columns:7??A;???
+??j,j???A?;????
+= ??A??
+;?+ ????[??
+],where (26)A??
+= {a+ a?
+: a ?
+A, a?
+?
+A?, a1j = a?1j?
+}We concatenate all arrays a ?
+A with all arrays a?
+?
+A?
+that satisfy the join conditiona1j = a?1j?
+.
+The sequences of stores are simply concatenated: (?+ ??).
+Finally, any non-initial columns with empty stores are projected away by applying ?[??
+].Note that the join works on column 1; the other columns are carried along for theride.
+As another piece of convenient notation, we use ?
+to represent all components, so???,?
+imposes the join condition that the entire tuple has to agree (a1 = a?1).2.5.4 Aggregate Relations.
+Equation (21) defines the recurrence for aggregate relations.Recall that in basic DCS, aggregate (16) simply takes the denotation (a set of tuples) andputs it into a set.
+Now, the denotation is not just a set, so we need to generalize thisoperation.
+Specifically, the aggregate operation applied to a denotation forms a set outof the tuples in the first column for each setting of the rest of the columns:?
+(??A;???)
+= ??A?
+?
+A??;???
+(27)A?
+= {[S(a), a2, .
+.
+.
+, an] : a ?
+A}S(a) = {a?1 : [a?1, a2, .
+.
+.
+, an] ?
+A}A??
+= {[?, a2, .
+.
+.
+, an] : ?i ?
+{2, .
+.
+.
+,n}, [ai] ?
+?i.b.A[1],?
+?a1, a ?
+A}7 The join and project operations are taken from relational algebra.408Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsThe aggregate operation takes the set of arrays A and produces two sets of arrays, A?andA?
+?, which are unioned (note that the stores do not change).
+The setA?
+is the one thatfirst comes to mind: For every setting of a2, .
+.
+.
+, an, we construct S(a), the set of tuples a?1in the first column which co-occur with a2, .
+.
+.
+, an in A.There is another case, however: what happens to settings of a2, .
+.
+.
+, an that do notco-occur with any value of a?1 in A?
+Then, S(a) = ?, but note that A?
+by construction willnot have the desired array [?, a2, .
+.
+.
+, an].
+As a concrete example, suppose A = ?
+and wehave one column (n = 1).
+Then A?
+= ?, rather than the desired {[?
+]}.Fixing this problem is slightly tricky.
+There are an infinite number of a2, .
+.
+.
+, anwhichdo not co-occur with any a?1 inA, so for which ones do we actually include [?, a2, .
+.
+.
+, an]?Certainly, the answer to this question cannot come from A, so it must come from thestores.
+In particular, for each column i ?
+{2, .
+.
+.
+,n}, we have conveniently stored a basedenotation ?i.b.
+We consider any ai that occurs in column 1 of the arrays of this basedenotation ([ai] ?
+?i.b.A[1]).
+For this a2, .
+.
+.
+, an, we include [?, a2, .
+.
+.
+, an] in A??
+as long asa2, .
+.
+.
+, an does not co-occur with any a1.
+An example is given in Figure 11.The reason for storing base denotations is thus partially revealed: The arrays rep-resent feasible values of a CSP and can only contain positive information.
+When weaggregate, we need to access possibly empty sets of feasible values?a kind of negativeinformation, which can only be recovered from the base denotations.Figure 11An example of applying the aggregate operation, which takes a denotation and aggregates thevalues in column 1 for every setting of the other columns.
+The base denotations (b) are used toput in {} for values that do not appear in A (in this example, AK, corresponding to the fact thatAlaska does not border any states).409Computational Linguistics Volume 39, Number 22.5.5 Mark Relations.
+Equations (23), (24), and (25) each processes a different markrelation.
+We define a general mark operation, M(d, r, c) which takes a denotation d, amark relation r ?
+{E, Q, C} and a child denotation c, and sets the store of d in column 1to be (r, d, c):M(d, r, c) = d{r1 = r, b1 = d, c1 = c} (28)The base denotation of the first column b1 is set to the current denotation d. This, insome sense, creates a snapshot of the current denotation.
+Figure 12 shows an exampleof the mark operation.2.5.6 Execute Relations.
+Equation (22) defines the denotation of a DCS tree where the lastedge of the root is an execute relation.
+Similar to the aggregate case (21), we recurse onthe DCS tree without the last edge (?p; e?)
+and then join it to the result of applying theexecute operation Xi to the denotation of the child (cw).The execute operation Xi is the most intricate part of DCS and is what does theheavy lifting.
+The operation is parametrized by a sequence of distinct indices i thatspecifies the order in which the columns should be processed.
+Specifically, i indexes intothe subsequence of columns with non-empty stores.
+We then process this subsequenceof columns in reverse order, where processing a column means performing some op-erations depending on the stored relation in that column.
+For example, suppose thatcolumns 2 and 3 are the only non-empty columns.
+Then X12 processes column 3 beforecolumn 2.
+On the other hand, X21 processes column 2 before column 3.
+We first defineFigure 12An example of applying the mark operation, which takes a denotation and modifies the store ofthe column 1.
+This information is used by other operations such as aggregate and execute.410Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsFigure 13An example of applying the execute operation on column 1 with the extract relation E. Thedenotation prior to execution consists of two columns: column 1 corresponds to the bordernode; column 2 to the state node.
+The join relations and predicates CA and state constrain thearrays A in the denotation to include only the states that border California.
+After execution, thenon-marked column 1 is projected away, leaving only the state column with its store emptied.the execute operation Xi for a single column i.
+There are three distinct cases, dependingon the relation stored in column i:Extraction.
+For a denotation d with the extract relation E in column i, executing Xi(d)involves three steps: (i) moving column i to before column 1 (?
+[i,?i]), (ii) projectingaway non-initial empty columns (?[??
+]), and (iii) removing the store (?
+{?1 = ?
+}):Xi(d) = d[i,?i][??
+]{?1 = ?}
+if d.ri = E (29)An example is given in Figure 13.
+There are two main uses of extraction.1.
+By default, the denotation of a DCS tree is the set of feasible values of theroot node (which occupies column 1).
+To return the set of feasible valuesof another node, we mark that node with E. Upon execution, the feasiblevalues of that node move into column 1.
+Extraction can be used to handlein situ questions (see Figure 8(a)).2.
+Unmarked nodes (those that do not have an edge with a mark relation) areexistentially quantified and have narrower scope than all marked nodes.Therefore, we can make a node x have wider scope than another node y by411Computational Linguistics Volume 39, Number 2marking x (with E) and executing y before x (see Figure 8(d,e) forexamples).
+The extract relation E (in fact, any mark relation) signifiesthat we want to control the scope of a node, and the execute relationallows us to set that scope.Generalized Quantification.Generalized quantifiers are predicates on two sets, a restrictorA and a nuclear scope B.
+For example,w(some) = {(A,B) : A ?
+B > 0} (30)w(every) = {(A,B) : A ?
+B} (31)w(no) = {(A,B) : A ?
+B = ?}
+(32)w(most) = {(A,B) : |A ?
+B| > 12|A|} (33)We think of the quantifier as amodifier which always appears as the child of a Q relation;the restrictor is the parent.
+For example, in Figure 8(b), no corresponds to the quantifierand state corresponds to the restrictor.
+The nuclear scope should be the set of all statesthat Alaska borders.
+More generally, the nuclear scope is the set of feasible values of therestrictor node with respect to the CSP that includes all nodes between the mark andexecute relations.
+The restrictor is also the set of feasible values of the restrictor node,but with respect to the CSP corresponding to the subtree rooted at that node.8We implement generalized quantifiers as follows: Let d be a denotation and supposewe are executing column i.
+We first construct a denotation for the restrictor dA and adenotation for the nuclear scope dB.
+For the restrictor, we take the base denotation incolumn i (d.bi)?remember that the base denotation represents a snapshot of the restric-tor node before the nuclear scope constraints are added.
+For the nuclear scope, we takethe complete denotation d (which includes the nuclear scope constraints) and extractcolumn i (d[i,?i][??
+]{?1 = ?
+}?see (29)).
+We then construct dA and dB by applying theaggregate operation to each.
+Finally, we join these sets with the quantifier denotation,stored in d.ci:xi(d) =((d.ci ?
+?1,1 dA)?
+?2,1 dB)[?1] if d.ri = Q,where (34)dA = ?
+(d.bi) (35)dB = ?
+(d[i,?i][??
+]{?1 = ?})
+(36)When there is one quantifier, think of the execute relation as performing a syntacticrewriting operation, as shown in Figure 14(b).
+For more complex cases, we must deferto (34).Figure 8(c) shows an example with two interacting quantifiers.
+The denotation ofthe DCS tree before execution is the same in both readings, as shown in Figure 15.
+The8 Defined this way, we can only handle conservative quantifiers, because the nuclear scope will always bea subset of the restrictor.
+This design decision is inspired by DRT, where it provides a way of modelingdonkey anaphora.
+We are not treating anaphora in this work, but we can handle it by allowing pronounsin the nuclear scope to create anaphoric edges into nodes in the restrictor.
+These constraints naturallypropagate through the nuclear scope?s CSP without affecting the restrictor.412Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsFigure 14(a) An example of applying the execute operation on column iwith the quantify relation Q.Before executing, note that A = {} (because Alaska does not border any states).
+The restrictor (A)is the set of all states, and the nuclear scope (B) is empty.
+Because the pair (A,B) does exist inw(no), the final denotation is ??
+{[ ]}??
+(which represents true).
+(b) Although the execute operationactually works on the denotation, think of it in terms of expanding the DCS tree.
+We introducean extra projection relation [?1], which projects away the first column of the child subtree?sdenotation.quantifier scope ambiguity is resolved by the choice of execute relation: X12 gives thesurface scope reading, X21 gives the inverse scope reading.Figure 8(d) shows how extraction and quantification work together.
+First, the noquantifier is processed for each city, which is an unprocessed marked node.
+Here, theextract relation is a technical trick to give city wider scope.Comparatives and Superlatives.
+Comparative and superlative constructions involve com-paring entities, and for this we rely on a set S of entity?degree pairs (x, y), where x is anFigure 15Denotation of Figure 8(c) before the execute relation is applied.413Computational Linguistics Volume 39, Number 2entity and y is a numeric degree.
+Recall that we can treat S as a function, which mapsan entity x to the set of degrees S(x) associated with x.
+Note that this set can containmultiple degrees.
+For example, in the relative reading of state bordering the largest state,we would have a degree for the size of each neighboring state.Superlatives use the argmax and argmin predicates, which are defined in Section 2.3.Comparatives use the more and less predicates: w(more) contains triples (S, x, y), wherex is ?more than?
+y as measured by S; w(less) is defined analogously:w(more) = {(S, x, y) : max S(x) > max S(y)} (37)w(less) = {(S, x, y) : min S(x) < min S(y)} (38)We use the same mark relation C for both comparative and superlative construc-tions.
+In terms of the DCS tree, there are three key parts: (i) the root x, which correspondsto the entity to be compared, (ii) the child c of a C relation, which corresponds to thecomparative or superlative predicate, and (iii) c?s parent p, which contains the ?degreeinformation?
+(which will be described later) used for comparison.
+We assume that theroot is marked (usually with a relation E).
+This forces us to compute a comparisondegree for each value of the root node.
+In terms of the denotation d corresponding to theDCS tree prior to execution, the entity to be compared occurs in column 1 of the arraysd.A, the degree information occurs in column i of the arrays d.A, and the denotation ofthe comparative or superlative predicate itself is the child denotation at column i (d.ci).First, we define a concatenating function +i (d), which combines the columns i of dby concatenating the corresponding tuples of each array in d.A:+i (??A;???)
+= ??A?;???
+?, where (39)A?
+= {a(1...i1 )\i+ [ai1 + ?
+?
+?+ ai|i| ]+ a(i1...n)\i : a ?
+A}??
+= ?
+(1...i1 )\i+ [?i1 ]+ ?
+(i1...n)\iNote that the store of column i1 is kept and the others are discarded.
+As an example:+2,1 (??
+{[(1), (2), (3)], [(4), (5), (6)]};?1,?2,?3??)
+= ??
+{[(2, 1), (3)], [(5, 4), (6)]};?2,?3??
+(40)We first create a denotation d?
+where column i, which contains the degree infor-mation, is extracted to column 1 (and thus column 2 corresponds to the entity to becompared).
+Next, we create a denotation dS whose column 1 contains a set of entity-degree pairs.
+There are two types of degree information:1.
+Suppose the degree information has arity 2 (ARITY(d.A[i]) = 2).
+Thisoccurs, for example, in most populous city (see Figure 9(b)), where column iis the population node.
+In this case, we simply set the degree to thesecond component of population by projection (??
+?w ?
+?1,2 d?).
+Nowcolumns 1 and 2 contain the degrees and entities, respectively.
+Weconcatenate columns 2 and 1 (+2,1 (?))
+and aggregate to produce adenotation dS which contains the set of entity?degree pairs in column 1.2.
+Suppose the degree information has arity 1 (ARITY(d.A[i]) = 1).
+Thisoccurs, for example, in state bordering the most states (see Figure 9(a)), where414Liang, Jordan, and Klein Learning Dependency-Based Compositional Semanticscolumn i is the lower marked state node.
+In this case, the degree of anentity from column 2 is the number of different values that column 1 cantake.
+To compute this, aggregate the set of values (?(d?))
+and apply thecount predicate.
+Now with the degrees and entities in columns 1 and 2,respectively, we concatenate the columns and aggregate again to obtain dS.Having constructed dS, we simply apply the comparative/superlative predicate whichhas been patiently waiting in d.ci.
+Finally, the store of d?s column 1 was destroyed by theconcatenation operation+2,1 (() ?
+), so wemust restore it with ?
+{?1 = d.?1}.
+The completeoperation is as follows:xi(d) =(??
+?w ?
+?1,2(d.ci ?
+?1,1 dS)){?1 = d.?1} if d.?i = C, d.?1 = ?, where (41)dS =????(+2,1(??
+?w ?
+?1,2 d?
+))if ARITY(d.A[i]) = 2?(+2,1(??
+?w ?
+?1,2(?count?w ?
+?1,1 ?(d?
+))))if ARITY(d.A[i]) = 1(42)d?
+= d[i,?i][??
+]{?1 = ?}
+(43)An example of executing the C relation is shown in Figure 16(a).
+As with executing aQ relation, for simple cases we can think of executing a C relation as expanding a DCStree, as shown in Figure 16(b).Figure 9(a) and Figure 9(b) show examples of superlative constructions with the ar-ity 1 and arity 2 types of degree information, respectively.
+Figure 9(c) shows an exampleof a comparative construction.
+Comparatives and superlatives use the same machinery,differing only in the predicate: argmax versus ?more; 31 :TX?
+(more than Texas).
+But bothpredicates have the same template behavior: Each takes a set of entity?degree pairs andreturns any entity satisfying some property.
+For argmax, the property is obtaining thehighest degree; for more, it is having a degree higher than a threshold.
+We can handlegeneralized superlatives (the five largest or the fifth largest or the 5% largest) as well byswapping in a different predicate; the execution mechanisms defined in Equation (41)remain the same.We saw that the mark?execute machinery allows decisions regarding quantifierscope to be made in a clean and modular fashion.
+Superlatives also have scope am-biguities in the form of absolute versus relative readings.
+Consider the example inFigure 9(d).
+In the absolute reading, we first compute the superlative in a narrow scope(the largest state is Alaska), and then connect it with the rest of the phrase, resulting inthe empty set (because no states border Alaska).
+In the relative reading, we consider thefirst state as the entity we want to compare, and its degree is the size of a neighboringstate.
+In this case, the lower state node cannot be set to Alaska because there are nostates bordering it.
+The result is therefore any state that borders Texas (the largest statethat does have neighbors).
+The two DCS trees in Figure 9(d) show that we can naturallyaccount for this form of superlative ambiguity based on where the scope-determiningexecute relation is placed without drastically changing the underlying tree structure.Remarks.
+These scope divergence issues are not specific to DCS?every serious semanticformalism must address them.
+Generative grammar uses quantifier raising to move thequantifier from its original syntactic position up to the desired semantic position beforesemantic interpretation even occurs (Heim and Kratzer 1998).
+Other mechanisms such415Computational Linguistics Volume 39, Number 2Figure 16(a) Executing the compare relation C for an example superlative construction (relative readingof state bordering the largest state from Figure 9(d)).
+Before executing, column 1 contains theentity to compare, and column 2 contains the degree information, of which only the secondcomponent is relevant.
+After executing, the resulting denotation contains a single column withonly the entities that obtain the highest degree (in this case, the states that border Texas).
+(b) Forthis example, think of the execute operation as expanding the original DCS tree, although theexecute operation actually works on the denotation, not the DCS tree.
+The expanded DCS treehas the same denotation as the original DCS tree, and syntactically captures the essence of theexecute?compare operation.
+Going through the relations of the expanded DCS tree frombottom to top: The X2 relation swaps columns 1 and 2; the join relation keeps only the secondcomponent ((TX, 267K) becomes (267K)); +2,1 concatenates columns 2 and 1 ([(267K), (AR)]becomes [(AR, 267K)]); ?
+aggregates these tuples into a set; argmax operates on this set andreturns the elements.as Montague?s (1973) quantifying in, Cooper storage (Cooper 1975), and Carpenter?s(1998) scoping constructor handle scope divergence during semantic interpretation.Roughly speaking, these mechanisms delay application of a quantifier, ?marking?
+itsspot with a dummy pronoun (as inMontague?s quantifying in) or putting it in a store (asin Cooper storage), and then ?executing?
+the quantifier at a later point in the derivationeither by performing a variable substitution or retrieving it from the store.
+Continuation,from programming languages, is another solution (Barker 2002; Shan 2004); this sets thesemantics of a quantifier to be a function from its continuation (which captures all thesemantic content of the clause minus the quantifier) to the final denotation of the clause.416Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsIntuitively, continuations reverse the normal evaluation order, allowing a quantifier toremain in situ but still outscope the rest of the clause.
+In fact, the mark and executerelations of DCS are analogous to the shift and reset operators used in continuations.One of the challenges with allowing flexible scope is that free variables can yield invalidscopings, a well-known issuewith Cooper storage that the continuation-based approachsolves.
+Invalid scopings are filtered out by the construction mechanism (Section 2.6).One difference between mark?execute in DCS and many other mechanisms is thatDCS trees (which contain mark and execute relations) are the final logical forms?thehandling of scope divergence occurs in the computing their denotations.
+The analogin the other mechanisms resides in the construction mechanism?the actually finallogical form is quite simple.9 Therefore, we have essentially pushed the inevitablecomplexity from the construction mechanism into the semantics of the logical form.This is a conscious design decision: We want our construction mechanism, which mapsnatural language to logical form, to be simple and not burdened with complex linguisticissues, for our focus is on learning this mapping.
+Unfortunately, the denotation of ourlogical forms (Section 2.5.1) do become more complex than those of lambda calculusexpressions, but we believe this is a reasonable tradeoff to make for our particularapplication.2.6 Construction MechanismWe have thus far defined the syntax (Section 2.2) and semantics (Section 2.5) of DCStrees, but we have only vaguely hinted at how these DCS trees might be connectedto natural language utterances by appealing to idealized examples.
+In this section, weformally define the construction mechanism for DCS, which takes an utterance x andproduces a set of DCS trees ZL(x).Because wemotivated DCS trees based on dependency syntax, it might be temptingto take a dependency parse tree of the utterance, replace the words with predicates, andattach some relations on the edges to produce a DCS tree.
+To a first approximation, thisis what we will do, but we need to be a bit more flexible for several reasons: (i) somenodes in the DCS tree do not have predicates (e.g., children of an E relation or parentof an Xi relation); (ii) nodes have predicates that do not correspond to words (e.g., inCalifornia cities, there is a implicit loc predicate that bridges CA and city); (iii) somewords might not correspond to any predicates in our world (e.g., please); and (iv) theDCS tree might not always be aligned with the syntactic structure depending on whichsyntactic formalism one ascribes to.
+Although syntax was the inspiration for the DCSformalism, we will not actually use it in construction.It is also worth stressing the purpose of the construction mechanism.
+In linguistics,the purpose of the construction mechanism is to try to generate the exact set of validlogical forms for a sentence.
+We view the construction mechanism instead as simply away of creating a set of candidate logical forms.
+A separate step defines a distributionover this set to favor certain logical forms over others.
+The construction mechanismshould therefore simply overapproximate the set of logical forms.
+Linguistic constraintsthat are normally encoded in the construction mechanism (for example, in CCG, thatthe disharmonic pair S/NP and S\NP cannot be coordinated, or that non-indefinitequantifiers cannot extend their scope beyond clause boundaries) would be instead9 In the continuation-based approach, this difference corresponds to the difference between assigning adenotational versus an operational semantics.417Computational Linguistics Volume 39, Number 2encoded as features (Section 3.1.1).
+Because feature weights are estimated from data,one can view our approach as automatically learning the linguistic constraints relevantto our end task.2.6.1 Lexical Triggers.
+The construction mechanism assumes a fixed set of lexical triggersL.
+Each trigger is a pair (s, p), where s is a sequence of words (usually one) and p is apredicate (e.g., s = California and p = CA).
+We use L(s) to denote the set of predicates ptriggered by s ((s, p) ?
+L).
+We should think of the lexical triggers L not as pinning downthe precise predicate for each word, but rather as producing an overapproximation.For example, Lmight contain {(city, city), (city, state), (city, river), .
+.
+.
+}, reflecting ourinitial ignorance prior to learning.We also define a set of trace predicates L(	), which can be introduced without anovert lexical element.
+Their name is inspired by trace/null elements in syntax, but theyserve a more practical rather than a theoretical role here.
+As we shall see in Section 2.6.2,trace predicates provide more flexibility in the construction of logical forms, allowingus to insert a predicate based on the partial logical form constructed thus far and assessits compatibility with the words afterwards (based on features), rather than insisting ona purely lexically driven formalism.
+Section 4.1.3 describes the lexical triggers and tracepredicates that we use in our experiments.2.6.2 Recursive Construction of DCS Trees.
+Given a set of lexical triggers L, we will nowdescribe a recursive mechanism for mapping an utterance x = (x1, .
+.
+.
+, xn) to ZL(x), aset of candidate DCS trees for x.
+The basic approach is reminiscent of projective labeleddependency parsing: For each span i..j of the utterance, we build a set of trees Ci,j(x).The set of trees for the span 0..n is the final result:ZL(x) = C0,n(x) (44)Each set of DCS trees Ci,j(x) is constructed recursively by combining the trees of itssubspans Ci,k(x) and Ck?,j(x) for each pair of split points k, k?
+(words between k and k?are ignored).
+These combinations are then augmented via a function A and filtered via afunction F; these functions will be specified later.
+Formally, Ci,j(x) is defined recursivelyas follows:Ci,j(x) = F(A({?p?i..j : p ?
+L(xi+1..j)} ??i?k?k?<ja?Ci,k(x)b?Ck?
+,j(x)T1(a, b))))(45)This recurrence has two parts: The base case: we take the phrase (sequence of words) over span i..jand look up the set of predicates p in the set of lexical triggers.
+For eachpredicate, we construct a one-node DCS tree.
+We also extend the definitionof DCS trees in Section 2.2 to allow each node to store the indices of thespan i..j that triggered the predicate at that node; this is denoted by ?p?i..j.This span information will be useful in Section 3.1.1, where we will needto talk about how an utterance x is aligned with a DCS tree z.418Liang, Jordan, and Klein Learning Dependency-Based Compositional Semantics The recursive case: T1(a, b), which we will define shortly, that takes twoDCS trees, a and b, and returns a set of new DCS trees formed bycombining a and b.
+Figure 17 shows this recurrence graphically.We now focus on how to combine two DCS trees.
+Define Td(a, b) as the set of DCStrees that result by making either a or b the root and connecting the other via a chain ofrelations and at most d trace predicates (d is a small integer that keeps the set of DCStrees manageable):Td(a, b) = T?d(a, b) ?
+T?d(b, a) (46)Here, T?d(a, b) is the set of DCS trees where a is the root; for T?d(a, b), b is the root.
+Theformer is defined recursively as follows:T?0 (a, b) = ?, (47)T?d(a, b) =?r?Rp?L(){?a.p; a.e; r :b?
+, ?a.p; a.e; r :??
+:b??}
+?
+T?d?1(a, ?p; r :b?
+)First, we consider all possible relations r ?
+R and try appending an edge to a withrelation r and child b (?a.p; a.e; r :b?
+); an aggregate relation ?
+can be inserted in addition(?a.p; a.e; r :??
+:b??).
+Of course, R contains an infinite number of join and execute rela-tions, but only a small finite number of them make sense: We consider join relationsjj?
+only for j ?
+{1, .
+.
+.
+, ARITY(a.p)} and j?
+?
+{1, .
+.
+.
+, ARITY(b.p)}, and execute relations Xifor which i does not contain indices larger than the number of columns of bw.
+Next,we further consider all possible trace predicates p ?
+L(	), and recursively try to connectFigure 17An example of the recursive construction of Ci,j(x), a set of DCS trees for span i..j.419Computational Linguistics Volume 39, Number 2Figure 18Given two DCS trees, a and b, T?1 (a, b) and T?1 (a, b) are the two sets of DCS trees formed bycombining a and bwith a at the root and b at the root, respectively; one trace predicate can beinserted in between.
+In this example, the DCS trees which survive filtering (Section 2.6.3)are shown.awith the intermediate ?p; r :b?, now allowing d?
+1 additional predicates.
+See Figure 18for an example.
+In the other direction, T?dis defined similarly:T?0 (a, b) = ?
+(48)T?d(a, b) =?r?Rp?L(){?b.p; r :a; b.e?
+, ?b.p; r :??
+:a?
+; b.e?}
+?
+T?d?1(a, ?p; r :b?
+)Inserting trace predicates allows us to build logical forms with more predicatesthan are explicitly triggered by the words.
+This ability is useful for several reasons.Sometimes, there is a predicate not overtly expressed, especially in noun compounds(e.g., California cities).
+For semantically light words such as prepositions (e.g., for) it isdifficult to enumerate all the possible predicates that they might trigger; it is simplercomputationally to try to insert trace predicates.
+We can even omit lexical triggersfor transitive verbs such as border because the corresponding predicate border can beinserted as a trace predicate.The function T1(a, b) connects two DCS trees via a path of relations and trace predi-cates.
+The augmentation function A adds additional relations (specifically, E and/or Xi)on a single DCS tree:A(Z) =?z?ZXi?R{z, ?z; E :????
+, ?Xi :z?
+, ?Xi :?z; E :?????}
+(49)2.6.3 Filtering using Abstract Interpretation.
+The construction procedure as described thusfar is extremely permissive, generating many DCS trees which are obviously wrong?for example, ?state; 11 :?>;21 ?3??
+?, which tries to compare a state with the number 3.
+Thereis nothing wrong with this expression syntactically: Its denotation will simply be empty(with respect to the world).
+But semantically, this DCS tree is anomalous.We cannot simply just discard DCS trees with empty denotations, because wewould incorrectly rule out ?state; 11 :?border;21 ?AK???.
+The difference here is that eventhough the denotation is empty in this world, it is possible that it might not be empty420Liang, Jordan, and Klein Learning Dependency-Based Compositional Semanticsin a different world where history and geology took another turn, whereas it is simplyimpossible to compare cities and numbers.Now let us quickly flesh out this intuition before falling into a philosophical dis-cussion about possible worlds.
+Given a world w, we define an abstract world ?
+(w),to be described shortly.
+We compute the denotation of a DCS tree z with respect tothis abstract world.
+If at any point in the computation we create an empty denotation,we judge z to be impossible and throw it away.
+The filtering function F is defined asfollows:10F(Z) = {z ?
+Z : ?z?
+subtree of z , z??
+(w).A = ?}
+(50)Now we need to define the abstract world ?(w).
+The intuition is to map concretevalues to abstract values: 3 :length becomes ?
+:length,Oregon :state becomes ?
+:state,and in general, primitive value x : t becomes ?
+: t. We perform abstraction on tuplescomponentwise, so that (Oregon :state, 3 :length) becomes (?
+:state, ?
+:length).
+Ourabstraction of sets is slightly more complex: The empty set maps to the empty set, a setcontaining values all with the same abstract value a maps to {a}, and a set containingvalues with more than one abstract value maps to {MIXED}.
+Finally, a world maps eachpredicate onto a set of (concrete) tuples; the corresponding abstract world maps eachpredicate onto the set of abstract tuples.
+Formally, the abstraction function is defined asfollows:?
+(x : t) = ?
+: t [primitive value] (51)?
+((v1, .
+.
+.
+, vn)) = (?
+(v1), .
+.
+.
+,?
+(vn)) [tuple] (52)?
+(A) =??????
+if A = ?{?
+(x) : x ?
+A} if |{?
+(x) : x ?
+A}| = 1{MIXED} otherwise[set] (53)?
+(w) = ?p.{?
+(x) : x ?
+w(p)} [world] (54)As an example, the abstract world might look like this:?
+(w)(>) = {(?
+:number, ?
+:number, ?
+:number) (55)(?
+:length, ?
+:length, ?
+:length), .
+.
+.
+}?
+(w)(state) = {(?
+:state)} (56)?
+(w)(AK) = {(?
+:state)} (57)?
+(w)(border) = {(?
+:state, ?
+:state)} (58)Now returning to our motivating example at the beginning of this section, we seethat the bad DCS tree has an empty abstract denotation ?state; 11 :?>;21 ?3????
+(w) =???
+; ???.
+The good DCS tree has a non-empty abstract denotation: ?state; 11 :?border;21 ?AK????
+(w) = ??{(?
+:state)}; ??
+?, as desired.10 To further reduce the search space, F imposes a few additional constraints: for example, limiting thenumber of columns to 2, and only allowing trace predicates between arity 1 predicates.421Computational Linguistics Volume 39, Number 2Remarks.
+Computing denotations on an abstract world is called abstract interpretation(Cousot and Cousot 1977) and is a very powerful framework commonly used in theprogramming languages community.
+The idea is to obtain information about a program(in our case, a DCS tree) without running it concretely, but rather just by running itabstractly.
+It is closely related to type systems, but the type of abstractions one uses isoften much richer than standard type systems.2.6.4 Comparison with CCG.
+We now compare our construction mechanism with CCG(see Figure 19 for an example).
+The main difference is that our lexical triggers containless information than a lexical entry in a CCG.
+In CCG, the lexicon would have an entrysuch asmajor  N/N : ?f.
+?x.major(x) ?
+f (x) (59)which gives detailed information about how this word should interact with its context.In DCS construction, however, each lexical trigger only has the minimal amount ofinformation:major  major (60)A lexical trigger specifies a pre-theoretic ?meaning?
+of a word which does not committo any formalisms.
+One advantage of this minimality is that lexical triggers could beeasily obtained from non-expert supervision: One would only have to associate wordswith database table names (predicates).In some sense, the DCS construction mechanism pushes the complexity out of thelexicon.
+In linguistics, this complexity usually would end up in the grammar, whichwould be undesirable.
+We do not have to respect this tradeoff, however, because theFigure 19Comparison between the construction mechanisms of CCG and DCS.
+There are three principaldifferences: First, in CCG, words are mapped onto lambda calculus expressions; in DCS, wordsare just mapped onto predicates.
+Second, in CCG, lambda calculus expressions are built bycombining (e.g., via function application) two smaller expressions; in DCS, trees are combinedby inserting relations (and possibly other predicates between them).
+Third, in CCG, all wordsmap to logical expressions; in DCS, only a small subset of words (e.g., state and Texas) map topredicates; the rest participate in features for scoring DCS trees.422Liang, Jordan, and Klein Learning Dependency-Based Compositional Semanticsconstruction mechanism only produces an overapproximation, which means it is possi-ble to have both a simple ?lexicon?
+and a simple ?grammar.
+?There is an important practical rationale for this design decision.
+During learning,we never just have one clean lexical entry per word.
+Rather, there are often manypossible lexical entries (and to handle disfluent utterances or utterances in free word-order languages, we might actually need many of them [Kwiatkowski et al2010]):major  N : ?x.major(x) (61)major  N/N : ?f.
+?x.major(x) ?
+f (x) (62)major  N\N : ?f.
+?x.major(x) ?
+f (x) (63).
+.
+.
+(64)Now think of a DCS lexical trigger major  major as simply a compact representation fora set of CCG lexical entries.
+Furthermore, the choice of the lexical entry is made notat the initial lexical base case, but rather during the recursive construction by insertingrelations between DCS subtrees.
+It is exactly at this point that the choice can be made,because after all, the choice is one that depends on context.
+The general principle is tocompactly represent the indeterminacy until one can resolve it.
+Compactly representinga set of CCG lexical entries can also be done within the CCG framework by factoringlexical entries into a lexeme and a lexical template (Kwiatkowski et al2011).Type raising is a combinator in CCG that traditionally converts x to ?f.f (x).
+Inrecent work, Zettlemoyer and Collins (2007) introduced more general type-changingcombinators to allow conversion from one entity into a related entity in general (akind of generalized metonymy).
+For example, in order to parse Boston flights, Bostonis transformed to ?x.to(x, Boston).
+This type changing is analogous to inserting tracepredicates in DCS, but there is an important distinction: Type changing is a unaryoperation and is unconstrained in that it changes logical forms into new ones withoutregard for how they will be used downstream.
+Inserting trace predicates is a binaryoperation that is constrained by the two predicates that it is mediating.
+In the example,to would only be inserted to combine Boston with flight.
+This is another instance ofthe general principle of delaying uncertain decisions until there is more information.3.
+LearningIn Section 2, we defined DCS trees and a construction mechanism for producing a setof candidate DCS trees given an utterance.
+We now define a probability distributionover that set (Section 3.1) and an algorithm for estimating the parameters (Section 3.2).The number of candidate DCS trees grows exponentially, so we use beam search tocontrol this growth.
+The final learning algorithm alternates between beam search andoptimization of the parameters, leading to a natural bootstrapping procedure whichintegrates learning and search.3.1 Semantic Parsing ModelThe semantic parsing model specifies a conditional distribution over a set of candi-date DCS trees C(x) given an utterance x.
+This distribution depends on a function?
+(x, z) ?
+Rd, which takes a (x, z) pair and extracts a set of local features (see Section 3.1.1423Computational Linguistics Volume 39, Number 2for a full specification).
+Associated with this feature vector is a parameter vector ?
+?
+Rd.The inner product between the two vectors, ?
+(x, z)?, yields a numerical score, whichintuitively measures the compatibility of the utterance x with the DCS tree z.
+We expo-nentiate the score and normalize over C(x) to obtain a proper probability distribution:p(z | x;C,?)
+= exp{?
+(x, z)??A(?
+; x,C)} (65)A(?
+; x,C) = log?z?C(x)exp{?
+(x, z)?}
+(66)where A(?
+; x,C) is the log-partition function with respect to the candidate set functionC(x).3.1.1 Features.We now define the feature vector ?
+(x, z) ?
+Rd, the core part of the seman-tic parsing model.
+Each component j = 1, .
+.
+.
+, d of this vector is a feature, and ?
+(x, z)jis the number of times that feature occurs in (x, z).
+Rather than working with indices,we treat features as symbols (e.g., TRIGGERPRED[states, state]).
+Each feature capturessome property about (x, z) that abstracts away from the details of the specific instanceand allows us to generalize to new instances that share common features.The features are organized into feature templates, where each feature templateinstantiates a set of features.
+Figure 20 shows all the feature templates for a concreteexample.
+The feature templates are as follows: PREDHIT contains the single feature PREDHIT, which fires for eachpredicate in z. PRED contains features {PRED[?
+(p)] : p ?
+P}, each of which fires on?
+(p), the abstraction of predicate p, where?
+(p) ={?
+: t if p = x : tp otherwise(67)The purpose of the abstraction is to abstract away the details of concretevalues such as TX = Texas :state. PREDREL contains features {PREDREL[?
+(p),q] : p ?
+P ,q ?
+({?,?}?R)?}.
+A feature fires when a node x has predicate p and is connected viasome path q = (d1, r1), .
+.
+.
+, (dm, rm) to the lowest descendant node ywiththe property that each node between x and y has a null predicate.
+Each(d, r) on the path represents an edge labeled with relation r connectingto a left (d =?)
+or right (d =?)
+child.
+If x has no children, then m = 0.The most common case is when m = 1, but m = 2 also occurs with theaggregate and execute relations (e.g., PREDREL[count,?
+11?
+?]
+firesfor Figure 5(a)). PREDRELPRED contains features {PREDRELPRED[?(p),q,?(p?)]
+: p, p?
+?P ,q ?
+({?,?}?R)?
+}, which are the same as PREDREL, except that weinclude both the predicate p of x and the predicate p?
+of the descendantnode y.
+These features do not fire if m = 0.424Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsFigure 20For each utterance?DCS tree pair (x, z), we define a feature vector ?
+(x, z), whose j-th componentis the number of times a feature j occurs in (x, z).
+Each feature has an associated parameter ?j,which is estimated from data in Section 3.2.
+The inner product of the feature vector andparameter vector yields a compatibility score. TRIGGERPRED contains features {TRIGGERPRED[s, p] : s ?W?, p ?
+P},whereW = {it,Texas, .
+.
+. }
+is the set of words.
+Each of these features fireswhen a span of the utterance with words s triggers the predicate p?moreprecisely, when a subtree ?p; e?i..j exists with s = xi+1..j.
+Note that theselexicalized features use the predicate p rather than the abstractedversion ?
+(p). TRACEPRED contains features {TRACEPRED[s, p, d] : s ?W?, p ?
+P , d ?{?,?
+}}, each of which fires when a trace predicate p has been inserted425Computational Linguistics Volume 39, Number 2over a word s. The situation is the following: Suppose we have a subtreea that ends at position k (there is a predicate in a that is triggered by aphrase with right endpoint k) and another subtree b that begins at k?.Recall that in the construction mechanism (46), we can insert a tracepredicate p ?
+L(	) between the roots of a and b.
+Then, for every wordxj between the spans of the two subtrees ( j = {k+ 1, .
+.
+.
+, k?
+}), thefeature TRACEPRED[xj, p, d] fires (d =?
+if b dominates a and d =?if a dominates b). TRACEREL contains features {TRACEREL[s, d, r] : s ?W?, d ?
+{?,?
+}, r ?R}, each of which fires when some trace predicate with parent relation rhas been inserted over a word s. TRACEPREDREL contains features {TRACEPREDREL[s, p, d, r] : s ?W?,p ?
+P , d ?
+{?,?
+}, r ?
+R}, each of which fires when a predicate p isconnected via child relation r to some trace predicate over a word s.These features are simple generic patterns which can be applied for modelingessentially any distribution over sequences and labeled trees?there is nothing spe-cific to DCS at all.
+The first half of the feature templates (PREDHIT, PRED, PREDREL,PREDRELPRED) capture properties of the tree independent of the utterance, andare similar to those used for syntactic dependency parsing.
+The other feature tem-plates (TRIGGERPRED, TRACEPRED, TRACEREL, TRACEPREDREL) connect predicatesin the DCS tree with words in the utterance, similar to those in a model of machinetranslation.3.2 Parameter EstimationWe have now fully specified the details of the graphical model in Figure 2: Section 3.1described semantic parsing and Section 2 described semantic evaluation.
+Next, we focuson the inferential problem of estimating the parameters ?
+of the model from data.3.2.1 Objective Function.We assume that our learning algorithm is given a training datasetD containing question?answer pairs (x, y).
+Because the logical forms are unobserved,we work with log p(y | x;C,?
+), the marginal log-likelihood of obtaining the correctanswer y given an utterance x.
+This marginal log-likelihood sums over all z ?
+C(x) thatevaluate to y:log p(y | x;C,?)
+= log p(z ?
+Cy(x) | x;C,?)
+(68)= A(?
+; x,Cy)?A(?, x,C), where (69)Cy(x)def= {z ?
+C(x) : zw = y} (70)Here, Cy(x) is the set of DCS trees z with denotation y.We call an example (x, y) ?
+D feasible if the candidate set of x contains a DCStree that evaluates to y (Cy(x) = ?).
+Define an objective function O(?,C) containingtwo terms.
+The first term is the sum of the marginal log-likelihood over all feasible426Liang, Jordan, and Klein Learning Dependency-Based Compositional Semanticstraining examples.
+The second term is a quadratic penalty on the parameters ?
+withregularization parameter ?.
+Formally:O(?,C) def=?
+(x,y)?DCy(x)=?log p(y | x;C,?)?
+?2??
+?22 (71)=?(x,y)?DCy(x)=?(A(?
+; x,Cy)?A(?
+; x,C))?
+?2??
+?22We would like to maximize O(?,C).
+The log-partition function A(?
+; ?, ?)
+is convex,but O(?,C) is the difference of two log-partition functions and hence is not concave(nor convex).
+Thus we resort to gradient-based optimization.
+A standard result is thatthe derivative of the log-partition function is the expected feature vector (Wainwrightand Jordan 2008).
+Using this, we obtain the gradient of our objective function:11?O(?,C)??=?(x,y)?DCy(x)=?(Ep(z|x;Cy,?)[?
+(x, z)]?
+Ep(z|x;C,?)[?
+(x, z)])?
+??
+(72)Updating the parameters in the direction of the gradient would move the parameterstowards the DCS trees that yield the correct answer (Cy) and away from overall can-didate DCS trees (C).
+We can use any standard numerical optimization algorithm thatrequires only black-box access to a gradient.
+Section 4.3.4 will discuss the empiricalramifications of the choice of optimization algorithm.3.2.2 Algorithm.
+Given a candidate set function C(x), we can optimize Equation (71) toobtain estimates of the parameters ?.
+Ideally, we would use C(x) = ZL(x), the candidatesets from our construction mechanism in Section 2.6, but we quickly run into the prob-lem of computing Equation (72) efficiently.
+Note that ZL(x) (defined in Equation (44))grows exponentially with the length of x.
+This by itself is not a show-stopper.
+Ourfeatures (Section 3.1.1) decompose along the edges of the DCS tree, so it is possibleto use dynamic programming12 to compute the second expectation Ep(z|x;ZL,?)[?
+(x, z)]of Equation (72).
+The problem is computing the first expectation Ep(z|x;ZyL ,?)[?
+(x, z)],which sums over the subset of candidate DCS trees z satisfying the constraint zw = y.Though this is a smaller set, there is no efficient dynamic program for this set becausethe constraint does not decompose along the structure of the DCS tree.
+Therefore, weneed to approximate ZyL , and, in fact, we will approximate ZL as well so that the twoexpectations in Equation (72) are coherent.Recall that ZL(x) was built by recursively constructing a set of DCS trees Ci,j(x)for each span i..j.
+In our approximation, we simply use beam search, which truncateseach Ci,j(x) to include the (at most) K DCS trees with the highest score ?
+(x, z)?.
+We11 Notation: Ep(x)[f (x)] =?x p(x)f (x).12 The state of the dynamic program would be the span i..j and the head predicate over that span.427Computational Linguistics Volume 39, Number 2let C?i,j,?
+(x) denote this approximation and define the set of candidate DCS trees withrespect to the beam search:Z?L,?
+(x) = C?0,n,?
+(x) (73)We now have a chicken-and-egg problem: If we had good parameters ?, wecould generate good candidate sets C(x) using beam search Z?L,?(x).
+If we had goodcandidate sets C(x), we could generate good parameters by optimizing our objectiveO(?,C) in Equation (71).
+This problem leads to a natural solution: simply alternatebetween the two steps (Figure 21).
+This procedure is not guaranteed to converge, dueto the heuristic nature of the beam search, but we have found it to be convergent inpractice.Finally, we use the trained model with parameters ?
+to answer new questions x bychoosing the most likely answer y, summing out the latent logical form z:F?
+(x)def= argmaxyp(y | x;?, Z?L,?)
+(74)= argmaxy?z?Z?L,?
+(x)zw=yp(z | x;?, Z?L,?)
+(75)4.
+ExperimentsWe have now completed the conceptual part of this article?using DCS trees to rep-resent logical forms (Section 2), and learning a probabilistic model over these trees(Section 3).
+In this section, we evaluate and study our approach empirically.
+Ourmain result is that our system can obtain comparable accuracies to state-of-the-artsystems that require annotated logical forms.
+All the code and data are available atcs.stanford.edu/~pliang/software/.4.1 Experimental Set-upWe first describe the data sets (Section 4.1.1) that we use to train and evaluate oursystem.
+We then mention various choices in the model and learning algorithm (Sec-tion 4.1.2).
+One of these choices is the lexical triggers, which are further discussed inSection 4.1.3.Figure 21The learning algorithm alternates between updating the candidate sets based on beam searchand updating the parameters using standard numerical optimization.428Liang, Jordan, and Klein Learning Dependency-Based Compositional Semantics4.1.1 Data sets.
+We tested our methods on two standard data sets, referred to in thisarticle as GEO and JOBS.
+These data sets were created by Ray Mooney?s group duringthe 1990s and have been used to evaluate semantic parsers for over a decade.U.S.
+Geography.
+The GEO data set, originally created by Zelle and Mooney (1996), con-tains 880 questions about U.S. geography and a database of facts encoded in Prolog.
+Thequestions in GEO ask about general properties (e.g., area, elevation, and population) ofgeographical entities (e.g., cities, states, rivers, andmountains).
+Across all the questions,there are 280 word types, and the length of an utterance ranges from 4 to 19 words,with an average of 8.5 words.
+The questions involve conjunctions, superlatives, andnegation, but no generalized quantification.
+Each question is annotated with a logicalform in Prolog, for example:Utterance: What is the highest point in Florida?Logical form: answer(A,highest(A,(place(A),loc(A,B),const(B,stateid(florida)))))Because our approach learns from answers, not logical forms, we evaluated theannotated logical forms on the provided database to obtain the correct answers.Recall that a world/database w maps each predicate p ?
+P to a set of tuples w(p).Some predicates contain the set of tuples explicitly (e.g., mountain); others can bederived (e.g., higher takes two entities x and y and returns true if elevation(x) >elevation(y)).
+Other predicates are higher-order (e.g., sum, highest) in that they takeother predicates as arguments.
+We do not use the provided domain-specific higher-order predicates (e.g., highest), but rather provide domain-independent higher-orderpredicates (e.g., argmax) and the ordinary domain-specific predicates (e.g., elevation).This provides more compositionality and therefore better generalization.
+Similarly, weuse more and elevation instead of higher.
+Altogether, P contains 43 predicates plusone predicate for each value (e.g., CA).Job Queries.
+The JOBS data set (Tang and Mooney 2001) contains 640 natural languagequeries about job postings.
+Most of the questions ask for jobs matching various criteria:job title, company, recruiter, location, salary, languages and platforms used, areas ofexpertise, required/desired degrees, and required/desired years of experience.
+Acrossall utterances, there are 388 word types, and the length of an utterance ranges from 2 to23 words, with an average of 9.8 words.The utterances are mostly based on conjunctions of criteria, with a sprinkling ofnegation and disjunction.
+Here is an example:Utterance: Are there any jobs using Java that are not with IBM?Logical form: answer(A,(job(A),language(A,?java?),?company(A,?IBM?
+)))The JOBS data set comes with a database, which we can use as the world w. Whenthe logical forms are evaluated on this database, however, close to half of the answersare empty (no jobs match the requested criteria).
+Therefore, there is a large discrepancybetween obtaining the correct logical form (which has been the focus of most work onsemantic parsing) and obtaining the correct answer (our focus).To bring these two into better alignment, we generated a random database asfollows: We created m = 100 jobs.
+For each job j, we go through each predicate p (e.g.,company) that takes two arguments, a job, and a target value.
+For each of the possibletarget values v, we add (j, v) to w(p) independently with probability ?
+= 0.8.
+For exam-ple, for p = company, j = job37, we might add (job37, IBM) to w(company).
+The result is429Computational Linguistics Volume 39, Number 2a database with a total of 23 predicates (which includes the domain-independent ones)in addition to the value predicates (e.g., IBM).The goal of using randomness is to ensure that two different logical forms will mostlikely yield different answers.
+For example, consider two logical forms:z1 = ?j.job( j) ?
+company( j, IBM), (76)z2 = ?j.job( j) ?
+language( j, Java).
+(77)Under the random construction, the denotation of z1 is S1, a random subset of the jobs,where each job is included in S1 independently with probability ?, and the denotationof z2 is S2, which has the same distribution as S1 but importantly is independent of S1.Therefore, the probability that S1 = S2 is [?2 + (1?
+?
+)2]m, which is exponentially smallin m. This construction yields a world that is not entirely ?realistic?
+(a job might havemultiple employers), but it ensures that if we get the correct answer, we probably alsoobtain the correct logical form.4.1.2 Settings.
+There are a number of settings that control the tradeoffs between compu-tation, expressiveness, and generalization power of our model, shown here.
+For now,we will use generic settings chosen rather crudely; Section 4.3.4 will explore the effectof changing these settings.Lexical Triggers The lexical triggers L (Section 2.6.1) define the set of candidate DCStrees for each utterance.
+There is a tradeoff between expressiveness and computa-tional complexity: The more triggers we have, the more DCS trees we can considerfor a given utterance, but then either the candidate sets become too large or beamsearch starts dropping the good DCS trees.
+Choosing lexical triggers is importantand requires additional supervision (Section 4.1.3).Features Our probabilistic semantic parsing model is defined in terms of feature tem-plates (Section 3.1.1).
+Richer features increase expressiveness but also might leadto overfitting.
+By default, we include all the feature templates.Number of training examples (n) An important property of any learning algorithm isits sample complexity?how many training examples are required to obtain acertain level of accuracy?
+By default, all training examples are used.Number of training iterations (T) Our learning algorithm (Figure 21) alternates be-tween updating candidate sets and updating parameters for T iterations.
+We useT = 5 as the default value.Beam size (K) The computation of the candidate sets in Figure 21 is based on beamsearch where each intermediate state keeps at most K DCS trees.
+The default valueis K = 100.Optimization algorithm To optimize the objective functionO(?,C) our default is to usethe standard L-BFGS algorithm (Nocedal 1980) with a backtracking line search forchoosing the step size.Regularization (?)
+The regularization parameter ?
+> 0 in the objective functionO(?,C)is another knob for controlling the tradeoff between fitting and overfitting.
+Thedefault is ?
+= 0.01.4.1.3 Lexical Triggers.
+The lexical trigger set L (Section 2.6.1) is a set of entries (s, p), wheres is a sequence of words and p is a predicate.
+We run experiments on two sets of lexicaltriggers: base triggers LB and augmented triggers LB+P.430Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsBase Triggers.
+The base trigger set LB includes three types of entries: Domain-independent triggers: For each domain-independent predicate(e.g., argmax), we manually specify a few words associated with thatpredicate (e.g., most).
+The full list is shown at the top of Figure 22. Values: For each value x that appears in the world (specifically,x ?
+vj ?
+w(p) for some tuple v, index j, and predicate p), LB contains anentry (x, x) (e.g., (Boston,Boston :city)).
+Note that this rule implicitlyspecifies an infinite number of triggers.Regarding predicate names, we do not add entries such as (city, city),because we want our system to be language-independent.
+In Turkish,for instance, we would not have the luxury of lexicographical cues thatassociate citywith s?ehir.
+So we should think of the predicates as justsymbols predicate1, predicate2, and so on.
+On the other hand, valuesin the database are generally proper nouns (e.g., city names) for whichthere are generally strong cross-linguistic lexicographic similarities. Part-of-speech (POS) triggers:13 For each domain-specific predicate p,we specify a set of POS tags T. Implicitly, LB contains all pairs (x, p) wherethe word x has a POS tag t ?
+T. For example, for city, we would specifyNN and NNS, which means that any word which is a singular or pluralcommon noun triggers the predicate city.
+Note that city triggers city asdesired, but state also triggers city.The POS triggers for GEO and JOBS domains are shown in the left side ofFigure 22.
+Note that some predicates such as traverse and loc arenot associated with any POS tags.
+Predicates corresponding to verbs andprepositions are not included as overt lexical triggers, but rather includedas trace predicates L(	).
+In constructing the logical forms, nouns andadjectives serve as anchor points.
+Trace predicates can be inserted betweenthese anchors.
+This strategy is more flexible than requiring each predicateto spring from some word.Augmented Triggers.We nowdefine the augmented trigger set LB+P, which containsmoredomain-specific information than LB.
+Specifically, for each domain-specific predicate(e.g., city), we manually specify a single prototype word (e.g., city) associated withthat predicate.
+Under LB+P, city would trigger only city because city is a prototypeword, but townwould trigger all the NN predicates (city, state, country, etc.)
+becauseit is not a prototype word.Prototype triggers require only a modest amount of domain-specific supervision(see the right side of Figure 22 for the entire list for GEO and JOBS).
+In fact, as we?ll seein Section 4.2, prototype triggers are not absolutely required to obtain good accuracies,but they give an extra boost and also improve computational efficiency by reducing theset of candidate DCS trees.13 To perform POS tagging, we used the Berkeley Parser (Petrov et al2006), trained on the WSJ Treebank(Marcus, Marcinkiewicz, and Santorini 1993) and the Question Treebank (Judge, Cahill, and v. Genabith2006)?thanks to Slav Petrov for providing the trained parser.431Computational Linguistics Volume 39, Number 2Figure 22Lexical triggers used in our experiments.Finally, to determine triggering, we stem all words using the Porter stemmer (Porter1980), so that mountains triggers the same predicates as mountain.
+We also decomposesuperlatives into two words (e.g., largest is mapped to most large), allowing us to con-struct the logical form more compositionally.4.2 Comparison with Other SystemsWe now compare our approach with existing methods.
+We used the same training-testsplits as Zettlemoyer and Collins (2005) (600 training and 280 test examples for GEO,500 training and 140 test examples for JOBS).
+For development, we created five randomsplits of the training data.
+For each split, we put 70% of the examples into a developmenttraining set and the remaining 30% into a development test set.
+The actual test set wasonly used for obtaining final numbers.4.2.1 Systems that Learn from Question?Answer Pairs.We first compare our system (hence-forth, LJK11) with Clarke et al(2010) (henceforth, CGCR10), which is most similar toour work in that it also learns from question?answer pairs without using annotatedlogical forms.
+CGCR10 works with the FunQL language and casts semantic parsing asinteger linear programming (ILP).
+In each iteration, the learning algorithm solves the432Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsTable 2Results on GEO with 250 training and 250 test examples.
+Our system (LJK11 with base triggersand no logical forms) obtains higher test accuracy than CGCR10, even when CGCR10 is trainedusing logical forms.System Accuracy (%)CGCR10 w/answers (Clarke et al2010) 73.2CGCR10 w/logical forms (Clarke et al2010) 80.4LJK11 w/base triggers (Liang, Jordan, and Klein 2011) 84.0LJK11 w/augmented triggers (Liang, Jordan, and Klein 2011) 87.6ILP to predict the logical form for each training example.
+The examples with correctpredictions are fed to a structural support vector machine (SVM) and the model param-eters are updated.Though similar in spirit, there are some important differences between CGCR10and our approach.
+They use ILP instead of beam search and structural SVM instead oflog-linear models, but the main difference is which examples are used for learning.
+Ourapproach learns on any feasible example (Section 3.2.1), one where the candidate setcontains a logical form that evaluates to the correct answer.
+CGCR10 uses a much morestringent criterion: The highest scoring logical formmust evaluate to the correct answer.Therefore, for their algorithm to progress, the model already must be non-trivially goodbefore learning even starts.
+This is reflected in the amount of prior knowledge andinitialization that CGCR10 uses before learning starts: WordNet features, syntactic parsetrees, and a set of lexical triggers with 1.42 words per non-value predicate.
+Our systemwith base triggers requires only simple indicator features, POS tags, and 0.5 words pernon-value predicate.CGCR10 created a version of GEO which contains 250 training and 250 test exam-ples.
+Table 2 compares the empirical results of this split.
+We see that our system (LJK11)with base triggers significantly outperforms CGCR10 (84% vs. 73.2%), and it evenoutperforms the version of CGCR10 that is trained using logical forms (84.0% vs. 80.4%).If we use augmented triggers, we widen the gap by another 3.6 percentage points.144.2.2 State-of-the-Art Systems.
+We now compare our system (LJK11) with state-of-the-art systems, which all require annotated logical forms (except PRECISE).
+Here is a briefoverview of the systems: COCKTAIL (Tang and Mooney 2001) uses inductive logic programming tolearn rules for driving the decisions of a shift-reduce semantic parser.
+Itassumes that a lexicon (mapping from words to predicates) is provided. PRECISE (Popescu, Etzioni, and Kautz 2003) does not use learning, butinstead relies on matching words to strings in the database using variousheuristics based on WordNet and the Charniak parser.
+Like our work, italso uses database type constraints to rule out spurious logical forms.
+Oneof the unique features of PRECISE is that it has 100% precision?it refusesto parse an utterance which it deems semantically intractable.14 Note that the numbers for LJK11 differ from those presented in Liang, Jordan, and Klein (2011), whichreports results based on 10 different splits rather than the set-up used by CGCR10.433Computational Linguistics Volume 39, Number 2 SCISSOR (Ge and Mooney 2005) learns a generative probabilistic modelthat extends the Collins (1999) models with semantic labels, sothat syntactic and semantic parsing can be done jointly. SILT (Kate, Wong, and Mooney 2005) learns a set of transformation rulesfor mapping utterances to logical forms. KRISP (Kate and Mooney 2006) uses SVMs with string kernels to drive thelocal decisions of a chart-based semantic parser. WASP (Wong and Mooney 2006) uses log-linear synchronous grammars totransform utterances into logical forms, starting with word alignmentsobtained from the IBM models. ?-WASP (Wong and Mooney 2007) extends WASP to work with logicalforms that contain bound variables (lambda abstraction). LNLZ08 (Lu et al2008) learns a generative model over hybrid trees,which are logical forms augmented with natural language words.IBM model 1 is used to initialize the parameters, and a discriminativereranking step works on top of the generative model. ZC05 (Zettlemoyer and Collins 2005) learns a discriminative log-linearmodel over CCG derivations.
+Starting with a manually constructeddomain-independent lexicon, the training procedure grows the lexiconby adding lexical entries derived from associating parts of an utterancewith parts of the annotated logical form. ZC07 (Zettlemoyer and Collins 2007) extends ZC05 with extra(disharmonic) combinators to increase the expressive power of the model. KZGS10 (Kwiatkowski et al2010) uses a restricted higher-orderunification procedure, which iteratively breaks up a logical form intosmaller pieces.
+This approach gradually adds lexical entries of increasinggenerality, thus obviating the need for the manually specified templatesused by ZC05 and ZC07 for growing the lexicon.
+IBM model 1 is used toinitialize the parameters. KZGS11 (Kwiatkowski et al2011) extends KZGS10 by factoring lexicalentries into a template plus a sequence of predicates that fill the slots ofthe template.
+This factorization improves generalization.With the exception of PRECISE, all other systems require annotated logical forms,whereas our system learns only from annotated answers.
+On the other hand, our systemdoes rely on a fewmanually specified lexical triggers, whereasmany of the later systemsessentially require no manually crafted lexica.
+For us, the lexical triggers play a crucialrole in the initial stages of learning because they constrain the set of candidate DCStrees; otherwise we would face a hopelessly intractable search problem.
+The othersystems induce lexica using unsupervised word alignment (Wong and Mooney 2006,2007; Kwiatkowski et al2010, 2011) and/or on-line lexicon learning (Zettlemoyer andCollins 2005, 2007; Kwiatkowski et al2010, 2011).
+Unfortunately, we cannot use theseautomatic techniques because they rely on having annotated logical forms.Table 3 shows the results for GEO.
+Semantic parsers are typically evaluated onthe accuracy of the logical forms: precision (the accuracy on utterances which are434Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsTable 3Results on GEO: Logical form accuracy (LF) and answer accuracy (Answer) of the varioussystems.
+The first group of systems are evaluated using 10-fold cross-validation on all 880examples; the second are evaluated on the 680+ 200 split of Zettlemoyer and Collins (2005).Our system (LJK11) with base triggers obtains comparable accuracy to past work, whereaswith augmented triggers, our system obtains the highest overall accuracy.System LF (%) Answer (%)COCKTAIL (Tang and Mooney 2001) 79.4 ?PRECISE (Popescu, Etzioni, and Kautz 2003) 77.5 77.5SCISSOR (Ge and Mooney 2005) 72.3 ?SILT (Kate, Wong, and Mooney 2005) 54.1 ?KRISP (Kate and Mooney 2006) 71.7 ?WASP (Wong and Mooney 2006) 74.8 ?
+?-WASP (Wong and Mooney 2007) 86.6 ?LNLZ08 (Lu et al2008) 81.8 ?ZC05 (Zettlemoyer and Collins 2005) 79.3 ?ZC07 (Zettlemoyer and Collins 2007) 86.1 ?KZGS10 (Kwiatkowski et al2010) 88.2 88.9KZGS11 (Kwiatkowski et al2010) 88.6 ?LJK11 w/base triggers (Liang, Jordan, and Klein 2011) ?
+87.9LJK11 w/augmented triggers (Liang, Jordan, and Klein 2011) ?
+91.4successfully parsed) and recall (the accuracy on all utterances).
+We only focus on recall(a lower bound on precision) and simply use the word accuracy to refer to recall.15 Oursystem is evaluated only on answer accuracy because our model marginalizes out thelatent logical form.
+All other systems are evaluated on the accuracy of logical forms.
+Tocalibrate, we also evaluated KZGS10 on answer accuracy and found that it was quitesimilar to its logical form accuracy (88.9% vs. 88.2%).16 This does not imply that oursystem would necessarily have a high logical form accuracy because multiple logicalforms can produce the same answer, and our system does not receive a training signalto tease them apart.
+Even with only base triggers, our system (LJK11) outperforms allbut two of the systems, falling short of KZGS10 by only one percentage point (87.9% vs.88.9%).17 With augmented triggers, our system takes the lead (91.4% vs. 88.9%).Table 4 shows the results for JOBS.
+The two learning-based systems (COCKTAILand ZC05) are actually outperformed by PRECISE, which is able to use strong databasetype constraints.
+By exploiting this information and doing learning, we obtain the bestresults.4.3 Empirical PropertiesIn this section, we try to gain intuition into properties of our approach.
+All experimentsin this section were performed on random development splits.
+Throughout this section,?accuracy?
+means development test accuracy.15 Our system produces a logical form for every utterance, and thus our precision is the same as our recall.16 The 88.2% corresponds to 87.9% in Kwiatkowski et al(2010).
+The difference is due to using a slightlynewer version of the code.17 The 87.9% and 91.4% correspond to 88.6% and 91.1% in Liang, Jordan, and Klein (2011).
+These differencesare due to minor differences in the code.435Computational Linguistics Volume 39, Number 2Table 4Results on JOBS: Both PRECISE and our system use database type constraints, which results in adecisive advantage over the other systems.
+In addition, LJK11 incorporates learning andtherefore obtains the highest accuracies.System LF (%) Answer (%)COCKTAIL (Tang and Mooney 2001) 79.4 ?PRECISE (Popescu, Etzioni, and Kautz 2003) 88.0 88.0ZC05 (Zettlemoyer and Collins 2005) 79.3 ?LJK11 w/base triggers (Liang, Jordan, and Klein 2011) ?
+90.7LJK11 w/augmented triggers (Liang, Jordan, and Klein 2011) ?
+95.04.3.1 Error Analysis.
+To understand the type of errors our system makes, we examinedone of the development runs, which had 34 errors on the test set.
+We classified theseerrors into the following categories (the number of errors in each category is shown inparentheses): Incorrect POS tags (8): GEO is out-of-domain for our POS tagger, so thetagger makes some basic errors that adversely affect the predicates thatcan be lexically triggered.
+For example, the questionWhat states borderstates .
+.
+.
+is tagged as WP VBZ NN NNS .
+.
+.
+, which means that the first statescannot trigger state.
+In another example, major river is tagged as NNPNNP, so these cannot trigger the appropriate predicates either, and thusthe desired DCS tree cannot even be constructed. Non-projectivity (3): The candidate DCS trees are defined by a projectiveconstruction mechanism (Section 2.6) that prohibits edges in the DCStree from crossing.
+This means we cannot handle utterances such aslargest city by area, because the desired DCS tree would have citydominating area dominating argmax.
+To construct this DCS tree,we could allow local reordering of the words. Unseen words (2): We never saw at least or sea level at training time.The former has the correct lexical trigger, but not a sufficiently largefeature weight (0) to encourage its use.
+For the latter, the problem ismore structural: We have no lexical triggers for 0 :length, and onlyadding more lexical triggers can solve this problem. Wrong lexical triggers (7): Sometimes the error is localized to a singlelexical trigger.
+For example, the model incorrectly thinksMississippiis the state rather than the river, and that Rochester is the city inNew York rather than the name, even though there are contextualcues to disambiguate in these cases. Extra words (5): Sometimes, words trigger predicates that should beignored.
+For example, for population density, the first word triggerspopulation, which is used rather than density. Over-smoothing of DCS tree (9): The first half of our features (Figure 20)are defined on the DCS tree alone; these produce a form of smoothingthat encourages DCS trees to look alike regardless of the words.
+We found436Liang, Jordan, and Klein Learning Dependency-Based Compositional Semanticsseveral instances where this essential tool for generalization went toofar.
+For example, in state of Nevada, the trace predicate border is insertedbetween the two nouns, because it creates a structure more similar tothat of the common question what states border Nevada?4.3.2 Visualization of Features.Having analyzed the behavior of our system for individualutterances, let us move from the token level to the type level and analyze the learnedparameters of our model.
+We do not look at raw feature weights, because there arecomplex interactions between them not represented by examining individual weights.Instead, we look at expected feature counts, which we think are more interpretable.Consider a group of ?competing?
+features J, for example J = {TRIGGERPRED[city,p] : p ?
+P}.
+We define a distribution q(?)
+over J as follows:q( j) =Nj?j?
+?J Nj?, where (78)Nj =?(x,y)?DEp(z|x,Z?L,?,?)[?
+(x, z)]Think of q( j) as a marginal distribution (because all our features are positive) thatrepresents the relative frequencies with which the features j ?
+J fire with respect toour training data set D and trained model p(z | x, Z?L,?,?).
+To appreciate the differencebetween what this distribution and raw feature weights capture, suppose we had twofeatures, j1 and j2, which are identical (?
+(x, z)j1 ?
+?
+(x, z)j2 ).
+The weights would be splitacross the two features, but the features would have the same marginal distribution(q(j1) = q(j2)).
+Figure 23 shows some of the feature distributions learned.4.3.3 Learning, Search, Bootstrapping.
+Recall from Section 3.2.1 that a training exampleis feasible (with respect to our beam search) if the resulting candidate set contains aDCS tree with the correct answer.
+Infeasible examples are skipped, but an example maybecome feasible in a later iteration.
+A natural question is how many training examplesare feasible in each iteration.
+Figure 24 shows the answer: Initially, only around 30% ofthe training examples are feasible; this is not surprising given that all the parametersare zero, so our beam search is essentially unguided.
+Training on just these examplesimproves the parameters, however, and over the next few iterations, the number offeasible examples steadily increases to around 97%.In our algorithm, learning and search are deeply intertwined.
+Search is of courseneeded to learn, but learning also improves search.
+The general approach is similar inspirit to Searn (Daume, Langford, andMarcu 2009), althoughwe do not have any formalguarantees at this point.Our algorithm also has a bootstrapping flavor.
+The ?easy?
+examples are processedfirst, where easy is defined by the ability of beam search to generate the correct answer.This bootstrapping occurs quite naturally: Unlikemost bootstrapping algorithms, we donot have to set a confidence threshold for accepting new training examples, somethingthat can be quite tricky to do.
+Instead, our threshold falls out of the discrete nature ofthe beam search.4.3.4 Effect of Various Settings.
+So far, we have used our approach with default settings(Section 4.1.2).
+How sensitive is the approach to these choices?
+Table 5 shows the impactof the feature templates.
+Figure 25 shows the effect of the number of training examples,437Computational Linguistics Volume 39, Number 2Figure 23Learned feature distributions.
+In a feature group (e.g., TRIGGERPRED[city, ?
+]), each feature isassociated with the marginal probability that the feature fires according to Equation (78).
+Notethat we have successfully learned that citymeans city, but incorrectly learned that sparsemeanselevation (due to the confounding fact that Alaska is the most sparse state and has the highestelevation).number of training iterations, beam size, and regularization parameter.
+The overallconclusion is that there are no big surprises: Our default settings could be improvedon slightly, but these differences are often smaller than the variation across differentdevelopment splits.We now consider the choice of optimization algorithm to update the parametersgiven candidate sets (see Figure 21).
+Thus far, we have been using L-BFGS (Nocedal1980), which is a batch algorithm.
+Each iteration, we construct the candidateFigure 24The fraction of feasible training examples increases steadily as the parameters, and thus thebeam search improves.
+Each curve corresponds to a run on a different development split.438Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsTable 5There are two classes of feature templates: lexical features (TRIGGERPRED,TRACE*) andnon-lexical features (PREDREL,PREDRELPRED).
+The lexical features are relatively much moreimportant for obtaining good accuracy (76.4% vs. 23.1%), but adding the non-lexical featuresmakes a significant contribution as well (84.7% vs. 76.4%).Features Accuracy (%)PRED 13.4?
+1.6PRED + PREDREL 18.4?
+3.5PRED + PREDREL + PREDRELPRED 23.1?
+5.0PRED + TRIGGERPRED 61.3?
+1.1PRED + TRIGGERPRED + TRACE* 76.4?
+2.3PRED + PREDREL + PREDRELPRED + TRIGGERPRED + TRACE* 84.7?
+3.5sets C(t)(x) for all the training examples before solving the optimization problemargmax?O(?,C(t) ).
+We now consider an on-line algorithm, stochastic gradient descent(SGD) (Robbins and Monro 1951), which updates the parameters after computingthe candidate set for each example.
+In particular, we iteratively scan through thetraining examples in a random order.
+For each example (x, y), we compute thecandidate set using beam search.
+We then update the parameters in the direction ofthe gradient of the marginal log-likelihood for that example (see Equation (72)) withstep size t??:?
+(t+1) ?
+?
+(t) + t??(?
+log p(y | x; Z?L,?
+(t) ,?)??????=?
+(t))(79)The trickiest aspect of using SGD is selecting the correct step size: A small ?
+leads toquick progress but also instability; a large ?
+leads to the opposite.
+We let L-BFGS andSGD both take the same number of iterations (passes over the training set).
+Figure 26shows that a very small value of ?
+(less than 0.2) is best for our task, even thoughonly values between 0.5 and 1 guarantee convergence.
+Our setting is slightly differentbecause we are interleaving the SGD updates with beam search, which might alsolead to unpredictable consequences.
+Furthermore, the non-convexity of the objectivefunction exacerbates the unpredictability (Liang and Klein 2009).
+Nonetheless, witha proper ?, SGD converges much faster than L-BFGS and even to a slightly bettersolution.5.
+DiscussionThe work we have presented in this article addresses three important themes.
+Thefirst theme is semantic representation (Section 5.1): How do we parametrize the mappingfrom utterances to their meanings?
+The second theme is program induction (Section 5.2):How do we efficiently search through the space of logical structures given a weakfeedback signal?
+Finally, the last theme is grounded language (Section 5.3): Howdowe useconstraints from the world to guide learning of language and conversely use languageto interact with the world?439Computational Linguistics Volume 39, Number 2Figure 25(a) The learning curve shows test accuracy as the number of training examples increases; about300 examples suffices to get around 80% accuracy.
+(b) Although our algorithm is not guaranteedto converge, the test accuracy is fairly stable (with one exception) with more trainingiterations?hardly any overfitting occurs.
+(c) As the beam size increases, the accuracy increasesmonotonically, although the computational burden also increases.
+There is a small gain from ourdefault setting of K = 100 to the more expensive K = 300.
+(d) The accuracy is relativelyinsensitive to the choice of the regularization parameter for a wide range of values.
+In fact, noregularization is also acceptable.
+This is probably because the features are simple, and the lexicaltriggers and beam search already provide some helpful biases.5.1 Semantic RepresentationSince the late nineteenth century, philosophers and linguists have worked on elucidat-ing the relationship between an utterance and its meaning.
+One of the pillars of formalsemantics is Frege?s principle of compositionality, that the meaning of an utteranceis built by composing the meaning of its parts.
+What these parts are and how theyare composed is the main question.
+The dominant paradigm, which stems from theseminal work of Richard Montague (1973) in the early 1970s, states that parts arelambda calculus expressions that correspond to syntactic constituents, and compositionis function application.440Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsFigure 26(a) Given the same number of iterations, compared to default batch algorithm (L-BFGS),the on-line algorithm (stochastic gradient descent) is slightly better for aggressive stepsizes (small ?)
+and worse for conservative step sizes (large ?).
+(b) The on-line algorithm(with an appropriate choice of ?)
+obtains a reasonable accuracy much faster than L-BFGS.Consider the compositionality principle from a statistical point of view, where weconstrue compositionality as factorization.
+Factorization, the way a statistical modelbreaks into features, is necessary for generalization: It enables us to learn from pre-viously seen examples and interpret new utterances.
+Projecting back to Frege?s orig-inal principle, the parts are the features (Section 3.1.1), and composition is the DCSconstruction mechanism (Section 2.6) driven by parameters learned from trainingexamples.Taking the statistical view of compositionality, finding a good semantic represen-tation becomes designing a good statistical model.
+But statistical modeling must alsodeal with the additional issue of language acquisition or learning, which presentscomplications: In absorbing training examples, our learning algorithm must inevitablytraverse through intermediate models that are wrong or incomplete.
+The algorithmsmust therefore tolerate this degradation, and do so in a computationally efficient way.For example, in the line of work on learning probabilistic CCGs (Zettlemoyer andCollins 2005, 2007; Kwiatkowski et al2010), many candidate lexical entries must beentertained for each word even when polysemy does not actually exist (Section 2.6.4).To improve generalization, the lexicon can be further factorized (Kwiatkowski et al2011), but this is all done within the constraints of CCG.
+DCS represents a departurefrom this tradition, which replaces a heavily lexicalized constituency-based formalismwith a lightly-lexicalized dependency-based formalism.
+We can think of DCS as a shiftin linguistic coordinate systems, which makes certain factorizations or features moreaccessible.
+For example, we can define features on paths between predicates in a DCStree which capture certain lexical patterns much more easily than in a lambda calculusexpression or a CCG derivation.DCS has a family resemblance to a semantic representation called natural logic form(Alshawi, Chang, and Ringgaard 2011), which is also motivated by the benefits of work-ing with dependency-based logical forms.
+The goals and the detailed structure of thetwo semantic formalisms are different, however.
+Alshawi, Chang, and Ringgaard (2011)focus on parsing complex sentences in an open domain where a structured databaseor world does not exist.
+Whereas they do equip their logical forms with a full model-theoretic semantics, the logical forms are actually closer to dependency trees: Quantifierscope is left unspecified, and the predicates are simply the words.441Computational Linguistics Volume 39, Number 2Perhaps not immediately apparent is the fact that DCS draws an important ideafrom Discourse Representation Theory (DRT) (Kamp and Reyle 1993)?not from thetreatment of anaphora and presupposition which it is known for, but something closerto its core.
+This is the idea of having a logical form where all variables are existentiallyquantified and constraints are combined via conjunction?a Discourse RepresentationStructure (DRS) in DRT, or a basic DCS tree with only join relations.
+Computationally,these logical structures conveniently encode CSPs.
+Linguistically, it appears that existen-tial quantifiers play an important role and should be treated specially (Kamp and Reyle1993).
+DCS takes this core and focuses on semantic compositionality and computation,whereas DRT focuses more on discourse and pragmatics.In addition to the statistical view of DCS as a semantic representation, it is use-ful to think about DCS from the perspective of programming language design.
+Twoprogramming languages can be equally expressive, but what matters is how simple itis to express a desired type of computation in a given language.
+In some sense, wedesigned the DCS formal language to make it easy to represent computations expressedby natural language.
+An important part of DCS is themark?execute construct, a uniformframework for dealing with the divergence between syntactic and semantic scope.
+Thisconstruct allows us to build simple DCS tree structures and still handle the complexitiesof phenomena such as quantifier scope variation.
+Compared to lambda calculus, thinkof DCS as a higher-level programming language tailored to natural language, whichresults in simpler programs (DCS trees).
+Simpler programs are easier for us to workwith and easier for an algorithm to learn.5.2 Program InductionSearching over the space of programs is challenging.
+This is the central computationalchallenge of program induction, that of inferring programs (logical forms) from theirbehavior (denotations).
+This problem has been tackled by different communities invarious forms: program induction in AI, programming by demonstration in Human?Computer Interaction, and program synthesis in programming languages.
+The corecomputational difficulty is that the supervision signal?the behavior?is a complexfunction of the program that cannot be easily inverted.
+What program generated theoutput Arizona, Nevada, and Oregon?Perhaps somewhat counterintuitively, program induction is easier if we infer pro-grams for not a single task but for multiple tasks.
+The intuition is that when the tasksare related, the solution to one task can help another task, both computationally innavigating the program space and statistically in choosing the appropriate program ifthere are multiple feasible possibilities (Liang, Jordan, and Klein 2010).
+In our semanticparsing work, we want to infer a logical form for each utterance (task).
+Clearly the tasksare related because they use the same vocabulary to talk about the same domain.Natural language also makes program induction easier by providing side informa-tion (words) which can be used to guide the search.
+There have been several papersthat induce programs in this setting: Eisenstein et al(2009) induce conjunctive for-mulae from natural language instructions, Piantadosi et al(2008) induce first-orderlogic formulae using CCG in a small domain assuming observed lexical semantics,and Clarke et al(2010) induce logical forms in semantic parsing.
+In the ideal case, thewords would determine the program predicates, and the utterance would determinethe entire program compositionally.
+But of course, this mapping is not given and mustbe learned.442Liang, Jordan, and Klein Learning Dependency-Based Compositional Semantics5.3 Grounded LanguageIn recent years, there has been an increased interest in connecting language with theworld.18 One of the primary issues in grounded language is alignment?figuring outwhat fragments of utterances refer to what aspects of the world.
+In fact, semanticparsers trained on examples of utterances and annotated logical form (those discussedin Section 4.2.2) need to solve the task of aligning words to predicates.
+Some can learnfrom utterances paired with a set of logical forms, one of which is correct (Kate andMooney 2007; Chen and Mooney 2008).
+Liang, Jordan, and Klein (2009) tackle the evenmore difficult alignment problem of segmenting and aligning a discourse to a databaseof facts, where many parts on either side are irrelevant.If we know how the world relates to language, we can leverage structure in theworld to guide the learning and interpretation of language.We saw that type constraintsfrom the database/world reduce the set of candidate logical forms and lead to moreaccurate systems (Popescu, Etzioni, and Kautz 2003; Liang, Jordan, and Klein 2011).Even for syntactic parsing, information from the denotation of an utterance can behelpful (Schuler 2003).One of the exciting aspects about using the world for learning language is thatit opens the door to many new types of supervision.
+We can obtain answers given aworld, which are cheaper to obtain than logical forms (Clarke et al2010; Liang, Jordan,and Klein 2011).
+Other researchers have also pushed in this direction in various ways:learning a semantic parser based on bootstrapping and estimating the confidence of itsown predictions (Goldwasser et al2011), learning a semantic parser from user interac-tions with a dialog system (Artzi and Zettlemoyer 2011), and learning to execute naturallanguage instructions from just a reward signal using reinforcement learning (Branavanet al2009; Branavan, Zettlemoyer, and Barzilay 2010; Branavan, Silver, and Barzilay2011).
+In general, supervision from the world is indirectly related to the learning task,but it is often much more plentiful and natural to obtain.The benefits can also flow from language to the world.
+For example, previous worklearned to interpret language to troubleshoot aWindows machine (Branavan et al2009;Branavan, Zettlemoyer, and Barzilay 2010), win a game of Civilization (Branavan, Silver,and Barzilay 2011), play a legal game of solitaire (Eisenstein et al2009; Goldwasser andRoth 2011), and navigate a map by following directions (Vogel and Jurafsky 2010; Chenand Mooney 2011).
+Even when the objective in the world is defined independently oflanguage (e.g., in Civilization), language can provide a useful bias towards the non-linguistic end goal.6.
+ConclusionsThe main conceptual contribution of this article is a new semantic formalism,dependency-based compositional semantics (DCS), and techniques to learn a semanticparser from question?answer pairs where the intermediate logical form (a DCS tree) isinduced in an unsupervised manner.
+Our final question?answering system was able tomatch the accuracies of state-of-the-art systems that learn from annotated logical forms.There is currently a significant conceptual gap between our question?answeringsystem (which can be construed as a natural language interface to a database) and18 Here, world need not refer to the physical world, but could be any virtual world.
+The point is that theworld has non-trivial structure and exists extra-linguistically.443Computational Linguistics Volume 39, Number 2open-domain question?answering systems.
+The former focuses on understanding aquestion compositionally and computing the answer compositionally, whereas the lat-ter focuses on retrieving and ranking answers from a large unstructured textual corpus.The former has depth; the latter has breadth.
+Developing methods that can both modelthe semantic richness of language and scale up to an open-domain setting remains anopen challenge.We believe that it is possible to push our approach in the open-domain direction.Neither DCS nor the learning algorithm is tied to having a clean rigid database, whichcould instead be a database generated from a noisy information extraction process.
+Thekey is to drive the learning with the desired behavior, the question?answer pairs.
+Thelatent variable is the logical form or program, which just tries to compute the desiredanswer by piecing together whatever information is available.
+Of course, there aremanyopen challenges ahead, but with the proper combination of linguistic, statistical, andcomputational insight, we hope to eventually build systems with both breadth anddepth.AcknowledgmentsWe thank Luke Zettlemoyer and TomKwiatkowski for providing us with dataand answering questions, as well as theanonymous reviewers for their detailedfeedback.
+P. L. was supported by an NSFGraduate Research Fellowship.ReferencesAlshawi, H., P. Chang, and M. Ringgaard.2011.
+Deterministic statistical mappingof sentences to underspecifiedsemantics.
+In International Conferenceon Compositional Semantics (IWCS),pages 15?24, Oxford.Androutsopoulos, I., G. D. Ritchie, andP.
+Thanisch.
+1995.
+Natural languageinterfaces to databases?an introduction.Journal of Natural Language Engineering,1:29?81.Artzi, Y. and L. Zettlemoyer.
+2011.Bootstrapping semantic parsers fromconversations.
+In Empirical Methods inNatural Language Processing (EMNLP),pages 421?432, Edinburgh.Baldridge, J. and G. M. Kruijff.
+2002.Coupling CCG with hybrid logicdependency semantics.
+In Associationfor Computational Linguistics (ACL),pages 319?326, Philadelphia, PA.Barker, C. 2002.
+Continuations and thenature of quantification.
+NaturalLanguage Semantics, 10:211?242.Bos, J.
+2009.
+A controlled fragment ofDRT.
+InWorkshop on Controlled NaturalLanguage, pages 1?5.Bos, J., S. Clark, M. Steedman, J. R. Curran,and J. Hockenmaier.
+2004.
+Wide-coveragesemantic representations from a CCGparser.
+In International Conference onComputational Linguistics (COLING),pages 1240?1246, Geneva.Branavan, S., H. Chen, L. S. Zettlemoyer, andR.
+Barzilay.
+2009.
+Reinforcement learningfor mapping instructions to actions.
+InAssociation for Computational Linguistics andInternational Joint Conference on NaturalLanguage Processing (ACL-IJCNLP),pages 82?90, Singapore.Branavan, S., D. Silver, and R. Barzilay.
+2011.Learning to win by reading manuals in aMonte-Carlo framework.
+In Associationfor Computational Linguistics (ACL),pages 268?277.Branavan, S., L. Zettlemoyer, and R. Barzilay.2010.
+Reading between the lines: Learningto map high-level instructions tocommands.
+In Association for ComputationalLinguistics (ACL), pages 1268?1277,Portland, OR.Carpenter, B.
+1998.
+Type-Logical Semantics.MIT Press, Cambridge, MA.Chen, D. L. and R. J. Mooney.
+2008.
+Learningto sportscast: A test of grounded languageacquisition.
+In International Conference onMachine Learning (ICML), pages 128?135,Helsinki.Chen, D. L. and R. J. Mooney.
+2011.Learning to interpret natural languagenavigation instructions from observations.In Association for the Advancementof Artificial Intelligence (AAAI),pages 128?135, Cambridge, MA.Clarke, J., D. Goldwasser, M. Chang,and D. Roth.
+2010.
+Driving semanticparsing from the world?s response.In Computational Natural LanguageLearning (CoNLL), pages 18?27,Uppsala.444Liang, Jordan, and Klein Learning Dependency-Based Compositional SemanticsCollins, M. 1999.
+Head-Driven StatisticalModels for Natural Language Parsing.Ph.D.
+thesis, University of Pennsylvania.Cooper, R. 1975.Montague?s semantic theoryand transformational syntax.
+Ph.D. thesis,University of Massachusetts at Amherst.Cousot, P. and R. Cousot.
+1977.
+Abstractinterpretation: A unified lattice model forstatic analysis of programs by constructionor approximation of fixpoints.
+In Principlesof Programming Languages (POPL),pages 238?252, Los Angeles, CA.Daume, H., J. Langford, and D. Marcu.2009.
+Search-based structured prediction.Machine Learning Journal (MLJ), 75:297?325.Dechter, R. 2003.
+Constraint Processing.Morgan Kaufmann.Eisenstein, J., J. Clarke, D. Goldwasser,and D. Roth.
+2009.
+Reading to learn:Constructing features from semanticabstracts.
+In Empirical Methods inNatural Language Processing (EMNLP),pages 958?967, Singapore.Ge, R. and R. J. Mooney.
+2005.
+A statisticalsemantic parser that integrates syntaxand semantics.
+In Computational NaturalLanguage Learning (CoNLL), pages 9?16,Ann Arbor, MI.Giordani, A. and A. Moschitti.
+2009.Semantic mapping between naturallanguage questions and SQL queriesvia syntactic pairing.
+In InternationalConference on Applications of NaturalLanguage to Information Systems,pages 207?221, Saarbru?cken.Goldwasser, D., R. Reichart, J. Clarke,and D. Roth.
+2011.
+Confidence drivenunsupervised semantic parsing.
+InAssociation for Computational Linguistics(ACL), pages 1486?1495, Barcelona.Goldwasser, D. and D. Roth.
+2011.
+Learningfrom natural instructions.
+In InternationalJoint Conference on Artificial Intelligence(IJCAI), pages 1794?1800, Portland, OR.Heim, I. and A. Kratzer.
+1998.
+Semantics inGenerative Grammar.
+Wiley-Blackwell,Oxford.Judge, J., A. Cahill, and J. v. Genabith.2006.
+Question-bank: Creating acorpus of parse-annotated questions.In International Conference on ComputationalLinguistics and Association for ComputationalLinguistics (COLING/ACL), pages 497?504,Sydney.Kamp, H. and U. Reyle.
+1993.
+From Discourseto Logic: An Introduction to theModel-theoretic Semantics of NaturalLanguage, Formal Logic and DiscourseRepresentation Theory.
+Kluwer, Dordrecht.Kamp, H., J. van Genabith, and U. Reyle.2005.
+Discourse representation theory.In Handbook of Philosophical Logic,Kluwer, Dordrecht.Kate, R. J. and R. J. Mooney.
+2006.
+Usingstring-kernels for learning semanticparsers.
+In International Conference onComputational Linguistics and Association forComputational Linguistics (COLING/ACL),pages 913?920, Sydney.Kate, R. J. and R. J. Mooney.
+2007.Learning language semantics fromambiguous supervision.
+In Associationfor the Advancement of ArtificialIntelligence (AAAI), pages 895?900,Cambridge, MA.Kate, R. J., Y. W. Wong, and R. J. Mooney.2005.
+Learning to transform natural toformal languages.
+In Association for theAdvancement of Artificial Intelligence(AAAI), pages 1062?1068.Kwiatkowski, T., L. Zettlemoyer,S.
+Goldwater, and M. Steedman.
+2010.Inducing probabilistic CCG grammarsfrom logical form with higher-orderunification.
+In Empirical Methods inNatural Language Processing (EMNLP),pages1223?1233, Cambridge, MA.Kwiatkowski, T., L. Zettlemoyer,S.
+Goldwater, and M. Steedman.
+2011.Lexical generalization in CCG grammarinduction for semantic parsing.
+InEmpirical Methods in Natural LanguageProcessing (EMNLP), pages 1512?1523,Cambridge, MA.Liang, P. 2011.
+Learning Dependency-BasedCompositional Semantics.
+Ph.D. thesis,University of California at Berkeley.Liang, P., M. I. Jordan, and D. Klein.
+2009.Learning semantic correspondenceswith less supervision.
+In Association forComputational Linguistics and InternationalJoint Conference on Natural LanguageProcessing (ACL-IJCNLP), pages 91?99,Singapore.Liang, P., M. I. Jordan, and D. Klein.
+2010.Learning programs: A hierarchicalBayesian approach.
+In InternationalConference on Machine Learning (ICML),pages 639?646, Haifa.Liang, P., M. I. Jordan, and D. Klein.2011.
+Learning dependency-basedcompositional semantics.
+In Associationfor Computational Linguistics (ACL),pages 590?599, Portland, OR.Liang, P. and D. Klein.
+2009.
+Online EM forunsupervised models.
+In North AmericanAssociation for Computational Linguistics(NAACL), pages 611?619, Boulder, CO.445Computational Linguistics Volume 39, Number 2Lu, W., H. T. Ng, W. S. Lee, and L. S.Zettlemoyer.
+2008.
+A generative model forparsing natural language to meaningrepresentations.
+In Empirical Methods inNatural Language Processing (EMNLP),pages 783?792, Honolulu, HI.Marcus, M. P., M. A. Marcinkiewicz, andB.
+Santorini.
+1993.
+Building a largeannotated corpus of English: The PennTreebank.
+Computational Linguistics,19:313?330.Miller, S., D. Stallard, R. Bobrow, andR.
+Schwartz.
+1996.
+A fully statisticalapproach to natural language interfaces.In Association for Computational Linguistics(ACL), pages 55?61, Santa Cruz, CA.Montague, R. 1973.
+The proper treatmentof quantification in ordinary English.In J. Hiutikka, J. Moravcsik, andP.
+Suppes, editors, Approaches to NaturalLanguage, pages 221?242, Dordrecht,The Netherlands.Nocedal, J.
+1980.
+Updating quasi-Newtonmatrices with limited storage.Mathematicsof Computation, 35:773?782.Petrov, S., L. Barrett, R. Thibaux, andD.
+Klein.
+2006.
+Learning accurate,compact, and interpretable treeannotation.
+In International Conference onComputational Linguistics and Association forComputational Linguistics (COLING/ACL),pages 433?440, Sydney.Piantadosi, S. T., N. D. Goodman, B.
+A. Ellis,and J.
+B. Tenenbaum.
+2008.
+A Bayesianmodel of the acquisition of compositionalsemantics.
+In Proceedings of the ThirtiethAnnual Conference of the Cognitive ScienceSociety, pages 1620?1625, Washington, DC.Popescu, A., O. Etzioni, and H. Kautz.
+2003.Towards a theory of natural languageinterfaces to databases.
+In InternationalConference on Intelligent User Interfaces(IUI), pages 149?157, Miami, FL.Porter, M. F. 1980.
+An algorithm for suffixstripping.
+Program, 14:130?137.Robbins, H. and S. Monro.
+1951.
+A stochasticapproximation method.
+Annals ofMathematical Statistics, 22(3):400?407.Schuler, W. 2003.
+Using model-theoreticsemantic interpretation to guide statisticalparsing and word recognition in a spokenlanguage interface.
+In Association forComputational Linguistics (ACL),pages 529?536, Sapporo.Shan, C. 2004.
+Delimited continuations innatural language.
+Technical report, ArXiv.Available at http://arvix.org/abs/cs.CL/0404006.Steedman, M. 2000.
+The Syntactic Process.MIT Press, Cambridge, MA.Tang, L. R. and R. J. Mooney.
+2001.
+Usingmultiple clause constructors in inductivelogic programming for semantic parsing.In European Conference on Machine Learning,pages 466?477, Freiburg.Vogel, A. and D. Jurafsky.
+2010.
+Learningto follow navigational directions.In Association for Computational Linguistics(ACL), pages 806?814, Uppsala.Wainwright, M. and M. I. Jordan.
+2008.Graphical models, exponential families,and variational inference.
+Foundations andTrends in Machine Learning, 1:1?307.Warren, D. and F. Pereira.
+1982.
+An efficienteasily adaptable system for interpretingnatural language queries.
+ComputationalLinguistics, 8:110?122.White, M. 2006.
+Efficient realization ofcoordinate structures in combinatorycategorial grammar.
+Research on Languageand Computation, 4:39?75.Wong, Y. W. and R. J. Mooney.
+2006.Learning for semantic parsing withstatistical machine translation.
+In NorthAmerican Association for ComputationalLinguistics (NAACL), pages 439?446,New York, NY.Wong, Y. W. and R. J. Mooney.
+2007.Learning synchronous grammars forsemantic parsing with lambda calculus.In Association for Computational Linguistics(ACL), pages 960?967, Prague.Woods, W. A., R. M. Kaplan, andB.
+N. Webber.
+1972.
+The lunar sciencesnatural language information system:Final report.
+Technical Report 2378,Bolt Beranek and Newman Inc.,Cambridge, MA.Zelle, M. and R. J. Mooney.
+1996.
+Learning toparse database queries using inductivelogic programming.
+In Association for theAdvancement of Artificial Intelligence(AAAI), pages 1050?1055, Cambridge, MA.Zettlemoyer, L. S. and M. Collins.
+2005.Learning to map sentences to logicalform: Structured classification withprobabilistic categorial grammars.In Uncertainty in Artificial Intelligence(UAI), pages 658?666.Zettlemoyer, L. S. and M. Collins.
+2007.Online learning of relaxed CCG grammarsfor parsing to logical form.
+In EmpiricalMethods in Natural Language Processingand Computational Natural LanguageLearning (EMNLP/CoNLL), pages 678?687,Prague.446

@@ -1,0 +1,106 @@
+Proceedings of NAACL HLT 2009: Short Papers, pages 141?144,Boulder, Colorado, June 2009. c?2009 Association for Computational LinguisticsFaster MT Decoding through Pervasive LazinessMichael Pust and Kevin KnightInformation Sciences InstituteUniversity of Southern Californialastname@isi.eduAbstractSyntax-based MT systems have proveneffective?the models are compelling andshow good room for improvement.
+However,decoding involves a slow search.
+We presenta new lazy-search method that obtains signifi-cant speedups over a strong baseline, with noloss in Bleu.1 IntroductionSyntax-based string-to-tree MT systems haveproven effective?the models are compelling andshow good room for improvement.
+However, slowdecoding hinders research, as most experimentsinvolve heavy parameter tuning, which involvesheavy decoding.
+In this paper, we present a newmethod to improve decoding performance, obtain-ing a significant speedup over a strong baseline withno loss in Bleu.
+In scenarios where fast decoding ismore important than optimal Bleu, we obtain betterBleu for the same time investment.
+Our baselineis a full-scale syntax-based MT system with 245mtree-transducer rules of the kind described in (Gal-ley et al, 2004), 192 English non-terminal symbols,an integrated 5-gram language model (LM), anda decoder that uses state-of-the-art cube pruning(Chiang, 2007).
+A sample translation rule is:S(x0:NP x1:VP) ?
+x1:VP x0:NPIn CKY string-to-tree decoding, we attack spansof the input string from shortest to longest.
+We pop-ulate each span with a set of edges.
+An edge containsa English non-terminal (NT) symbol (NP, VP, etc),border words for LM combination, pointers to childedges, and a score.
+The score is a sum of (1) theleft-child edge score, (2) the right-child edge score,(3) the score of the translation rule that combinedthem, and (4) the target-string LM score.
+In this pa-per, we are only concerned with what happens whenconstructing edges for a single span [i,j].
+The naivealgorithm works like this:for each split point kfor each edge A in span [i,k]for each edge B in span [k,j]for each rule R with RHS = A Bcreate new edge for span [i,j]delete all but 1000-best edgesThe last step provides a necessary beam.
+Withoutit, edges proliferate beyond available memory andtime.
+But even with the beam, the naive algorithmfails, because enumerating all <A,B,R> triples ateach span is too time consuming.2 Cube PruningCube pruning (Chiang, 2007) solves this problem bylazily enumerating triples.
+To work, cube pruningrequires that certain orderings be continually main-tained at all spans.
+First, rules are grouped by RHSinto rule sets (eg, all the NP-VP rules are in a set),and the members of a given set are sorted by rulescore.
+Second, edges in a span are grouped by NTinto edge sets (eg, all the NP edges are in an edgeset), ordered by edge score.Consider the sub-problem of building new [i,j]edges by combining (just) the NP edges over [i,k]with (just) the VP edges over [k,j], using the avail-able NP-VP rules.
+Rather than enumerate all triples,cube pruning sets up a 3-dimensional cube struc-ture whose individually-sorted axes are the NP leftedges, the VP right edges, and the NP-VP rules.
+Be-cause the corner of the cube (best NP left-edge, bestVP right-edge, best NP-VP rule) is likely the bestedge in the cube, at beam size 1, we would sim-ply return this edge and terminate, without checkingother triples.
+We say ?likely?
+because the corner po-sition does not take into account the LM portion ofthe score.1After we take the corner and post a new edge fromit, we identify its 3 neighbors in the cube.
+We com-1We also employ LM rule and edge forward-heuristics as in(Chiang, 2007), which improve the sorting.141pute their full scores (including LM portion) andpush them onto a priority queue (PQ).
+We then popan item from the PQ, post another new edge, andpush the item?s neighbors onto the PQ.
+Note that thisPQ grows in size over time.
+In this way, we explorethe best portion of the cube without enumerating allits contents.
+Here is the algorithm:push(corner, make-edge(corner)) onto PQfor i = 1 to 1000pop(position, edge) from top of PQpost edge to chartfor each n in neighbors(position)push(n, make-edge(n)) onto PQif PQ is empty, break from for-loopThe function make-edge completely scores an edge(including LM score) before inserting it into the PQ.Note that in practice, we execute the loop up to 10ktimes, to get 1000 edges that are distinct in their NTsand border words.In reality, we have to construct many cubes, onefor each combinable left and right edge set for agiven split point, plus all the cubes for all the othersplit points.
+So we maintain a PQ-of-PQs whose el-ements are cubes.create each cube, pushing its fully-scored corneronto the cube?s PQpush cubes themselves onto a PQ-of-PQsfor i = 1 to 1000:pop a cube C from the PQ-of-PQspop an item from Cpost edge to chartretrieve neighbors, score & push them onto Cpush C back onto the PQ-of-PQs3 Lazy ListsWhen we meter the cube pruning algorithm, we findthat over 80% of the time goes to building the initialqueue of cubes, including deriving a corner edge foreach cube?only a small fraction is spent derivingadditional edges via exploring the cubes.
+For spansof length 10 or greater, we find that we have to createmore than 1000 cubes, i.e., more than the number ofedges we wish to explore.Our idea, then, is to create the cubes themselveslazily.
+To describe our algorithm, we exploit an ab-stract data structure called a lazy list (aka generator,stream, pipe, or iterator), which supports three oper-ations:next(list): pops the front item from a listpeek(list): returns the score of the front itemempty(list): returns true if the list is emptyA cube is a lazy list (of edges).
+For our purposes, alazy list can be implemented with a PQ or somethingelse?we no longer care how the list is populated ormaintained, or even whether there are a finite num-ber of elements.Instead of explicitly enumerating all cubes for aspan, we aim to produce a lazy list of cubes.
+As-sume for the moment that such a lazy list exists?weshow how to create it in the next section?and call itL.
+Let us also say that cubes come off L in order oftheir top edges?
+scores.
+To get our first edge, we letC = next(L), and then we call next(C).
+Now a ques-tion arises: do we pop the next-best edge off C, ordo we investigate the next cube in L?
+We can decideby calling peek(peek(L)).
+If we choose to pop thenext cube (and then its top edge), then we face an-other (this time three-way) decision.
+Bookkeepingis therefore required if we are to continue to emitedges in a good order.We manage the complexity through the abstrac-tion of a lazy list of lazy lists, to which we routinelyapply a single, key operation called merge-lists.
+Thisoperation converts a lazy list of lazy lists of X?s intoa simple lazy list of X?s.
+X can be anything: edges,integers, lists, lazy lists, etc.Figure 1 gives the generic merge-lists algorithm.The yield function suspends computation and re-turns to the caller.
+peek() lets the caller see what isyielded, next() returns what is yielded and resumesthe loop, and empty() tells if the loop is still active.We are now free to construct any nested ?list oflists of lists ... of lists of X?
+(all lazy) and reduceit stepwise and automatically to a single lazy list.Standard cube pruning (Section 2) provides a sim-ple example: if L is a list of cubes, and each cube isa lazy list of edges, then merge-lists(L) returns us alazy list of edges (M), which is exactly what the de-coder wants.
+The decoder can populate a new spanby simply making 1000 calls to next(M).4 Pervasive LazinessNow we describe how to generate cubes lazily.
+Aswith standard cube pruning, we need to maintain a142merge-lists(L):(L is a lazy list of lazy lists)1. set up an empty PQ of lists,prioritized by peek(list)2. push next(L) onto PQ3.
+pop list L2 off PQ4.
+yield pop(L2)5. if !empty(L2) and peek(L2) is worse thanpeek(peek(L)), then push next(L) onto PQ6.
+if !empty(L2), then push L2 onto PQ7.
+go to step 3Figure 1: Generic merge-lists algorithm.small amount of ordering information among edgesin a span, which we exploit in constructing higher-level spans.
+Previously, we required that all NPedges be ordered by score, the same for VP edges,etc.
+Now we additionally order whole edge sets(groups of edges sharing an NT) with respect to eachother, eg, NP > VP > RB > etc.
+These are orderedby the top-scoring edges in each set.Ideally, we would pop cubes off our lazy list inorder of their top edges.
+Recall that the PQ-of-PQsin standard cube pruning works this way.
+We cannotguarantee this anymore, so we approximate it.Consider first a single edge set from [i,k], eg, allthe NP edges.
+We build a lazy list of cubes that allhave a left-NP.
+Because edge sets from [k,j] are or-dered with respect to each other, we may find thatit is the VP edge set that contains the best edge in[k,j].
+Pulling in all NP-VP rules, we can now postu-late a ?best cube,?
+which generates edges out of left-NPs and right-VPs.
+We can either continue makingedge from this cube, or we can ask for a ?second-best cube?
+by moving to the next edge set of [k,j],which might contain all the right-PP edges.
+Thus,we have a lazy list of left-NP cubes.
+Its orderingis approximate?cubes come off in such a way thattheir top edges go from best to worst, but only con-sidering the left and right child scores, not the rulescores.
+This is the same idea followed by standardcube pruning when it ignores internal LM scores.We next create similar lazy lists for all the other[i,k] edge sets (not just NP).
+We combine these listsinto a higher-level lazy list, whose elements pop offaccording to the ordering of edge sets in [i,k].
+Thisstructure contains all edges that can be producedFigure 2: Organizing lazy lists for the decoder.from split point k. We call merge-lists recursivelyon the structure, leaving us with a single lazy list Mof edges.
+The decoder can now make 1000 calls tonext(M) to populate the new span.Edges from other split points, however, mustcompete on an equal basis for those 1000 slots.
+Wetherefore produce a separate lazy list for each of thej ?
+i ?
+1 split points and combine these into aneven higher-level list.
+Lacking an ordering criterionamong split points, we presently make the top list anon-lazy one via the PQ-of-PQs structure.
+Figure 2shows how our lists are organized.The quality of our 1000-best edges can be im-proved.
+When we organize the higher-level lists byleft edge-sets, we give prominence to the best leftedge-set (eg, NP) over others (eg, VP).
+If the leftspan is relatively short, the contribution of the leftNP to the total score of the new edge is small, sothis prominence is misplaced.
+Therefore, we repeatthe above process with the higher-level lists orga-nized by right span instead of left.
+We merge theright-oriented and left-oriented structures, makingsure that duplicates are avoided.Related Work.
+Huang and Chiang (2007) de-1435x108 1x109 1.5x109 2x109 2.5x109 3x109edges created42000430004400045000modelcostlazy cube generationexhaustive cube generationFigure 3: Number of edges produced by the decoder, ver-sus model cost of 1-best decodings.scribe a variation of cube pruning called cube grow-ing, and they apply it to a source-tree to target-string translator.
+It is a two pass approach, wherea context-free parser is used to build a source for-est, and a top down lazy forest expansion is used tointegrate a language model.
+The expansion recur-sively calls cubes top-down, in depth first order.
+Thecontext-free forest controls which cubes are built,and acts as a heuristic to minimize the number ofitems returned from each cube necessary to generatek-best derivations at the top.It is not clear that a decoder such as ours, withoutthe source-tree constraint, would benefit from thismethod, as building a context-free forest consistentwith future language model integration via cubes isexpensive on its own.
+However, we see potentialintegration of both methods in two places: First,the merge-lists algorithm can be used to lazily pro-cess any nested for-loops?including vanilla CKY?provided the iterands of the loops can be priori-tized.
+This could speed up the creation of a first-passcontext-free forest.
+Second, the cubes themselvescould be prioritized in a manner similar to what wedescribe, using the context-free forest to prioritizecube generation rather than antecedent edges in thechart (since those do not exist yet).5 ResultsWe compare our method with standard cube prun-ing (Chiang, 2007) on a full-scale Arabic/Englishsyntax-based MT system with an integrated 5-gram20000 40000 60000 80000decode time (seconds)51.251.451.651.85252.252.452.652.853bleulazy cube generationexhaustive cube generationFigure 4: Decoding time versus Bleu.LM.
+We report on 500 test sentences of lengths 15-35.
+There are three variables of interest: runtime,model cost (summed across all sentences), and IBMBleu.
+By varying the beam sizes (up to 1350),we obtain curves that plot edges-produced versusmodel-cost, shown in Figure 3.
+Figure 4 plots Bleuscore against time.
+We see that we have improvedthe way our decoder searches, by teaching it to ex-plore fewer edges, without sacrificing its ability tofind low-cost edges.
+This leads to faster decodingwithout loss in translation accuracy.Taken together with cube pruning (Chiang, 2007),k-best tree extraction (Huang and Chiang, 2005),and cube growing (Huang and Chiang, 2007), theseresults provide evidence that lazy techniques maypenetrate deeper yet into MT decoding and otherNLP search problems.We would like to thank J. Graehl and D. Chiangfor thoughts and discussions.
+This work was par-tially supported under DARPA GALE, Contract No.HR0011-06-C-0022.ReferencesD.
+Chiang.
+2007.
+Hierarchical phrase-based translation.Computational Linguistics, 33(2).M.
+Galley, M. Hopkins, K. Knight, and D. Marcu.
+2004.What?s in a translation rule.
+In Proc.
+NAACL-HLT.L.
+Huang and D. Chiang.
+2005.
+Better k-best parsing.
+InProc.
+IWPT.L.
+Huang and D. Chiang.
+2007.
+Forest rescoring: Fasterdecoding with integrated language models.
+In Proc.ACL.144

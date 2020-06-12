@@ -1,0 +1,92 @@
+Proceedings of ACL-08: HLT, Short Papers (Companion Volume), pages 265?268,Columbus, Ohio, USA, June 2008. c?2008 Association for Computational LinguisticsPairwise Document Similarity in Large Collections with MapReduceTamer Elsayed,?Jimmy Lin,?
+and Douglas W. Oard?Human Language Technology Center of Excellence andUMIACS Laboratory for Computational Linguistics and Information ProcessingUniversity of Maryland, College Park, MD 20742{telsayed,jimmylin,oard}@umd.eduAbstractThis paper presents a MapReduce algorithmfor computing pairwise document similarityin large document collections.
+MapReduce isan attractive framework because it allows usto decompose the inner products involved incomputing document similarity into separatemultiplication and summation stages in a waythat is well matched to efficient disk accesspatterns across several machines.
+On a col-lection consisting of approximately 900,000newswire articles, our algorithm exhibits lin-ear growth in running time and space in termsof the number of documents.1 IntroductionComputing pairwise similarity on large documentcollections is a task common to a variety of prob-lems such as clustering and cross-document coref-erence resolution.
+For example, in the PubMedsearch engine,1 which provides access to the life sci-ences literature, a ?more like this?
+browsing featureis implemented as a simple lookup of document-document similarity scores, computed offline.
+Thispaper considers a large class of similarity functionsthat can be expressed as an inner product of termweight vectors.For document collections that fit into random-access memory, the solution is straightforward.
+Ascollection size grows, however, it ultimately be-comes necessary to resort to disk storage, at whichpoint aligning computation order with disk accesspatterns becomes a challenge.
+Further growth in the?Department of Computer Science?The iSchool, College of Information Studies1http://www.ncbi.nlm.nih.gov/PubMeddocument collection will ultimately make it desir-able to spread the computation over several proces-sors, at which point interprocess communication be-comes a second potential bottleneck for which thecomputation order must be optimized.
+Althoughtailored implementations can be designed for spe-cific parallel processing architectures, the MapRe-duce framework (Dean and Ghemawat, 2004) offersan attractive solution to these challenges.
+In this pa-per, we describe how pairwise similarity computa-tion for large collections can be efficiently imple-mented with MapReduce.
+We empirically demon-strate that removing high frequency (and thereforelow entropy) terms results in approximately lineargrowth in required disk space and running time withincreasing collection size for collections containingseveral hundred thousand documents.2 MapReduce FrameworkMapReduce builds on the observation that manytasks have the same structure: a computation is ap-plied over a large number of records (e.g., docu-ments) to generate partial results, which are then ag-gregated in some fashion.
+Naturally, the per-recordcomputation and aggregation vary by task, but thebasic structure remains fixed.
+Taking inspirationfrom higher-order functions in functional program-ming, MapReduce provides an abstraction that in-volves the programmer defining a ?mapper?
+and a?reducer?, with the following signatures:map: (k1, v1)?
+[(k2, v2)]reduce: (k2, [v2])?
+[(k3, v3)]Key/value pairs form the basic data structure inMapReduce.
+The ?mapper?
+is applied to every input265Shuffling: group valuesbykeysmapmapmapmapreducereducereduceinputinputinputinputoutputoutputoutputFigure 1: Illustration of the MapReduce framework: the?mapper?
+is applied to all input records, which generatesresults that are aggregated by the ?reducer?.key/value pair to generate an arbitrary number of in-termediate key/value pairs.
+The ?reducer?
+is appliedto all values associated with the same intermediatekey to generate output key/value pairs (see Figure 1).On top of a distributed file system (Ghemawatet al, 2003), the runtime transparently handles allother aspects of execution (e.g., scheduling and faulttolerance), on clusters ranging from a few to a fewthousand nodes.
+MapReduce is an attractive frame-work because it shields the programmer from dis-tributed processing issues such as synchronization,data exchange, and load balancing.3 Pairwise Document SimilarityOur work focuses on a large class of document simi-larity metrics that can be expressed as an inner prod-uct of term weights.
+A document d is represented asa vector Wd of term weights wt,d, which indicatethe importance of each term t in the document, ig-noring the relative ordering of terms (?bag of words?model).
+We consider symmetric similarity measuresdefined as follows:sim(di, dj) =?t?Vwt,di ?
+wt,dj (1)where sim(di, dj) is the similarity between docu-ments di and dj and V is the vocabulary set.
+In thistype of similarity measure, a term will contribute tothe similarity between two documents only if it hasnon-zero weights in both.
+Therefore, t ?
+V can bereplaced with t ?
+di ?
+dj in equation 1.Generalizing this to the problem of computingsimilarity between all pairs of documents, we noteAlgorithm 1 Compute Pairwise Similarity Matrix1: ?i, j : sim[i, j]?
+02: for all t ?
+V do3: pt ?
+postings(t)4: for all di, dj ?
+pt do5: sim[i, j]?
+sim[i, j] + wt,di ?
+wt,djthat a term contributes to each pair that contains it.2For example, if a term appears in documents x, y,and z, it contributes only to the similarity scores be-tween (x, y), (x, z), and (y, z).
+The list of docu-ments that contain a particular term is exactly whatis contained in the postings of an inverted index.Thus, by processing all postings, we can computethe entire pairwise similarity matrix by summingterm contributions.Algorithm 1 formalizes this idea: postings(t) de-notes the list of documents that contain term t. Forsimplicity, we assume that term weights are alsostored in the postings.
+For small collections, this al-gorithm can be run efficiently to compute the entiresimilarity matrix in memory.
+For larger collections,disk access optimization is needed?which is pro-vided by the MapReduce runtime, without requiringexplicit coordination.We propose an efficient solution to the pairwisedocument similarity problem, expressed as two sep-arate MapReduce jobs (illustrated in Figure 2):1) Indexing: We build a standard inverted in-dex (Frakes and Baeza-Yates, 1992), where eachterm is associated with a list of docid?s for docu-ments that contain it and the associated term weight.Mapping over all documents, the mapper, for eachterm in the document, emits the term as the key, anda tuple consisting of the docid and term weight as thevalue.
+The MapReduce runtime automatically han-dles the grouping of these tuples, which the reducerthen writes out to disk, thus generating the postings.2) Pairwise Similarity: Mapping over each post-ing, the mapper generates key tuples correspondingto pairs of docids in the postings: in total, 12m(m?1)pairs where m is the posting length.
+These key tu-ples are associated with the product of the corre-sponding term weights?they represent the individ-2Actually, since we focus on symmetric similarity functions,we only need to compute half the pairs.266d 1(A,(d 1,2))(B,(d 1,1))(C,(d 1,1))(B,(d 2,1))(D,(d 2,2))(A,(d 3,1))(B,(d 3,2))(E,(d 3,1))(A,[(d 1,2),(d 3,1)])(B,[(d 1,1), (d 2,1),(d 3,2)])(C,[(d 1,1)])(D,[(d 2,2)])(E,[(d 3,1)])d 2 d 3((d 1,d 3),2)((d 1,d 2),1)((d 1,d 3),2)((d 2,d 3),2)((d 1,d 2),[1])((d 1,d 3),[2, 2])((d 2,d 3),[2])((d 1,d 2),1)((d 1,d 3),4)((d 2,d 3),2)?AA BC?
+?BD D?
+?AB BE?mapmapmapreducereducereducemapmapmapshufflemapmapshuffleIndexingPairwiseSimilarityreducereducereducereducereduce(A,[(d 1,2),(d 3,1)])(B,[(d 1,1), (d 2,1),(d 3,2)])(C,[(d 1,1)])(D,[(d 2,2)])(E,[(d 3,1)])Figure 2: Computing pairwise similarity of a toy collection of 3 documents.
+A simple term weighting scheme (wt,d =tft,d) is chosen for illustration.ual term contributions to the final inner product.
+TheMapReduce runtime sorts the tuples and then the re-ducer sums all the individual score contributions fora pair to generate the final similarity score.4 Experimental EvaluationIn our experiments, we used Hadoop ver-sion 0.16.0,3 an open-source Java implementationof MapReduce, running on a cluster with 20 ma-chines (1 master, 19 slave).
+Each machine has twosingle-core processors (running at either 2.4GHz or2.8GHz), 4GB memory, and 100GB disk.We implemented the symmetric variant of Okapi-BM25 (Olsson and Oard, 2007) as the similarityfunction.
+We used the AQUAINT-2 collection ofnewswire text, containing 906k documents, totalingapproximately 2.5 gigabytes.
+Terms were stemmed.To test the scalability of our technique, we sampledthe collection into subsets of 10, 20, 25, 50, 67, 75,80, 90, and 100 percent of the documents.After stopword removal (using Lucene?s stop-word list), we implemented a df-cut, where a frac-tion of the terms with the highest document frequen-cies is eliminated.4 This has the effect of remov-ing non-discriminative terms.
+In our experiments,we adopt a 99% cut, which means that the most fre-quent 1% of terms were discarded (9,093 terms outof a total vocabulary size of 909,326).
+This tech-nique greatly increases the efficiency of our algo-rithm, since the number of tuples emitted by the3http://hadoop.apache.org/4In text classification, removal of rare terms is more com-mon.
+Here we use df-cut to remove common terms.R2  = 0.997020406080100120140 0102030405060708090100Corpus Size(%)Computation Time (minutes)Figure 3: Running time of pairwise similarity compar-isons, for subsets of AQUAINT-2.mappers in the pairwise similarity phase is domi-nated by the length of the longest posting (in theworst case, if a term appears in all documents, itwould generate approximately 1012 tuples).Figure 3 shows the running time of the pairwisesimilarity phase for different collection sizes.5 Thecomputation for the entire collection finishes in ap-proximately two hours.
+Empirically, we find thatrunning time increases linearly with collection size,which is an extremely desirable property.
+To get asense of the space complexity, we compute the num-ber of intermediate document pairs that are emit-ted by the mappers.
+The space savings are large(3.7 billion rather than 8.1 trillion intermediate pairsfor the entire collection), and space requirementsgrow linearly with collection size over this region(R2 = 0.9975).5The entire collection was indexed in about 3.5 minutes.26701,0002,0003,0004,0005,0006,0007,0008,0009,0000102030405060708090100Corpus Size(%)Intermediate Pairs (billions)df-cutat 99%df-cutat 99.9%df-cutat 99.99%df-cutat 99.999%no df-cutFigure 4: Effect of changing df -cut thresholds on thenumber of intermediate document-pairs emitted, for sub-sets of AQUAINT-2.5 Discussion and Future WorkIn addition to empirical results, it would be desir-able to derive an analytical model of our algorithm?scomplexity.
+Here we present a preliminary sketch ofsuch an analysis and discuss its implications.
+Thecomplexity of our pairwise similarity algorithm istied to the number of document pairs that are emit-ted by the mapper, which equals the total number ofproducts required in O(N2) inner products, whereN is the collection size.
+This is equal to:12?t?Vdft(dft ?
+1) (2)where dft is the document frequency, or equivalentlythe length of the postings for term t. Given that to-kens in natural language generally obey Zipf?s Law,and vocabulary size and collection size can be re-lated via Heap?s Law, it may be possible to developa closed form approximation to the above series.Given the necessity of computing O(N2) innerproducts, it may come as a surprise that empiricallyour algorithm scales linearly (at least for the collec-tion sizes we explored).
+We believe that the key tothis behavior is our df-cut technique, which elimi-nates the head of the df distribution.
+In our case,eliminating the top 1% of terms reduces the numberof document pairs by several orders of magnitude.However, the impact of this technique on effective-ness (e.g., in a query-by-example experiment) hasnot yet been characterized.
+Indeed, a df-cut thresh-old of 99% might seem rather aggressive, removingmeaning-bearing terms such as ?arthritis?
+and ?Cor-nell?
+in addition to perhaps less problematic termssuch as ?sleek?
+and ?frail.?
+But redundant use ofrelated terms is common in news stories, which wewould expect to reduce the adverse effect on manyapplications of removing these low entropy terms.Moreover, as Figure 4 illustrates, relaxing the df-cut to a 99.9% threshold still results in approxi-mately linear growth in the requirement for interme-diate storage (at least over this region).6 In essence,optimizing the df-cut is an efficiency vs. effective-ness tradeoff that is best made in the context of aspecific application.
+Finally, we note that alternativeapproaches to similar problems based on locality-sensitive hashing (Andoni and Indyk, 2008) facesimilar tradeoffs in tuning for a particular false pos-itive rate; cf.
+(Bayardo et al, 2007).6 ConclusionWe present a MapReduce algorithm for efficientlycomputing pairwise document similarity in largedocument collections.
+In addition to offering spe-cific benefits for a number of real-world tasks, wealso believe that our work provides an example ofa programming paradigm that could be useful for abroad range of text analysis problems.AcknowledgmentsThis work was supported in part by the IntramuralResearch Program of the NIH/NLM/NCBI.ReferencesA.
+Andoni and P. Indyk.
+2008.
+Near-optimal hashingalgorithms for approximate nearest neighbor in highdimensions.
+CACM, 51(1):117?122.R.
+Bayardo, Y. Ma, and R. Srikant.
+2007.
+Scaling up allpairs similarity search.
+In WWW ?07.J.
+Dean and S. Ghemawat.
+2004.
+MapReduce: Simpli-fied data processing on large clusters.
+In OSDI ?04.W.
+Frakes and R. Baeza-Yates.
+1992.
+Information Re-trieval: Data Structures and Algorithms.S.
+Ghemawat, H. Gobioff, and S. Leung.
+2003.
+TheGoogle File System.
+In SOSP ?03.J.
+Olsson and D. Oard.
+2007.
+Improving text classifi-cation for oral history archives with temporal domainknowledge.
+In SIGIR ?07.6More recent experiments suggest that a df-cut of 99.9% re-sults in almost no loss of effectiveness on a query-by-exampletask, compared to no df-cut.268

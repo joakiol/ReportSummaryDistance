@@ -1,0 +1,163 @@
+Proceedings of the Eighth Workshop on Statistical Machine Translation, pages 200?205,Sofia, Bulgaria, August 8-9, 2013 c?2013 Association for Computational LinguisticsThe University of Cambridge Russian-English System at WMT13Juan Pino Aurelien Waite Tong XiaoAdria` de Gispert Federico Flego William ByrneDepartment of Engineering, University of Cambridge, Cambridge, CB2 1PZ, UK{jmp84,aaw35,tx212,ad465,ff257,wjb31}@eng.cam.ac.ukAbstractThis paper describes the University ofCambridge submission to the EighthWorkshop on Statistical Machine Transla-tion.
+We report results for the Russian-English translation task.
+We use mul-tiple segmentations for the Russian in-put language.
+We employ the Hadoopframework to extract rules.
+The decoderis HiFST, a hierarchical phrase-based de-coder implemented using weighted finite-state transducers.
+Lattices are rescoredwith a higher order language model andminimum Bayes-risk objective.1 IntroductionThis paper describes the University of Cam-bridge system submission to the ACL 2013Eighth Workshop on Statistical Machine Transla-tion (WMT13).
+Our translation system is HiFST(Iglesias et al 2009), a hierarchical phrase-baseddecoder that generates translation lattices directly.Decoding is guided by a CYK parser based on asynchronous context-free grammar induced fromautomatic word alignments (Chiang, 2007).
+Thedecoder is implemented with Weighted FiniteState Transducers (WFSTs) using standard op-erations available in the OpenFst libraries (Al-lauzen et al 2007).
+The use of WFSTs allowsfast and efficient exploration of a vast translationsearch space, avoiding search errors in decoding.It also allows better integration with other stepsin our translation pipeline such as 5-gram lan-guage model (LM) rescoring and lattice minimumBayes-risk (LMBR) decoding (Blackwood, 2010).We participate in the Russian-English transla-tion shared task in the Russian-English direction.This is the first time we train and evaluate a sys-tem on this language pair.
+This paper describes thedevelopment of the system.The paper is organised as follows.
+Section 2describes each step in the development of our sys-tem for submission, from pre-processing to post-processing and Section 3 presents and discussesresults.2 System Development2.1 Pre-processingWe use all the Russian-English parallel data avail-able in the constraint track.
+We filter out nonRussian-English sentence pairs with the language-detection library.2 A sentence pair is filtered out ifthe language detector detects a different languagewith probability more than 0.999995 in either thesource or the target.
+This discards 78543 sen-tence pairs.
+In addition, sentence pairs where thesource sentence has no Russian character, definedby the Perl regular expression [\x0400-\x04ff],are discarded.
+This further discards 19000 sen-tence pairs.The Russian side of the parallel corpus is to-kenised with the Stanford CoreNLP toolkit.3 TheStanford CoreNLP tokenised text is additionallysegmented with Morfessor (Creutz and Lagus,2007) and with the TreeTagger (Schmid, 1995).In the latter case, we replace each token by itsstem followed by its part-of-speech.
+This of-fers various segmentations that can be taken ad-vantage of in hypothesis combination: CoreNLP,CoreNLP+Morfessor and CoreNLP+TreeTagger.The English side of the parallel corpus is tokenisedwith a standard in-house tokeniser.
+Both sides ofthe parallel corpus are then lowercased, so mixedcase is restored in post-processing.Corpus statistics after filtering and for varioussegmentations are summarised in Table 1.2http://code.google.com/p/language-detection/3http://nlp.stanford.edu/software/corenlp.shtml200Lang Segmentation # Tokens # TypesRU CoreNLP 47.4M 1.2MRU Morfessor 50.0M 0.4MRU TreeTagger 47.4M 1.5MEN Cambridge 50.4M 0.7MTable 1: Russian-English parallel corpus statisticsfor various segmentations.2.2 AlignmentsParallel data is aligned using the MTTK toolkit(Deng and Byrne, 2008).
+We train a word-to-phrase HMM model with a maximum phraselength of 4 in both source-to-target and target-to-source directions.
+The final alignments are ob-tained by taking the union of alignments obtainedin both directions.2.3 Rule Extraction and RetrievalA synchronous context-free grammar (Chiang,2007) is extracted from the alignments.
+The con-straints are set as in the original publication withthe following exceptions:?
+phrase-based rule maximum number ofsource words: 9?
+maximum number of source element (termi-nal or nonterminal): 5?
+maximum span for nonterminals: 10Maximum likelihood estimates for the transla-tion probabilities are computed using MapReduce.We use a custom Hadoop-based toolkit which im-plements method 3 of Dyer et al(2008).
+Oncecomputed, the model parameters are stored on diskin the HFile format (Pino et al 2012) for fastquerying.
+Rule extraction and feature computa-tion takes about 2h30.
+The HFile format requiresdata to be stored in a key-value structure.
+For thekey, we use shared source side of many rules.
+Thevalue is a list of tuples containing the possible tar-gets for the source key and the associated param-eters of the full rule.
+The query set of keys forthe test set is all possible source phrases (includ-ing nonterminals) found in the test set.During HFile querying we add other features.These include IBM Model 1 (Brown et al 1993)lexical probabilities.
+Loading these models inmemory doesn?t fit well with the MapReducemodel so lexical features are computed for eachtest set rather than for the entire parallel corpus.The model parameters are stored in a client-serverbased architecture.
+The client process computesthe probability of the rule by querying the serverprocess for the Model 1 parameters.
+The serverprocess stores the model parameters completelyin memory so that parameters are served quickly.This architecture allows for many low-memoryclient processes across many machines.2.4 Language ModelWe used the KenLM toolkit (Heafield et al 2013)to estimate separate 4-gram LMs with Kneser-Neysmoothing (Kneser and Ney, 1995), for each of thecorpora listed in Tables 2 (self-explanatory abbre-viations).
+The component models were then in-terpolated with the SRILM toolkit (Stolcke, 2002)to form a single LM for use in first-pass trans-lation decoding.
+The interpolation weights wereoptimised for perplexity on the news-test2008,newstest2009 and newssyscomb2009 developmentsets.
+The weights reflect both the size of the com-ponent models and the genre of the corpus thecomponent models are trained on, e.g.
+weights arelarger for larger corpora in the news genre.Corpus # TokensEU + NC + UN + CzEng + Yx 652.5MGiga + CC + Wiki 654.1MNews Crawl 1594.3Mafp 874.1Mapw 1429.3Mcna + wpb 66.4Mltw 326.5Mnyt 1744.3Mxin 425.3MTotal 7766.9MTable 2: Statistics for English monolingual cor-pora.2.5 DecodingFor translation, we use the HiFST decoder (Igle-sias et al 2009).
+HiFST is a hierarchical decoderthat builds target word lattices guided by a prob-abilistic synchronous context-free grammar.
+As-suming N to be the set of non-terminals and T theset of terminals or words, then we can define thegrammar as a set R = {R} of rules R : N ???,??
+/ p, where N ?
+N, ?, ?
+?
+{N ?T}+ and pthe rule score.201HiFST translates in three steps.
+The first stepis a variant of the CYK algorithm (Chappelier andRajman, 1998), in which we apply hypothesis re-combination without pruning.
+Only the sourcelanguage sentence is parsed using the correspond-ing source-side context-free grammar with rulesN ?
+?.
+Each cell in the CYK grid is specifiedby a non-terminal symbol and position: (N, x, y),spanning sx+y?1x on the source sentence s1...sJ .For the second step, we use a recursive algo-rithm to construct word lattices with all possi-ble translations produced by the hierarchical rules.Construction proceeds by traversing the CYK gridalong the back-pointers established in parsing.
+Ineach cell (N, x, y) of the CYK grid, we build atarget language word lattice L(N, x, y) containingevery translation of sx+y?1x from every derivationheaded by N .
+For efficiency, this lattice can usepointers to lattices on other cells of the grid.In the third step, we apply the word-based LMvia standard WFST composition with failure tran-sitions, and perform likelihood-based pruning (Al-lauzen et al 2007) based on the combined trans-lation and LM scores.We are using shallow-1 hierarchical gram-mars (de Gispert et al 2010) in our experiments.This model is constrained enough that the decodercan build exact search spaces, i.e.
+there is no prun-ing in search that may lead to spurious undergen-eration errors.2.6 Features and Parameter OptimisationWe use the following standard features:?
+language model?
+source-to-target and target-to-source transla-tion scores?
+source-to-target and target-to-source lexicalscores?
+target word count?
+rule count?
+glue rule count?
+deletion rule count (each source unigram, ex-cept for OOVs, is allowed to be deleted)?
+binary feature indicating whether a rule is ex-tracted once, twice or more than twice (Ben-der et al 2007)No alignment information is used when com-puting lexical scores as done in Equation (4) in(Koehn et al 2005).
+Instead, the source-to-targetlexical score is computed in Equation 1:s(ru, en) = 1(E + 1)RR?r=1E?e=0pM1(ene|rur)(1)where ru are the terminals in the Russian side ofa rule, en are the terminals in the English side ofa rule, including the null word, R is the numberof Russian terminals, E is the number of Englishterminals and pM1 is the IBM Model 1 probability.In addition to these standard features, we alsouse provenance features (Chiang et al 2011).
+Theparallel data is divided into four subcorpora: theCommon Crawl (CC) corpus, the News Commen-tary (NC) corpus, the Yandex (Yx) corpus and theWiki Headlines (Wiki) corpus.
+For each of thesesubcorpora, source-to-target and target-to-sourcetranslation and lexical scores are computed.
+Thisrequires computing IBM Model 1 for each sub-corpus.
+In total, there are 28 features, 12 standardfeatures and 16 provenance features.When retrieving relevant rules for a particulartest set, various thresholds are applied, such asnumber of targets per source or translation prob-ability cutoffs.
+Thresholds involving source-to-target translation scores are applied separately foreach provenance and the union of all survivingrules for each provenance is kept.
+This strategygives slight gains over using thresholds only forthe general translation table.We use an implementation of lattice minimumerror rate training (Macherey et al 2008) to op-timise under the BLEU score (Papineni et al2001) the feature weights with respect to the oddsentences of the newstest2012 development set(newstest2012.tune).
+The weights obtained matchour expectation, for example, the source-to-targettranslation feature weight is higher for the NC cor-pus than for other corpora since we are translatingnews.2.7 Lattice RescoringThe HiFST decoder is set to directly generatelarge translation lattices encoding many alterna-tive translation hypotheses.
+These first-pass lat-tices are rescored with second-pass higher-orderLMs prior to LMBR.2022.7.1 5-gram LM Lattice RescoringWe build a sentence-specific, zero-cutoff stupid-backoff (Brants et al 2007) 5-gram LMs esti-mated over the data described in section 2.4.
+Lat-tices obtained by first-pass decoding are rescoredwith this 5-gram LM (Blackwood, 2010).2.7.2 LMBR DecodingMinimum Bayes-risk decoding (Kumar andByrne, 2004) over the full evidence space of the 5-gram rescored lattices is applied to select the trans-lation hypothesis that maximises the conditionalexpected gain under the linearised sentence-levelBLEU score (Tromble et al 2008; Blackwood,2010).
+The unigram precision p and average re-call ratio r are set as described in Tromble et al(2008) using the newstest2012.tune developmentset.2.8 Hypothesis CombinationLMBR decoding (Tromble et al 2008) can also beused as an effective framework for multiple latticecombination (Blackwood, 2010).
+We used LMBRto combine translation lattices produced by sys-tems trained on alternative segmentations.2.9 Post-processingTraining data is lowercased, so we apply true-casing as post-processing.
+We used the disam-big tool provided by the SRILM toolkit (Stolcke,2002).
+The word mapping model which containsthe probability of mapping a lower-cased wordto its mixed-cased form is trained on all avail-able data.
+A Kneser-Ney smoothed 4-gram lan-guage model is also trained on the following cor-pora: NC, News Crawl, Wiki, afp, apw, cna, ltw,nyt, wpb, xin, giga.
+In addition, several rules aremanually designed to improve upon the output ofthe disambig tool.
+First, casing information frompass-through translation rules (for OOV sourcewords) is used to modify the casing of the output.For example, this allows us to get the correct cas-ing for the word Bundesrechnungshof.
+Other rulesare post-editing rules which force some wordsto their upper-case forms, such as euro ?
+Euro.Post-editing rules are developed based on high-frequency errors on the newstest2012.tune devel-opment set.
+These rules give an improvement of0.2 mixed-cased NIST BLEU on the developmentset.Finally, the output is detokenised before sub-mission and Cyrillic characters are transliterated.We assume for human judgment purposes that itis better to have a non English word in Latin al-phabet than in Cyrillic (e.g.
+uprazdnyayushchie);sometimes, transliteration can also give a correctoutput (e.g.
+Movember), especially in the case ofproper nouns.3 Results and DiscussionResults are reported in Table 3.
+We use the inter-nationalisation switch for the NIST BLEU scor-ing script in order to properly lowercase the hy-pothesis and the reference.
+This introduces aslight discrepancy with official results going intothe English language.
+The newstest2012.test de-velopment set consists of even sentences fromnewstest2012.
+We observe that the CoreNLPsystem (A) outperforms the other two systems.The CoreNLP+Morfessor system (B) has a muchsmaller vocabulary but the model size is compa-rable to the system A?s model size.
+Translationdid not benefit from source side morphological de-composition.
+We also observe that the gain fromLMBR hypothesis combination (A+B+C) is mini-mal.
+Unlike other language pairs, such as Arabic-English (de Gispert et al 2009), we have not yetfound any great advantage in multiple morpho-logical decomposition or preprocessing analysesof the source text.
+5-gram and LMBR rescoringgive consistent improvements.
+5-gram rescoringimprovements are very modest, probably becausethe first pass 4-gram model is trained on the samedata.
+As noted, hypothesis combination using thevarious segmentations gives consistent but modestgains over each individual system.Two systems were submitted to the evalua-tion.
+System A+B+C achieved a mixed-casedNIST BLEU score of 24.6, which was the topscore achieved under this measure.
+System A sys-tem achieved a mixed-cased NIST BLEU score of24.5, which was the second highest score.4 SummaryWe have successfully trained a Russian-Englishsystem for the first time.
+Lessons learned includethat simple tokenisation is enough to process theRussian side, very modest gains come from com-bining alternative segmentations (it could also bethat the Morfessor segmentation should not be per-formed after CoreNLP but directly on untokeniseddata), and reordering between Russian and En-glish is such that a shallow-1 grammar performs203Configuration newstest2012.tune newstest2012.test newstest2013CoreNLP(A) 33.65 32.36 25.55+5g 33.67 32.58 25.63+5g+LMBR 33.98 32.89 25.89CoreNLP+Morfessor(B) 33.21 31.91 25.33+5g 33.28 32.12 25.44+5g+LMBR 33.58 32.43 25.78CoreNLP+TreeTagger(C) 32.92 31.54 24.78+5g 32.94 31.85 24.97+5g+LMBR 33.12 32.12 25.05A+B+C 34.32 33.13 26.00Table 3: Translation results, shown in lowercase NIST BLEU.
+Bold results correspond to submittedsystems.competitively.Future work could include exploring alterna-tive grammars, applying a 5-gram Kneser-Neysmoothed language model directly in first-pass de-coding, and combining alternative segmentationsthat are more diverse from each other.AcknowledgmentsThe research leading to these results has receivedfunding from the European Union Seventh Frame-work Programme (FP7-ICT-2009-4) under grantagreement number 247762.
+Tong Xiao was sup-ported in part by the National Natural ScienceFoundation of China (Grant 61073140 and Grant61272376) and the China Postdoctoral ScienceFoundation (Grant 2013M530131).ReferencesCyril Allauzen, Michael Riley, Johan Schalkwyk, Wo-jciech Skut, and Mehryar Mohri.
+2007.
+OpenFst: Ageneral and efficient weighted finite-state transducerlibrary.
+In Proceedings of CIAA, pages 11?23.Oliver Bender, Evgeny Matusov, Stefan Hahn, SasaHasan, Shahram Khadivi, and Hermann Ney.
+2007.The RWTH Arabic-to-English spoken languagetranslation system.
+In Proceedings of ASRU, pages396?401.Graeme Blackwood.
+2010.
+Lattice rescoring meth-ods for statistical machine translation.
+Ph.D. thesis,Cambridge University Engineering Department andClare College.Thorsten Brants, Ashok C. Popat, Peng Xu, Franz J.Och, and Jeffrey Dean.
+2007.
+Large languagemodels in machine translation.
+In Proceedings ofEMNLP-ACL, pages 858?867.Peter F. Brown, Vincent J. Della Pietra, StephenA.
+Della Pietra, and Robert L. Mercer.
+1993.The mathematics of statistical machine translation:Parameter estimation.
+Computational linguistics,19(2):263?311.Jean-Ce?dric Chappelier and Martin Rajman.
+1998.
+Ageneralized CYK algorithm for parsing stochasticCFG.
+In Proceedings of TAPD, pages 133?137.David Chiang, Steve DeNeefe, and Michael Pust.2011.
+Two easy improvements to lexical weighting.In Proceedings of the 49th Annual Meeting of theAssociation for Computational Linguistics: HumanLanguage Technologies, pages 455?460, Portland,Oregon, USA, June.
+Association for ComputationalLinguistics.David Chiang.
+2007.
+Hierarchical phrase-based trans-lation.
+Computational Linguistics, 33(2):201?228.Mathias Creutz and Krista Lagus.
+2007.
+Unsuper-vised models for morpheme segmentation and mor-phology learning.
+ACM Transactions on Speech andLanguage Processing (TSLP), 4(1):3.Adria` de Gispert, Sami Virpioja, Mikko Kurimo, andWilliam Byrne.
+2009.
+Minimum Bayes Risk Com-bination of Translation Hypotheses from Alterna-tive Morphological Decompositions.
+In Proceed-ings of HLT/NAACL, Companion Volume: Short Pa-pers, pages 73?76.Adria` de Gispert, Gonzalo Iglesias, Graeme Black-wood, Eduardo R. Banga, and William Byrne.
+2010.Hierarchical phrase-based translation with weightedfinite state transducers and shallow-n grammars.
+InComputational Linguistics.Yonggang Deng and William Byrne.
+2008.
+Hmm wordand phrase alignment for statistical machine trans-lation.
+IEEE Transactions on Audio, Speech, andLanguage Processing, 16(3):494?507.Chris Dyer, Aaron Cordova, Alex Mont, and JimmyLin.
+2008.
+Fast, easy, and cheap: Construc-tion of statistical machine translation models with204MapReduce.
+In Proceedings of the Third Workshopon Statistical Machine Translation, pages 199?207,Columbus, Ohio, June.
+Association for Computa-tional Linguistics.Kenneth Heafield, Ivan Pouzyrevsky, Jonathan H.Clark, and Philipp Koehn.
+2013.
+Scalable modi-fied Kneser-Ney language model estimation.
+In Pro-ceedings of the 51st Annual Meeting of the Associa-tion for Computational Linguistics, Sofia, Bulgaria,August.Gonzalo Iglesias, Adria` de Gispert, Eduardo R. Banga,and William Byrne.
+2009.
+Hierarchical phrase-based translation with weighted finite state transduc-ers.
+In Proceedings of NAACL, pages 433?441.Reinhard Kneser and Hermann Ney.
+1995.
+Improvedbacking-off for m-gram language modeling.
+In Pro-ceedings of ICASSP, volume 1, pages 181?184.Philipp Koehn, Amittai Axelrod, Alexandra BirchMayne, Chris Callison-Burch, Miles Osborne, andDavid Talbot.
+2005.
+Edinburgh system descriptionfor the 2005 iwslt speech translation evaluation.
+InInternational Workshop on Spoken Language Trans-lation, volume 8.Shankar Kumar and William Byrne.
+2004.
+MinimumBayes-risk decoding for statistical machine transla-tion.
+In Proceedings of HLT-NAACL, pages 169?176.Wolfgang Macherey, Franz Och, Ignacio Thayer, andJakob Uszkoreit.
+2008.
+Lattice-based minimum er-ror rate training for statistical machine translation.In Proceedings of the 2008 Conference on Empiri-cal Methods in Natural Language Processing, pages725?734, Honolulu, Hawaii, October.
+Associationfor Computational Linguistics.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2001.
+BLEU: a method for automaticevaluation of machine translation.
+In Proceedingsof ACL, pages 311?318.Juan Pino, Aurelien Waite, and William Byrne.
+2012.Simple and efficient model filtering in statistical ma-chine translation.
+The Prague Bulletin of Mathemat-ical Linguistics, 98(1):5?24.Helmut Schmid.
+1995.
+Improvements in part-of-speech tagging with an application to German.
+InProceedings of the ACL SIGDAT-Workshop, pages47?50.Andreas Stolcke.
+2002.
+SRILM?An Extensible Lan-guage Modeling Toolkit.
+In Proceedings of ICSLP,volume 3, pages 901?904.Roy W. Tromble, Shankar Kumar, Franz Och, andWolfgang Macherey.
+2008.
+Lattice MinimumBayes-Risk decoding for statistical machine trans-lation.
+In Proceedings of EMNLP, pages 620?629.205

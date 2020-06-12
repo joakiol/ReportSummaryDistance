@@ -1,0 +1,382 @@
+Entity Disambiguation with Web LinksAndrew ChisholmSchool of Information TechnologiesUniversity of SydneyNSW 2006, Australiaandy.chisholm.89@gmail.comBen HacheySchool of Information TechnologiesUniversity of SydneyNSW 2006, Australiaben.hachey@gmail.comAbstractEntity disambiguation with Wikipedia relieson structured information from redirect pages,article text, inter-article links, and categories.We explore whether web links can replace acurated encyclopaedia, obtaining entity prior,name, context, and coherence models froma corpus of web pages with links to Wiki-pedia.
+Experiments compare web link modelsto Wikipedia models on well-known CoNLLand TAC data sets.Results show that using 34 million web linksapproaches Wikipedia performance.
+Combin-ing web link and Wikipedia models producesthe best-known disambiguation accuracy of88.7 on standard newswire test data.1 IntroductionEntity linking (EL) resolves mentions in text to theircorresponding node in a knowledge base (KB), orNIL if the entity is not in the KB.
+Wikipedia andrelated semantic resources ?
+Freebase, DBpedia,Yago2?
+have emerged as general repositories of no-table entities.
+The availability of Wikipedia, in par-ticular, has driven work on EL, knowledge base pop-ulation (KBP), and semantic search.
+This literaturedemonstrates that the rich structure of Wikipedia?redirect pages, article text, inter-article links, cat-egories ?
+delivers disambiguation accuracy above85% on newswire (He et al., 2013; Alhelbawy andGaizauskas, 2014).
+But what disambiguation accu-racy can we expect in the absence of Wikipedia?scurated structure?Web links provide much of the same informationas Wikipedia inter-article links: anchors are used toderive alternative names and conditional probabili-ties of entities given names; in-link counts are usedto derive a simple entity popularity measure; thetext surrounding a link is used to derive textual con-text models; and overlap of in-link sources is usedto derive entity cooccurrence models.
+On the otherhand, web links lack analogues of additional Wiki-pedia structure commonly used for disambiguation,e.g., categories, encyclopaedic descriptions.
+More-over, Wikipedia?s editors ensure a clean and correctknowledge source while web links are a potentiallynoisier annotation source.We explore linking with web links versus Wiki-pedia.
+Contributions include: (1) a new bench-mark linker that instantiates entity prior probabili-ties, entity given name probabilities, entity contextmodels, and efficient entity coherence models fromWikipedia-derived data sets; (2) an alternative linkerthat derives the same model using only alternativenames and web pages that link to Wikipedia; (3) de-tailed development experiments, including analysisand profiling of Web link data, and a comparison oflink and Wikipedia-derived models.Results suggest that web link accuracy is at least93% of a Wikipedia linker and that web links arecomplementary to Wikipedia, with the best scorescoming from a combination.
+We argue that these re-sults motivate open publishing of enterprise author-ities and suggest that accumulating incoming linksshould be prioritised at least as highly as addingricher internal structure to an authority.145Transactions of the Association for Computational Linguistics, vol.
+3, pp.
+145?156, 2015.
+Action Editor: Ryan McDonald.Submission batch: 10/2014; Revision batch 1/2015; Published 3/2015.
+c?2015 Association for Computational Linguistics.2 Related workThomas et al.
+(2014) describe a disambiguation ap-proach that exploits news documents that have beencurated by professional editors.
+In addition to con-sistently edited text, these include document-leveltags for entities mentioned in the story.
+Tags areexploited to build textual mention context, assignweights to alternative names, and train a disam-biguator.
+This leads to an estimated F1 score of78.0 for end-to-end linking to a KB of 32,000 com-panies.
+Our work is similar, but we replace qual-ity curated news text with web pages and explore alarger KB of more than four million entites.
+In placeof document-level entity tags, hyperlinks pointing toWikipedia articles are used to build context, nameand coherence models.
+This is a cheap form of third-party entity annotation with the potential for gener-alisation to any type of web-connected KB.
+How-ever, it presents an additional challenge in copingwith noise, including prose that lacks editorial over-sight and links with anchor text that do not corre-spond to actual aliases.Li et al.
+(2013) explore a similar task setting formicroblogs, where short mention contexts exacer-bate sparsity problems for underdeveloped entities.They address the problem by building a topic modelbased on Wikipedia mention link contexts.
+A boot-strapping approach analogous to query expansionaugments the model using web pages returned fromthe Google search API.
+Results suggest that thebootstrapping process is beneficial, improving per-formance from approximately 81% to 87% accu-racy.
+We demonstrate that adding link data leads tosimilar improvements.The cold start task of the Text Analysis Confer-ence is also comparable.1 It evaluates how well sys-tems perform end-to-end NIL detection, clusteringand slot filling.
+Input includes a large document col-lection and a slot filling schema.
+Systems return aKB derived from the document collection that con-forms to the schema.
+The evaluation target is long-tail or local knowledge.
+The motivation is the sameas our setting, but we focus on cold-start linkingrather than end-to-end KB population.Finally, recent work addresses linking without1http://www.nist.gov/tac/2014/KBP/ColdStart/guidelines.htmland beyond Wikipedia.
+Jin et al.
+(2014) describe anunsupervised system for linking to a person KB froma social networking site, and Shen et al.
+(2014) de-scribe a general approach for arbitrary KBs.
+Nakas-hole et al.
+(2013) and Hoffart et al.
+(2014) add a tem-poral dimension to NIL detection by focusing on dis-covering and typing emerging entities.3 Tasks and artTwo evaluations in particular have driven compar-ative work on EL: the TAC KBP shared tasks andthe Yago2 annotation of CoNLL 2003 NER data.
+Wedescribe these tasks and their respective evaluationsetup.
+A brief survey of results outlines the kind ofperformance we hope to achieve with link data.
+Fortask history, we suggest Hachey et al.
+(2013) andShen et al.
+(2014).
+For an evaluation survey, seeHachey et al.
+(2014).Our evaluation setup follows He et al.
+(2013) forcomparability to their state-of-the-art disambigua-tion results across CoNLL and TAC data.
+Table 1summarises the data sets used.
+Columns correspondto number of documents (|D|), number of entities(|E|), number of mentions (|M|), and number ofnon-NIL mentions (|MKB|).
+The non-NIL mentionnumber represents the set used for evaluation in thedisambiguation experiments here.
+The table also in-cludes average and standard deviation of the candi-date set cardinality overMKB (?C?)
+and the percent-age of mentions in MKB where the correct resolu-tion is in the candidate set (RC).
+The last column(SOA) gives the state-of-the-art score from the liter-ature.
+Numbers are discussed below.3.1 CoNLLCoNLL is a corpus of Reuters newswire annotatedfor whole-document named entity recognition anddisambiguation (Hoffart et al., 2011).
+CoNLL is pub-lic, free and much larger than most entity annota-tion data sets, making it an excellent evaluation tar-get.
+It is based on the widely used NER data fromthe CoNLL 2003 shared task (Tjong Kim Sang andMeulder, 2003), building disambiguation on groundtruth mentions.
+Training and development splitscomprise 1,162 stories from 22-31 August 1996 andthe held-out test split comprises 231 stories from 6-7December 1996.146Data set |D| |E| |M| |MKB| (%) ?C?
+(?)
+RC SOACoNLL train 945 4,080 23,396 18,505 (79) 69 (194) 100 NACoNLL dev 216 1,644 5,917 4,791 (80) 73 (194) 100 79.7CoNLL test 231 1,537 5,616 4,485 (80) 73 (171) 100 87.6TAC train 1,040 456 1,500 1,070 (71) 23 (28) 94.4 NATAC test 1,012 387 2,250 1,017 (45) 24 (30) 88.5 81.0Table 1: Data sets for disambiguation tasks addressed here.
+Statistics are described in Section 3.The standard evaluation measure is precision@1(p@1) ?
+the percentage of linkable mentions forwhich the system ranks the correct entity first (Hof-fart et al., 2011).
+Linkable is defined as ground truthmentions for which the correct entity is a memberof the candidate set.
+This factors out errors due tomention detection, coreference handling, and can-didate generation, isolating the performance of theproposed ranking models.
+For comparability, we useHoffart et al.
+?s Yago2 means relations for candidategeneration.
+These alternative names are harvestedfrom Wikipedia disambiguation pages, redirects andinter-article links.
+In the Hoffart et al.
+setting, can-didate recall is 100%.There are several key benchmark results for theCoNLL data set.
+Hoffart et al.
+(2011) define the tasksettings and report the first results.
+They employ aglobal graph-based coherence algorithm, leading toa score of 82.5.
+He et al.
+(2013) present the mostcomparable approach.
+Using deep neural networks,they learn entity representations based on similar-ity between link contexts and article text in Wiki-pedia.
+They report performance of 84.8 withoutcollective inference, and 85.6 when integrating Hanet al.
+?s (2011) coherence algorithm.
+Finally, Al-helbawy and Gaizauskas (2014) report the currentbest performance of 87.6 using a collective approachover a document-specific subgraph.3.2 TAC 2010Since 2009, the Text Analysis Conference (TAC) hashosted an annual EL shared task as part of its Knowl-edge Base Population track (KBP) (Ji and Grishman,2011).
+Through 2013, the task is query-driven.
+In-put includes a document and a name that appears inthat document.
+Systems must output a KB identifierfor each query, or NIL.
+The KB is derived from asubset of 818,741 Wikipedia articles.
+We use datafrom the 2010 shared task for several reasons.
+First,it facilitates comparison to current art.
+Second, it isa linking-only evaluation as opposed to linking plusNIL clustering.
+Finally, it includes comparable train-ing and test data rather than relying on data fromearlier years for training.The TAC 2010 source collection includes newsfrom various agencies and web log data.
+Train-ing data includes a specially prepared set of 1,500web queries.
+Test data includes 2,250 queries ?1,500 news and 750 web log uniformly distributedacross person, organisation, and geo-political en-tities.
+Candidate generation here uses the DBpe-dia lexicalizations data set (Mendes et al., 2012),article titles, and redirect titles.
+We also add ti-tles and redirects stripped of appositions indicatedby a comma (e.g., Montgomery, Alabama)or opening round bracket (e.g., Joe Morris(trumpeter)).
+Candidate recall is 94.4 and 88.5on the training and test sets ?
+an upper limit on dis-ambiguation accuracy.Following He et al., we report KB accuracy (AKB)- the percentage of correctly linked non-NIL men-tions - to isolate disambiguation performance.
+Be-fore evaluation, we map Wikipedia titles in our out-put to TAC KB identifiers using the Dalton and Di-etz (2013) alignment updated with Wikipedia redi-rects.
+To our knowledge, Cucerzan (2011) report thebestAKB of 87.3 for an end-to-end TAC entity linkingsystem, while He et al.
+(2013) report the best AKB of81.0 for a disambiguation-focused evaluation.
+Thereare a number of differences, e.g.
+: mention detectionfor coherence, coreference modelling, and substringmatching in candidate generation.
+Analysis showsthat these can have a large effect on system perfor-mance (Hachey et al., 2013; Piccinno and Ferragina,2014).
+We use He et al.
+?s setup to control for differ-ences and for comparability to He et al.
+?s results.147Component Articles Mentions Web linksfprior 68.4 68.4 63.0fname 69.2 69.2 58.4fbow 50.6 55.8 62.2fdbow 49.9 51.2 54.0Table 2: p@1 results for individual components on theCoNLL development data.
+The first two columns corre-spond to the Wikipedia models described in Section 4.3,one derived from article text and the other from mentioncontexts.
+The last column corresponds to the web linkmodels described in Section 5.4 Wikipedia benchmark modelsA wide range of EL approaches have been proposedthat take advantage of the clean, well-edited infor-mation in Wikipedia.
+These include entity priormodels derived from popularity metrics; alias mod-els derived from Wikipedia redirects, disambigua-tion pages and inter-article links; textual contextmodels derived from Wikipedia article text; and en-tity coherence models derived from the Wikipediainter-article link graph.
+We survey these models anddescribe a new benchmark linker that instantiatesthem from existing Wikipedia-derived data sets.
+Fora more detailed survey of features in supervised sys-tems, see Meij et al.
+(2012) and Radford (2014).Table 2 contains an overview of p@1 results forindividual components on the CoNLL developmentdata.4.1 Entity priorThe simplest approach to entity disambiguationranks candidate entities in terms of their popu-larity.
+For example, 0.000001% of inter-articlelinks in Wikipedia point to Nikola Tesla, while0.000008% point to Tesla Motors.
+An entityprior is used in generative models (Guo et al., 2009;Han and Sun, 2011) and in supervised systems thatincorporate diverse features (Radford et al., 2012).We define the entity prior as the probability of a linkpointing to entity e:fprior(e) = log|I?,e||I?,?|where I?,e ?
+I?,?
+is the set of pages that link toentity e. We derive this from DBpedia?s WikipediaPagelinks data set, which contains the link graphbetween Wikipedia pages.2 Missing values are re-placed with a small default log probability of -20,which works better than add-one smoothing in de-velopment experiments.
+On the CoNLL developmentdata, entity prior alone achieves 68.4 p@1.4.2 Name probabilityName probability models the relationship betweena name and an entity.
+For example, 0.04% oflinks with the anchor text ?Tesla?
+point to NikolaTesla, while 0.03% point to Tesla Motors.Name probability was introduced as an initial scorein coherence-driven disambiguation (Milne and Wit-ten, 2008), and is used in most state-of-the-art sys-tems (Ferragina and Scaiella, 2010; Hoffart et al.,2011; Cucerzan, 2011; Radford et al., 2012).
+Wedefine name probability as the conditional probabil-ity of a name referring to an entity:fname(e, n) = log|Mn,e||Mn,?|whereMn,e is the set of mentions with name n thatrefer to entity e andMn,?
+is all mentions with namen.
+We use existing conditional probability estimatesfrom the DBpedia Lexicalizations data set (Mendeset al., 2012).2 This derives mentions from Wikipediainter-article links, where names come from anchortext and referent entities from link targets.
+Estimatesfor entities that have fewer than five incoming linksare discarded.
+We smooth these estimates using add-one smoothing.
+On the CoNLL development data,name probability alone achieves 69.2 p@1.4.3 Textual contextTextual context goes beyond intrinsic entity andname popularity, providing a means to distinguishbetween entities based on the words with which theyoccur.
+For example, references to Tesla the carmanufacturer appear in passages with words like?company?, ?electric?, ?vehicle?.
+References to theinventor appear with words like ?engineer?, ?ac?,?electrical?.
+Textual context was the primary com-ponent of the top system in the first TAC evaluation(Varma et al., 2009), and is a key component in re-cent art (Ratinov et al., 2011; Radford et al., 2012).2http://wiki.dbpedia.org/Downloads148BOW context We model textual context as aweighted bag of words (BOW), specifically as a termvector ~t containing tfidf weights:tfidf(t, p) =?f(t, p) ?
+log( |D||{d ?
+D|t ?
+d}|)where t is a term, p is a passage of text, f(t, p) isthe term frequency of t in p, |D| is the total num-ber of documents, and {d ?
+D|t ?
+d} is the num-ber of documents containing t (Salton and Buckley,1988).
+We derive the term frequency for an entity efrom the corresponding article content in the Kopi-wiki plain text extraction (Pataki et al., 2012).
+Termsinclude three million token 1-3 grams from Mikolovet al.
+(2013), with the top 40 by document frequencyas stop words.
+Candidate entities are scored usingcosine distance between a mention context ~tm andthe entity model ~te:fbow(m, e) = 1?
+cos(~tm,~te) = 1?~tm ?
+~te?~tm?
+?~te?On the CoNLL development data, BOW context de-rived from Wikipedia article text achieves 50.6 p@1.We also build entity models from their mention con-texts, i.e., the combined text surrounding all incom-ing links.
+We project mentions into Kopiwiki articletext, which yields more contexts than actual Wiki-pedia links.
+For an article a, we tag as mentions allaliases of entities linked to from a.
+We use aliasesfrom Yago2 means relations (see Section 3.1).
+Toensure high precision, we only use aliases that areunambiguous with respect to the outlink set, have alength of at least two characters, include at least oneupper-case character, and are not a member of theNLTK stop list.
+This is a noisy process, but gives usa pivot to assess whether differences observed laterbetween Wikipedia and Web link models are due theway the context is modelled or the source of the con-text.
+The term frequency for an entity e is calculatedover the concatenation of all contexts for e. BOWcontext derived from mentions achieves 55.8 p@1on the CoNLL development data, five points higherthan article text.DBOW context While BOW context models havebeen very successful, they require exact matchingbetween terms and a large vocabulary.
+Distribu-tional approaches model terms or concepts as se-mantic vectors (Pereira et al., 1993).
+Dimensional-ity reduction and deep learning improve generalisa-tion and reduce vector size (Baroni et al., 2014).
+Heet al.
+(He et al., 2013) report excellent performanceusing entity representations that optimise the simi-larity between mention contexts and article text inWikipedia.
+However, this approach necessitates anexpensive training process and significant run-timecomplexity.
+We introduce a simple distributed bag-of-words (DBOW) model that represents context asthe tfidf -weighted average over word vectors V:~vp =1|Tp|?t?Tptfidf(t, p) ?
+~vtwhere Tp is the set of terms in passage p, and ~vt ?
+Vis the learnt word vector for term t. We use existing300-dimensional word embeddings (Mikolov et al.,2013) and score candidates using cosine distance be-tween mention context ~vm and the entity model ~ve:fdbow(m, e) = 1?
+cos(~vm, ~ve)On the CoNLL development data, DBOW contextmodels derived from article text and mention con-text achieve 49.9 and 51.2 respectively.5 Web link modelsThe models above all have direct anologues in weblinks to Wikipedia articles.
+However, web links area comparatively noisy source.
+For instance, anchorsare less likely to be well-formed entity mentions,e.g., in links to Semantic Web we observe ?se-mantic markup?
+and ?Semantic Web Activity?
+as an-chors.
+A lack of curation and quality control alsoallows for the misdirection of links.
+For exam-ple, we observe links to Apple the fruit where thesurrounding context indicates an intention to linkApple Inc instead.
+It is an open question whetherlink-derived models are effective in disambiguation.Below, we describe how models are instantiatedusing link data.
+We leverage the Wikilinks corpusof 9 million web pages containing a total of 34 mil-lion links to 1.7 million Wikipedia pages (Singh etal., 2012).
+This includes links to English Wikipediapages that pass the following tests: (1) the pagemust not have >70% of sentences in common witha Wikipedia article; (2) the link must not be inside149Wikipedia Web linksPages 8.7m 9.0mEntities 8.9m 1.7mPairs 100.3m 31.2mTable 3: Comparison of page-entity link graphs fromWikipedia and Wikilinks (in millions).
+These graphs arethe basis for entity prior features (Sections 4.1, 5.1).a table, near an image, or in obvious boilerplate ma-terial; (3) at least one token in the anchor text mustmatch a token in the Wikipedia title; and (4) the an-chor text must match a known alias from Wikipedia.The corpus provides the web page URL, the link an-chor, and local textual content around each link.Refer back to Table 2 for p@1 results for individ-ual Web link components on the development data.5.1 Entity priorTo instantiate fprior, we build a page-entity linkgraph from Wikilinks.
+Where pages and entities arethe same in the Wikipedia graph, here we have anunweighted bipartite graph of links from web pagesto Wikipedia articles.
+On the CoNLL developmentdata, the link-derived entity prior achieves 63.0 p@1.Table 3 characterises the two graphs.
+Note that thehigh entity count for Wikipedia here includes redlinks to articles that do not exist.
+The actual numberof entities used in the Wikipedia model is 4.4 mil-lion.
+Nevertheless, while the two graphs have a sim-ilar number of pages that contain links, Wikipediaincludes three times as many link pairs to 2.5 timesas many entities.
+Furthermore, entities average 11.5incoming links in the Wikipedia graph, compared to3.5 in the Wikilinks graph.
+Nevertheless, the indi-vidual performance of the Web link prior is only 5.4points shy of the corresponding Wikipedia prior.Relative frequencies in Wikipedia and Wikilinksare similar, especially for entities that show up inthe evaluation data.
+We observe a moderate correla-tion between entity priors from Wikipedia and Wik-ilinks (?
+= 0.51, p < 0.01), and a strong correlationacross the subset of entities that occur in the devel-opment data (?
+= 0.74, p < 0.01).5.2 Name probabilityTo instantiate fname, we build a name-entity graphfrom Wikilinks.
+The structure is the same as the cor-Wikipedia Web linksNames 1.4m 3.1mEntities 1.5m 1.7mTable 4: Comparison of name-entity link graphs fromWikipedia and Wikilinks (in millions).
+These graphs arethe basis for name probability features (Sections 4.2, 5.2).responding model from Wikipedia, both are bipar-tite graphs with cooccurrence frequencies on edges.However, names here are sourced from link anchorsin web pages rather than Wikipedia articles.
+Forcomparability with the Wikipedia model, we ignorelinks to entities that occur fewer than five times.
+Weobserved no improvement using all links in develop-ment experiments.
+On the CoNLL development data,link-derived name probability achieves 58.4 p@1,more than ten points shy of the Wikipedia-derivedname probability.
+Table 4 helps to explain this dif-ference.
+Wikilinks has twice as many names linkingto the same number of entities, resulting in more am-biguity and sparser models.5.3 Textual contextTo instantiate fbow and fdbow, we follow the samemethodology used for Wikipedia mention contexts.The term frequency for an entity e is calculated overthe concatenation of mention contexts for e. Docu-ment frequency is also calculated across aggregatedentity contexts.
+Mention contexts include all text in-cluded in the Wikilinks data, a window of 46 tokenson average centred on the link anchor.
+Section 4.3showed that Wikipedia mention contexts give bet-ter individual performance than Wikipedia articletexts.
+Web link mentions result in even better per-formance.
+On the CoNLL development data, BOWcontext achieves 62.2 p@1, ten points higher thancommonly used Wikipedia article model and sevenpoints higher than the analogous Wikipedia mentionmodel.
+DBOW context achieves 54.0 p@1, 2.8 pointshigher than the Wikipedia mention model.Table 5 compares Wikipedia and Wikilinks cov-erage of entities from the CoNLL development set.The second column (|E|) contains the number ofunique entities that have usable context.
+Note thatthe entity universe we consider here is all articlepages in English Wikipedia (4,418,901 total fromthe December 2013 Kopiwiki data set).
+The third150|E| CovE CovM JointArticles 4,418,901 100 100 51.1Mentions 954,698 77 89 58.3Web links 1,704,703 82 92 64.1Table 5: Coverage of textual context models for eachsource over entities (E) and mentions (M).t?E t?MArticles 438 438Mentions 1653 50Web links 922 46Table 6: Mean in-vocab tokens per entity (t?E ) and tokensper mention (t?M) for each textual context model.and fourth columns correspond to coverage of enti-ties (CovE ) and mentions (CovM) from the CoNLLdata set.
+Mention coverage exceeds entity cover-age, highlighting the relationship with prevalence innewswire.
+The last column contains p@1 for thesubset of mentions in CoNLL for which the correctresolution is covered by both articles and web links.This isolates context source, demonstrating that linkcontexts outperform article text.Table 6 compares context size in Wikilinks toWikipedia.
+Wikilinks BOW models are approxi-mately twice the size of Wikipedia article modelsand half the size of Wikipedia mention models.
+Thishelps to explain why individual mention and linkmodels outperform individual article models.6 Learning to rankTo perform disambiguation, we first extract a set ofreal-valued features for each candidate entity e givena training set of mentions M .
+Features values arestandardised to have zero mean and unit variance.Parameters of the training distribution are saved forconsistent standardisation of test data.We train a Support Vector Machine (SVM) clas-sifier to perform pairwise ranking (Joachims, 2002).For each mention in the training set, we derive train-ing instances by comparing the feature vector of thegold link (~fg) with each non-gold candidate (~fc):(xi, yi) ={(~fg ?
+~fc,+) if i is odd(~fc ?
+~fg,?)
+otherwiseArticles (i)Mentions (i)Web links (i)Articles (c)Mentions (c)Web links (c)Combined (c)Optimal (c)prior name bow dbow5060708090featuresp@1p@1Figure 1: Individual (i) and cumulative (c) results for ba-sic features on the CoNLL development data.
+Combinedincludes all features while Optimal includes the best sub-set.
+Optimal tracks Combined closely, but is just higher.We create instances for the top-ten non-gold candi-dates by sum of absolute feature values:activation(c) =|~fc|?i=1|~fc,i|.In development experiments, this outperformed ran-dom selection and difference in activation.
+Class as-signment is alternated to balance the training set.To capture non-linear feature relationships we in-corporate a degree-2 polynomial kernel via explicitfeature mapping (Chang et al., 2010).
+Regularisa-tion parameters are selected via grid search over thedevelopment set.
+Our final model utilises an L1 lossfunction, L2 weight penalty and C ?
+0.03.6.1 Feature selectionSections 4 and 5 describe a total of ten model com-ponents, six from Wikipedia and four from Wik-ilinks.
+We select the optimal combination throughexhaustive search.
+Figure 1 includes individual andcumulative results on the CoNLL development data.The article, mention and web link models each at-tain their best performance with all component fea-tures (entity, name, BOW, and DBOW): 84.7, 81.1,and 75.0 respectively.
+Adding mention context fea-tures doesn?t improve the more conventional Wiki-pedia article model.
+Combining all features gives87.7, while the optimal configuration achieves 88.1without Wikipedia mention contexts.
+In the remain-ing experiments, optimal refers to Wikipedia article151WikipediaWeb linksOptimal1000 6000 11000 160007075808590# training mentionsp@1p@1Figure 2: SVM learning curves for best configurations.plus web link features and Wikipedia refers to articlefeatures alone.6.2 Effect of training data sizeFigure 2 compares learning curves for each modelon CoNLL development data.
+The x-axis corre-sponds to p@1 scores and the y-axis corresponds tothe number of (randomly selected) mentions usedin training.
+All models stabilise early, suggesting6,000 annotated mentions are sufficient for the SVMto learn feature weights.
+Possibly due to higher qual-ity and consistency of features, the Wikipedia modelstabilises earlier, before 1,000 annotated mentions.6.3 Ablation analysisFigure 3 contains an ablation analysis for Wikipediaand Web link features, as well as the optimal over-all combination of both.
+The most striking effect isdue to the popularity components.
+Removing en-tity prior features reduces p@1 by 3.2 for Wikipediaand 5.0 for Web link.
+Removing name probabilityreduces p@1 by 6.5 for Wikipedia and 1.8 for Weblink.
+In the overall model, the Wikipedia popularitycomponents have a much larger impact (prior: -3.2,name: -4.2) than the Web link popularity compo-nents (prior: -0.4, name: -0.8).
+These results showthe impact of noisy web links, which appears to beworse for name probability modelling.
+For context,removing DBOW features have a larger impact thanBOW for both Wikipedia (BOW: -0.2, DBOW: -1.3)and Web link (BOW: -0.9, DBOW: -1.4).
+All indi-vidual context features have a small impact on theoverall model despite redundancy.WikipediaWeb linksOptimal-8 -6 -4 -2 0Wikipedia priorWikipedia nameArticle bowArticle dbowWeb link priorWeb link nameWeb link bowWeb link dbow?
+p@1featuresfeaturesFigure 3: Ablation analysis of best configurations.7 Adding coherenceThe model combinations above provide a strong,scalable baseline based on popularity and entity con-text.
+Another approach to context leverages theWikipedia link graph to explicitly model the co-herence among possible resolutions.
+Here, sys-tems define some measure of entity-entity related-ness and maximise the coherence of entity assign-ments across the query document as a whole.
+Thiscan be done using global methods over the entitylink graph (Hoffart et al., 2011), but these have highruntime complexity.
+We employ a simple approachbased on conditional probabilities:pcoh(a|b) =|Ia ?
+Ib||Ib|where Ie is the set of documents that link to entitye.
+The candidate-level feature is the average:fcond(e) =1|C|?c?Clog pcoh(e|c)where C is the set of context entities for candidateentity e. For Wikipedia and Web link coherence, Iemodels are derived respectively from the set of otherarticles that link to e and from the set of web pagesthat link to e. Given the same initial ranking fromthe optimal base model, Wikipedia and Web link co-herence models alone achieve 84.7 and 76.6.7.1 A two-stage classifierTo incorporate coherence, we use a two-stage clas-sifier.
+First, we obtain an initial candidate rankingfor each mention using the basic model described152(a) CoNLL (b) TAC 10Pop Ctx Pop CtxWikipedia 73.9 53.3 72.6 65.0Web links 62.5 60.8 73.3 75.3Table 7: Web link components vs. Wikipedia.in Section 6 above, and populate C from the top-one candidate for each unique context name.
+A sec-ond classifier incorporates all features, including ba-sic components and coherence.
+Given the same ini-tial ranking, adding coherence improves individualWikipedia and Web link models 4.5 and 6.4 points to89.2 and 81.4 p@1 on the CoNLL development data.These results suggests that coherence is a powerfulfeature to overcome low scores in the basic Web linkmodel.
+But, coherence only improves the optimalcombination of basic Wikipedia and web link fea-tures by 1.1 point to 89.2.
+This suggests coherencemay not contribute much on top of an already strongset of basic features.8 Final experimentsWe report final experiments on the held-out CoNLLand TAC 2010 test sets.
+As described in Section3 above, we report p@1 for CoNLL following Hof-fart et al.
+(2011) and AKB for TAC following He etal.
+(2013).
+We use a reference implementation tocompute evaluation measures and pairwise signifi-cance (Hachey et al., 2014).
+We bold the superiorconfiguration for each column only if the differenceis significant (p < 0.05).8.1 ResultsCan link components replace KB components?Table 7 compares performance of basic model com-ponents.
+The popularity (Pop) column contains re-sults using just entity prior and name probability fea-tures.
+The context (Ctx) column contains resultsusing just BOW and DBOW features.
+Results fol-low trends observed in development experiments.Specifically, Wikipedia popularity models are bet-ter, but web link context models are better.
+Inter-estingy, web link popularity is significantly indis-tinguishable from Wikipedia popularity on TAC 10data.
+This may be attributed to the fact that TAC se-lectively samples difficult mentions.
+(a) CoNLL (b) TAC 10Base +Coh Base +CohWikipedia 82.7 84.9 78.6 80.2Web links 77.0 80.7 78.5 80.2Table 8: Web link combinations vs.
+Wikipedia.
+(a) CoNLL (b) TAC 10Base +Coh Base +CohWikipedia 82.7 84.9 78.6 80.2+ Web links 86.1 88.7 79.6 80.7Table 9: Web links complement Wikipedia.Can links replace a curated KB?
+Table 8 com-pares performance of the Wikipedia and Web linksystems using the basic feature set alone and withcoherence.
+Wikipedia models generally performbetter.
+However, the Web link configurations per-form at 93.1, 95.1, 99.9, and 100% of the Wikipedialinker ?
+97% on average.
+This suggests that a linkdata set can replace a curated KB, with only a smallimpact on accuracy.
+Results also show that addingcoherence improves performance in all cases.Do links complement article text?
+Table 9 com-pares a standard Wikipedia-only model to a modelthat also includes features derived from Web linkdata.
+Adding Web link data has a strong impact onCoNLL, improving both configurations by approxi-mately 4 points.
+We observe less impact on TAC.Nevertheless, the large improvements on CoNLLprovide good evidence for complementarity and rec-ommend using both feature sets when available.The state of the art Finally, Table 10 comparesour Wikipedia and Web link combinations to state-of-the-art numbers from the literature.
+First, we notethat adding coherence to our base model results in asignificant improvement on CoNLL test data, but noton TAC 2010.
+For comparison the literature, we re-port 95% confidence intervals.
+If a confidence baroverlaps a reported number, the difference can notbe assumed significant at p < 0.05.
+Results onTAC 10 are competitive with He et al.
+?s (2013) 81.0.On the CoNLL data, our best system achieves 88.7p@1?
+a new state of the art.
+Furthermore, the bestbase model is competitive with previous art that usescomplex collective approaches to coherence.153DEV CoNLL TAC 10Base model 87.7 86.1 79.6- 95% CI [85.3, 90.0] [83.1, 88.8] [77.1, 82.1]Base+Coh 89.4 88.7 80.7- 95% CI [87.3, 91.2] [86.2, 90.9] [78.2, 83.1]Hoffart 79.3 82.5 ?Houlsby 79.7 84.9 ?He ?
+85.6 81.0Alhelbawy ?
+87.6 ?Table 10: Comparison to the disambiguation literature.9 DiscussionWe set out to determine whether links from exter-nal resources can replace a clean, curated KB.
+Wiki-pedia is an incredible resource that has advanced ourunderstanding of and capabilities for identifying andresolving entity mentions.
+However, it covers onlya small fraction of all entities.
+Applications that re-quire other entities must therefore extend Wikipediaor use alternative KBs.
+We explore a setting wherea custom KB is required, but it is possible to har-vest external documents with links into the customKB.
+Overall, results are promising for using linksin a knowledge-poor setting.
+The link-derived sys-tem performs nearly as well as the rich-KB systemon both of our held-out data sets.Web link combinations perform at 97% of Wiki-pedia combinations on average.
+However, creating aKB as rich as Wikipedia represents an estimated 100million hours of human effort (Shirky, 2010).
+Wedo not have a comparable estimate for the Web linkdata.
+However, it is created as byproduct of publish-ing activities and the labour pool is external.
+Con-sidering this and the additional noise in web data, itis remarkable that the Web link models do so wellwith respect to the Wikipedia models.We also present detailed experiments compar-ing popularity, context, and coherence componentsacross settings.
+Here, results are even more surpris-ing.
+As expected, Web link popularity and coher-ence models trail Wikipedia models.
+However, Weblink context models outperform Wikipedia contextmodels by 7 to 10 points.We add the Web link components into the Wiki-pedia system to achieve, to our knowledge, the bestpublished result of 88.7 on the CoNLL data set.
+Fur-thermore, results suggest that coherence modellingdoes not require complex global graph algorithms.Our simple approach improves performance over thebasic model by one to three points.
+On the otherhand, our basic system without coherence modellingapproaches state-of-the-art performance on its own.This suggests that additional popularity and con-text features from web links can replace coherencewhere efficiency is a concern.We believe these results have a number of impli-cations for management of entity KBs.
+First, theymotivate concerted efforts to link content to KBssince links lead to substantial accuracy improve-ments over a conventional model based on rich KBdata alone.
+Second, it informs allocation of editorialresources between interlinking data sets and curat-ing KBs.
+Since models built from link data alone ap-proach state-of-the-art performance, curating linksis a reasonable alternative to curating a KB.
+This isespecially true if link curation is cheaper or if linkscan be created as a byproduct of other content au-thorship and management activities.Finally, where KB data is currently proprietary,results here motivate openly publishing KB entitiesand encouraging their use as a disambiguation end-point for public content.
+In addition to providingpathways to paid content, incoming links provide asimple means to harvest rich metadata from externalcontent and this can be used to build high-qualityresolution systems.A key avenue for future work is to evaluate howwell our approach generalises to other web KBs.
+Forinstance, incorporating links to sites like Freebaseor IMDb which complement or extend Wikipedia?sentity coverage.10 ConclusionDespite widespread use in entity linking, Wikipediais clearly not the only source of entity informationavailable on the web.
+We demonstrate the potentialfor web links to both complement and completelyreplace Wikipedia derived data in entity linking.This suggests that, given sufficient incoming links,any knowledge base may be used for entity linking.We argue that this motivates open publishing of en-terprise KBs.
+Code is available under an MIT licenseat https://github.com/wikilinks/nel.154AcknowledgmentsAndrew Chisholm is supported by a Google Fac-ulty Research Award.
+Ben Hachey is the recipientof an Australian Research Council Discovery EarlyCareer Researcher Award (DE120102900).ReferencesAyman Alhelbawy and Robert Gaizauskas.
+2014.
+Graphranking for collective named entity disambiguation.
+InAnnual Meeting of the Association for ComputationalLinguistics, pages 75?80.Marco Baroni, Georgiana Dinu, and Germa?n Kruszewski.2014.
+Don?t count, predict!
+a systematic compari-son of context-counting vs. context-predicting seman-tic vectors.
+In Annual Meeting of the Association forComputational Linguistics, pages 238?247.Yin-Wen Chang, Cho-Jui Hsieh, Kai-Wei Chang,Michael Ringgaard, and Chih-Jen Lin.
+2010.
+Trainingand testing low-degree polynomial data mappings vialinear SVM.
+Journal of Machine Learning Research,11:1471?1490.Silviu Cucerzan.
+2011.
+TAC entity linking by perform-ing full-document entity extraction and disambigua-tion.
+In Text Analysis Conference.Jeffrey Dalton and Laura Dietz.
+2013.
+UMass CIIR atTAC KBP 2013 entity linking: query expansion usingUrban Dictionary.
+In Text Analysis Conference.Paolo Ferragina and Ugo Scaiella.
+2010.
+TAGME:On-the-fly annotation of short text fragments (byWikipedia entities).
+In International Conferenceon Information and Knowledge Management, pages1625?1628.Jiafeng Guo, Gu Xu, Xueqi Cheng, and Hang Li.
+2009.Named entity recognition in query.
+In InternationalConference on Research and Development in Informa-tion Retrieval, pages 267?274.Ben Hachey, Will Radford, Joel Nothman, Matthew Hon-nibal, and James R. Curran.
+2013.
+Evaluating en-tity linking with Wikipedia.
+Artificial Intelligence,194:130?150.Ben Hachey, Joel Nothman, and Will Radford.
+2014.Cheap and easy entity evaluation.
+In Annual Meet-ing of the Association for Computational Linguistics,pages 464?469.Xianpei Han and Le Sun.
+2011.
+A generative entity-mention model for linking entities with knowledgebase.
+In Annual Meeting of the Association for Com-putational Linguistics, pages 945?954.Xianpei Han, Le Sun, and Jun Zhao.
+2011.
+Collectiveentity linking in web text: a graph-based method.
+InInternational Conference on Research and Develop-ment in Information Retrieval, pages 765?774.Zhengyan He, Shujie Liu, Mu Li, Ming Zhou, LongkaiZhang, and Houfeng Wang.
+2013.
+Learning entityrepresentation for entity disambiguation.
+In AnnualMeeting of the Association for Computational Linguis-tics, pages 30?34.Johannes Hoffart, Mohamed Amir Yosef, Ilaria Bordino,Hagen Fu?rstenau, Manfred Pinkal, Marc Spaniol,Bilyana Taneva, Stefan Thater, and Gerhard Weikum.2011.
+Robust disambiguation of named entities in text.In Conference on Empirical Methods in Natural Lan-guage Processing, pages 782?792.Johannes Hoffart, Yasemin Altun, and Gerhard Weikum.2014.
+Discovering emerging entities with ambiguousnames.
+In International World Wide Web Conference,pages 385?396.Heng Ji and Ralph Grishman.
+2011.
+Knowledge basepopulation: Successful approaches and challenges.
+InAnnual Meeting of the Association for ComputationalLinguistics, pages 1148?1158.Yuzhe Jin, Emre Kcman, Kuansan Wang, and RickyLoynd.
+2014.
+Entity linking at the tail: Sparse sig-nals, unknown entities, and phrase models.
+In Inter-national Conference on Web Search and Data Mining,pages 453?462.Thorsten Joachims.
+2002.
+Optimizing search engines us-ing clickthrough data.
+In International Conference onKnowledge Discovery and Data Mining, pages 133?142.Yang Li, Chi Wang, Fangqiu Han, Jiawei Han, Dan Roth,and Xifeng Yan.
+2013.
+Mining evidences for namedentity disambiguation.
+In International Conference onKnowledge Discovery and Data Mining, pages 1070?1078.Edgar Meij, Wouter Weerkamp, and Maarten de Rijke.2012.
+Adding semantics to microblog posts.
+In Inter-national Conference on Web Search and Data Mining,pages 563?572.Pablo N. Mendes, Max Jakob, and Christian Bizer.
+2012.DBpedia: A multilingual cross-domain knowledgebase.
+In International Conference on Language Re-sources and Evaluation, pages 1813?1817.Tomas Mikolov, Ilya Sutskever, Kai Chen, Greg S Cor-rado, and Jeff Dean.
+2013.
+Distributed representationsof words and phrases and their compositionality.
+InAdvances in Neural Information Processing Systems,pages 3111?3119.David Milne and Ian H. Witten.
+2008.
+Learning to linkwith Wikipedia.
+In Conference on Information andKnowledge Management, pages 509?518.Ndapandula Nakashole, Tomasz Tylenda, and GerhardWeikum.
+2013.
+Fine-grained semantic typing of155emerging entities.
+In Annual Meeting of the Associa-tion for Computational Linguistics, pages 1488?1497.Ma?te?
+Pataki, Miklo?s Vajna, and Attila Marosi.
+2012.Wikipedia as text.
+ERCIM News, (89):48?49.Fernando Pereira, Naftali Tishby, and Lillian Lee.
+1993.Distributional clustering of English words.
+In AnnualMeeting of the Association for Computational Linguis-tics, pages 183?190.Francesco Piccinno and Paolo Ferragina.
+2014.
+FromTagME to WAT: a new entity annotator.
+In SIGIRWorkshop on Entity Recognition and Disambiguation,pages 55?62.Will Radford, Will Cannings, Andrew Naoum, Joel Noth-man, Glen Pink, Daniel Tse, and James R. Curran.2012.
+(Almost) Total Recall ?
+SYDNEY CMCRC atTAC 2012.
+In Text Analysis Conference.Will Radford.
+2014.
+Named entity linking using richknowledge.
+Ph.D. thesis, The University of Sydney.Lev Ratinov, Dan Roth, Doug Downey, and Mike Ander-son.
+2011.
+Local and global algorithms for disam-biguation to Wikipedia.
+In Annual Meeting of the As-sociation for Computational Linguistics, pages 1375?1384.Gerard Salton and Christopher Buckley.
+1988.
+Term-weighting approaches in automatic text retrieval.
+In-formation Processing and Management, 24(5):513?523.Wei Shan, Jiawei Han, and Jianyong Wang.
+2014.
+Aprobabilistic model for linking named entities in webtext with heterogeneous information networks.
+In In-ternational Conference on Mangement of Data, pages1199?1210.Wei Shen, Jianyon Wang, and Jiawei Han.
+2014.
+Entitylinking with a knowledge base: Issues, techniques, andsolutions (to appear).
+Transactions on Knowledge andData Engineering.Clay Shirky.
+2010.
+Cognitive surplus: Creativity andgenerosity in a connected age.
+Allen Lane, London.Sameer Singh, Amarnag Subramanya, Fernando Pereira,and Andrew McCallum.
+2012.
+Wikilinks: A large-scale cross-document coreference corpus labeled vialinks to Wikipedia.
+Technical Report UM-CS-2012-015, University of Massachusetts.Merine Thomas, Hiroko Bretz, Thomas Vacek, BenHachey, Sudhanshu Singh, and Frank Schilder.
+2014.Newton: Building an authority-driven company tag-ging and resolution system (in press).
+In EmmaTonkin and Stephanie Taylor, editors, Working WithText: Tools, techniques and approaches for text min-ing.
+Chandos, Oxford, UK.Erik F. Tjong Kim Sang and Fien De Meulder.
+2003.
+In-troduction to the CoNLL-2003 shared task: Language-independent named entity recognition.
+In ConferenceOn Computational Natural Language Learning, pages142?147.Vasudeva Varma, Praveen Bysani, Kranthi Reddy, VijayBharat, Santosh GSK, Karuna Kumar, Sudheer Kove-lamudi, Kiran Kumar N, and Nitin Maganti.
+2009.IIIT Hyderabad at TAC 2009.
+In Text Analysis Con-ference.156

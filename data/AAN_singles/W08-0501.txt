@@ -1,0 +1,45 @@
+Software Engineering, Testing, and Quality Assurance for Natural Language Processing, pages 1?2,Columbus, Ohio, USA, June 2008. c?2008 Association for Computational LinguisticsIncreasing Maintainability of NLP Evaluation Modules Through DeclarativeImplementationsTerry HeinzeResearch & Development DepartmentThomson CorporationEagan, MN 55123terry.heinze@thomson.comMarc LightResearch & Development DepartmentThomson CorporationEagan, MN 55123marc.light@thomson.comAbstractComputing precision and recall metrics for namedentity tagging and resolution involves classifyingtext spans as true positives, false positives, or falsenegatives.
+There are many factors that make thisclassification complicated for real world systems.We describe an evaluation system that attempts tocontrol this complexity through a set of rules and aforward chaining inference engine.1 IntroductionComputing precision and recall metrics for named entityrecognition systems involves classifying each text spanthat the system proposes as an entity and a subset of thetext spans that the gold data specifies as an entity.
+Thesetext spans must be classified as true positives, false posi-tives, or false negatives.In the simple case, it is easy to write a procedure towalk through the list of text spans from the system andcheck to see if a corresponding text span exists in the golddata with the same label, mark the text span as true posi-tive or false positive accordingly, and delete the span fromthe gold data set.
+Then the procedure need only walkthrough the remaining gold data set and mark these spansas false negatives.
+The three predicates are the equalityof the span?s two offsets and the labels.
+This evaluationprocedure is useful for any natural language processingtask that involves finding and labeling text spans.The question this poster addresses is how best to man-age the complexity of the evaluation system that resultsfrom adding a number of additional requirements to theclassification of text spans.
+The requirements may in-clude fuzzy extent predicates, label hierarchies, confi-dence levels for gold data, and collapsing multiple men-tions in a document to produce a single classification.
+Inaddition, named entity tasks often also involve resolvinga mention of an entity to an entry in an authority file (i.e.,record in a relational database).
+This extension also re-quires an interleaved evaluation where the error source isimportant.We started with a standard procedural approach, en-coding the logic in nested conditionals.
+When the nestingreached a depth of five (e.g., Figure 1), we decided to tryanother approach.
+We implemented the logic in a set ofrules.
+More specifically, we used the Drools rules and for-ward chaining engine (http://labs.jboss.com/drools/) toclassify text spans as true positives, false positives, and/orfalse negatives.
+The procedural code was 379 lines long.The declarative system consists of 25 rules with 150 linesof supporting code.
+We find the rules more modular andeasier to modify and maintain.
+However, at this time, wehave no experimental result to support this opinion.2 Added Complexity of the Classificationof Text Spans for EvaluationMatching extents and labels: A system text span mayoverlap a gold data span but leave out, say, punctuation.This may be deemed correct but should be recorded as afuzzy match.
+A match may also exist for span labels alsosince they may be organized hierarchically (e.g, cities andcountries are kinds of locations).
+Thus, calling a city alocation may be considered a partial match.Annotator Confidence: We allowed our annotators tomark text span gold data with an attribute of ?low con-fidence.?
+We wanted to pass this information through tothe classification of the spans so that they might be fil-tered out for final precision and recall if desired.Document level statistics: Some named entity taggingtasks are only interested in document level tagging.
+Inother words, the system need only decide if an entity ismentioned in a document: how many times it is men-tioned is unimportant.Resolution: Many of our named entity tagging tasksgo a step further and also require linking each entity men-tion to a record in a database of entities.
+For error anal-1ysis, we wished to note if a false negative/positive withrespect to resolution is caused by the upstream namedentity tagger.
+Finally, our authority files often have manyentries for the same entity and thus the gold data containsmultiple correct ids.for (annotations)if(extents & labels match)if(ids match => TP res)if(notresolved => TN res)else if(single id => TP res)else if(multiple ids => contitional TP res)else errorelseif(gold id exists)if(gold id uncertain => FP res low confidence)else => FP reselseif(fuzzy extents & labels match)if(ids match)if(no gold id => TN res)else if(multiple ids => conditional TP res)else => fuzzy TP reselse ...Figure 1: Nested conditionals for instance classification3 Using Rules to Implement the Logic ofthe ClassificationThe rules define the necessary conditions for membershipin a class.
+These rules are evaluated by an inference en-gine, which forward chains through the rule set.
+In thismanner, rules for fuzzy matches, for handling gold dataconfidence factors, and for adding exclusionary condi-tions could be added (or removed) from the rule set with-out modifying procedural code.rule ?truepositive?
+salience 100sa : SourceAnnotation( assigned == false )ta : TargetAnnotation( type == sa.type,beginOffset == sa.beginOffset, endOffset == sa.endOffset )then sa.setResult(?TP?
+);rule ?false positive?
+salience 90sa : SourceAnnotation( assigned == false )not TargetAnnotation( type == sa.type,beginOffset == sa.beginOffset, endOffset == sa.endOffset )then sa.setResult(?FP?
+);rule ?false negative?
+salience 80ta : TargetAnnotation( assigned == false )not SourceAnnotation( type == ta.type,beginOffset == ta.beginOffset, endOffset == ta.endOffset )then ta.setResult(?FN?
+);Figure 2: Rules for instance classificationThree rules were needed to determine the basic col-lection level metrics.
+The results of these rules werethen passed on to the next sets of rules for modificationfor conditional checks.
+We use agenda groups and rulesalience to control the firing precedence within the rulesets.
+In Figure 2, we present an example of the sort ofrules that are defined.For example, the determination of true positives wasmade by firing the ?true positive?
+rule whenever an an-notation from the system matched an annotation fromthe gold data.
+This occurred if the entity type and off-sets were equal.
+This rule was given higher salience thanthose for true negatives and false positives since it had theeffect of removing the most candidate annotations fromthe working memory.Note that because we use a Java implementation thatadheres to JSR94, all of the rules apply their conditionsto Java objects.
+The syntax for tautologies within the con-dition statements, refer to bean properties within the en-closing object.In Figure 3, we show first, a modification to add a fuzzymetric rule that checks false negative annotations to see ifthey might be a fuzzy match.
+Second, we show a rule thatremoves false positives that are defined in a stop-wordlist.rule?fuzzy check?
+agenda-group ?FuzzyMatch?ta : TargetAnnotation( result == ?FN?
+);sa : SourceAnnotation( type == ta.type, result == ?FP?,ta.beginOffset < endOffset, ta.endOffset > beginOffset );eval(ifFuzzyMatch(sa.getText(), ta.getText(), sa.getType()));then sa.setResult(?FzTP?
+);rule ?filter FP?
+salience 10 agenda-group ?Filter?sa : SourceAnnotation( result == ?FP?
+);eval(DexterMetrics.ifStopWord(sa.getText(), sa.getType()));then sa.setResult(sa.getResult() + ?-ignored:stop word?
+);Figure 3: Rules for modified classification4 ConclusionWe described some of the complexities that our evalua-tion module had to deal with and then introduce a rule-based approach to its implementation.
+We feel that thisapproach made our evaluation code easier to understandand modify.
+Based on this positive experience, we sug-gest that other groups try using rules in their evaluationmodules.2

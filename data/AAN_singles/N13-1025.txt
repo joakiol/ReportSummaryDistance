@@ -1,0 +1,281 @@
+Proceedings of NAACL-HLT 2013, pages 248?258,Atlanta, Georgia, 9?14 June 2013. c?2013 Association for Computational LinguisticsLarge-Scale Discriminative Training for Statistical Machine TranslationUsing Held-Out Line SearchJeffrey Flanigan Chris Dyer Jaime CarbonellLanguage Technologies InstituteCarnegie Mellon UniversityPittsburgh, PA 15213, USA{jflanigan,cdyer,jgc}@cs.cmu.eduAbstractWe introduce a new large-scale discrimina-tive learning algorithm for machine translationthat is capable of learning parameters in mod-els with extremely sparse features.
+To ensuretheir reliable estimation and to prevent over-fitting, we use a two-phase learning algorithm.First, the contribution of individual sparse fea-tures is estimated using large amounts of par-allel data.
+Second, a small development cor-pus is used to determine the relative contri-butions of the sparse features and standarddense features.
+Not only does this two-phaselearning approach prevent overfitting, the sec-ond pass optimizes corpus-level BLEU of theViterbi translation of the decoder.
+We demon-strate significant improvements using sparserule indicator features in three different trans-lation tasks.
+To our knowledge, this is thefirst large-scale discriminative training algo-rithm capable of showing improvements overthe MERT baseline with only rule indicatorfeatures in addition to the standard MERT fea-tures.1 IntroductionThis paper is about large scale discriminativetraining of machine translation systems.
+LikeMERT (Och, 2003), our procedure directly optimizesthe cost of the Viterbi output on corpus-level met-rics, but does so while scaling to millions of features.The training procedure, which we call the Held-OutLine Search algorithm (HOLS), is a two-phase iter-ative batch optimization procedure consisting of (1)a gradient calculation on a differentiable approxima-tion to the loss on a large amount of parallel trainingdata and (2) a line search (using the standard MERTalgorithm) to search in a subspace defined by thegradient for the weights that minimize the true cost.While sparse features are successfully used inmany NLP systems, such parameterizations pose anumber of learning challenges.
+First, since any onefeature is likely to occur infrequently, a large amountof training data is necessary to reliably estimate theirweights.
+Therefore, we use the full parallel train-ing data (rather than a small development set) toestimate the contribution of the sparse features inphase 1.
+Second, sparse features can lead to overfit-ting.
+To prevent this from hurting our model?s abilityto generalize to new data, we do two things.
+First,we use ?grammar and language model folds?
+(trans-lation grammars and language models built fromother portions of the training data than are beingused for discriminative training), and second, werun the phase 2 line search on a held-out develop-ment set.
+Finally, since our algorithm requires de-coding the entire training corpus, it is desirable (oncomputational grounds) to only require one or twopasses through the training data.
+To get the most outof these passes, we rescale features by their inversefrequency which improves the scaling of the opti-mization problem.
+In addition to learning with fewpasses through the training data, the HOLS algorithmhas the advantage that it is easily parallelizable.After reviewing related work in the next section,we analyze two obstacles to effective discriminativelearning for machine translation: overfitting (sinceboth rules and their weights must be learned, if theyare learned together degenerate solutions that fail togeneralize are possible) and poor scaling (since MT248decoding is so expensive, it is not feasible to makemany passes through large amounts of training data,so optimization must be efficient).
+We then presentthe details of our algorithm that addresses these is-sues, give results on three language pairs, and con-clude.2 Related WorkDiscriminative training of machine translation sys-tems has been a widely studied problem for thelast ten years.
+The pattern of using small, high-quality development sets to tune a relatively smallnumber of weights was established early (Och andNey, 2002; Och, 2003).
+More recently, standardstructured prediction algorithms that target linearlydecomposable approximations of translation qual-ity metrics have been thoroughly explored (Liang etal., 2006; Smith and Eisner, 2006; Watanabe et al2007; Rosti et al 2010; Hopkins and May, 2011;Chiang, 2012; Gimpel and Smith, 2012; Cherry andFoster, 2012; Saluja et al 2012).
+These have with-out exception used sentence-level approximations ofBLEU to determine oracles and update weights usinga variety of criteria and with a variety of differenttheoretical justifications.Despite advancements in discriminative trainingfor machine translation, large-scale discriminativetraining with rule indicator features has remainednotoriously difficult.
+Rule indicator features are anextremely sparse and expressive parameterization ofthe translation model: every rule has a feature, eachof which has its own separately tuned weight, whichcount how often a specific rule is used in a trans-lation.
+Early experiments (Liang et al 2006) usedthe structured perceptron to tune a phrase-based sys-tem on a large subset of the training data, show-ing improvements when using rule indicator fea-tures, word alignment features, and POS tag fea-tures.
+Another early attempt (Tillmann and Zhang,2006) used phrase pair and word features in a blockSMT system trained using stochastic gradient de-scent for a convex loss function, but did not compareto MERT.
+Problems of overfitting and degeneratederivations were tackled with a probabilistic latentvariable model (Blunsom et al 2008) which usedrule indicator features yet failed to improve uponthe MERT baseline for the standard Hiero features.Techniques for distributed learning and feature se-lection for the perceptron loss using rule indicator,rule shape, and source side-bigram features have re-cently been proposed (Simianer et al 2012), but nocomparison to MERT was made.3 Difficulties in Large-Scale TrainingDiscriminative training for machine translation iscomplicated by several factors.
+First, both transla-tion rules and feature weights are learned from par-allel data.
+If the same data is used for both tasks,overfitting of the weights is very possible.1 Second,the standard MT cost function, BLEU (Papineni etal., 2002), does not decompose additively over train-ing instances (because of the ?brevity penalty?)
+andso approximations are used?these often have prob-lems with the length (Nakov et al 2012).
+Finally,state-of-the-art MT systems make extensive gooduse of ?dense?
+features, such as the log probabil-ity of translation decisions under a simpler gener-ative translation model.
+Our goal is to begin touse much sparser features without abandoning theproven dense features; however, extremely sparsefeatures leads to problems of scaling in the optimiza-tion problem as we will show.3.1 Training Data and OverfittingOne of the big questions in discriminative train-ing of machine translation systems is why standardmachine learning techniques can perform so poorlywhen applied to large-scale learning on the train-ing data.
+Figure 1 shows a good example of this.The structured SVM (Tsochantaridis et al 2004;Cherry and Foster, 2012) was used to learn theweights for a Chinese-English Hiero system (Chi-ang, 2005) with just eight features, using stochasticgradient descent (SGD) for online learning (Bottou,1998; Bottou, 2010).
+The weights were initializedfrom MERT values tuned on a 2k-sentence dev set(MT06), and the figure shows the progress of the on-line method during a single pass through the 300k-sentence Chinese-English FBIS training set.As the training progresses in Figure 1, BLEUscores on the training data go up, but scores on the1Previous work has attempted to mitigate the risk of overfit-ting through careful regularization (Blunsom et al 2008; Simi-aner et al 2012).2490 50000 150000 250000263034BLEUFigure 1: Progress of the online SVM trainingmethod after each training instance on FBIS dataset.The solid line is BLEU on the test set, training set isthe dashed line, and the dev set is dotted.dev and test sets go down.
+If we hope to apply dis-criminative training techniques for not eight but mil-lions of features on the training data, we must find away to prevent this overfitting.We suggest that an important reason why overfit-ting occurs is that the training data is used not only totune the system but also to extract the grammar, andthe target side is included in the data used to buildthe language model.
+To test this hypothesis, wecompare tuning using three different dev sets: 1000sentences from the standard 4-reference MT06 devset (Dev1000), a random selection of 1000 sentencesthat overlap with the corpus used to extract transla-tion rules (In1000), and 1000 sentences that camefrom the training data but were then excluded fromrule extraction (Out1000).
+We run MERT on each ofthese and evaluate.
+For evaluation we compare threedifferent sets: a random 1000 sentences from thetraining corpus that was used to create the grammarsbut which do not overlap with In1000 (Train1000),the 1000 sentence dev set (Dev1000), and the stan-dard 4-reference MT02-03 test set (Test).
+The en-tire experiment (including selection of the 1000 sen-tences) was replicated 5 times.Table 1 shows the results, averaging over repli-cations.
+Out1000 gives much higher scores on thetesting data, validating our hypothesis that tuning ondata used to build the LM and grammar can lead tooverfitting.
+However, the results also show that tun-ing on the training data, even when it is held-out, canstill lead to a small reduction in translation quality.One possible reason is that, unlike the training datawhich may come from various domains, the dev datais in the same domain as the test data and is typicallyof higher quality (e.g., it has multiple references).Table 1: MERT on Zh-En FBISTuning Set Train1000 Dev1000 TestDev1000 32.2?1.1 30.2?.1 34.1?.3In1000 37.0?1.2 25.7?.7 30.1?.6Out1000 34.9?.8 29.0?.4 33.6?.53.2 Poor ScalingWhen features occur with different frequencies,changing the weights of more frequent features hasa larger effect than changing the weights of less fre-quent features.2 An example of frequent featuresthat have a large impact on the translation quality arethe language model and translation model features.These features are non-zero for every sentence, andchanging their weights slightly has a large impact ontranslation output.
+In contrast, changing the weightdrastically for a feature that is non-zero for only oneout of a million sentences has very little effect ontranslation metrics.
+The sensitivity of the translationoutput to some feature weights over others was alsopointed out in a recent paper (Chiang, 2012).When the objective function is more sensitivein some dimensions than others, the optimizationproblem is said to be poorly scaled (Nocedal andWright, 2000), and can slow down the convergencerate for some optimizers.
+A typical fix is to rescalethe dimensions, as we will do in Section 5.2.To verify that BLEU is poorly scaled with respectto weights of rule indicator features, we look at theeffect of changing the weights for individual rules.We vary the feature weights for four randomly cho-sen frequent rules and four randomly chosen infre-quent rules on our FBIS dev set (Figure 2).
+Onecan think of this plot as a ?cross-section?
+of theBLEU score in the direction of the feature weight.The dense features are set to MERT-tuned valueswhich are normalized to one.
+All other rule indi-cator features are set to zero, except the rule fea-ture weight that is varied.
+The frequent features2By the ?frequency of a feature?
+we mean this: given a set ofinput instances, how many input instances the feature is nonzeroin the space of possible outputs for that input.250were selected randomly from the 20 most commonrule indictor features in the n-best lists on the devset, and the infrequent features were selected fromthe features that only occurred once in these n-bestlists.
+The plots indicate that the BLEU score is?2 ?1 0 1 227.028.029.030.0WeightBLEU(a) Four representative frequent sparse features.
+?10 ?5 0 5 1030.10030.10530.11030.11530.120WeightBLEU(b) Four representative infrequent sparse featuresFigure 2: The effect of varying weights for rule indicatorfeatures on the BLEU score.
+Note the difference of scaleon the y axis.poorly scaled for rule feature weights.
+Changing theweights for one of the common features changes theBLEU score by almost 2.5 BLEU points, while forthe infrequent features the BLEU score changes byat most .02 BLEU points.
+We take this as a sign thatgradient descent based optimizers for machine trans-lation with rule features could be slow to convergedue to poor scaling, and that rescaling will improveconvergence.3.3 Sentence Level Approximations to BLEUFinally, we note that discriminative training methodsoften use a sentence level approximation to BLEU.
+Ithas been shown that optimizing corpus level BLEUversus sentence level BLEU can lead to improve-ments of up to nearly .4 BLEU points on the testset (Nakov et al 2012).
+Possible fixes to this prob-lem include using a proper sentence level metricsuch a METEOR (Denkowski and Lavie, 2011) or apseudo-corpus from the last few updates (Chiang etal., 2008).
+However, in light of the result from sec-tion 3.1 that tuning on the dev set is still better thantuning on a held-out portion of the training data, weobserve that tuning a corpus level metric on a high-quality dev set from the same domain as the test setprobably leads to the best translation quality.
+At-tempts to improve upon this strong baseline lead usto the development of the HOLS algorithm which wedescribe next.4 Held-Out Line Search AlgorithmIn this section we give the details of the learning al-gorithm that we developed for use in large-scale dis-criminative training for machine translation, whichwe call the Held-Out Line Search algorithm (abbre-viated HOLS).
+It optimizes millions of features usingevidence from the full set of parallel training datato obtain optimal predictive performance on a sec-ondary development set.The learning algorithm is a batch optimizer whereeach iteration has two phases: a gradient calcula-tion phase and a line search phase.
+In the gradientcalculation phase, a surrogate loss function is usedto compute a gradient for the feature weights.
+Thegradient is computed over a subset of the trainingdata.
+In the line search phase, a separate optimizer(MERT) is used to search along this gradient to opti-251mize the evaluation score of the one-best predictionof a translation system on a secondary developmentset.3 The secondary dev set is a crucial aspect ofthe algorithm that helps reduce overfitting (we willdemonstrate this in the experiments section).During the line search phase we allow some ofthe feature weights to be adjusted independently ofthe line search.
+We will call the features we opti-mize independently the dense features, and the fea-tures we include in the line search the sparse fea-tures.4 The feature vector space V is the direct sumV = Vd ?
+Vs, where Vd is the vector space ofthe dense features and Vs is the vector space of thesparse features.
+The feature and weight vectors de-compose as ~f = ~fd + ~fs and ~w = ~wd + ~ws.
+~fd and~wd are in the dense vector space, and the ~fs and ~wsare in the sparse vector space.In the gradient phase, we calculate a gradient ofthe surrogate loss function and project it onto thesubspace of the sparse features.
+Let Ps be the pro-jection operator onto Vs. Then the gradient projectedonto the sparse feature space is~g = Ps?~wL?
+(~w,Dg)where Dg is the subset of the training data used tocalculate this gradient, and L?
+is the surrogate lossfunction.
+This just sets the dense components of thegradient of L?
+to zero.In the line search phase, we use a separate opti-mizer to optimize the weights for the dense featuresand the stepsize ?.
+Let L be the loss function wewish to minimize, then(~w?d, ??)
+= arg min~wd,?L(~wd + ~ws + ?~g,Dl)Note ~ws is held fixed from the previous iteration.
+Dlis the portion of the training data which is used inthe line search phase, and must not overlap with Dgused in the gradient calculation phase.5After the line search, the dense weights are up-dated to ~w?d, and the sparse weights are updated with~ws ?
+~ws + ??~g.
+The process repeats for anotheriteration as desired (or until convergence).3While we use BLEU any loss function whose sufficientstatistics decompose over training instances could be used.4The split over the features does not have to be done thisway in practice.5L(~w?d, ?
+?,Dl) can be thought of as unbiased or more accu-rately less biased estimator of expected loss when Dl?Dg = ?.5 Procedure for Large-Scale TrainingNow that we have described the HOLS algorithm ingeneral, we next describe how to apply it to large-scale training of machine translation systems withmillions of features.
+We find that it is necessary touse disjoint sets of training instances for grammarextraction and gradient estimation (?5.1) and to dealwith the poor scaling of the optimization problem(?5.2).5.1 Grammar and Language Model FoldsTo address the problem of overfitting on the train-ing data, we split the training data into n-folds, andextract grammars for each fold using the data fromthe other n?
+1 folds.
+Similarly, we build a languagemodel for each fold using a target language mono-lingual corpus and the target side of the training datafrom the other n ?
+1 folds.
+Whenever we decode asentence from the training data, we use the gram-mar and language model for the appropriate fold.This ensures that a sentence is never decoded using agrammar or language model it helped build, therebyreducing the overfitting effect demonstrated in ?3.1.To perform the training, the HOLS algorithm isused on the training data.
+In our experiments, only1-2 passes over the training data are necessary forsignificant gains.
+Data from one of the grammarfolds is used for the line search, and the rest of thetraining data is used to calculate the gradient.The procedure is iterative, first decoding trainingdata to obtain a gradient, and then performing a linesearch with data from a held-out grammar fold.
+In-stead of decoding the whole set of sentences used forthe gradient updates at once, one can also decode aportion of the data, do a gradient update, and thencontinue the next iteration of HOLS on the remain-ing data before repeating.The last line search of the HOLS algorithm is doneusing dev data, rather than training data.
+This is be-cause the dev data is higher quality, and from Table1 we can see that tuning on dev data produces bet-ter results than tuning on training data (even if thetraining data has been held out from the grammarprocess).
+The initial weights are obtained by run-ning MERT on a subset of the one of the grammarfolds.If one has an existing implementation of an op-252timizer for the loss function used during the linesearch (in our case MERT), it can be used to performthe line search.
+This is done simply by calling MERTwith two extra features in addition to the dense fea-tures and omitting the sparse features.To see how, notice that the feature weightsduring the line search are decomposed as ~w =~wdense + ~wsparse + ?~g where ~g is in the sparsefeature subspace, so the model score decomposesas score(x, y) = ~wd ?
+~fd(x, y) + ~ws ?
+~fs(x, y) +?~g ?
+~fs(x, y) where x is the input translation, y isthe output translation and derivation.
+If we cre-ate two new features f1(x, y) = ~ws ?
+~fs(x, y) andf2(x, y) = ~g ?
+~fs(x, y) then the score can be writtenscore(x, y) = ~wd ?
+~fd(x, y)+f1(x, y) + ?f2(x, y)= (~wd, 1, ?)
+?
+(~fd, f1, f2)Thus we can do the line search simply by callingMERT with the features (~fd, f1, f2).
+6In summary our training algorithm is as follows:1) split the training data into n-folds (we use n = 5),2) initialize the dense weights to MERT values, 3)decode some or all the data in 4 of the 5 folds to geta gradient, 4) condition as in ?5.2 (see below), 5) runMERT on a 10k subset of the remaining fold to do theline search, 6) repeat steps 3-4 until convergence orstop as desired, and 7) run MERT on the normal devset as a final step.
+We only run MERT on a 10k subsetof one of the folds so it does not require runningMERT on an entire fold.In the special case where just one iteration ofHOLS is performed, the procedure is very simple:decode the training data to get a gradient, includethe components of the gradient as an extra featuref2 in addition to the dense features, and tune on adev set using MERT.5.2 ConditioningTo address the problem of poor scaling, we use asimple strategy of rescaling each component of thegradient based on how frequent the feature is.
+Wecall this process ?conditioning.?
+For each feature,we simply divide the corresponding dimension of6We could constrain the weight for f1 to be 1, but this is notnecessary since since MERT is invariant to the overall scale ofthe weights.the gradient by the number of n-best lists in whichthe feature was non-zero in.The necessity for conditioning is evident when werun the HOLS algorithm as detailed so far on thetraining data without conditioning.
+On subsequentiterations, we observe that the features with the high-est component of the gradient oscillate between iter-ations, but the rest of the feature gradients stay thesame.Based on our knowledge that the optimizationproblem was poorly scaled, we divided by the fre-quency of the feature.
+We can give the followingheuristic justification for our method of condition-ing.
+For the ith feature weight, we will take a step?wi.
+Assume that we want to take the step ?wi pro-portional to the average gradient g?i calculated fromn-best lists in which the feature is non-zero.
+In otherwords, we want ?wi = ?g?i.
+Let gi be the totalgradient calculated by adding the gradients over alln-best lists (i.e.
+summing over training examplesin the corpus).
+For a feature that is nonzero in ex-actly ni n-best lists, the gradient from each examplewill have been added up ni times, so the total gra-dient gi = nig?i.
+Therefore we should take the step?wi = ?gi/ni.
+In other words, we rescale eachcomponent gi of the gradient by 1/ni before takingthe gradient step.We can relate this argument back to the oscillationwe observed of the rule feature weights.
+For rulesthat are used a thousand times more often than theaverage rule, the corresponding component of thegradient is roughly a thousand times larger.
+But thatdoes not indicate that the adjustment ?wi to the ruleweight should be a thousand times larger in each it-eration.6 ExperimentsWe evaluate and analyze the performance of ourtraining method with three sets of experiments.
+Thefirst set of experiments compares HOLS to othertuning algorithms used in machine translation in amedium-scale discriminative setting.
+The second setlooks in detail at HOLS for large scale discriminativetraining for a Chinese-English task.
+The third setlooks at two other languages.All the experiments use a Hiero MT system withrule indicator features for the sparse features and the253Table 2: CorporaLanguage Corpus Sentences TokensSource TargetEn Gigaword 24M 594MAr-En Train 1M 7M 31MDev (MT06) 1797 13K 236KMT05 1,056 7K 144KMT08nw 813 5K 116KMT05wb 547 5K 89KMg-En Train 89K 2.1M 1.7MDev 1,359 34K 28KTest 1,133 29K 24KZh-En Train (FBIS) 302K 1M 9.3MDev (MT06) 1,664 4K 192KTest (MT02-03) 1,797 5K 223KMT08 1,357 4K 167Kfollowing 8 dense features: LM, phrasal and lexi-cal p(e|f) and p(f |e), phrase and word penalties,and glue rule.
+The total number of features is 2.2M(Mg-En), 28.8M (Ar-En), and 10.8M (Zh-En).
+Thesame features are used for all tuning methods, ex-cept MERT baseline which uses only dense features.Although we extract different grammars from vari-ous subsets of the training corpus, word alignmentswere done using the entire training corpus.
+We useGIZA++ for word alignments (Och and Ney, 2003),Thrax (Weese et al 2011) to extract the grammars,our decoder is cdec (Dyer et al 2010) which usesKenLM (Heafield, 2011), and we used a 4-gram LMbuilt using SRILM (Stolcke, 2002).
+Our optimizeruses code implemented in the pycdec python inter-face to cdec (Chahuneau et al 2012).
+To speed updecoding, for each source RHS we filtered the gram-mars to the top 15 rules ranked by p(e | f).
+Statisticsabout the datasets we used are listed in Table 2.We use the ?soft ramp 3?
+loss function (Gimpel,2012; Gimpel and Smith, 2012) as the surrogate lossfunction for calculating the gradient in HOLS.
+It isdefined asL?
+=n?i=1[?
+log?y?Gen(xi)e~w?~f(xi,y)?cost(yi,y)+ log?y?Gen(xi)e~w?~f(xi,y)+cost(yi,y)]where the sum over i ranges over training exam-ples, Gen(x) is the space of possible outputs andderivations for the input x, and cost(yi, y) is add onesmoothing sentence level BLEU.7Except where noted, all experiments are repeated5 times and results are averaged, initial weights forthe dense features are drawn from a standard nor-mal, and initial weights for the sparse features areset to zero.
+We evaluate using MultEval (Clark etal., 2011) and report standard deviations across opti-mizer runs and significance at p = .05 using MultE-val?s built-in permutation test.
+In the large-scale ex-periments for HOLS, we only run the full optimizeronce, and report standard deviations using multipleruns of the last MERT run (i.e.
+the last line search onthe dev data).6.1 Comparison Experiments for ZH-ENOur first set of experiments compares the perfor-mance of the proposed HOLS algorithm to learn-ing algorithms popularly used in machine transla-tion on a Chinese-English task.
+We also compare toa close relative of the HOLS algorithm: optimizingthe soft ramp 3 loss directly with online stochasticgradient descent and with conditioning.
+As we willsee, SGD SOFTRAMP3 performs significantly worsethan HOLS, despite both algorithms optimizing sim-ilar loss functions.In the experiments in this section, we do not usethe full version of the training setup described in?5 since we wish to compare to algorithms that donot necessarily scale to large amounts of trainingdata.
+We therefore use only one fifth of the train-ing data for learning the weights for both the denseand sparse features.In this section we refer to the subset of the train-ing data used to learn the weights as the tuning set(Tune).
+The grammar and LM are built using thetraining data that is not in the tuning set (the LM alsoincludes the English monolingual corpus), and theweights for the features are tuned using the tuningset.
+This is similar to the typical train-dev-test splitcommonly used to tune machine translation systems,except that the tuning set is much larger (60k sen-tence pairs versus the usual 1k-2k) and comes froma random subset of the training data rather than a7We found this loss function to work well, but other ?soft?loss functions (Gimpel, 2012; Gimpel and Smith, 2012) alsowork.
+Gen(x) is restricted to a k-best size of 1000.
+Following(Gimpel, 2012) cost(yi, y) is multiplied by a factor of 20.254Table 3: Comparison Experiments for Zh-EnAlgorithm Tune MT08 RuntimeMERT 22.1?.1 23.1?.1 6 hoursPRO 23.8?.05 23.6?.1 2 weeksMIRA 21.7?.1 22.5?.1 19 hoursSOFTRAMP3 21.5?.3 22.3?.3 29 hoursHOLS 22.3?.1 23.4?.1 10 hoursHILS 24.3?.2 22.4?.1 10 hoursspecialized development set.We compare MERT, PRO (Hopkins and May,2011), MIRA (Chiang, 2012), SOFTRAMP3, HOLS,and a variant of HOLS which we call HILS (discussedbelow).
+For HOLS, we used 10k of the 60k tun-ing set for the line search, and the rest of the tun-ing set was used for calculating the gradient.
+ForHILS (?Held-In?
+Line Search), the full 60k tuningset was used to calculate the gradient, but the linesearch was on a 10k subset of that set.
+For MERT,we used a 10k subset of the tuning data because ittakes a long time to run on large datasets, and it onlyhas the eight dense features and so does not need theentire 60k tuning set.
+All the subsets are drawn ran-domly.
+Conditioning was performed only for HOLS,HILS, and SOFTRAMP3 because conditioning wouldaffect the regularizer for PRO and require modifica-tions to the MIRA algorithm.
+To do the condition-ing for SOFTRAMP3 we used rule count during ex-traction of the grammar and not the frequency inthe n-best lists because the online nature of SOFT-RAMP3 prevents us from knowing how frequent arule will be (and the dense features are conditionedusing the corpus size).
+We chose MIRA?s best learn-ing rate (?
+= .001) from {.1, .01, .001}, used de-fault settings for PRO in cdec, and for SOFTRAMP3we used the same loss function as HOLS but includedan L2 regularizer of strength .001 and used a step-size of 1 (which was scaled because of condition-ing).
+To remedy problems of length bias for sentencelevel BLEU, we used brevity penalty smoothed andgrounded BLEU+1 for sentence level scores (Nakovet al 2012).
+Tuning was repeated four times withdifferent initial weights, except for PRO which weonly ran three times (due to training costs).
+The ini-tial weights for MERT were drawn from a standardnormal distribution, and final MERT weights wereused as the initial weights for the dense features forthe other algorithms.
+Initial weights for the sparsefeatures were set to zero.
+For HOLS, and HILS, tun-ing set BLEU scores were evaluated on the set thatthe line search was run on.
+We also report run timesfor 8 threads on an Opteron 6220 processor.8The results are shown in Table 3.
+PRO and HOLSare a statistically significant improvement upon theMERT baseline on the MT08 test data, but MIRA,SOFTRAMP3, and HILS are not.HILS dramatically overfits the tuning set, whileHOLS does not, justifying the use of a held-outdataset for the line search.
+SOFTRAMP3 performssignificantly worse than HOLS on the test set.
+PRO isa promising training algorithm, but does not scale tothe full FBIS corpus because it requires many itera-tions.6.2 Full ZH-EN and Ablation ExperimentsThis set of experiments evaluates the performanceof the full HOLS algorithm described in ?5 forlarge-scale discriminative training on the full FBISChinese-English dataset.
+Since this is a relativelysmall and widely studied dataset, we also investigatewhat happens if different aspects of the procedureare omitted.Table 4 gives the results.
+The number of updatesis the number of times the HOLS line search opti-mizer is run (gradient updates).
+For 2 passes, 4 up-dates, a line search is performed after a half passthrough the training data, which is repeated fourtimes for a total of two passes.Using just one pass through the training data and8Standard MIRA and SGD SOFTRAMP3 are not paralleliz-able and only use a single thread.
+All of these algorithms wererun for one iteration, except for MERT which ran for at leastseven iterations, and PRO which we stopped after 20 iterations.Table 4: Full-scale Chinese-English and AblationExperimentsConfiguration Dev TestMERT Baseline 29.9?.3 34.0?.82 Pass, 4 updates 31.1?.2 35.1?.41 Pass, 1 update 30.7?.1 34.6?.5?Folds 30.0?.2 34.0?.4?Conditioning 30.1?.1 34.2?.2255Table 5: Arabic-EnglishSystem Dev (MT06) MT05 MT08(nw) MT08(wb)MERT Baseline 39.2?.4 50.3?.4 45.2?.2 29.4?.14HOLS 1 Pass, 2 updates 39.9?.9 51.2?.4 45.8?.4 30.0?.4?BLEU +.7 +.9 +.6 +.6Table 6: Malagasy-EnglishSystem Dev TestMERT Baseline 19.8?.3 17.7?.2HOLS 1 Pass, 1 update 20.5?.1 18.4?.2?BLEU +.7 +.7one gradient update, HOLS improves upon the MERTbaseline by .6 BLEU points, which is a statisticallysignificant improvement.
+With 2 passes through thetraining data and 4 gradient updates, HOLS performseven better, obtaining a 1.1 BLEU point improve-ment over the baseline and is also statistically signif-icant.
+With 16 threads, 1 pass, 1 update completedin 9 hours, and 2 pass, 4 updates, completed in 40hours.
+The medium-scale PRO setup in ?6.1 obtainsa result of 34.4?
+.1 on this test set, which is a statis-tically significant improvement of .4 BLEU pointsover the MERT baseline but does not beat the large-scale HOLS results.Is folding and conditioning necessary?
+We ex-periment with what happens if grammar and LMfolds are not used and if conditioning is not done.
+?Folds denotes 1 pass 1 update without folds, and?Conditioning denotes 1 pass 1 update without con-ditioning.
+We can see that both these steps are im-portant for the training procedure to work well.The decrease in performance of the training pro-cedure without folds or conditioning is dramatic butnot too surprising.
+With just one gradient update,one would expect conditioning to be very important.And from the lessons learned in section 3.1, onewould also expect the procedure to perform poorlyor even worse than the MERT baseline without gram-mar or LM folds.
+But because HOLS runs MERT onthe dev data for the last line search, it is almost im-possible for HOLS to be worse than the MERT base-line.
+(This, in fact, was part of our motivation whenwe originally attempted the HOLS algorithm.
+)6.3 Other Language PairsThe last set of experiments looks at the performanceof the learning algorithm for two other languagesand data scenarios for one pass through the trainingdata.
+Using the same setup for large-scale discrimi-native training as before, we apply the training pro-cedure to a large data scenario Arabic-English taskand a small data scenario Malagasy-English task(Tables 5 and 6).
+The training procedure gives statis-tically significant improvements over the baseline by.6 to .9 BLEU for Arabic, and a statistically signif-icant improvement of .7 BLEU for Malagasy.
+With16 threads, the runtime was 44 hours for Arabic and5 hours for Malagasy.7 ConclusionWe have explored the difficulties encounteredin large-scale discriminative training for machinetranslation, and introduced a learning procedure de-signed to overcome them and scale to large corpora.We leave to future work to experiment with featuresets designed for the large-scale discriminative set-ting.
+In particular, we hope this framework will fa-cilitate incorporation of richer linguistic knowledgeinto machine translation.AcknowledgmentsThis work was sponsored by the U. S. Army ResearchLaboratory and the U. S. Army Research Office un-der contract/grant number W911NF-10-1-0533.
+JeffreyFlanigan would like to thank his co-advisor Lori Levinfor support and encouragement during this work.ReferencesPhil Blunsom, Trevor Cohn, and Miles Osborne.
+2008.A discriminative latent variable model for statisticalmachine translation.
+In Proc.
+ACL-HLT.Le?on Bottou.
+1998.
+Online algorithms and stochastic ap-proximations.
+In David Saad, editor, Online Learning256and Neural Networks.
+Cambridge University Press,Cambridge, UK.
+revised, oct 2012.Le?on Bottou.
+2010.
+Large-scale machine learning withstochastic gradient descent.
+In Yves Lechevallier andGilbert Saporta, editors, Proceedings of the 19th In-ternational Conference on Computational Statistics(COMPSTAT?2010), pages 177?187, Paris, France,August.
+Springer.V.
+Chahuneau, N. A. Smith, and C. Dyer.
+2012. pycdec:A python interface to cdec.
+The Prague Bulletin ofMathematical Linguistics, 98:51?61.Colin Cherry and George Foster.
+2012.
+Batch tuningstrategies for statistical machine translation.
+In Proc.of NAACL.David Chiang, Yuval Marton, and Philip Resnik.
+2008.Online large-margin training of syntactic and struc-tural translation features.
+In Proceedings of the Con-ference on Empirical Methods in Natural LanguageProcessing, EMNLP ?08, pages 224?233, Strouds-burg, PA, USA.
+Association for Computational Lin-guistics.David Chiang.
+2005.
+A hierarchical phrase-based modelfor statistical machine translation.
+In In ACL, pages263?270.David Chiang.
+2012.
+Hope and fear for discriminativetraining of statistical translation models.
+Journal ofMachine Learning Research, pages 1159?1187.Jonathan H. Clark, Chris Dyer, Alon Lavie, and Noah A.Smith.
+2011.
+Better hypothesis testing for statisti-cal machine translation: controlling for optimizer in-stability.
+In Proceedings of the 49th Annual Meetingof the Association for Computational Linguistics: Hu-man Language Technologies: short papers - Volume2, HLT ?11, pages 176?181, Stroudsburg, PA, USA.Association for Computational Linguistics.Michael Denkowski and Alon Lavie.
+2011.
+Meteor 1.3:Automatic Metric for Reliable Optimization and Eval-uation of Machine Translation Systems.
+In Proceed-ings of the EMNLP 2011 Workshop on Statistical Ma-chine Translation.Chris Dyer, Adam Lopez, Juri Ganitkevitch, JohnathanWeese, Ferhan Ture, Phil Blunsom, Hendra Setiawan,Vladimir Eidelman, and Philip Resnik.
+2010. cdec: Adecoder, alignment, and learning framework for finite-state and context-free translation models.
+In Proceed-ings of ACL.Kevin Gimpel and Noah A. Smith.
+2012.
+Structuredramp loss minimization for machine translation.
+InProc.
+of NAACL.K.
+Gimpel.
+2012.
+Discriminative Feature-Rich Modelingfor Syntax-Based Machine Translation.
+Ph.D. thesis,Carnegie Mellon University.Kenneth Heafield.
+2011.
+KenLM: Faster and smallerlanguage model queries.
+In Proceedings of the SixthWorkshop on Statistical Machine Translation, Edin-burgh, UK, July.
+Association for Computational Lin-guistics.Mark Hopkins and Jonathan May.
+2011.
+Tuning as rank-ing.
+In Proc.
+of EMNLP.Percy Liang, Alexandre Bouchard-co?te?, Dan Klein, andBen Taskar.
+2006.
+An end-to-end discriminative ap-proach to machine translation.
+In In Proceedings ofthe Joint International Conference on ComputationalLinguistics and Association of Computational Linguis-tics (COLING/ACL, pages 761?768.Preslav Nakov, Francisco Guzma?n, and Stephan Vogel.2012.
+Optimizing for sentence-level bleu+1 yieldsshort translations.
+In Martin Kay and Christian Boitet,editors, COLING, pages 1979?1994.
+Indian Instituteof Technology Bombay.Jorge Nocedal and Stephen J. Wright.
+2000.
+NumericalOptimization.
+Springer.Franz Josef Och and Hermann Ney.
+2002.
+Discrimina-tive training and maximum entropy models for statis-tical machine translation.
+In Proc.
+of ACL.Franz Josef Och and Hermann Ney.
+2003.
+A system-atic comparison of various statistical alignment mod-els.
+Comput.
+Linguist., 29(1):19?51, March.Franz Josef Och.
+2003.
+Minimum error rate training instatistical machine translation.
+In Proc.
+of ACL.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2002.
+Bleu: a method for automatic eval-uation of machine translation.
+In Proceedings of the40th Annual Meeting on Association for Computa-tional Linguistics, ACL ?02, pages 311?318, Strouds-burg, PA, USA.
+Association for Computational Lin-guistics.Antti-Veiko Rosti, Bing Zhang, Spyros Matsoukas, andRichard Schwartz.
+2010.
+BBN system description forWMT10 system combination task.
+In Proc.
+WMT.Avneesh Saluja, Ian Lane, and Joy Zhang.
+2012.
+Ma-chine Translation with Binary Feedback: a large-margin approach.
+In Proceedings of The Tenth Bien-nial Conference of the Association for Machine Trans-lation in the Americas, San Diego, CA, July.Patrick Simianer, Chris Dyer, and Stefan Riezler.
+2012.Joint feature selection in distributed stochastic learn-ing for large-scale discriminative training in SMT.
+InProc.
+ACL.David A. Smith and Jason Eisner.
+2006.
+Minimum riskannealing for training log-linear models.
+In Proc.
+ofACL.Andreas Stolcke.
+2002.
+Srilm - an extensible languagemodeling toolkit.
+pages 901?904.Christoph Tillmann and Tong Zhang.
+2006.
+A discrim-inative global training algorithm for statistical mt.
+InProceedings of the 21st International Conference on257Computational Linguistics and the 44th annual meet-ing of the Association for Computational Linguistics,ACL-44, pages 721?728, Stroudsburg, PA, USA.
+As-sociation for Computational Linguistics.Ioannis Tsochantaridis, Thomas Hofmann, ThorstenJoachims, and Yasemin Altun.
+2004.
+Support vec-tor machine learning for interdependent and structuredoutput spaces.
+In Proceedings of the twenty-first inter-national conference on Machine learning, ICML ?04,pages 104?, New York, NY, USA.
+ACM.Taro Watanabe, Jun Suzuki, Hajime Tsukada, and HidekiIsozaki.
+2007.
+Online large-margin training for statis-tical machine translation.
+In Proc.
+EMNLP-CoNLL.Jonathan Weese, Juri Ganitkevitch, Chris Callison-Burch, Matt Post, and Adam Lopez.
+2011.
+Joshua3.0: syntax-based machine translation with the thraxgrammar extractor.
+In Proceedings of the Sixth Work-shop on Statistical Machine Translation, WMT ?11,pages 478?484, Stroudsburg, PA, USA.
+Associationfor Computational Linguistics.258

@@ -1,0 +1,375 @@
+Human Language Technologies: The 2010 Annual Conference of the North American Chapter of the ACL, pages 948?956,Los Angeles, California, June 2010. c?2010 Association for Computational LinguisticsProbabilistic Frame-Semantic ParsingDipanjan Das Nathan Schneider Desai Chen Noah A. SmithSchool of Computer ScienceCarnegie Mellon UniversityPittsburgh, PA 15213, USA{dipanjan@cs,nschneid@cs,desaic@andrew,nasmith@cs}.cmu.eduAbstractThis paper contributes a formalization offrame-semantic parsing as a structure predic-tion problem and describes an implementedparser that transforms an English sentenceinto a frame-semantic representation.
+It findswords that evoke FrameNet frames, selectsframes for them, and locates the argumentsfor each frame.
+The system uses two feature-based, discriminative probabilistic (log-linear)models, one with latent variables to permitdisambiguation of new predicate words.
+Theparser is demonstrated to significantly outper-form previously published results.1 IntroductionFrameNet (Fillmore et al, 2003) is a rich linguisticresource containing considerable information aboutlexical and predicate-argument semantics in En-glish.
+Grounded in the theory of frame semantics(Fillmore, 1982), it suggests?but does not formallydefine?a semantic representation that blends word-sense disambiguation and semantic role labeling.In this paper, we present a computational andstatistical model for frame-semantic parsing, theproblem of extracting from text semantic predicate-argument structures such as those shown in Fig.
+1.We aim to predict a frame-semantic representationas a structure, not as a pipeline of classifiers.
+Weuse a probabilistic framework that cleanly integratesthe FrameNet lexicon and (currently very limited)available training data.
+Although our models ofteninvolve strong independence assumptions, the prob-abilistic framework we adopt is highly amenable tofuture extension through new features, relaxed in-dependence assumptions, and semisupervised learn-ing.
+Some novel aspects of our current approachinclude a latent-variable model that permits disam-biguation of words not in the FrameNet lexicon, aunified model for finding and labeling arguments,TRANSITIVE_ACTIONAgentPatientEventCausePlaceTimeCAUSE_TO_MAKE_NOISEAgentSound_makerCausePlaceTimeMAKE_NOISENoisy_eventSoundSound_sourcePlaceTimecough.v, gobble.v,ring.v, yodel.v, ...blare.v, play.v,ring.v, toot.v, ...?Inheritance relation Causative_of relationExcludes relationPurposeFigure 2.
+Partial illustration of frames, roles, and LUsrelated to the CAUSE TO MAKE NOISE frame, from theFrameNet lexicon.
+?Core?
+roles are filled ovals.
+8 addi-tional roles of CAUSE TO MAKE NOISE are not shown.and a precision-boosting constraint that forbids ar-guments of the same predicate to overlap.
+Our parserachieves the best published results to date on theSemEval?07 FrameNet task (Baker et al, 2007).2 Resources and TaskWe consider frame-semantic parsing resources.2.1 FrameNet LexiconThe FrameNet lexicon is a taxonomy of manu-ally identified general-purpose frames for English.1Listed in the lexicon with each frame are severallemmas (with part of speech) that can denote theframe or some aspect of it?these are called lexi-cal units (LUs).
+In a sentence, word or phrase to-kens that evoke a frame are known as targets.
+Theset of LUs listed for a frame in FrameNet may notbe exhaustive; we may see a target in new data thatdoes not correspond to an LU for the frame it evokes.Each frame definition also includes a set of frame el-ements, or roles, corresponding to different aspectsof the concept represented by the frame, such as par-ticipants, props, and attributes.
+We use the term ar-1Like the SemEval?07 participants, we used FrameNet v. 1.3(http://framenet.icsi.berkeley.edu).948bell.nring.vthere be.venough.aLUNOISE_MAKERSSUFFICIENCYFrameEXISTENCECAUSE_TO_MAKE_NOISE.bellsN_mmore than six of the eightSound_makerEnabled_situationringtoringersItemenoughEntityAgentn'tarestillthereButFigure 1.
+A sentence from PropBank and the SemEval?07 training data, and a partial depiction of gold FrameNetannotations.
+Each frame is a row below the sentence (ordered for readability).
+Thick lines indicate targets that evokeframes; thin solid/dotted lines with labels indicate arguments.
+?N m?
+under bells is short for the Noise maker role ofthe NOISE MAKERS frame.
+The last row indicates that there.
+.
+.
+are is a discontinuous target.
+In PropBank, the verbring is the only annotated predicate for this sentence, and it is not related to other predicates with similar meanings.FRAMENET LEXICON V. 1.3lexical exemplarsentries counts coverage8379 LUs 139K sentences, 3.1M words 70% LUs795 frames 1 frame annotation / sentence 63% frames7124 roles 285K overt arguments 56% rolesTable 1.
+Snapshot of lexicon entries and exemplar sen-tences.
+Coverage indicates the fraction of types attestedin at least one exemplar.gument to refer to a sequence of word tokens anno-tated as filling a frame role.
+Fig.
+1 shows an exam-ple sentence from the training data with annotatedtargets, LUs, frames, and role-argument pairs.
+TheFrameNet lexicon also provides information aboutrelations between frames and between roles (e.g.,INHERITANCE).
+Fig.
+2 shows a subset of the rela-tions between three frames and their roles.Accompanying most frame definitions in theFrameNet lexicon is a set of lexicographic exemplarsentences (primarily from the British National Cor-pus) annotated for that frame.
+Typically chosen to il-lustrate variation in argument realization patterns forthe frame in question, these sentences only containannotations for a single frame.
+We found that usingexemplar sentences directly to train our models hurtperformance as evaluated on SemEval?07 data, eventhough the number of exemplar sentences is an orderof magnitude larger than the number of sentences inour training set (?2.2).
+This is presumably becausethe exemplars are neither representative as a samplenor similar to the test data.
+Instead, we make use ofthese exemplars in features (?4.2).2.2 DataOur training, development, and test sets consistof documents annotated with frame-semantic struc-tures for the SemEval?07 task, which we refer to col-FULL-TEXT SemEval?07 dataANNOTATIONS train dev testSize (words sentences documents)all 43.3K1.7K 22 6.3K 251 4 2.8K 120 3ANC (travel) 3.9K 154 2 .8K 32 1 1.3K 67 1NTI (bureaucratic) 32.2K1.2K 15 5.5K 219 3 1.5K 53 2PropBank (news) 7.3K 325 5 0 0 0 0 0 0Annotations (frames/word overt arguments/word)all 0.23 0.39 0.22 0.37 0.37 0.65Coverage of lexicon (% frames % roles % LUs)all 64.1 27.4 21.0 34.0 10.2 7.3 29.3 7.7 4.9Out-of-lexicon types (frames roles LUs)all 14 69 71 2 4 2 39 99 189Out-of-lexicon tokens (% frames % roles % LUs)all 0.7 0.9 1.1 1.0 0.4 0.2 9.8 11.2 25.3Table 2.
+Snapshot of the SemEval?07 annotated data.lectively as the SemEval?07 data.2 For the mostpart, the frames and roles used in annotating thesedocuments were defined in the FrameNet lexicon,but there are some exceptions for which the annota-tors defined supplementary frames and roles; theseare included in the possible output of our parser.Table 2 provides a snapshot of the SemEval?07data.
+We randomly selected three documents fromthe original SemEval training data to create a devel-opment set for tuning model hyperparameters.
+No-tice that the test set contains more annotations perword, both in terms of frames and arguments.
+More-over, there are many more out-of-lexicon frame,role, and LU types in the test set than in the trainingset.
+This inconsistency in the data results in poor re-call scores for all models trained on the given datasplit, a problem we have not sought to address here.2http://framenet.icsi.berkeley.edu/semeval/FSSE.html949Preprocessing.
+We preprocess sentences in ourdataset with a standard set of annotations: POStags from MXPOST (Ratnaparkhi, 1996) and depen-dency parses from the MST parser (McDonald et al,2005) since manual syntactic parses are not availablefor most of the FrameNet-annotated documents.
+Weused WordNet (Fellbaum, 1998) for lemmatization.We also labeled each verb in the data as having AC-TIVE or PASSIVE voice, using code from the SRLsystem described by Johansson and Nugues (2008).2.3 Task and EvaluationAutomatic annotations of frame-semantic structurecan be broken into three parts: (1) targets, the wordsor phrases that evoke frames; (2) the frame type,defined in the lexicon, evoked by each target; and(3) the arguments, or spans of words that serve tofill roles defined by each evoked frame.
+These cor-respond to the three subtasks in our parser, eachdescribed and evaluated in turn: target identifica-tion (?3), frame identification (?4, not unlike word-sense disambiguation), and argument identification(?5, not unlike semantic role labeling).The standard evaluation script from theSemEval?07 shared task calculates precision,recall, and F1-measure for frames and arguments;it also provides a score that gives partial creditfor hypothesizing a frame related to the correctone.
+We present precision, recall, and F1-measuremicroaveraged across the test documents, reportlabels-only matching scores (spans must matchexactly), and do not use named entity labels.
+Moredetails can be found in Baker et al (2007).
+For ourexperiments, statistical significance is measured us-ing a reimplementation of Dan Bikel?s randomizedparsing evaluation comparator.32.4 BaselineA strong baseline for frame-semantic parsing isthe system presented by Johansson and Nugues(2007, hereafter J&N?07), the best system in theSemEval?07 shared task.
+For frame identifica-tion, they used an SVM classifier to disambiguateframes for known frame-evoking words.
+They usedWordNet synsets to extend the vocabulary of frame-evoking words to cover unknown words, and then3http://www.cis.upenn.edu/?dbikel/software.html#comparatorTARGET IDENTIFICATION P R F1Our technique (?3) 89.92 70.79 79.21Baseline: J&N?07 87.87 67.11 76.10Table 3.
+Target identification results for our system andthe baseline.
+Scores in bold denote significant improve-ments over the baseline (p < 0.05).used a collection of separate SVM classifiers?onefor each frame?to predict a single evoked frame foreach occurrence of a word in the extended set.J&N?07 modeled the argument identificationproblem by dividing it into two tasks: first, theyclassified candidate spans as to whether they werearguments or not; then they assigned roles to thosethat were identified as arguments.
+Both phases usedSVMs.
+Thus, their formulation of the problem in-volves a multitude of classifiers?whereas ours usestwo log-linear models, each with a single set ofweights, to find a full frame-semantic parse.3 Target IdentificationTarget identification is the problem of decidingwhich word tokens (or word token sequences) evokeframes in a given sentence.
+In other semantic rolelabeling schemes (e.g.
+PropBank), simple part-of-speech criteria typically distinguish predicates fromnon-predicates.
+But in frame semantics, verbs,nouns, adjectives, and even prepositions can evokeframes under certain conditions.
+One complicationis that semantically-impoverished support predi-cates (such as make in make a request) do notevoke frames in the context of a frame-evoking,syntactially-dependent noun (request).
+Further-more, only temporal, locative, and directional sensesof prepositions evoke frames.We found that, because the test set is more com-pletely annotated?that is, it boasts far more framesper token than the training data (see Table 2)?learned models did not generalize well and achievedpoor test recall.
+Instead, we followed J&N?07 in us-ing a small set of rules to identify targets.For a span to be a candidate target, it must ap-pear (up to morphological variation) as a target in thetraining data or the lexicon.
+We consider multiwordtargets,4 unlike J&N?07 (though we do not consider4There are 629 multiword LUs in the lexicon, and they cor-respond to 4.8% of the targets in the training set; among themare screw up.V, shoot the breeze.V, and weapon of mass de-950FRAME IDENTIFICATION exact frame matching partial frame matching(?4) targets P R F1 P R F1Frame identification (oracle targets) ?
+60.21 60.21 60.21 74.21 74.21 74.21Frame identification (predicted targets) auto ?3 69.75 54.91 61.44 77.51 61.03 68.29Baseline: J&N?07 auto 66.22 50.57 57.34 73.86 56.41 63.97Table 4.
+Frame identification results.
+Precision, recall, and F1 were evaluated under exact and partial frame matching;see ?2.3.
+Bold indicates statistically significant results with respect to the baseline (p < 0.05).discontinuous targets).
+Using rules from ?3.1.1 ofJ&N?07, we further prune the list, with two modi-fications: we prune all prepositions, including loca-tive, temporal, and directional ones, but do not prunesupport verbs.
+This is a conservative approach; ourautomatic target identifier will never propose a targetthat was not seen in the training data or FrameNet.Results.
+Table 3 shows results on target identifica-tion; our system gains 3 F1 points over the baseline.4 Frame IdentificationGiven targets, the parser next identifies their frames.4.1 Lexical unitsFrameNet specifies a great deal of structural infor-mation both within and among frames.
+For frameidentification we make use of frame-evoking lexicalunits, the (lemmatized and POS-tagged) words andphrases listed in the lexicon as referring to specificframes.
+For example, listed with the BRAGGINGframe are 10 LUs, including boast.N, boast.V, boast-ful.A, brag.V, and braggart.N.
+Of course, due to pol-ysemy and homonymy, the same LU may be associ-ated with multiple frames; for example, gobble.V islisted under both the INGESTION and MAKE NOISEframes.
+All targets in the exemplar sentences, andmost in our training and test data, correspond toknown LUs (see Table 2).To incorporate frame-evoking expressions foundin the training data but not the lexicon?and to avoidthe possibility of lemmatization errors?our frameidentification model will incorporate, via a latentvariable, features based directly on exemplar andtraining targets rather than LUs.
+Let L be the set of(unlemmatized and automatically POS-tagged) tar-gets found in the exemplar sentences of the lexi-con and/or the sentences in our training set.
+LetLf ?
+L be the subset of these targets annotated asstruction.N.
+In the SemEval?07 training data, there are just 99discontinuous multiword targets (1% of all targets).evoking a particular frame f .
+Let Ll and Llf de-note the lemmatized versions of L and Lf respec-tively.
+Then, we write boasted.VBD ?
+LBRAGGINGand boast.VBD ?
+LlBRAGGING to indicate that this in-flected verb boasted and its lemma boast have beenseen to evoke the BRAGGING frame.
+Significantly,however, another target, such as toot your own horn,might be used in other data to evoke this frame.
+Wethus face the additional hurdle of predicting framesfor unknown words.The SemEval annotators created 47 new framesnot present in the lexicon, out of which 14 belongedto our training set.
+We considered these with the 795frames in the lexicon when parsing new data.
+Pre-dicting new frames is a challenge not yet attemptedto our knowledge (including here).
+Note that thescoring metric (?2.3) gives partial credit for relatedframes (e.g., a more general frame from the lexicon).4.2 ModelFor a given sentence x with frame-evoking targets t,let ti denote the ith target (a word sequence).
+Let tlidenote its lemma.
+We seek a list f = ?f1, .
+.
+.
+, fm?of frames, one per target.
+In our model, the set ofcandidate frames for ti is defined to include everyframe f such that tli ?
+Llf?or if tli 6?
+Ll, then everyknown frame (the latter condition applies for 4.7%of the gold targets in the development set).
+In bothcases, we let Fi be the set of candidate frames forthe ith target in x.To allow frame identification for targets whoselemmas were seen in neither the exemplars nor thetraining data, our model includes an additional vari-able, `i.
+This variable ranges over the seen targetsin Lfi , which can be thought of as prototypes forthe expression of the frame.
+Importantly, frames arepredicted, but prototypes are summed over via thelatent variable.
+The prediction rule requires a prob-abilistic model over frames for a target:fi ?
+argmaxf?Fi?`?Lfp(f, ` | ti,x) (1)951We adopt a conditional log-linear model: for f ?
+Fiand ` ?
+Lf , p?
+(f, ` | ti,x) =exp?>g(f, `, ti,x)?f ??Fi?`?
+?Lf ?exp?>g(f ?, `?, ti,x)(2)where ?
+are the model weights, and g is a vector-valued feature function.
+This discriminative formu-lation is very flexible, allowing for a variety of (pos-sibly overlapping) features; e.g., a feature might re-late a frame type to a prototype, represent a lexical-semantic relationship between a prototype and a tar-get, or encode part of the syntax of the sentence.Previous work has exploited WordNet for bettercoverage during frame identification (Johansson andNugues, 2007; Burchardt et al, 2005, e.g., by ex-panding the set of targets using synsets), and othershave sought to extend the lexicon itself (see ?6).
+Wediffer in our use of a latent variable to incorporatelexical-semantic features in a discriminative model,relating known lexical units to unknown words thatmay evoke frames.
+Here we are able to take advan-tage of the large inventory of partially-annotated ex-emplar sentences.Note that this model makes a strong independenceassumption: each frame is predicted independentlyof all others in the document.
+In this way the modelis similar to J&N?07.
+However, ours is a singleconditional model that shares features and weightsacross all targets, frames, and prototypes, whereasthe approach of J&N?07 consists of many separatelytrained models.
+Moreover, our model is unique inthat it uses a latent variable to smooth over framesfor unknown or ambiguous LUs.Frame identification features depend on the pre-processed sentence x, the prototype ` and itsWordNet lexical-semantic relationship with the tar-get ti, and of course the frame f .
+Our model instan-tiates 662,020 binary features; see Das et al (2010).4.3 TrainingGiven the training subset of the SemEval?07 data,which is of the form?
+?x(j), t(j), f (j),A(j)?
+?Nj=1(N = 1663 is the number of sentences), we dis-criminatively train the frame identification model bymaximizing the following log-likelihood:55We found no benefit on development data from using an L2regularizer (zero-mean Gaussian prior).max?N?j=1mj?i=1log?`?Lf(j)ip?
+(f(j)i , ` | t(j)i ,x(j)) (3)Note that the training problem is non-convex be-cause of the summed-out prototype latent variable` for each frame.
+To calculate the objective func-tion, we need to cope with a sum over frames andprototypes for each target (see Eq.
+2), often an ex-pensive operation.
+We locally optimize the functionusing a distributed implementation of L-BFGS.
+Thisis the most expensive model that we train: with 100CPUs, training takes several hours.
+(Decoding takesonly a few minutes on one CPU for the test set.
+)4.4 ResultsWe evaluate the performance of our frame identifi-cation model given gold-standard targets and auto-matically identified targets (?3); see Table 4.Given gold-standard targets, our model is ableto predict frames for lemmas not seen in training,of which there are 210.
+The partial-match evalua-tion gives our model some credit for 190 of these,4 of which are exactly correct.
+The hidden vari-able model, then, is finding related (but rarely exact)frames for unknown target words.
+The net effect ofour conservative target identifier on F1 is actuallypositive: the frame identifier is far more precise fortargets seen explicitly in training.
+Together, our tar-get and frame identification outperform the baselineby 4 F1 points.
+To compare the frame identificationstage in isolation with that of J&N?07, we ran ourframe identification model with the targets identifiedby their system as input.
+With partial matching, ourmodel achieves a relative improvement of 0.6% F1over J&N?07 (though this is not significant).While our frame identification model thus per-forms on par with the current state of the art forthis task, it improves upon J&N?s formulation ofthe problem because it requires only a single model,learns lexical-semantic features as part of that modelrather than requiring a preprocessing step to expandthe vocabulary of frame-evoking words, and is prob-abilistic, which can facilitate global reasoning.5 Argument IdentificationGiven a sentence x = ?x1, .
+.
+.
+, xn?, the set of tar-gets t = ?t1, .
+.
+.
+, tm?, and a list of evoked frames952f = ?f1, .
+.
+.
+, fm?
+corresponding to each target, ar-gument identification is the task of choosing whichof each fi?s roles are filled, and by which parts of x.This task is most similar to the problem of semanticrole labeling, but uses frame-specific labels that arericher than the PropBank annotations.5.1 ModelLet Rfi = {r1, .
+.
+.
+, r|Rfi |} denote frame fi?s roles(named frame element types) observed in an exem-plar sentence and/or our training set.
+A subset ofeach frame?s roles are marked as core roles; theseroles are conceptually and/or syntactically necessaryfor any given use of the frame, though they neednot be overt in every sentence involving the frame.These are roughly analogous to the core argumentsA0?A5 and AA in PropBank.
+Non-core roles?analogous to the various AMs in PropBank?looselycorrespond to syntactic adjuncts, and carry broadly-applicable information such as the time, place, orpurpose of an event.
+The lexicon imposes someadditional structure on roles, including relations toother roles in the same or related frames, and se-mantic types with respect to a small ontology (mark-ing, for instance, that the entity filling the protag-onist role must be sentient for frames of cogni-tion).
+Fig.
+2 illustrates some of the structural ele-ments comprising the frame lexicon by consideringthe CAUSE TO MAKE NOISE frame.We identify a set S of spans that are candidates forfilling any role r ?
+Rfi .
+In principle, S could con-tain any subsequence of x, but in this work we onlyconsider the set of contiguous spans that (a) containa single word or (b) comprise a valid subtree of aword and all its descendants in the dependency parseproduced by the MST parser.
+This covers 81% of ar-guments in the development data.
+The empty spanis also included in S, since some roles are not ex-plicitly filled; in the development data, the averagenumber of roles an evoked frame defines is 6.7, butthe average number of overt arguments is only 1.7.6In training, if a labeled argument is not a valid sub-6In the annotated data, each core role is filled with one ofthree types of null instantiations indicating how the role is con-veyed implicitly.
+E.g., the imperative construction implicitlydesignates a role as filled by the addressee, and the correspond-ing filler is thus CNI (constructional null instantiation).
+In thiswork we do not distinguish different types of null instantiations.tree of the dependency parse, we add its span to S .Let Ai denote the mapping of roles in Rfi tospans in S. Our model makes a prediction for eachAi(rk) (for all roles rk ?
+Rfi) using:Ai(rk)?
+argmaxs?S p(s | rk, fi, ti,x) (4)We use a conditional log-linear model over spans foreach role of each evoked frame:p?
+(Ai(rk) = s | fi, ti,x) = (5)exp?>h(s, rk, fi, ti,x)?s?
+?S exp?>h(s?, rk, fi, ti,x)Note that our model chooses the span for eachrole separately from the other roles and ignores allframes except the frame the role belongs to.
+Ourmodel departs from the traditional SRL literature bymodeling the argument identification problem in asingle stage, rather than first classifying token spansas arguments and then labeling them.
+A constraintimplicit in our formulation restricts each role to haveat most one overt argument, which is consistent with96.5% of the role instances in the training data.Out of the overt argument spans in the trainingdata, 12% are duplicates, having been used by someprevious frame in the sentence (supposing some ar-bitrary ordering of frames).
+Our role-filling model,unlike a sentence-global argument detection-and-classification approach,7 permits this sort of argu-ment sharing among frames.
+The incidence of spanoverlap among frames is much higher; Fig.
+1 illus-trates a case with a high degree of overlap.
+Wordtokens belong to an average of 1.6 argument spanseach, including the quarter of words that do not be-long to any argument.Features for our log-linear model (Eq.
+5) dependon the preprocessed sentence x; the target t; arole r of frame f ; and a candidate argument spans ?
+S. Our model includes lexicalized and unlexi-calized features considering aspects of the syntacticparse (most notably the dependency path in the parsefrom the target to the argument); voice; word order-ing/overlap/distance of the argument with respect tothe target; and POS tags within and around the argu-ment.
+Many features have a version specific to theframe and role, plus a smoothed version incorporat-ing the role name, but not the frame.
+These features7J&N?07, like us, identify arguments for each target.953are fully enumerated in (Das et al, 2010); instanti-ating them for our data yields 1,297,857 parameters.5.2 TrainingWe train the argument identification model by:max?N?j=1mj?i=1|Rf(j)i|?k=1log p?
+(A(j)i (rk) | f(j)i , t(j)i ,x(j))(6)This objective function is concave, and we globallyoptimize it using stochastic gradient ascent (Bottou,2004).
+We train this model until the argument iden-tification F1 score stops increasing on the develop-ment data.
+Best results on this dataset were obtainedwith a batch size of 2 and 23 passes through the data.5.3 Approximate Joint DecodingNa?
+?ve prediction of roles using Eq.
+4 may resultin overlap among arguments filling different rolesof a frame, since the argument identification modelfills each role independently of the others.
+We wantto enforce the constraint that two roles of a singleframe cannot be filled by overlapping spans.
+We dis-allow illegal overlap using a 10000-hypothesis beamsearch; the algorithm is given in (Das et al, 2010).5.4 ResultsPerformance of the argument identification modelis presented in Table 5.
+The table shows how per-formance varies given different types of perfect in-put: correct targets, correct frames, and the set ofcorrect spans; correct targets and frames, with theheuristically-constructed set of candidate spans; cor-rect targets only, with model frames; and ultimately,no oracle input (the full frame parsing scenario).The first four rows of results isolate the argu-ment identification task from the frame identifica-tion task.
+Given gold targets and frames and an ora-cle set of argument spans, our local model achievesabout 87% precision and 75% recall.
+Beam searchdecoding to eliminate illegal argument assignmentswithin a frame (?5.3) further improves precision byabout 1.6%, with negligible harm to recall.
+Notethat 96.5% recall is possible under the constraint thatroles are not multiply-filled (?5.1); there is thus con-siderable room for improvement with this constraintin place.
+Joint prediction of each frame?s argumentsis worth exploring to capture correlations not en-coded in our local models or joint decoding scheme.The 15-point drop in recall when the heuristically-built candidate argument set replaces the set of trueargument spans is unsurprising: an estimated 19% ofcorrect arguments are excluded because they are nei-ther single words nor complete subtrees (see ?5.1).Qualitatively, the problem of candidate span recallseems to be largely due to syntactic parse errors.8Still, the 10-point decrease in precision when usingthe syntactic parse to determine candidate spans sug-gests that the model has trouble discriminating be-tween good and bad arguments, and that additionalfeature engineering or jointly decoding arguments ofa sentence?s frames may be beneficial in this regard.The fifth and sixth rows show the effect of auto-matic frame identification on overall frame parsingperformance.
+There is a 22% decrease in F1 (18%when partial credit is given for related frames), sug-gesting that improved frame identification or jointprediction of frames and arguments is likely to havea sizeable impact on overall performance.The final two rows of the table compare our fullmodel (target, frame, and argument identification)with the baseline, showing significant improvementof more than 4.4 F1 points for both exact and partialframe matching.
+As with frame identification, wecompared the argument identification stage with thatof J&N?07 in isolation, using the automatically iden-tified targets and frames from the latter as input toour model.
+With partial frame matching, this gave usan F1 score of 48.1% on the test set?significantlybetter (p < 0.05) than 45.6%, the full parsing re-sult from J&N?07.
+This indicates that our argumentidentification model?which uses a single discrim-inative model with a large number of features forrole filling (rather than argument labeling)?is morepowerful than the previous state of the art.6 Related workSince Gildea and Jurafsky (2002) pioneered statis-tical semantic role labeling, a great deal of com-8Note that, because of our labels-only evaluation scheme(?2.3), arguments missing a word or containing an extra wordreceive no credit.
+In fact, of the frame roles correctly predictedas having an overt span, the correct span was predicted 66% ofthe time, while 10% of the time the predicted starting and end-ing boundaries of the span were off by a total of 1 or 2 words.954ARGUMENT IDENTIFICATION exact frame matchingtargets frames spans decoding P R F1Argument identifica-tion (oracle spans)?
+?
+?
+na?
+?ve 86.61 75.11 80.45?
+?
+?
+beam ?5.3 88.29 74.77 80.97Argument identifica-tion (full)?
+?
+model ?5 na?
+?ve 77.43 60.76 68.09 partial frame matching?
+?
+model ?5 beam ?5.3 78.71 60.57 68.46 P R F1Parsing (oracle targets) ?
+model ?4 model ?5 beam ?5.3 49.68 42.82 46.00 57.85 49.86 53.56Parsing (full) auto ?3 model ?4 model ?5 beam ?5.3 58.08 38.76 46.49 62.76 41.89 50.24Baseline: J&N?07 auto model model N/A 51.59 35.44 42.01 56.01 38.48 45.62Table 5.
+Argument identification results.
+?
+indicates that gold-standard labels were used for a given pipeline stage.For full parsing, bolded scores indicate significant improvements relative to the baseline (p < 0.05).putational work has investigated predicate-argumentstructures for semantics.
+Briefly, we highlight somerelevant work, particularly research that has madeuse of FrameNet.
+(Note that much related researchhas focused on PropBank (Kingsbury and Palmer,2002), a set of shallow predicate-argument annota-tions for Wall Street Journal articles from the PennTreebank (Marcus et al, 1993); a recent issue of CL(Ma`rquez et al, 2008) was devoted to the subject.
+)Most work on frame-semantic role labeling hasmade use of the exemplar sentences in the FrameNetcorpus (see ?2.1), each of which is annotated for asingle frame and its arguments.
+On the probabilis-tic modeling front, Gildea and Jurafsky (2002) pre-sented a discriminative model for arguments giventhe frame; Thompson et al (2003) used a gener-ative model for both the frame and its arguments;and Fleischman et al (2003) first used maximumentropy models to find and label arguments giventhe frame.
+Shi and Mihalcea (2004) developed arule-based system to predict frames and their argu-ments in text, and Erk and Pado?
+(2006) introducedthe Shalmaneser tool, which employs Na?
+?ve Bayesclassifiers to do the same.
+Other FrameNet SRLsystems (Giuglea and Moschitti, 2006, for instance)have used SVMs.
+Most of this work was done on anolder, smaller version of FrameNet.Recent work on frame-semantic parsing?inwhich sentences may contain multiple frames to berecognized along with their arguments?has usedthe SemEval?07 data (Baker et al, 2007).
+The LTHsystem of Johansson and Nugues (2007), our base-line (?2.4), performed the best in the SemEval?07task.
+Matsubayashi et al (2009) trained a log-linear model on the SemEval?07 data to evaluateargument identification features exploiting varioustypes of taxonomic relations to generalize over roles.A line of work has sought to extend the coverageof FrameNet by exploiting VerbNet, WordNet, andWikipedia (Shi and Mihalcea, 2005; Giuglea andMoschitti, 2006; Pennacchiotti et al, 2008; Tonelliand Giuliano, 2009), and projecting entries and an-notations within and across languages (Boas, 2002;Fung and Chen, 2004; Pado?
+and Lapata, 2005;Fu?rstenau and Lapata, 2009).
+Others have appliedframe-semantic structures to question answering,paraphrase/entailment recognition, and informationextraction (Narayanan and Harabagiu, 2004; Shenand Lapata, 2007; Pado?
+and Erk, 2005; Burchardt,2006; Moschitti et al, 2003; Surdeanu et al, 2003).7 ConclusionWe have provided a supervised model for richframe-semantic parsing, based on a combinationof knowledge from FrameNet, two probabilisticmodels trained on SemEval?07 data, and expedi-ent heuristics.
+Our system achieves improvementsover the state of the art at each stage of process-ing and collectively, and is amenable to future ex-tension.
+Our parser is available for download athttp://www.ark.cs.cmu.edu/SEMAFOR.AcknowledgmentsWe thank Collin Baker, Katrin Erk, Richard Johansson,and Nils Reiter for software, data, evaluation scripts, andmethodological details.
+We thank the reviewers, AlanBlack, Ric Crabbe, Michael Ellsworth, Rebecca Hwa,Dan Klein, Russell Lee-Goldman, Dan Roth, Josef Rup-penhofer, and members of the ARK group for helpfulcomments.
+This work was supported by DARPA grantNBCH-1080004, NSF grant IIS-0836431, and computa-tional resources provided by Yahoo.955ReferencesC.
+Baker, M. Ellsworth, and K. Erk.
+2007.
+SemEval-2007 Task 19: frame semantic structure extraction.
+InProc.
+of SemEval.H.
+C. Boas.
+2002.
+Bilingual FrameNet dictionaries formachine translation.
+In Proc.
+of LREC.L.
+Bottou.
+2004.
+Stochastic learning.
+In Advanced Lec-tures on Machine Learning.
+Springer-Verlag.A.
+Burchardt, K. Erk, and A. Frank.
+2005.
+A WordNetdetour to FrameNet.
+In B. Fisseni, H.-C. Schmitz,B.
+Schro?der, and P. Wagner, editors, Sprachtech-nologie, mobile Kommunikation und linguistische Re-sourcen, volume 8.
+Peter Lang.A.
+Burchardt.
+2006.
+Approaching textual entailmentwith LFG and FrameNet frames.
+In Proc.
+of the Sec-ond PASCAL RTE Challenge Workshop.D.
+Das, N. Schneider, D. Chen, and N. A. Smith.2010.
+SEMAFOR 1.0: A probabilistic frame-semanticparser.
+Technical Report CMU-LTI-10-001, CarnegieMellon University.K.
+Erk and S. Pado?.
+2006.
+Shalmaneser - a toolchain forshallow semantic parsing.
+In Proc.
+of LREC.C.
+Fellbaum, editor.
+1998.
+WordNet: an electronic lexi-cal database.
+MIT Press, Cambridge, MA.C.
+J. Fillmore, C. R. Johnson, and M. R.L.
+Petruck.
+2003.Background to FrameNet.
+International Journal ofLexicography, 16(3).C.
+J. Fillmore.
+1982.
+Frame semantics.
+In Linguistics inthe Morning Calm, pages 111?137.
+Hanshin Publish-ing Co., Seoul, South Korea.M.
+Fleischman, N. Kwon, and E. Hovy.
+2003.
+Maximumentropy models for FrameNet classification.
+In Proc.of EMNLP.P.
+Fung and B. Chen.
+2004.
+BiFrameNet: bilin-gual frame semantics resource construction by cross-lingual induction.
+In Proc.
+of COLING.H.
+Fu?rstenau and M. Lapata.
+2009.
+Semi-supervised se-mantic role labeling.
+In Proc.
+of EACL.D.
+Gildea and D. Jurafsky.
+2002.
+Automatic labeling ofsemantic roles.
+Computational Linguistics, 28(3).A.-M. Giuglea and A. Moschitti.
+2006.
+Shallowsemantic parsing based on FrameNet, VerbNet andPropBank.
+In Proc.
+of ECAI 2006.R.
+Johansson and P. Nugues.
+2007.
+LTH: semantic struc-ture extraction using nonprojective dependency trees.In Proc.
+of SemEval.R.
+Johansson and P. Nugues.
+2008.
+Dependency-basedsemantic role labeling of PropBank.
+In Proc.
+ofEMNLP.P.
+Kingsbury and M. Palmer.
+2002.
+From TreeBank toPropBank.
+In Proc.
+of LREC.M.
+P. Marcus, M. A. Marcinkiewicz, and B. Santorini.1993.
+Building a large annotated corpus of English:the Penn Treebank.
+Computational Linguistics, 19(2).L.
+Ma`rquez, X. Carreras, K. C. Litkowski, and S. Steven-son.
+2008.
+Semantic role labeling: an introduction tothe special issue.
+Computational Linguistics, 34(2).Y.
+Matsubayashi, N. Okazaki, and J. Tsujii.
+2009.
+Acomparative study on generalization of semantic rolesin FrameNet.
+In Proc.
+of ACL-IJCNLP.R.
+McDonald, K. Crammer, and F. Pereira.
+2005.
+Onlinelarge-margin training of dependency parsers.
+In Proc.of ACL.A.
+Moschitti, P. Mora?rescu, and S. M. Harabagiu.
+2003.Open-domain information extraction via automatic se-mantic labeling.
+In Proc.
+of FLAIRS.S.
+Narayanan and S. Harabagiu.
+2004.
+Question answer-ing based on semantic structures.
+In Proc.
+of COLING.S.
+Pado?
+and K. Erk.
+2005.
+To cause or not to cause:cross-lingual semantic matching for paraphrase mod-elling.
+In Proc.
+of the Cross-Language Knowledge In-duction Workshop.S.
+Pado?
+and M. Lapata.
+2005.
+Cross-linguistic projec-tion of role-semantic information.
+In Proc.
+of HLT-EMNLP.M.
+Pennacchiotti, D. De Cao, R. Basili, D. Croce, andM.
+Roth.
+2008.
+Automatic induction of FrameNetlexical units.
+In Proc.
+of EMNLP.A.
+Ratnaparkhi.
+1996.
+A maximum entropy model forpart-of-speech tagging.
+In Proc.
+of EMNLP.D.
+Shen and M. Lapata.
+2007.
+Using semantic rolesto improve question answering.
+In Proc.
+of EMNLP-CoNLL.L.
+Shi and R. Mihalcea.
+2004.
+An algorithm for opentext semantic parsing.
+In Proc.
+of Workshop on RobustMethods in Analysis of Natural Language Data.L.
+Shi and R. Mihalcea.
+2005.
+Putting pieces together:combining FrameNet, VerbNet and WordNet for ro-bust semantic parsing.
+In Computational Linguis-tics and Intelligent Text Processing: Proc.
+of CICLing2005.
+Springer-Verlag.M.
+Surdeanu, S. Harabagiu, J. Williams, and P. Aarseth.2003.
+Using predicate-argument structures for infor-mation extraction.
+In Proc.
+of ACL.C.
+A. Thompson, R. Levy, and C. D. Manning.
+2003.
+Agenerative model for semantic role labeling.
+In Proc.of ECML.S.
+Tonelli and C. Giuliano.
+2009.
+Wikipedia as frameinformation repository.
+In Proc.
+of EMNLP.956

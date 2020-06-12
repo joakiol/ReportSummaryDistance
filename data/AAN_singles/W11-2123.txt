@@ -1,0 +1,300 @@
+Proceedings of the 6th Workshop on Statistical Machine Translation, pages 187?197,Edinburgh, Scotland, UK, July 30?31, 2011. c?2011 Association for Computational LinguisticsKenLM: Faster and Smaller Language Model QueriesKenneth HeafieldCarnegie Mellon University5000 Forbes AvePittsburgh, PA 15213 USAheafield@cs.cmu.eduAbstractWe present KenLM, a library that imple-ments two data structures for efficient lan-guage model queries, reducing both time andmemory costs.
+The PROBING data structureuses linear probing hash tables and is de-signed for speed.
+Compared with the widely-used SRILM, our PROBING model is 2.4times as fast while using 57% of the mem-ory.
+The TRIE data structure is a trie withbit-level packing, sorted records, interpola-tion search, and optional quantization aimedat lower memory consumption.
+TRIE simul-taneously uses less memory than the small-est lossless baseline and less CPU than thefastest baseline.
+Our code is open-source1,thread-safe, and integrated into the Moses,cdec, and Joshua translation systems.
+Thispaper describes the several performance tech-niques used and presents benchmarks againstalternative implementations.1 IntroductionLanguage models are widely applied in natural lan-guage processing, and applications such as machinetranslation make very frequent queries.
+This pa-per presents methods to query N -gram languagemodels, minimizing time and space costs.
+Queriestake the form p(wn|wn?11 ) where wn1 is an n-gram.Backoff-smoothed models estimate this probabilitybased on the observed entry with longest matching1http://kheafield.com/code/kenlmhistory wnf , returningp(wn|wn?11 ) = p(wn|wn?1f )f?1?i=1b(wn?1i ).
+(1)where the probability p(wn|wn?1f ) and backoffpenalties b(wn?1i ) are given by an already-estimatedmodel.
+The problem is to store these two values for alarge and sparse set of n-grams in a way that makesqueries efficient.Many packages perform language model queries.Throughout this paper we compare with severalpackages:SRILM 1.5.12 (Stolcke, 2002) is a popular toolkitbased on tries used in several decoders.IRSTLM 5.60.02 (Federico et al, 2008) is a sortedtrie implementation designed for lower mem-ory consumption.MITLM 0.4 (Hsu and Glass, 2008) is mostly de-signed for accurate model estimation, but canalso compute perplexity.RandLM 0.2 (Talbot and Osborne, 2007) storeslarge-scale models in less memory using ran-domized data structures.BerkeleyLM revision 152 (Pauls and Klein, 2011)implements tries based on hash tables andsorted arrays in Java with lossy quantization.Sheffield Guthrie and Hepple (2010) explore sev-eral randomized compression techniques, butdid not release code.TPT Germann et al (2009) describe tries with bet-ter locality properties, but did not release code.These packages are further described in Section 3.We substantially outperform all of them on query187speed and offer lower memory consumption thanlossless alternatives.
+Performance improvementstransfer to the Moses (Koehn et al, 2007), cdec(Dyer et al, 2010), and Joshua (Li et al, 2009)translation systems where our code has been inte-grated.
+Our open-source (LGPL) implementation isalso available for download as a standalone packagewith minimal (POSIX and g++) dependencies.2 Data StructuresWe implement two data structures: PROBING, de-signed for speed, and TRIE, optimized for mem-ory.
+The set of n-grams appearing in a model issparse, and we want to efficiently find their associ-ated probabilities and backoff penalties.
+An impor-tant subproblem of language model storage is there-fore sparse mapping: storing values for sparse keysusing little memory then retrieving values given keysusing little time.
+We use two common techniques,hash tables and sorted arrays, describing each beforethe model that uses the technique.2.1 Hash Tables and PROBINGHash tables are a common sparse mapping techniqueused by SRILM?s default and BerkeleyLM?s hashedvariant.
+Keys to the table are hashed, using for ex-ample Austin Appleby?s MurmurHash2, to integersevenly distributed over a large range.
+This range iscollapsed to a number of buckets, typically by tak-ing the hash modulo the number of buckets.
+Entrieslanding in the same bucket are said to collide.Several methods exist to handle collisions; we uselinear probing because it has less memory overheadwhen entries are small.
+Linear probing places atmost one entry in each bucket.
+When a collision oc-curs, linear probing places the entry to be insertedin the next (higher index) empty bucket, wrappingaround as necessary.
+Therefore, a populated probinghash table consists of an array of buckets that containeither one entry or are empty.
+Non-empty bucketscontain an entry belonging to them or to a precedingbucket where a conflict occurred.
+Searching a prob-ing hash table consists of hashing the key, indexingthe corresponding bucket, and scanning buckets un-til a matching key is found or an empty bucket is2http://sites.google.com/site/murmurhash/encountered, in which case the key does not exist inthe table.Linear probing hash tables must have more buck-ets than entries, or else an empty bucket will neverbe found.
+The ratio of buckets to entries is controlledby space multiplier m > 1.
+As the name implies,space is O(m) and linear in the number of entries.The fraction of buckets that are empty is m?1m , so av-erage lookup time is O(mm?1)and, crucially, con-stant in the number of entries.When keys are longer than 64 bits, we conservespace by replacing the keys with their 64-bit hashes.With a good hash function, collisions of the full 64-bit hash are exceedingly rare: one in 266 billionqueries for our baseline model will falsely find a keynot present.
+Collisions between two keys in the tablecan be identified at model building time.
+Further, thespecial hash 0 suffices to flag empty buckets.The PROBING data structure is a rather straight-forward application of these hash tables to store N -gram language models.
+Unigram lookup is dense sowe use an array of probability and backoff values.For 2 ?
+n ?
+N , we use a hash table mapping fromthe n-gram to the probability and backoff3.
+Vocab-ulary lookup is a hash table mapping from word tovocabulary index.
+In all cases, the key is collapsedto its 64-bit hash.
+Given counts cn1 where e.g.
+c1 isthe vocabulary size, total memory consumption, inbits, is(96m+ 64)c1 + 128mN?1?n=2cn + 96mcN .Our PROBING data structure places all n-gramsof the same order into a single giant hash table.This differs from other implementations (Stolcke,2002; Pauls and Klein, 2011) that use hash tablesas nodes in a trie, as explained in the next section.Our implementation permits jumping to any n-gramof any length with a single lookup; this appears tobe unique among language model implementations.2.2 Sorted Arrays and TRIESorted arrays store key-value pairs in an array sortedby key, incurring no space overhead.
+SRILM?s com-pact variant, IRSTLM, MITLM, and BerkeleyLM?s3N -grams do not have backoff so none is stored.188sorted variant are all based on this technique.
+Givena sorted array A, these other packages use binarysearch to find keys in O(log |A|) time.
+We re-duce this to O(log log |A|) time by evenly distribut-ing keys over their range then using interpolationsearch4 (Perl et al, 1978).
+Interpolation search for-malizes the notion that one opens a dictionary nearthe end to find the word ?zebra.?
+Initially, the algo-rithm knows the array begins at b ?
+0 and ends ate?
+|A|?1.
+Given a key k, it estimates the positionpivot?k ?A[b]A[e]?A[b](e?
+b).If the estimate is exact (A[pivot] = k), then the al-gorithm terminates succesfully.
+If e < b then thekey is not found.
+Otherwise, the scope of the searchproblem shrinks recursively: if A[pivot] < k thenthis becomes the new lower bound: l ?
+pivot; ifA[pivot] > k then u ?
+pivot.
+Interpolation searchis therefore a form of binary search with better esti-mates informed by the uniform key distribution.If the key distribution?s range is also known (i.e.vocabulary identifiers range from 0 to the numberof words), then interpolation search can use this in-formation instead of reading A[0] and A[|A| ?
+1] toestimate pivots; this optimization alone led to a 24%speed improvement.
+The improvement is due to thecost of bit-level reads and avoiding reads that mayfall in different virtual memory pages.Vocabulary lookup is a sorted array of 64-bit wordhashes.
+The index in this array is the vocabularyidentifier.
+This has the effect of randomly permutingvocabulary identifiers, meeting the requirements ofinterpolation search when vocabulary identifiers areused as keys.While sorted arrays could be used to implementthe same data structure as PROBING, effectivelymaking m = 1, we abandoned this implementationbecause it is slower and larger than a trie implemen-tation.
+The trie data structure is commonly used forlanguage modeling.
+Our TRIE implements the pop-ular reverse trie, in which the last word of an n-gramis looked up first, as do SRILM, IRSTLM?s invertedvariant, and BerkeleyLM except for the scrollingvariant.
+Figure 1 shows an example.
+Nodes in the4Not to be confused with interpolating probabilities, whichis outside the scope of this paper.Australia <s>areoneareis Australiais Australia <s><s>of oneareisFigure 1: Lookup of ?is one of?
+in a reverse trie.
+Childrenof each node are sorted by vocabulary identifier so orderis consistent but not alphabetical: ?is?
+always appears be-fore ?are?.
+Nodes are stored in column-major order.
+Forexample, nodes corresponding to these n-grams appear inthis order: ?are one?, ?<s> Australia?, ?is one of?, ?areone of?, ?<s> Australia is?, and ?Australia is one?.trie are based on arrays sorted by vocabulary identi-fier.We maintain a separate array for each length ncontaining all n-gram entries sorted in suffix order.Therefore, for n-gram wn1 , all leftward extensionswn0 are an adjacent block in the n + 1-gram array.The record for wn1 stores the offset at which its ex-tensions begin.
+Reading the following record?s off-set indicates where the block ends.
+This techniquewas introduced by Clarkson and Rosenfeld (1997)and is also implemented by IRSTLM and Berke-leyLM?s compressed option.
+SRILM inefficientlystores 64-bit pointers.Unigram records store probability, backoff, andan index in the bigram table.
+Entries for 2 ?
+n < Nstore a vocabulary identifier, probability, backoff,and an index into the n+1-gram table.
+The highest-order N -gram array omits backoff and the index,since these are not applicable.
+Values in the trie areminimally sized at the bit level, improving memoryconsumption over trie implementations in SRILM,IRSTLM, and BerkeleyLM.
+Given n-gram counts{cn}Nn=1, we use dlog2 c1e bits per vocabulary iden-tifier and dlog2 cne per index into the table of n-grams.When SRILM estimates a model, it sometimes re-moves n-grams but not n + 1-grams that extend itto the left.
+In a model we built with default set-tings, 1.2% of n + 1-grams were missing their n-189gram suffix.
+This causes a problem for reverse trieimplementations, including SRILM itself, because itleaves n+1-grams without an n-gram node pointingto them.
+We resolve this problem by inserting an en-try with probability set to an otherwise-invalid value(??).
+Queries detect the invalid probability, usingthe node only if it leads to a longer match.
+By con-trast, BerkeleyLM?s hash and compressed variantswill return incorrect results based on an n?
+1-gram.2.2.1 QuantizationFloating point values may be stored in the trie ex-actly, using 31 bits for non-positive log probabilityand 32 bits for backoff5.
+To conserve memory atthe expense of accuracy, values may be quantizedusing q bits per probability and r bits per backoff6.We allow any number of bits from 2 to 25, unlikeIRSTLM (8 bits) and BerkeleyLM (17?20 bits).
+Toquantize, we use the binning method (Federico andBertoldi, 2006) that sorts values, divides into equallysized bins, and averages within each bin.
+The costof storing these averages, in bits, is[32(N ?
+1)2q + 32(N ?
+2)2rBecause there are comparatively few unigrams,we elected to store them byte-aligned and unquan-tized, making every query faster.
+Unigrams alsohave 64-bit overhead for vocabulary lookup.
+Usingcn to denote the number of n-grams, total memoryconsumption of TRIE, in bits, is(32 + 32 + 64 + 64)c1+N?1?n=2(dlog2 c1e+ q + r + dlog2 cn+1e)cn+(dlog2 c1e+ q)cNplus quantization tables, if used.
+The size of TRIEis particularly sensitive to dlog2 c1e, so vocabularyfiltering is quite effective at reducing model size.3 Related WorkSRILM (Stolcke, 2002) is widely used withinacademia.
+It is generally considered to be fast (Pauls5Backoff ?penalties?
+are occasionally positive in log space.6One probability is reserved to mark entries that SRILMpruned.
+Two backoffs are reserved for Section 4.1.
+That leaves2q ?
+1 probabilities and 2r ?
+2 non-zero backoffs.and Klein, 2011), with a default implementationbased on hash tables within each trie node.
+Each trienode is individually allocated and full 64-bit point-ers are used to find them, wasting memory.
+Thecompact variant uses sorted arrays instead of hashtables within each node, saving some memory, butstill stores full 64-bit pointers.
+With some minor APIchanges, namely returning the length of the n-grammatched, it could also be faster?though this wouldbe at the expense of an optimization we explain inSection 4.1.
+The PROBING model was designedto improve upon SRILM by using linear probinghash tables (though not arranged in a trie), allocat-ing memory all at once (eliminating the need for fullpointers), and being easy to compile.IRSTLM (Federico et al, 2008) is an open-sourcetoolkit for building and querying language models.The developers aimed to reduce memory consump-tion at the expense of time.
+Their default variant im-plements a forward trie, in which words are lookedup in their natural left-to-right order.
+However, theirinverted variant implements a reverse trie using lessCPU and the same amount of memory7.
+Each trienode contains a sorted array of entries and they usebinary search.
+Compared with SRILM, IRSTLMadds several features: lower memory consumption,a binary file format with memory mapping, cachingto increase speed, and quantization.
+Our TRIE im-plementation is designed to improve upon IRSTLMusing a reverse trie with improved search, bit levelpacking, and stateful queries.
+IRSTLM?s quantizedvariant is the inspiration for our quantized variant.Unfortunately, we were unable to correctly run theIRSTLM quantized variant.
+The developers sug-gested some changes, such as building the modelfrom scratch with IRSTLM, but these did not resolvethe problem.Our code has been publicly available and inter-grated into Moses since October 2010.
+Later, Berke-leyLM (Pauls and Klein, 2011) described ideas sim-ilar to ours.
+Most similar is scrolling queries,wherein left-to-right queries that add one word ata time are optimized.
+Both implementations em-ploy a state object, opaque to the application, thatcarries information from one query to the next; we7Forward tries are faster to build with IRSTLM and can effi-ciently return a list of rightward extensions, but this is not usedby the decoders we consider.190discuss both further in Section 4.2.
+State is imple-mented in their scrolling variant, which is a trie an-notated with forward and backward pointers.
+Thehash variant is a reverse trie with hash tables, amore memory-efficient version of SRILM?s default.While the paper mentioned a sorted variant, codewas never released.
+The compressed variant usesblock compression and is rather slow as a result.
+Adirect-mapped cache makes BerkeleyLM faster onrepeated queries, but their fastest (scrolling) cachedversion is still slower than uncached PROBING, evenon cache-friendly queries.
+For all variants, we foundthat BerkeleyLM always rounds the floating-pointmantissa to 12 bits then stores indices to uniquerounded floats.
+The 1-bit sign is almost always neg-ative and the 8-bit exponent is not fully used on therange of values, so in practice this corresponds toquantization ranging from 17 to 20 total bits.Lossy compressed models RandLM (Talbot andOsborne, 2007) and Sheffield (Guthrie and Hepple,2010) offer better memory consumption at the ex-pense of CPU and accuracy.
+These enable muchlarger models in memory, compensating for lostaccuracy.
+Typical data structures are generalizedBloom filters that guarantee a customizable prob-ability of returning the correct answer.
+Minimalperfect hashing is used to find the index at whicha quantized probability and possibly backoff arestored.
+These models generally outperform ourmemory consumption but are much slower, evenwhen cached.4 OptimizationsIn addition to the optimizations specific to each data-structure described in Section 2, we implement sev-eral general optimizations for language modeling.4.1 Minimizing StateApplications such as machine translation use lan-guage model probability as a feature to assist inchoosing between hypotheses.
+Dynamic program-ming efficiently scores many hypotheses by exploit-ing the fact that an N -gram language model condi-tions on at most N ?
+1 preceding words.
+We callthese N ?
+1 words state.
+When two partial hy-potheses have equal state (including that of otherfeatures), they can be recombined and thereafter ef-ficiently handled as a single packed hypothesis.
+Ifthere are too many distinct states, the decoder pruneslow-scoring partial hypotheses, possibly leading to asearch error.
+Therefore, we want state to encode theminimum amount of information necessary to prop-erly compute language model scores, so that the de-coder will be faster and make fewer search errors.We offer a state function s(wn1 ) = wnm wheresubstring wnm is guaranteed to extend (to the right)in the same way that wn1 does for purposes oflanguage modeling.
+The state function is inte-grated into the query process so that, in lieu ofthe query p(wn|wn?11 ), the application issues queryp(wn|s(wn?11 )) which also returns s(wn1 ).
+The re-turned state s(wn1 ) may then be used in a follow-on query p(wn+1|s(wn1 )) that extends the previousquery by one word.
+These make left-to-right querypatterns convenient, as the application need onlyprovide a state and the word to append, then use thereturned state to append another word, etc.
+We havemodified Moses (Koehn et al, 2007) to keep ourstate with hypotheses; to conserve memory, phrasesdo not keep state.
+Syntactic decoders, such as cdec(Dyer et al, 2010), build state from null context thenstore it in the hypergraph node for later extension.Language models that contain wk1 must also con-tain prefixes wi1 for 1 ?
+i ?
+k. Therefore, whenthe model is queried for p(wn|wn?11 ) but the longestmatching suffix is wnf , it may return state s(wn1 ) =wnf since no longer context will be found.
+IRSTLMand BerkeleyLM use this state function (and a limitof N ?
+1 words), but it is more strict than necessary,so decoders using these packages will miss some re-combination opportunities.State will ultimately be used as context in a sub-sequent query.
+If the context wnf will never extend tothe right (i.e.
+wnf v is not present in the model for allwords v) then no subsequent query will match thefull context.
+If the log backoff of wnf is also zero(it may not be in filtered models), then wf shouldbe omitted from the state.
+This logic applies recur-sively: if wnf+1 similarly does not extend and haszero log backoff, it too should be omitted, termi-nating with a possibly empty context.
+We indicatewhether a context with zero log backoff will extendusing the sign bit: +0.0 for contexts that extend and?0.0 for contexts that do not extend.
+RandLM andSRILM also remove context that will not extend, but191SRILM performs a second lookup in its trie whereasour approach has minimal additional cost.4.2 Storing Backoff in StateSection 4.1 explained that state s is stored by appli-cations with partial hypotheses to determine whenthey can be recombined.
+In this section, we ex-tend state to optimize left-to-right queries.
+All lan-guage model queries issued by machine translationdecoders follow a left-to-right pattern, starting witheither the begin of sentence token or null context formid-sentence fragments.
+Storing state therefore be-comes a time-space tradeoff; for example, we storestate with partial hypotheses in Moses but not witheach phrase.To optimize left-to-right queries, we extend stateto store backoff information:s(wn?11 ) =(wn?1m ,{b(wn?1i )}n?1i=m)where m is the minimal context from Section 4.1and b is the backoff penalty.
+Because b is a function,no additional hypothesis splitting happens.As noted in Section 1, our code finds the longestmatching entry wnf for query p(wn|s(wn?11 )) thencomputesp(wn|wn?11 ) = p(wn|wn?1f )f?1?i=1b(wn?1i ).The probability p(wn|wn?1f ) is stored with wnf andthe backoffs are immediately accessible in the pro-vided state s(wn?11 ).When our code walks the data structure to findwnf , it visits wnn, wnn?1, .
+.
+.
+, wnf .
+Each visited entrywni stores backoff b(wni ).
+These are written to thestate s(wn1 ) and returned so that they can be used forthe following query.Saving state allows our code to walk the datastructure exactly once per query.
+Other packageswalk their respective data structures once to find wnfand again to find {b(wn?1i )}f?1i=1 if necessary.
+Inboth cases, SRILM walks its trie an additional timeto minimize context as mentioned in Section 4.1.BerkeleyLM uses states to optimistically searchfor longer n-gram matches first and must performtwice as many random accesses to retrieve back-off information.
+Further, it needs extra pointersin the trie, increasing model size by 40%.
+Thismakes memory usage comparable to our PROBINGmodel.
+The PROBING model can perform optimisticsearches by jumping to any n-gram without needingstate and without any additional memory.
+However,this optimistic search would not visit the entries nec-essary to store backoff information in the outgoingstate.
+Though we do not directly compare state im-plementations, performance metrics in Table 1 indi-cate our overall method is faster.4.3 ThreadingOnly IRSTLM does not support threading.
+In ourcase multi-threading is trivial because our data struc-tures are read-only and uncached.
+Memory mappingalso allows the same model to be shared across pro-cesses on the same machine.4.4 Memory MappingAlong with IRSTLM and TPT, our binary format ismemory mapped, meaning the file and in-memoryrepresentation are the same.
+This is especially effec-tive at reducing load time, since raw bytes are readdirectly to memory?or, as happens with repeatedlyused models, are already in the disk cache.Lazy mapping reduces memory requirements byloading pages from disk only as necessary.
+How-ever, lazy mapping is generally slow because queriesagainst uncached pages must wait for the disk.
+Thisis especially bad with PROBING because it is basedon hashing and performs random lookups, but itis not intended to be used in low-memory scenar-ios.
+TRIE uses less memory and has better locality.However, TRIE partitions storage by n-gram length,so walking the trie reads N disjoint pages.
+TPThas theoretically better locality because it stores n-grams near their suffixes, thereby placing reads for asingle query in the same or adjacent pages.We do not experiment with models larger thanphysical memory in this paper because TPT is un-released, factors such as disk speed are hard to repli-cate, and in such situations we recommend switch-ing to a more compact representation, such as Ran-dLM.
+In all of our experiments, the binary file(whether mapped or, in the case of most other pack-ages, interpreted) is loaded into the disk cache in ad-vance so that lazy mapping will never fault to disk.This is similar to using the Linux MAP POPULATE19211010010 1000 100000 107Lookups/?sEntriesprobinghash setunorderedinterpolationbinary searchsetFigure 2: Speed in lookups per microsecond by datastructure and number of 64-bit entries.
+Performance dipsas each data structure outgrows the processor?s 12 MB L2cache.
+Among hash tables, indicated by shapes, probingis initially slower but converges to 43% faster than un-ordered or hash set.
+Interpolation search has a more ex-pensive pivot function but does less reads and iterations,so it is initially slower than binary search and set, but be-comes faster above 4096 entries.flag that is our default loading mechanism.5 BenchmarksThis section measures performance on shared tasksin order of increasing complexity: sparse lookups,evaluating perplexity of a large file, and translationwith Moses.
+Our test machine has two Intel XeonE5410 processors totaling eight cores, 32 GB RAM,and four Seagate Barracuda disks in software RAID0 running Linux 2.6.18.5.1 Sparse LookupSparse lookup is a key subproblem of languagemodel queries.
+We compare three hash tables:our probing implementation, GCC?s hash set, andBoost?s8 unordered.
+For sorted lookup, we compareinterpolation search, standard C++ binary search,and standard C++ set based on red-black trees.The data structure was populated with 64-bit inte-gers sampled uniformly without replacement.
+Forqueries, we uniformly sampled 10 million hits and8http://boost.org10 million misses.
+The same numbers were used foreach data structure.
+Time includes all queries but ex-cludes random number generation and data structurepopulation.
+Figure 2 shows timing results.For the PROBING implementation, hash tablesizes are in the millions, so the most relevant val-ues are on the right size of the graph, where linearprobing wins.
+It also uses less memory, with 8 bytesof overhead per entry (we store 16-byte entries withm = 1.5); linked list implementations hash set andunordered require at least 8 bytes per entry for point-ers.
+Further, the probing hash table does only onerandom lookup per query, explaining why it is fasteron large data.Interpolation search has a more expensive pivotbut performs less pivoting and reads, so it is slow onsmall data and faster on large data.
+This suggestsa strategy: run interpolation search until the rangenarrows to 4096 or fewer entries, then switch to bi-nary search.
+However, reads in the TRIE data struc-ture are more expensive due to bit-level packing, sowe found that it is faster to use interpolation searchthe entire time.
+Memory usage is the same as withbinary search and lower than with set.5.2 PerplexityFor the perplexity and translation tasks, we usedSRILM to build a 5-gram English language modelon 834 million tokens from Europarl v6 (Koehn,2005) and the 2011 Workshop on Machine Trans-lation News Crawl corpus with duplicate lines re-moved.
+The model was built with open vocabulary,modified Kneser-Ney smoothing, and default prun-ing settings that remove singletons of order 3 andhigher.
+Unlike Germann et al (2009), we chose amodel size so that all benchmarks fit comfortably inmain memory.
+Benchmarks use the package?s bi-nary format; our code is also the fastest at building abinary file.
+As noted in Section 4.4, disk cache stateis controlled by reading the entire binary file beforeeach test begins.
+For RandLM, we used the settingsin the documentation: 8 bits per value and false pos-itive probability 1256 .We evaluate the time and memory consumptionof each data structure by computing perplexity on4 billion tokens from the English Gigaword corpus(Parker et al, 2009).
+Tokens were converted to vo-cabulary identifiers in advance and state was carried193from each query to the next.
+Table 1 shows resultsof the benchmark.
+Compared to decoding, this taskis cache-unfriendly in that repeated queries happenonly as they naturally occur in text.
+Therefore, per-formance is more closely tied to the underlying datastructure than to the cache.
+In fact, we found thatenabling IRSTLM?s cache made it slightly slower,so results in Table 1 use IRSTLM without caching.Moses sets the cache size parameter to 50 so we didas well; the resulting cache size is 2.82 GB.The results in Table 1 show PROBING is 81%faster than TRIE, which is in turn 31% faster than thefastest baseline.
+Memory usage in PROBING is high,though SRILM is even larger, so where memory is ofconcern we recommend using TRIE, if it fits in mem-ory.
+For even larger models, we recommend Ran-dLM; the memory consumption of the cache is notexpected to grow with model size, and it has beenreported to scale well.
+Another option is the closed-source data structures from Sheffield (Guthrie andHepple, 2010).
+Though we are not able to calculatetheir memory usage on our model, results reportedin their paper suggest lower memory consumptionthan TRIE on large-scale models, at the expense ofCPU time.5.3 TranslationThis task measures how well each package performsin machine translation.
+We run the baseline Mosessystem for the French-English track of the 2011Workshop on Machine Translation,9 translating the3003-sentence test set.
+Based on revision 4041, wemodified Moses to print process statistics before ter-minating.
+Process statistics are already collectedby the kernel (and printing them has no meaning-ful impact on performance).
+SRILM?s compact vari-ant has an incredibly expensive destructor, dwarfingthe time it takes to perform translation, and so wealso modified Moses to avoiding the destructor bycalling exit instead of returning normally.
+Sinceour destructor is an efficient call to munmap, by-passing the destructor favors only other packages.The binary language model from Section 5.2 andtext phrase table were forced into disk cache beforeeach run.
+Time starts when Moses is launched andtherefore includes model loading time.
+These con-9http://statmt.org/wmt11/baseline.htmlPackage Variant Queries/ms RAM (GB)KenPROBING 1818 5.28TRIE 1139 2.72TRIE 8 bitsa 1127 1.59SRIDefault 750 9.19Compact 238 7.27IRSTbInvert 426 2.91Default 368 2.91MIT Default 410 7.72+1.34cRand Backoff 8 bitsa 56 1.30+2.82cBerkeleyHash+Scrolla 913 5.28+2.32dHasha 767 3.71+1.72dCompresseda 126 1.73+0.71dEstimates for unreleased packagesSheffield C-MPHRa 607eTPT Default 357fTable 1: Single-threaded speed and memory use on theperplexity task.
+The PROBING model is fastest by a sub-stantial margin but generally uses more memory.
+TRIE isfaster than competing packages and uses less memory thannon-lossy competitors.
+The timing basis for Queries/ms in-cludes kernel and user time but excludes loading time; wealso subtracted time to run a program that just reads thequery file.
+Peak virtual memory is reported; final residentmemory is similar except for BerkeleyLM.
+We tried bothaggressive reading and lazy memory mapping where appli-cable, but results were much the same.aUses lossy compression.bThe 8-bit quantized variant returned incorrect probabilities asexplained in Section 3.
+It did 402 queries/ms using 1.80 GB.cMemory use increased during scoring due to batch processing(MIT) or caching (Rand).
+The first value reports use immediatelyafter loading while the second reports the increase during scoring.dBerkeleyLM is written in Java which requires memory bespecified in advance.
+Timing is based on plentiful memory.
+Thenwe ran binary search to determine the least amount of memorywith which it would run.
+The first value reports resident size af-ter loading; the second is the gap between post-loading residentmemory and peak virtual memory.
+The developer explained thatthe loading process requires extra memory that it then frees.eBased on the ratio to SRI?s speed reported in Guthrie andHepple (2010) under different conditions.
+Memory usage is likelymuch lower than ours.fThe original paper (Germann et al, 2009) provided only 2s ofquery timing and compared with SRI when it exceeded availableRAM.
+The authors provided us with a ratio between TPT and SRIunder different conditions.194Time (m) RAM (GB)Package Variant CPU Wall Res VirtKenPROBING-L 72.3 72.4 7.83 7.92PROBING-P 73.6 74.7 7.83 7.92TRIE-L 80.4 80.6 4.95 5.24TRIE-P 80.1 80.1 4.95 5.24TRIE-L 8a 79.5 79.5 3.97 4.10TRIE-P 8a 79.9 79.9 3.97 4.10SRIDefault 85.9 86.1 11.90 11.94Compact 155.5 155.7 9.98 10.02IRSTCache-Invert-L 106.4 106.5 5.36 5.84Cache-Invert-R 106.7 106.9 5.73 5.84Invert-L 117.2 117.3 5.27 5.67Invert-R 117.7 118.0 5.64 5.67Default-L 126.3 126.4 5.26 5.67Default-R 127.1 127.3 5.64 5.67RandBackoffa 277.9 278.0 4.05 4.18Backoffb 247.6 247.8 4.06 4.18Table 2: Single-threaded time and memory consumptionof Moses translating 3003 sentences.
+Where applicable,models were loaded with lazy memory mapping (-L),prefaulting (-P), and normal reading (-R); results differby at most than 0.6 minute.aLossy compression with the same weights.bLossy compression with retuned weights.ditions make the value appropriate for estimating re-peated run times, such as in parameter tuning.
+Table2 shows single-threaded results, mostly for compar-ison to IRSTLM, and Table 3 shows multi-threadedresults.Part of the gap between resident and virtual mem-ory is due to the time at which data was collected.Statistics are printed before Moses exits and afterparts of the decoder have been destroyed.
+Moseskeeps language models and many other resources instatic variables, so these are still resident in mem-ory.
+Further, we report current resident memory andpeak virtual memory because these are the most ap-plicable statistics provided by the kernel.Overall, language modeling significantly impactsdecoder performance.
+In line with perplexity resultsfrom Table 1, the PROBING model is the fastest fol-lowed by TRIE, and subsequently other packages.We incur some additional memory cost due to stor-ing state in each hypothesis, though this is minimalcompared with the size of the model itself.
+TheTRIE model continues to use the least memory ofTime (m) RAM (GB)Package Variant CPU Wall Res VirtKenPROBING-L 130.4 20.2 7.91 8.53PROBING-P 132.6 21.7 7.91 8.41TRIE-L 132.1 20.6 5.03 5.85TRIE-P 132.2 20.5 5.02 5.84TRIE-L 8a 137.1 21.2 4.03 4.60TRIE-P 8a 134.6 20.8 4.03 4.72SRIDefault 153.2 26.0 11.97 12.56Compact 243.3 36.9 10.05 10.55RandBackoffa 346.8 49.4 5.41 6.78Backoffb 308.7 44.4 5.26 6.81Table 3: Multi-threaded time and memory consumptionof Moses translating 3003 sentences on eight cores.
+Ourcode supports lazy memory mapping (-L) and prefault-ing (-P) with MAP POPULATE, the default.
+IRST is notthreadsafe.
+Time for Moses itself to load, including load-ing the language model and phrase table, is included.Along with locking and background kernel operationssuch as prefaulting, this explains why wall time is notone-eighth that of the single-threaded case.aLossy compression with the same weights.bLossy compression with retuned weights.the non-lossy options.
+For RandLM and IRSTLM,the effect of caching can be seen on speed and mem-ory usage.
+This is most severe with RandLM inthe multi-threaded case, where each thread keeps aseparate cache, exceeding the original model size.As noted for the perplexity task, we do not ex-pect cache to grow substantially with model size, soRandLM remains a low-memory option.
+Cachingfor IRSTLM is smaller at 0.09 GB resident mem-ory, though it supports only a single thread.
+TheBerkeleyLM direct-mapped cache is in principlefaster than caches implemented by RandLM and byIRSTLM, so we may write a C++ equivalent imple-mentation as future work.5.4 Comparison with RandLMRandLM?s stupid backoff variant stores counts in-stead of probabilities and backoffs.
+It also does notprune, so comparing to our pruned model wouldbe unfair.
+Using RandLM and the documentedsettings (8-bit values and 1256 false-positive prob-ability), we built a stupid backoff model on thesame data as in Section 5.2.
+We used this datato build an unpruned ARPA file with IRSTLM?s195RAM (GB)Pack Variant Time (m) Res Virt BLEUKenTRIE 82.9 12.16 14.39 27.24TRIE 8 bits 82.7 8.41 9.41 27.22TRIE 4 bits 83.2 7.74 8.55 27.09RandStupid 8 bits 218.7 5.07 5.18 25.54Backoff 8 bits 337.4 7.17 7.28 25.45Table 4: CPU time, memory usage, and uncased BLEU(Papineni et al, 2002) score for single-threaded Mosestranslating the same test set.
+We ran each lossy modeltwice: once with specially-tuned weights and once withweights tuned using an exact model.
+The difference inBLEU was minor and we report the better result.improved-kneser-ney option and the defaultthree pieces.
+Table 4 shows the results.
+We electedrun Moses single-threaded to minimize the impactof RandLM?s cache on memory use.
+RandLM is theclear winner in RAM utilization, but is also slowerand lower quality.
+However, the point of RandLMis to scale to even larger data, compensating for thisloss in quality.6 Future WorkThere any many techniques for improving languagemodel speed and reducing memory consumption.For speed, we plan to implement the direct-mappedcache from BerkeleyLM.
+Much could be done to fur-ther reduce memory consumption.
+Raj and Whit-taker (2003) show that integers in a trie implemen-tation can be compressed substantially.
+Quantiza-tion can be improved by jointly encoding probabilityand backoff.
+For even larger models, storing counts(Talbot and Osborne, 2007; Pauls and Klein, 2011;Guthrie and Hepple, 2010) is a possibility.
+Beyondoptimizing the memory size of TRIE, there are alter-native data structures such as those in Guthrie andHepple (2010).
+Finally, other packages implementlanguage model estimation while we are currentlydependent on them to generate an ARPA file.While we have minimized forward-looking statein Section 4.1, machine translation systems couldalso benefit by minimizing backward-looking state.For example, syntactic decoders (Koehn et al, 2007;Dyer et al, 2010; Li et al, 2009) perform dynamicprogramming parametrized by both backward- andforward-looking state.
+If they knew that the first fourwords in a hypergraph node would never extend tothe left and form a 5-gram, then three or even fewerwords could be kept in the backward state.
+This in-formation is readily available in TRIE where adja-cent records with equal pointers indicate no furtherextension of context is possible.
+Exposing this in-formation to the decoder will lead to better hypoth-esis recombination.
+Generalizing state minimiza-tion, the model could also provide explicit boundson probability for both backward and forward ex-tension.
+This would result in better rest cost esti-mation and better pruning.10 In general, tighter, butwell factored, integration between the decoder andlanguage model should produce a significant speedimprovement.7 ConclusionWe have described two data structures for languagemodeling that achieve substantial reductions in timeand memory cost.
+The PROBING model is 2.4times as fast as the fastest alternative, SRILM, anduses less memory too.
+The TRIE model uses lessmemory than the smallest lossless alternative and isstill faster than SRILM.
+These performance gainstransfer to improved system runtime performance;though we focused on Moses, our code is the bestlossless option with cdec and Joshua.
+We attainthese results using several optimizations: hashing,custom lookup tables, bit-level packing, and statefor left-to-right query patterns.
+The code is open-source, has minimal dependencies, and offers bothC++ and Java interfaces for integration.AcknowledgmentsAlon Lavie advised on this work.
+Hieu Hoangnamed the code ?KenLM?
+and assisted with Mosesalong with Barry Haddow.
+Adam Pauls provided apre-release comparison to BerkeleyLM and an initialJava interface.
+Nicola Bertoldi and Marcello Fed-erico assisted with IRSTLM.
+Chris Dyer integratedthe code into cdec.
+Juri Ganitkevitch answered ques-tions about Joshua.
+This material is based uponwork supported by the National Science Founda-tion Graduate Research Fellowship under Grant No.0750271 and by the DARPA GALE program.10One issue is efficient retrieval of bounds, though thesecould be quantized, rounded in the safe direction, and storedwith each record.196ReferencesPhilip Clarkson and Ronald Rosenfeld.
+1997.
+Statisticallanguage modeling using the CMU-Cambridge toolkit.In Proceedings of Eurospeech.Chris Dyer, Adam Lopez, Juri Ganitkevitch, JohnathanWeese, Ferhan Ture, Phil Blunsom, Hendra Setiawan,Vladimir Eidelman, and Philip Resnik.
+2010. cdec: Adecoder, alignment, and learning framework for finite-state and context-free translation models.
+In Proceed-ings of the ACL 2010 System Demonstrations, pages7?12.Marcello Federico and Nicola Bertoldi.
+2006.
+Howmany bits are needed to store probabilities for phrase-based translation?
+In Proceedings of the Workshop onStatistical Machine Translation, pages 94?101, NewYork City, June.Marcello Federico, Nicola Bertoldi, and Mauro Cettolo.2008.
+IRSTLM: an open source toolkit for handlinglarge scale language models.
+In Proceedings of Inter-speech, Brisbane, Australia.Ulrich Germann, Eric Joanis, and Samuel Larkin.
+2009.Tightly packed tries: How to fit large models intomemory, and make them load fast, too.
+In Proceedingsof the NAACL HLT Workshop on Software Engineer-ing, Testing, and Quality Assurance for Natural Lan-guage Processing, pages 31?39, Boulder, Colorado.David Guthrie and Mark Hepple.
+2010.
+Storing the webin memory: Space efficient language models with con-stant time retrieval.
+In Proceedings of EMNLP 2010,Los Angeles, CA.Bo-June Hsu and James Glass.
+2008.
+Iterative lan-guage model estimation: Efficient data structure & al-gorithms.
+In Proceedings of Interspeech, Brisbane,Australia.Philipp Koehn, Hieu Hoang, Alexandra Birch, ChrisCallison-Burch, Marcello Federico, Nicola Bertoldi,Brooke Cowan, Wade Shen, Christine Moran, RichardZens, Chris Dyer, Ondrej Bojar, Alexandra Con-stantin, and Evan Herbst.
+2007.
+Moses: Open sourcetoolkit for statistical machine translation.
+In AnnualMeeting of the Association for Computational Linguis-tics (ACL), Prague, Czech Republic, June.Philipp Koehn.
+2005.
+Europarl: A parallel corpus forstatistical machine translation.
+In Proceedings of MTSummit.Zhifei Li, Chris Callison-Burch, Chris Dyer, SanjeevKhudanpur, Lane Schwartz, Wren Thornton, JonathanWeese, and Omar Zaidan.
+2009.
+Joshua: An opensource toolkit for parsing-based machine translation.In Proceedings of the Fourth Workshop on StatisticalMachine Translation, pages 135?139, Athens, Greece,March.
+Association for Computational Linguistics.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2002.
+BLEU: A method for automaticevalution of machine translation.
+In Proceedings 40thAnnual Meeting of the Association for ComputationalLinguistics, pages 311?318, Philadelphia, PA, July.Robert Parker, David Graff, Junbo Kong, Ke Chen, andKazuaki Maeda.
+2009.
+English gigaword fourth edi-tion.
+LDC2009T13.Adam Pauls and Dan Klein.
+2011.
+Faster and smaller n-gram language models.
+In Proceedings of ACL, Port-land, Oregon.Yehoshua Perl, Alon Itai, and Haim Avni.
+1978.
+Inter-polation search?a log log N search.
+Commun.
+ACM,21:550?553, July.Bhiksha Raj and Ed Whittaker.
+2003.
+Lossless compres-sion of language model structure and word identifiers.In Proceedings of IEEE International Conference onAcoustics, Speech and Signal Processing, pages 388?391.Andreas Stolcke.
+2002.
+SRILM - an extensible languagemodeling toolkit.
+In Proceedings of the Seventh Inter-national Conference on Spoken Language Processing,pages 901?904.David Talbot and Miles Osborne.
+2007.
+Randomisedlanguage modelling for statistical machine translation.In Proceedings of ACL, pages 512?519, Prague, CzechRepublic.197

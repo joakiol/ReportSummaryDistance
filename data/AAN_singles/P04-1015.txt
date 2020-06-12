@@ -1,0 +1,487 @@
+Incremental Parsing with the Perceptron AlgorithmMichael CollinsMIT CSAILmcollins@csail.mit.eduBrian RoarkAT&T Labs - Researchroark@research.att.comAbstractThis paper describes an incremental parsing approachwhere parameters are estimated using a variant of theperceptron algorithm.
+A beam-search algorithm is usedduring both training and decoding phases of the method.The perceptron approach was implemented with thesame feature set as that of an existing generative model(Roark, 2001a), and experimental results show that itgives competitive performance to the generative modelon parsing the Penn treebank.
+We demonstrate that train-ing a perceptron model to combine with the generativemodel during search provides a 2.1 percent F-measureimprovement over the generative model alone, to 88.8percent.1 IntroductionIn statistical approaches to NLP problems such as tag-ging or parsing, it seems clear that the representationused as input to a learning algorithm is central to the ac-curacy of an approach.
+In an ideal world, the designerof a parser or tagger would be free to choose any fea-tures which might be useful in discriminating good frombad structures, without concerns about how the featuresinteract with the problems of training (parameter estima-tion) or decoding (search for the most plausible candidateunder the model).
+To this end, a number of recently pro-posed methods allow a model to incorporate ?arbitrary?global features of candidate analyses or parses.
+Exam-ples of such techniques are Markov Random Fields (Rat-naparkhi et al, 1994; Abney, 1997; Della Pietra et al,1997; Johnson et al, 1999), and boosting or perceptronapproaches to reranking (Freund et al, 1998; Collins,2000; Collins and Duffy, 2002).A drawback of these approaches is that in the generalcase, they can require exhaustive enumeration of the setof candidates for each input sentence in both the train-ing and decoding phases1.
+For example, Johnson et al(1999) and Riezler et al (2002) use all parses generatedby an LFG parser as input to an MRF approach ?
+giventhe level of ambiguity in natural language, this set canpresumably become extremely large.
+Collins (2000) andCollins and Duffy (2002) rerank the top N parses froman existing generative parser, but this kind of approach1Dynamic programming methods (Geman and Johnson, 2002; Laf-ferty et al, 2001) can sometimes be used for both training and decod-ing, but this requires fairly strong restrictions on the features in themodel.presupposes that there is an existing baseline model withreasonable performance.
+Many of these baseline modelsare themselves used with heuristic search techniques, sothat the potential gain through the use of discriminativere-ranking techniques is further dependent on effectivesearch.This paper explores an alternative approach to pars-ing, based on the perceptron training algorithm intro-duced in Collins (2002).
+In this approach the trainingand decoding problems are very closely related ?
+thetraining method decodes training examples in sequence,and makes simple corrective updates to the parameterswhen errors are made.
+Thus the main complexity of themethod is isolated to the decoding problem.
+We describean approach that uses an incremental, left-to-right parser,with beam search, to find the highest scoring analysis un-der the model.
+The same search method is used in bothtraining and decoding.
+We implemented the perceptronapproach with the same feature set as that of an existinggenerative model (Roark, 2001a), and show that the per-ceptron model gives performance competitive to that ofthe generative model on parsing the Penn treebank, thusdemonstrating that an unnormalized discriminative pars-ing model can be applied with heuristic search.
+We alsodescribe several refinements to the training algorithm,and demonstrate their impact on convergence propertiesof the method.Finally, we describe training the perceptron modelwith the negative log probability given by the generativemodel as another feature.
+This provides the perceptronalgorithm with a better starting point, leading to largeimprovements over using either the generative model orthe perceptron algorithm in isolation (the hybrid modelachieves 88.8% f-measure on the WSJ treebank, com-pared to figures of 86.7% and 86.6% for the separategenerative and perceptron models).
+The approach is anextremely simple method for integrating new featuresinto the generative model: essentially all that is neededis a definition of feature-vector representations of entireparse trees, and then the existing parsing algorithms canbe used for both training and decoding with the models.2 The General FrameworkIn this section we describe a general framework ?
+linearmodels for NLP ?
+that could be applied to a diverse rangeof tasks, including parsing and tagging.
+We then describea particular method for parameter estimation, which is ageneralization of the perceptron algorithm.
+Finally, wegive an abstract description of an incremental parser, anddescribe how it can be used with the perceptron algo-rithm.2.1 Linear Models for NLPWe follow the framework outlined in Collins (2002;2004).
+The task is to learn a mapping from inputs x ?
+Xto outputs y ?
+Y .
+For example, X might be a set of sen-tences, with Y being a set of possible parse trees.
+Weassume:.
+Training examples (xi, yi) for i = 1 .
+.
+.
+n.. A function GEN which enumerates a set of candi-dates GEN(x) for an input x.. A representation ?
+mapping each (x, y) ?
+X ?Yto a feature vector ?
+(x, y) ?
+Rd.. A parameter vector ??
+?
+Rd.The components GEN,?
+and ??
+define a mapping froman input x to an output F (x) throughF (x) = arg maxy?GEN(x)?
+(x, y) ?
+??
+(1)where ?
+(x, y) ?
+??
+is the inner product?s ?s?s(x, y).The learning task is to set the parameter values ??
+usingthe training examples as evidence.
+The decoding algo-rithm is a method for searching for the arg max in Eq.
+1.This framework is general enough to encompass sev-eral tasks in NLP.
+In this paper we are interested in pars-ing, where (xi, yi), GEN, and ?
+can be defined as fol-lows:?
+Each training example (xi, yi) is a pair where xi isa sentence, and yi is the gold-standard parse for thatsentence.?
+Given an input sentence x, GEN(x) is a set ofpossible parses for that sentence.
+For example,GEN(x) could be defined as the set of possibleparses for x under some context-free grammar, per-haps a context-free grammar induced from the train-ing examples.?
+The representation ?
+(x, y) could track arbitraryfeatures of parse trees.
+As one example, supposethat there are m rules in a context-free grammar(CFG) that defines GEN(x).
+Then we could definethe i?th component of the representation, ?i(x, y),to be the number of times the i?th context-free ruleappears in the parse tree (x, y).
+This is implicitlythe representation used in probabilistic or weightedCFGs.Note that the difficulty of finding the arg max in Eq.
+1is dependent on the interaction of GEN and ?.
+In manycases GEN(x) could grow exponentially with the sizeof x, making brute force enumeration of the membersof GEN(x) intractable.
+For example, a context-freegrammar could easily produce an exponentially growingnumber of analyses with sentence length.
+For some rep-resentations, such as the ?rule-based?
+representation de-scribed above, the arg max in the set enumerated by theCFG can be found efficiently, using dynamic program-ming algorithms, without having to explicitly enumer-ate all members of GEN(x).
+However in many caseswe may be interested in representations which do not al-low efficient dynamic programming solutions.
+One wayaround this problem is to adopt a two-pass approach,where GEN(x) is the top N analyses under some initialmodel, as in the reranking approach of Collins (2000).In the current paper we explore alternatives to rerank-ing approaches, namely heuristic methods for finding thearg max, specifically incremental beam-search strategiesrelated to the parsers of Roark (2001a) and Ratnaparkhi(1999).2.2 The Perceptron Algorithm for ParameterEstimationWe now consider the problem of setting the parameters,?
+?, given training examples (xi, yi).
+We will briefly re-view the perceptron algorithm, and its convergence prop-erties ?
+see Collins (2002) for a full description.
+Thealgorithm and theorems are based on the approach toclassification problems described in Freund and Schapire(1999).Figure 1 shows the algorithm.
+Note that themost complex step of the method is finding zi =arg maxz?GEN(xi) ?
+(xi, z)???
+?
+and this is precisely thedecoding problem.
+Thus the training algorithm is in prin-ciple a simple part of the parser: any system will needa decoding method, and once the decoding algorithm isimplemented the training algorithm is relatively straight-forward.We will now give a first theorem regarding the con-vergence of this algorithm.
+First, we need the followingdefinition:Definition 1 Let GEN(xi) = GEN(xi) ?
+{yi}.
+Inother words GEN(xi) is the set of incorrect candidatesfor an example xi.
+We will say that a training sequence(xi, yi) for i = 1 .
+.
+.
+n is separable with margin ?
+> 0if there exists some vector U with ||U|| = 1 such that?i, ?z ?
+GEN(xi), U ?
+?
+(xi, yi)?U ?
+?
+(xi, z) ?
+?
+(2)(||U|| is the 2-norm of U, i.e., ||U|| = ?
+?s U2s.
+)Next, define Ne to be the number of times an error ismade by the algorithm in figure 1 ?
+that is, the number oftimes that zi 6= yi for some (t, i) pair.
+We can then statethe following theorem (see (Collins, 2002) for a proof):Theorem 1 For any training sequence (xi, yi) that isseparable with margin ?, for any value of T , then forthe perceptron algorithm in figure 1Ne ?R2?2where R is a constant such that ?i, ?z ?GEN(xi) ||?
+(xi, yi)?
+?
+(xi, z)|| ?
+R.This theorem implies that if there is a parameter vec-tor U which makes zero errors on the training set, thenafter a finite number of iterations the training algorithmwill converge to parameter values with zero training er-ror.
+A crucial point is that the number of mistakes is in-dependent of the number of candidates for each exampleInputs: Training examples (xi, yi) Algorithm:Initialization: Set ??
+= 0 For t = 1 .
+.
+.
+T , i = 1 .
+.
+.
+nOutput: Parameters ??
+Calculate zi = arg maxz?GEN(xi) ?
+(xi, z) ?
+?
+?If(zi 6= yi) then ??
+= ?
+?+ ?
+(xi, yi)?
+?
+(xi, zi)Figure 1: A variant of the perceptron algorithm.(i.e.
+the size of GEN(xi) for each i), depending onlyon the separation of the training data, where separationis defined above.
+This is important because in many NLPproblems GEN(x) can be exponential in the size of theinputs.
+All of the convergence and generalization resultsin Collins (2002) depend on notions of separability ratherthan the size of GEN.Two questions come to mind.
+First, are there guar-antees for the algorithm if the training data is not sepa-rable?
+Second, performance on a training sample is allvery well, but what does this guarantee about how wellthe algorithm generalizes to newly drawn test examples?Freund and Schapire (1999) discuss how the theory forclassification problems can be extended to deal with bothof these questions; Collins (2002) describes how theseresults apply to NLP problems.As a final note, following Collins (2002), we used theaveraged parameters from the training algorithm in de-coding test examples in our experiments.
+Say ?
+?ti is theparameter vector after the i?th example is processed onthe t?th pass through the data in the algorithm in fig-ure 1.
+Then the averaged parameters ?
+?AVG are definedas ?
+?AVG =?i,t ?
+?ti/NT .
+Freund and Schapire (1999)originally proposed the averaged parameter method; itwas shown to give substantial improvements in accuracyfor tagging tasks in Collins (2002).2.3 An Abstract Description of IncrementalParsingThis section gives a description of the basic incrementalparsing approach.
+The input to the parser is a sentencex with length n. A hypothesis is a triple ?x, t, i?
+suchthat x is the sentence being parsed, t is a partial or fullanalysis of that sentence, and i is an integer specifyingthe number of words of the sentence which have beenprocessed.
+Each full parse for a sentence will have theform ?x, t, n?.
+The initial state is ?x, ?, 0?
+where ?
+is a?null?
+or empty analysis.We assume an ?advance?
+function ADV which takesa hypothesis triple as input, and returns a set of new hy-potheses as output.
+The advance function will absorbanother word in the sentence: this means that if the inputto ADV is ?x, t, i?, then each member of ADV(?x, t, i?
+)will have the form ?x, t?,i+1?.
+Each new analysis t?
+willbe formed by somehow incorporating the i+1?th wordinto the previous analysis t.With these definitions in place, we can iteratively de-fine the full set of partial analysesHi for the first i wordsof the sentence as H0(x) = {?x, ?, 0?
+}, and Hi(x) =?h??Hi?1(x)ADV(h?)
+for i = 1 .
+.
+.
+n. The full set ofparses for a sentence x is then GEN(x) = Hn(x) wheren is the length of x.Under this definition GEN(x) can include a hugenumber of parses, and searching for the highest scor-ing parse, arg maxh?Hn(x) ?
+(h) ?
+?
+?, will be intractable.For this reason we introduce one additional function,FILTER(H), which takes a set of hypotheses H, and re-turns a much smaller set of ?filtered?
+hypotheses.
+Typi-cally, FILTER will calculate the score ?
+(h) ?
+??
+for eachh ?
+H, and then eliminate partial analyses which havelow scores under this criterion.
+For example, a simpleversion of FILTER would take the top N highest scoringmembers of H for some constant N .
+We can then rede-fine the set of partial analyses as follows (we use Fi(x)to denote the set of filtered partial analyses for the first iwords of the sentence):F0(x) = {?x, ?, 0?
+}Fi(x) = FILTER(?h??Fi?1(x)ADV(h?
+))for i=1 .
+.
+.
+nThe parsing algorithm returns arg maxh?Fn ?
+(h) ?
+?
+?.Note that this is a heuristic, in that there is no guar-antee that this procedure will find the highest scoringparse, arg maxh?Hn ?
+(h) ?
+??.
+Search errors, wherearg maxh?Fn ?
+(h) ?
+??
+6= arg maxh?Hn ?
+(h) ?
+?
+?, willcreate errors in decoding test sentences, and also errors inimplementing the perceptron training algorithm in Fig-ure 1.
+In this paper we give empirical results that suggestthat FILTER can be chosen in such a way as to give ef-ficient parsing performance together with high parsingaccuracy.The exact implementation of the parser will depend onthe definition of partial analyses, of ADV and FILTER,and of the representation ?.
+The next section describesour instantiation of these choices.3 A full description of the parsingapproachThe parser is an incremental beam-search parser verysimilar to the sort described in Roark (2001a; 2004), withsome changes in the search strategy to accommodate theperceptron feature weights.
+We first describe the parsingalgorithm, and then move on to the baseline feature setfor the perceptron model.3.1 Parser controlThe input to the parser is a string wn0 , a grammar G, amapping ?
+from derivations to feature vectors, and a pa-rameter vector ??.
+The grammar G = (V, T,S?, S?, C,B)consists of a set of non-terminal symbols V , a set of ter-minal symbols T , a start symbol S?
+?
+V , an end-of-constituent symbol S?
+?
+V , a set of ?allowable chains?C,and a set of ?allowable triples?
+B.
+S?
+is a special emptynon-terminal that marks the end of a constituent.
+Eachchain is a sequence of non-terminals followed by a ter-minal symbol, for example ?S?
+?
+S ?
+NP ?
+NN ?S?S!!NPNNTrash.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.NNcan.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+VPMDcan.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+VPVPMDcanFigure 2: Left child chains and connection paths.
+Dottedlines represent potential attachmentsTrash?.
+Each ?allowable triple?
+is a tuple ?X,Y, Z?where X,Y, Z ?
+V .
+The triples specify which non-terminals Z are allowed to follow a non-terminal Y un-der a parent X .
+For example, the triple ?S,NP,VP?specifies that a VP can follow an NP under an S. Thetriple ?NP,NN,S??
+would specify that the S?
+symbol canfollow an NN under an NP ?
+i.e., that the symbol NN isallowed to be the final child of a rule with parent NPThe initial state of the parser is the input string alone,wn0 .
+In absorbing the first word, we add all chains of theform S?
+.
+.
+.
+?
+w0.
+For example, in figure 2 the chain?S?
+?
+S ?
+NP ?
+NN ?
+Trash?
+is used to constructan analysis for the first word alone.
+Other chains whichstart with S?
+and end with Trash would give competinganalyses for the first word of the string.Figure 2 shows an example of how the next word ina sentence can be incorporated into a partial analysis forthe previous words.
+For any partial analysis there willbe a set of potential attachment sites: in the example, theattachment sites are under the NP or the S. There willalso be a set of possible chains terminating in the nextword ?
+there are three in the example.
+Each chain couldpotentially be attached at each attachment site, giving6 ways of incorporating the next word in the example.For illustration, assume that the set B is {?S,NP,VP?,?NP,NN,NN?, ?NP,NN,S?
+?, ?S,NP,VP?}.
+Then someof the 6 possible attachments may be disallowed becausethey create triples that are not in the set B.
+For example,in figure 2 attaching either of the VP chains under theNP is disallowed because the triple ?NP,NN,VP?
+is notin B.
+Similarly, attaching the NN chain under the S willbe disallowed if the triple ?S,NP,NN?
+is not in B. Incontrast, adjoining ?NN ?
+can?
+under the NP creates asingle triple, ?NP,NN,NN?, which is allowed.
+Adjoiningeither of the VP chains under the S creates two triples,?S,NP,VP?
+and ?NP,NN,S?
+?, which are both in the setB.Note that the ?allowable chains?
+in our grammar arewhat Costa et al (2001) call ?connection paths?
+fromthe partial parse to the next word.
+It can be shown thatthe method is equivalent to parsing with a transformedcontext-free grammar (a first-order ?Markov?
+grammar)?
+for brevity we omit the details here.In this way, given a set of candidatesFi(x) for the firsti words of the string, we can generate a set of candidatesTree POS f24 f2-21 f2-21, # > 1transform tags Type Type OOV Type OOVNone Gold 386 1680 0.1% 1013 0.1%None Tagged 401 1776 0.1% 1043 0.2%FSLC Gold 289 1214 0.1% 746 0.1%FSLC Tagged 300 1294 0.1% 781 0.1%Table 1: Left-child chain type counts (of length > 2) forsections of the Wall St. Journal Treebank, and out-of-vocabulary (OOV) rate on the held-out corpus.for the first i + 1 words, ?h??Fi(x)ADV(h?
+), where theADV function uses the grammar as described above.
+Wethen calculate ?
+(h) ?
+??
+for all of these partial hypotheses,and rank the set from best to worst.
+A FILTER function isthen applied to this ranked set to giveFi+1.
+Let hk be thekth ranked hypothesis in Hi+1(x).
+Then hk ?
+Fi+1 ifand only if ?
+(hk) ?
+??
+?
+?k.
+In our case, we parameterizethe calculation of ?k with ?
+as follows:?k = ?
+(h0) ?
+????k3.
+(3)The problem with using left-child chains is limitingthem in number.
+With a left-recursive grammar, ofcourse, the set of all possible left-child chains is infinite.We use two techniques to reduce the number of left-childchains: first, we remove some (but not all) of the recur-sion from the grammar through a tree transform; next,we limit the left-child chains consisting of more thantwo non-terminal categories to those actually observedin the training data more than once.
+Left-child chains oflength less than or equal to two are all those observedin training data.
+As a practical matter, the set of left-child chains for a terminal x is taken to be the union ofthe sets of left-child chains for all pre-terminal part-of-speech (POS) tags T for x.Before inducing the left-child chains and allowabletriples from the treebank, the trees are transformed with aselective left-corner transformation (Johnson and Roark,2000) that has been flattened as presented in Roark(2001b).
+This transform is only applied to left-recursiveproductions, i.e.
+productions of the form A ?
+A?.The transformed trees look as in figure 3.
+The transformhas the benefit of dramatically reducing the number ofleft-child chains, without unduly disrupting the immedi-ate dominance relationships that provide features for themodel.
+The parse trees that are returned by the parser arethen de-transformed to the original form of the grammarfor evaluation2.Table 1 presents the number of left-child chains oflength greater than 2 in sections 2-21 and 24 of the PennWall St. Journal Treebank, both with and without theflattened selective left-corner transformation (FSLC), forgold-standard part-of-speech (POS) tags and automati-cally tagged POS tags.
+When the FSLC has been appliedand the set is restricted to those occurring more than once2See Johnson (1998) for a presentation of the transform/de-transform paradigm in parsing.
+(a)NPNPNPNNPJimbbPOS?sHHHNNdogPPPPPP,INwith .
+.
+.lNP(b)NPNNPJimPOS?sXXXXXNP/NPNNdogHHHNP/NPPPINwith .
+.
+.lNP(c)NPNNPJim!!
+!POS?slNP/NPNNdog``````NP/NPPP,INwith .
+.
+.lNPFigure 3: Three representations of NP modifications: (a) the original treebank representation; (b) Selective left-cornerrepresentation; and (c) a flat structure that is unambiguously equivalent to (b)F0 = {L00, L10} F4 = F3 ?
+{L03} F8 = F7 ?
+{L21} F12 = F11 ?
+{L11}F1 = F0 ?
+{LKP} F5 = F4 ?
+{L20} F9 = F8 ?
+{CL} F13 = F12 ?
+{L30}F2 = F1 ?
+{L01} F6 = F5 ?
+{L11} F10 = F9 ?
+{LK} F14 = F13 ?
+{CCP}F3 = F2 ?
+{L02} F7 = F6 ?
+{L30} F11 = F0 ?
+{L20} F15 = F14 ?
+{CC}Table 2: Baseline feature set.
+Features F0 ?
+F10 fire at non-terminal nodes.
+Features F0, F11 ?
+F15 fire at terminalnodes.in the training corpus, we can reduce the total number ofleft-child chains of length greater than 2 by half, whileleaving the number of words in the held-out corpus withan unobserved left-child chain (out-of-vocabulary rate ?OOV) to just one in every thousand words.3.2 FeaturesFor this paper, we wanted to compare the results of aperceptron model with a generative model for a compa-rable feature set.
+Unlike in Roark (2001a; 2004), thereis no look-ahead statistic, so we modified the feature setfrom those papers to explicitly include the lexical itemand POS tag of the next word.
+Otherwise the featuresare basically the same as in those papers.
+We then builta generative model with this feature set and the sametree transform, for use with the beam-search parser fromRoark (2004) to compare against our baseline perceptronmodel.To concisely present the baseline feature set, let usestablish a notation.
+Features will fire whenever a newnode is built in the tree.
+The features are labels from theleft-context, i.e.
+the already built part of the tree.
+Allof the labels that we will include in our feature sets arei levels above the current node in the tree, and j nodesto the left, which we will denote Lij .
+Hence, L00 is thenode label itself; L10 is the label of parent of the currentnode; L01 is the label of the sibling of the node, imme-diately to its left; L11 is the label of the sibling of theparent node, etc.
+We also include: the lexical head of thecurrent constituent (CL); the c-commanding lexical head(CC) and its POS (CCP); and the look-ahead word (LK)and its POS (LKP).
+All of these features are discussed atmore length in the citations above.
+Table 2 presents thebaseline feature set.In addition to the baseline feature set, we will alsopresent results using features that would be more dif-ficult to embed in a generative model.
+We includedsome punctuation-oriented features, which included (i)a Boolean feature indicating whether the final punctua-tion is a question mark or not; (ii) the POS label of theword after the current look-ahead, if the current look-ahead is punctuation or a coordinating conjunction; and(iii) a Boolean feature indicating whether the look-aheadis punctuation or not, that fires when the category imme-diately to the left of the current position is immediatelypreceded by punctuation.4 Refinements to the Training AlgorithmThis section describes two modifications to the ?basic?training algorithm in figure 1.4.1 Making Repeated Use of HypothesesFigure 4 shows a modified algorithm for parameter es-timation.
+The input to the function is a gold standardparse, together with a set of candidates F generatedby the incremental parser.
+There are two steps.
+First,the model is updated as usual with the current example,which is then added to a cache of examples.
+Second, themethod repeatedly iterates over the cache, updating themodel at each cached example if the gold standard parseis not the best scoring parse from among the stored can-didates for that example.
+In our experiments, the cachewas restricted to contain the parses from up to N pre-viously processed sentences, where N was set to be thesize of the training set.The motivation for these changes is primarily effi-ciency.
+One way to think about the algorithms in thispaper is as methods for finding parameter values that sat-isfy a set of linear constraints ?
+one constraint for eachincorrect parse in training data.
+The incremental parser isInput: A gold-standard parse = g for sentence k of N .
+A set of candidate parses F .
+Current parameters??.
+A Cache of triples ?gj ,Fj , cj?
+for j = 1 .
+.
+.
+N where each gj is a previously generated gold standardparse, Fj is a previously generated set of candidate parses, and cj is a counter of the number of times that ?
+?has been updated due to this particular triple.
+Parameters T1 and T2 controlling the number of iterations be-low.
+In our experiments, T1 = 5 and T2 = 50.
+Initialize the Cache to include, for j = 1 .
+.
+.
+N , ?gj , ?, T2?.Step 1: Step 2:Calculate z = arg maxt?F ?
+(t) ?
+??
+For t = 1 .
+.
+.
+T1, j = 1 .
+.
+.
+NIf (z 6= g) then ??
+= ?
+?+ ?(g)?
+?
+(z) If cj < T2 thenSet the kth triple in the Cache to ?g,F , 0?
+Calculate z = arg maxt?Fj ?
+(t) ?
+?
+?If (z 6= gj) then??
+= ?
+?+ ?(gj)?
+?
+(z)cj = cj + 1Figure 4: The refined parameter update method makes repeated use of hypothesesa method for dynamically generating constraints (i.e.
+in-correct parses) which are violated, or close to being vio-lated, under the current parameter settings.
+The basic al-gorithm in Figure 1 is extremely wasteful with the gener-ated constraints, in that it only looks at one constraint oneach sentence (the arg max), and it ignores constraintsimplied by previously parsed sentences.
+This is ineffi-cient because the generation of constraints (i.e., parsingan input sentence), is computationally quite demanding.More formally, it can be shown that the algorithm infigure 4 also has the upper bound in theorem 1 on thenumber of parameter updates performed.
+If the cost ofsteps 1 and 2 of the method are negligible compared tothe cost of parsing a sentence, then the refined algorithmwill certainly converge no more slowly than the basic al-gorithm, and may well converge more quickly.As a final note, we used the parameters T1 and T2 tolimit the number of passes over examples, the aim beingto prevent repeated updates based on outlier exampleswhich are not separable.4.2 Early Update During TrainingAs before, define yi to be the gold standard parse for thei?th sentence, and also define yji to be the partial analy-sis under the gold-standard parse for the first j words ofthe i?th sentence.
+Then if yji /?
+Fj(xi) a search error hasbeen made, and there is no possibility of the gold stan-dard parse yi being in the final set of parses, Fn(xi).
+Wecall the following modification to the parsing algorithmduring training ?early update?
+: if yji /?
+Fj(xi), exit theparsing process, pass yji , Fj(xi) to the parameter estima-tion method, and move on to the next string in the train-ing set.
+Intuitively, the motivation behind this is clear.
+Itmakes sense to make a correction to the parameter valuesat the point that a search error has been made, rather thanallowing the parser to continue to the end of the sentence.This is likely to lead to less noisy input to the parameterestimation algorithm; and early update will also improveefficiency, as at the early stages of training the parser willfrequently give up after a small proportion of each sen-tence is processed.
+It is more difficult to justify from aformal point of view, we leave this to future work.Figure 5 shows the convergence of the training algo-rithm with neither of the two refinements presented; withjust early update; and with both.
+Early update makes1 2 3 4 5 682838485868788Number of passes over training dataF?measureparsing accuracyNo early update, no repeated use of examplesEarly update, no repeated use of examplesEarly update, repeated use of examplesFigure 5: Performance on development data (section f24)after each pass over the training data, with and withoutrepeated use of examples and early update.an enormous difference in the quality of the resultingmodel; repeated use of examples gives a small improve-ment, mainly in recall.5 Empirical resultsThe parsing models were trained and tested on treebanksfrom the Penn Wall St. Journal Treebank: sections 2-21were kept training data; section 24 was held-out devel-opment data; and section 23 was for evaluation.
+Aftereach pass over the training data, the averaged perceptronmodel was scored on the development data, and the bestperforming model was used for test evaluation.
+For thispaper, we used POS tags that were provided either bythe Treebank itself (gold standard tags) or by the per-ceptron POS tagger3 presented in Collins (2002).
+Theformer gives us an upper bound on the improvement thatwe might expect if we integrated the POS tagging withthe parsing.3For trials when the generative or perceptron parser was given POStagger output, the models were trained on POS tagged sections 2-21,which in both cases helped performance slightly.Model Gold-standard tags POS-tagger tagsLP LR F LP LR FGenerative 88.1 87.6 87.8 86.8 86.5 86.7Perceptron (baseline) 87.5 86.9 87.2 86.2 85.5 85.8Perceptron (w/ punctuation features) 88.1 87.6 87.8 87.0 86.3 86.6Table 3: Parsing results, section 23, all sentences, including labeled precision (LP), labeled recall (LR), and F-measureTable 3 shows results on section 23, when either gold-standard or POS-tagger tags are provided to the parser4.With the base features, the generative model outperformsthe perceptron parser by between a half and one point,but with the additional punctuation features, the percep-tron model matches the generative model performance.Of course, using the generative model and using theperceptron algorithm are not necessarily mutually ex-clusive.
+Another training scenario would be to includethe generative model score as another feature, with someweight in the linear model learned by the perceptron al-gorithm.
+This sort of scenario was used in Roark et al(2004) for training an n-gram language model using theperceptron algorithm.
+We follow that paper in fixing theweight of the generative model, rather than learning theweight along the the weights of the other perceptron fea-tures.
+The value of the weight was empirically optimizedon the held-out set by performing trials with several val-ues.
+Our optimal value was 10.In order to train this model, we had to provide gen-erative model scores for strings in the training set.
+Ofcourse, to be similar to the testing conditions, we can-not use the standard generative model trained on everysentence, since then the generative score would be froma model that had already seen that string in the trainingdata.
+To control for this, we built ten generative models,each trained on 90 percent of the training data, and usedeach of the ten to score the remaining 10 percent that wasnot seen in that training set.
+For the held-out and testingconditions, we used the generative model trained on allof sections 2-21.In table 4 we present the results of including the gen-erative model score along with the other perceptron fea-tures, just for the run with POS-tagger tags.
+The gen-erative model score (negative log probability) effectivelyprovides a much better initial starting point for the per-ceptron algorithm.
+The resulting F-measure on section23 is 2.1 percent higher than either the generative modelor perceptron-trained model used in isolation.6 ConclusionsIn this paper we have presented a discriminative train-ing approach, based on the perceptron algorithm witha couple of effective refinements, that provides a modelcapable of effective heuristic search over a very difficultsearch space.
+In such an approach, the unnormalized dis-criminative parsing model can be applied without either4When POS tagging is integrated directly into the generative pars-ing process, the baseline performance is 87.0.
+For comparison with theperceptron model, results are shown with pre-tagged input.Model POS-tagger tagsLP LR FGenerative baseline 86.8 86.5 86.7Perceptron (w/ punctuation features) 87.0 86.3 86.6Generative + Perceptron (w/ punct) 89.1 88.4 88.8Table 4: Parsing results, section 23, all sentences, in-cluding labeled precision (LP), labeled recall (LR), andF-measurean external model to present it with candidates, or poten-tially expensive dynamic programming.
+When the train-ing algorithm is provided the generative model scores asan additional feature, the resulting parser is quite com-petitive on this task.
+The improvement that was derivedfrom the additional punctuation features demonstratesthe flexibility of the approach in incorporating novel fea-tures in the model.Future research will look in two directions.
+First, wewill look to include more useful features that are diffi-cult for a generative model to include.
+This paper wasintended to compare search with the generative modeland the perceptron model with roughly similar featuresets.
+Much improvement could potentially be had bylooking for other features that could improve the mod-els.
+Secondly, combining with the generative model canbe done in several ways.
+Some of the constraints on thesearch technique that were required in the absence of thegenerative model can be relaxed if the generative modelscore is included as another feature.
+In the current paper,the generative score was simply added as another feature.Another approach might be to use the generative modelto produce candidates at a word, then assign perceptronfeatures for those candidates.
+Such variants deserve in-vestigation.Overall, these results show much promise in the use ofdiscriminative learning techniques such as the perceptronalgorithm to help perform heuristic search in difficult do-mains such as statistical parsing.AcknowledgementsThe work by Michael Collins was supported by the Na-tional Science Foundation under Grant No.
+0347631.ReferencesSteven Abney.
+1997.
+Stochastic attribute-value gram-mars.
+Computational Linguistics, 23(4):597?617.Michael Collins and Nigel Duffy.
+2002.
+New rankingalgorithms for parsing and tagging: Kernels over dis-crete structures and the voted perceptron.
+In Proceed-ings of the 40th Annual Meeting of the Association forComputational Linguistics, pages 263?270.Michael Collins.
+2000.
+Discriminative reranking fornatural language parsing.
+In The Proceedings of the17th International Conference on Machine Learning.Michael Collins.
+2002.
+Discriminative training meth-ods for hidden markov models: Theory and experi-ments with perceptron algorithms.
+In Proceedings ofthe Conference on Empirical Methods in Natural Lan-guage Processing (EMNLP), pages 1?8.Michael Collins.
+2004.
+Parameter estimation for sta-tistical parsing models: Theory and practice ofdistribution-free methods.
+In Harry Bunt, John Car-roll, and Giorgio Satta, editors, New Developments inParsing Technology.
+Kluwer.Fabrizio Costa, Vincenzo Lombardo, Paolo Frasconi,and Giovanni Soda.
+2001.
+Wide coverage incrementalparsing by learning attachment preferences.
+In Con-ference of the Italian Association for Artificial Intelli-gence (AIIA), pages 297?307.Stephen Della Pietra, Vincent Della Pietra, and John Laf-ferty.
+1997.
+Inducing features of random fields.
+IEEETransactions on Pattern Analysis and Machine Intelli-gence, 19:380?393.Yoav Freund and Robert Schapire.
+1999.
+Large mar-gin classification using the perceptron algorithm.
+Ma-chine Learning, 3(37):277?296.Yoav Freund, Raj Iyer, Robert Schapire, and YoramSinger.
+1998.
+An efficient boosting algorithm forcombining preferences.
+In Proc.
+of the 15th Intl.
+Con-ference on Machine Learning.Stuart Geman and Mark Johnson.
+2002.
+Dynamic pro-gramming for parsing and estimation of stochasticunification-based grammars.
+In Proceedings of the40th Annual Meeting of the Association for Compu-tational Linguistics, pages 279?286.Mark Johnson and Brian Roark.
+2000.
+Compact non-left-recursive grammars using the selective left-cornertransform and factoring.
+In Proceedings of the 18thInternational Conference on Computational Linguis-tics (COLING), pages 355?361.Mark Johnson, Stuart Geman, Steven Canon, Zhiyi Chi,and Stefan Riezler.
+1999.
+Estimators for stochastic?unification-based?
+grammars.
+In Proceedings of the37th Annual Meeting of the Association for Computa-tional Linguistics, pages 535?541.Mark Johnson.
+1998.
+PCFG models of linguis-tic tree representations.
+Computational Linguistics,24(4):617?636.John Lafferty, Andrew McCallum, and Fernando Pereira.2001.
+Conditional random fields: Probabilistic mod-els for segmenting and labeling sequence data.
+In Pro-ceedings of the 18th International Conference on Ma-chine Learning, pages 282?289.Adwait Ratnaparkhi, Salim Roukos, and R. Todd Ward.1994.
+A maximum entropy model for parsing.
+In Pro-ceedings of the International Conference on SpokenLanguage Processing (ICSLP), pages 803?806.Adwait Ratnaparkhi.
+1999.
+Learning to parse naturallanguage with maximum entropy models.
+MachineLearning, 34:151?175.Stefan Riezler, Tracy King, Ronald M. Kaplan, RichardCrouch, John T. Maxwell III, and Mark Johnson.2002.
+Parsing the wall street journal using a lexical-functional grammar and discriminative estimationtechniques.
+In Proceedings of the 40th Annual Meet-ing of the Association for Computational Linguistics,pages 271?278.Brian Roark, Murat Saraclar, and Michael Collins.
+2004.Corrective language modeling for large vocabularyASR with the perceptron algorithm.
+In Proceedingsof the International Conference on Acoustics, Speech,and Signal Processing (ICASSP), pages 749?752.Brian Roark.
+2001a.
+Probabilistic top-down parsingand language modeling.
+Computational Linguistics,27(2):249?276.Brian Roark.
+2001b.
+Robust Probabilistic PredictiveSyntactic Processing.
+Ph.D. thesis, Brown University.http://arXiv.org/abs/cs/0105019.Brian Roark.
+2004.
+Robust garden path parsing.
+NaturalLanguage Engineering, 10(1):1?24.

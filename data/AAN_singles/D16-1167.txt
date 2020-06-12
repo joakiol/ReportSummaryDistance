@@ -1,0 +1,357 @@
+Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, pages 1608?1616,Austin, Texas, November 1-5, 2016. c?2016 Association for Computational LinguisticsLearning to Generate Textual DataGuillaume Bouchard???
+and Pontus Stenetorp??
+and Sebastian Riedel?
+{g.bouchard,p.stenetorp,s.riedel}@cs.ucl.ac.uk?Department of Computer Science, University College London?Bloomsbury AIAbstractTo learn text understanding models withmillions of parameters one needs massiveamounts of data.
+In this work, we argue thatgenerating data can compensate for this need.While defining generic data generators is dif-ficult, we propose to allow generators to be?weakly?
+specified in the sense that a set ofparameters controls how the data is generated.Consider for example generators where the ex-ample templates, grammar, and/or vocabularyis determined by this set of parameters.
+In-stead of manually tuning these parameters, welearn them from the limited training data atour disposal.
+To achieve this, we derive an ef-ficient algorithm called GENERE that jointlyestimates the parameters of the model and theundetermined generation parameters.
+We il-lustrate its benefits by learning to solve mathexam questions using a highly parametrizedsequence-to-sequence neural network.1 IntroductionMany tasks require a large amount of training datato be solved efficiently, but acquiring such amountsis costly, both in terms of time and money.
+In severalsituations, a human trainer can provide their domainknowledge in the form of a generator of virtual data,such as a negative data sampler for implicit feedbackin recommendation systems, physical 3D renderingengines as a simulator of data in a computer visionsystem, simulators of physical processes to solvescience exam question, and math problem genera-tors for automatically solving math word problems.?
+Contributed equally to this work.Domain-specific data simulators can generate anarbitrary amount of data that can be treated exactlythe same way as standard observations, but sincethey are virtual, they can also be seen as regularizersdedicated to the task we want to solve (Scholkopfand Smola, 2001).
+While simple, the idea of datasimulation is powerful and can lead to significantlybetter estimations of a predictive model because itprevents overfitting.
+At the same time it is subjectto a strong model bias, because such data genera-tors often generate data that is different from the ob-served data.Creating virtual samples is strongly linked totransfer learning when the task to transfer is corre-lated to the objective (Pan and Yang, 2010).
+Thecomputer vision literature adopted this idea veryearly through the notion of virtual samples.
+Suchsamples have a natural interpretation: by creatingartificial perturbations of an image, its semantics islikely to be unchanged, i.e.
+training samples can berotated, blurred, or slightly cropped without chang-ing the category of the objects contained in the im-age (Niyogi et al, 1998).However, for natural language applications theidea of creating invariant transformations is diffi-cult to apply directly, as simple meaning-preservingtransformations ?
+such as the replacement of wordsby their synonyms or active-passive verb trans-formations ?
+are quite limited.
+More advancedmeaning-preserving transformations would requirean already good model that understands natural lan-guage.
+A more structure-driven approach is to buildtop-down generators, such as probabilistic gram-mars, with a much wider coverage of linguistic phe-1608nomena.
+This way of being able to leverage manyyears of research in computational linguistics to cre-ate good data generators would be a natural and use-ful reuse of scientific knowledge, and better thanblindly believing in the current trend of ?data takesall?.While the idea of generating data is straightfor-ward, one could argue that it may be difficult tocome up with good generators.
+What we mean bya good generator is the ability to help predicting testdata when the model is trained on the generated data.In this paper, we will show several types of gener-ators, some contributing more than others in theirability to generalize to unseen data.
+When design-ing a good generator there are several decisions onemust make: should we generate data by modifyingexisting training samples, or ?go wild?
+and derivea full probabilistic context-free grammar that couldpossibly generate unnatural examples and add noiseto the estimator?
+While we do not arrive at a spe-cific framework to build programs that generate vir-tual data, in this work we assume that a domain ex-pert can easily write a program in a programminglanguage of her choice, leaving some generation pa-rameters unspecified.
+In our approach these unspeci-fied parameters are automatically learned, by select-ing the ones most compatible with the model and thetraining data.In the next section, we introduce GENERE, ageneric algorithm that extends any gradient-basedlearning approach with a data generator that can betuned while learning the model on the training datausing stochastic optimization.
+In Section 2.2, weshow how GENERE can be adapted to handle a (pos-sibly non-differentiable) black-box sampler withoutrequiring modifications to it.
+We also illustrate howthis framework can be implemented in practice fora specific use case: the automatic solving of mathexam problems.
+Further discussion is given in theconcluding section.2 Regularization Based on a GenerativeModelAs with any machine learning approach, we assumethat given the realisation of a variable x ?
+X repre-senting the input, we want to predict the distributionof a variable y ?
+Y representing the output.
+Thegoal is to find this predictive distribution by learningit from examples D := {(xi, yi)}ni=1.Building on the current success in the applica-tion of deep learning to NLP, we assume that thereexists a good model family {f?, ?
+?
+?}
+to pre-dict y given x, where ?
+is an element of the pa-rameter space ?.
+For example, the stacked LSTMencoder-decoder is a general purpose model thathas helped to improve results on relatively complextasks, such as machine translation (Sutskever et al,2014), syntactic parsing (Vinyals et al, 2014), se-mantic parsing (Dong and Lapata, 2016) and textualentailment (Rockta?schel et al, 2016).For many applications, the amount of trainingdata is too small or too costly to acquire.
+We hencelook for alternative ways to regularize the model sothat we can achieve good performance using fewdata points.Let p?
+(y|x) be the target prediction model.
+Giventhe training dataset D, the penalized maximum like-lihood estimator is obtained by min???
+L(?)
+where:L(?)
+:= `(?)
++ ??(?)
+.
+(1)where `(?)
+:= ?
+1n?ni=1 log p?
+(yi|xi) =EP?
+[log p?
+(y|x)] is the negative log-likelihood.Here, ?(?)
+is a regularizer that prevents over-fitting,?
+?
+R the regularization parameter that can beset by cross-validation, and P?
+is the empiricaldistribution.
+Instead of using a standard regularizer?
+?
+such as the squared norm or the Lasso penaltywhich are domain-agnostic, ?
+in this paper wepropose to use a generative model to regularize theestimator.Domain knowledge A natural way to inject back-ground knowledge is to define a generative modelthat simulates the way the data is generated.
+In textunderstanding applications, such generative mod-els are common and include probabilistic context-free grammars (PCFG) and natural language gen-eration frameworks (e.g.
+SimpleNLG (Gatt andReiter, 2009)).
+Let P?
+(x, y) be such a generativemodel parametrized by a continuous parameter vec-tor ?
+?
+?, such as the concatenation of all the pa-rameters of the production rules in a PCFG.
+Oneimportant difference between the discriminative andthe generative probability distributions is that the in-1609ference problem of y given x might be intractable1for the generative model, even if the joint model canbe computed efficiently.In this work, we use the following regularizer:?(?)
+:= min???EP?(x,y)[log(P?(y|x)p?(y|x))].
+(2)This regularizer makes intuitive sense as it corre-sponds to the smallest possible Kullback-Leibler di-vergence between the generative and discriminativemodels.
+We can see that if the generator p?
+isclose to the distribution that generates the test data,the method can potentially yield good performance.However, in practice, ?
+is unknown and difficult toset.
+In this work, we focus on several techniquesthat can be used to estimate the generative parametervector ?
+on the training data, making the regularizerdata-dependent.Minimizing the objective from Equation (1) isequivalent to minimize the following function over??
+?
+:L(?, ?)
+:= `(?)
++ ?EP?(x,y)[log(p?(y|x)p?
+(y|x))].This estimator is called GENERE for GenerativeRegularization and can be viewed as a Generative-Discriminative Tradeoff estimator (GDT (Bouchardand Triggs, 2004)) that smoothly interpolates be-tween a purely un-regularized discriminative modelwhen ?
+= 0 and a generative model when ?
+tends toinfinity.2.1 The GENERE AlgorithmThe objective L(?, ?)
+can also be written as anexpectation under a mixture distribution P??
+:=11+?
+P?+ ?1+?P?
+.
+The two components of this mixtureare the empirical data distribution P?
+and the gener-ation distribution P?
+.
+The final objective is penal-ized by the entropy of the the generation H(?)
+:=EP?
+[log p?
+(y|x)]:L(?, ?)
+= ?
+(1 + ?)EP??
+[log p?(y|x)]?
+?H(?)
+.
+(3)1Even if tractable, inference can be very costly: for exam-ple, PCFG decoding can be done using dynamic programmingand has a cubic complexity in the length of the decoded sen-tence, which is still too high for some applications with longsentences.This objective can be minimized using stochasticgradient descent by sampling real data or generateddata according to the proportions 11+?
+and ?1+?
+, re-spectively.
+The pseudocode is provided in Algo-rithm 1.
+It can be viewed as a variant of the RE-INFORCE algorithm which is commonly used in Re-inforcement Learning (Williams, 1988) using thepolicy gradient.
+It is straightforward to verify thatat each iteration, GENERE computes a noisy esti-mate of the exact gradient of the objective functionL(?, ?)
+with respect to the model parameters ?
+andthe generation parameters2 ?.An important quantity introduced in Algorithm 1is the baseline value ?
+that approximates the averagelog-likelihood of a point sampled according to P??
+.Since it is unknown in general, an average estimateis obtained using a geometric averaging scheme witha coefficient ?
+that is typically set to 0.98.Algorithm 1 The GENERE AlgorithmRequire: P?
+: real data samplerRequire: P?
+: parametric data generatorRequire: ?
+: generative regularization strengthRequire: ?
+: learning rateRequire: ?
+: baseline smoothing coefficient1: Initialize parameters ?, sampling coefficients ?and baseline ?2: for t = 1, 2, ?
+?
+?
+do3: x, y ?
+11+?
+P?
++ ?1+?P?4: g?
+?
+??
+log p?
+(y|x)5: g?
+?
+(log p?(y|x)?
+?)??
+log p?
+(x, y)6: (?, ?)?
+(?, ?)?
+?
+(g?, g?
+)7: ??
+?
+?+ (1?
+?)
+log p?
+(y|x)8: end forGenerative models: interpretable sampling, in-tractable inference Generative modeling is natu-ral because we can consider latent variables that addinterpretable meaning to the different components ofthe model.
+For example, in NLP we can define thelatent variable as being the relations that are men-tioned in the sentence.2The derivative with respect to ?, leads to Algorithm 1 with?
+= ?1, but the algorithm is also valid for different values of ?as the average gradient remains the same if we add a multiple of??
+log p?
+(x, y) to the gradient g?
+(line 5 in Algorithm 1) whichhas zero-mean on average.
+Choosing ?
+to be the average of thepast gradient enables the gradient to have a lower variance.1610We could consider two main types of approachesto choose a good structure for a parameterized datagenerator:?
+Discrete data structure: we can use efficientalgorithms, such as dynamic programming toperform sampling and which can propagate thegradient?
+Continuous distribution: having a continuouslatent variable enables easy handling of corre-lations across different parts of the model.It is often laborious to design data generatorswhich can return the probability of the samples itgenerates3, as well as the gradient of this probabilitywith respect to the input parameters ?.In the next section, we show how to alleviate thisconstraint by allowing any data-generating code tobe used with nearly no modification.2.2 GENERE with a Black Box SamplerLet us assume the data generator is a black boxthat takes a K-dimensional seed vector as inputand outputs an input-output sample x, y.
+To enableGENERE to be applied without having to modify thecode of data generators.
+The trick is to use a exist-ing generator with parameter ?, and to create a newgenerator that essentially adds noise to ?.
+This noisewill be denoted ?
+?
+?.
+We used the following datageneration process:1.
+Sample a Gaussian seed vector ?
+?
+N (0, I)2.
+Use the data generator Gz with seed value z :=?+?
+to generate an input-output sample (x, y).This two-step generation procedure enables thegradient information to be computed using the den-sity of a Gaussian distribution.
+The use of a stan-dardized centered variable for the seed is justifiedby the fact that the parametrization of Gz takes intoaccount possible shifts and rescaling.
+Formally, thisis equivalent to Algorithm 1 with the following gen-erative model:p?
+(x, y) = E?
+?N (0,I) [g?+?
+(x, y)] (4)3This difficulty comes from the fact that generators may beusing third-party code, such as rendering engines, grammarssampler, and deterministic operations such a sorting that arenon-differentiable.where gz is the density of the black-box data gen-erator Gz for the seed value z ?
+RK .
+Ideally, thesecond data generator that takes z as an input andgenerates the input/output pair (x, y) should be closeto a deterministic function in order to allocate moreuncertainty in the trainable part of the model whichcorresponds to the Gaussian distribution.4Learning The pseudo-code for the Black BoxGENERE variant is shown in Algorithm 2.
+It is sim-ilar to Algorithm 1, but here the sampling phase isdecomposed into the two steps: A random Gaussianvariable sampling followed by the black box sam-pling of generators.Algorithm 2 Black Box GENERERequire: P?
+: real data samplerRequire: G(?
+): black box data generatorRequire: ?
+: generative regularization strengthRequire: ??
+, ??
+: learning rates1: Initialize parameters ?, sampling coefficients ?and baseline ?2: for t = 1, 2, ?
+?
+?
+do3: if 11+?
+> U([0, 1]) then4: x, y ?
+P?5: else6: ?
+?
+N (0, I)7: x, y ?
+G?+?8: ?
+?
+?
+?
+??
+(log p?(y|x)?
+?
+)?9: end if10: ?
+?
+?
+?
+????
+log p?
+(y|x)11: ??
+?
+?+ (1?
+?)
+log p?
+(y|x)12: end for3 Application to Encoder-DecoderIn this section, we show that the GENERE algorithmis well suited to tune data generators for problemsthat are compatible with the encoder-decoder archi-tecture commonly used in NLP.3.1 Mixture-based GeneratorsIn the experiments below, we consider mixture-based generators with known components butunknown mixture proportions.
+Formally, we4What we mean by deterministic is that the black-box sam-pler has the form ?{f(?
++ ?)
+= (x, y)}, where ?
+is the indica-tor function.1611parametrize the proportions using a softmax link?
+(t) := exp(tk)/?Kk?=1 exp(tk?).
+In other words,the data generator distribution is:p?
+(x, y) =K?k=1?k(?
++ ?
+)pk(x, y),where pk(x, y) are data distributions, called basegenerators, that are provided by domain experts, and?
+is a K-dimensional centered Gaussian with anidentity covariance matrix.
+This class of genera-tor makes sense in practice, as we typically buildmultiple base generators pk(x, y), k = 1, ?
+?
+?
+,K,without knowing ahead of time which one is themost relevant.
+Then, the training data is used bythe GENERE algorithm to automatically learn theoptimal parameter ?
+that controls the contribution{pik}Kk=1 of each of the base generators, equal topik := E?
+?N (0,I) [?k(?
++ ?
+)].3.2 Synthetic ExperimentIn this section, we illustrate how GENERE can learnto identify the correct generator, when the data gen-erating family is a mixture of multiple data genera-tors and only one of these distributions ?
+say p1 ?has been used to generate the data.
+The other dis-tributions (p2, ?
+?
+?
+, pK) are generating input-outputdata samples (x, y) with different distributions.We verified that the algorithm correctly identifiesthe correct data distribution, and hence leads to bet-ter generalization performances than what the modelachieves without the generator.In this illustrative experiment, a simple text-to-equation translation problem is created, where in-puts are sentences describing an equation such as?compute one plus three minus two?, and outputs aresymbolic equations, such as ?X = 1 + 3 - 2?.
+Num-bers were varying between -20 and 20, and equa-tions could have 2 or 3 numbers with 2 or 3 opera-tions.As our model, we used a 20-dimensionalsequence-to-sequence model with LSTM recurrentunits.
+The model was initialized using 200 iterationsof standard gradient descent on the log-probabilityof the output.
+GENERE was run for 500 iterations,varying the fraction of real and generated samplesfrom 0% to 100%.
+A `2 regularization of magnitude0.1 was applied to the model.
+The baseline smooth-ing coefficient was set to 0.98 and the shrinkage pa-rameter was set to 0.99.
+All the experiments wererepeated 10 times and a constant learning rate of 0.1was used.Results are shown on Figure 1, where the averageloss computed on the test data is plotted against thefraction of real data used during learning.We can see that the best generalization perfor-mance is obtained when there is a balanced mix ofreal and artificial data, but the proportion dependson the amount of training data: on the left hand side,the best performance is obtained with generated dataonly, meaning that the number of training samples isso small that GENERE only used the training datato select the best base generator (the component p1),and the best performance is attained using only gen-erated data.
+The plot on the right hand side is in-teresting because it contains more training data, andthe best performance is not obtained using only thegenerator, but with 40% of the real data, illustratingthe fact that it is beneficial to jointly use real andsimulated data during training.3.3 Math word problemsTo illustrate the benefit of using generative regular-ization, we considered a class of real world problemsfor which obtaining data is costly: learning to an-swer math exam problems.
+Prior work on this prob-lem focuses on standard math problems given to stu-dents aged between 8 and 10, such as the following:5For Halloween Sarah received 66 pieces ofcandy from neighbors and 15 pieces fromher older sister.
+If she only ate 9 pieces aday, how long would the candy last her?The answer is given by the following equation:X = (66 + 15)/9 .
+Note that similarly to real worldschool exams, giving the final answer of (9 in thiscase) is not considered enough for the response tobe correct.The only publicly available word problemdatasets we are aware of contain between 400 and600 problems (see Table 2), which is not enoughto properly train sufficiently rich models that cap-ture the link between the words and the quantitiesinvolved in the problem.5From the Common Core dataset (Roy and Roth, 2015)1612Figure 1: Test loss vs. fraction of real data used in GENERE on the text-to-equation experiment.Sequence-to-sequence learning is the task of pre-dicting an output sequence of symbols based on asequence of input symbols.
+It is tempting to cast theproblem of answering math exams as a sequence-to-sequence problem: given the sequence of wordsfrom the problem description, we can predict the se-quence of symbols for the equation as output.
+Cur-rently, the most successful models for sequence pre-diction are Recurrent Neural Nets (RNN) with non-linear transitions between states.Treated as a translation problem, math word prob-lem solving should be simpler than developing amachine translation model between two human lan-guages, as the output vocabulary (the math symbols)is significantly smaller than any human vocabulary.However, machine translation can be learned on mil-lions of pairs of already translated sentences, andsuch massive training datasets dwarf all previouslyintroduced math exam datasets.We used standard benchmark data from the litera-ture.
+The first one, AI2, was introduced by Hosseiniet al (2014) and covers addition and subtraction ofone or two variables or two additions scraped fromtwo web pages.
+The second (IL), introduced by Royet al (2015), contains single operator questions butcovers addition, subtraction, multiplication, and di-vision, and was also obtained from two, althoughdifferent from AI2, web pages.
+The last data set(CC) was introduced by Roy and Roth (2015) tocover combinations of different operators and wasobtained from a fifth web page.An overview of the equation patterns in the datais shown in Table 1.
+It should be noted that thereare sometimes numbers mentioned in the problemAI2 IL CCX + Y X + Y X + Y?
+ZX + Y + Z X?
+Y X ?
+(Y + Z)X?
+Y X ?
+Y X ?
+(Y?
+Z)X/Y (X + Y)/Z(X?
+Y)/ZTable 1: Patterns of the equations seen in the datasets for onepermutation of the placeholders.AI2 IL CCTrain 198 214 300Dev 66 108 100Test 131 240 200Total 395 562 600Table 2: Math word problems dataset sizes.description that are not used in the equation.As there are no available train/dev/test splits in theliterature we introduced such splits for all three datasets.
+For AI2 and CC, we simply split the data ran-domly and for IL we opted to maintain the clustersdescribed in Roy and Roth (2015).
+We then used theimplementation of Roy and Roth (2015) provided bythe authors, which is the current state-of-the-art forall three data sets, to obtain results to compare ourmodel against.
+The resulting data sizes are shownon Table 2.
+We verified that there are no duplicateproblems, and our splits and a fork of the baselineimplementation are available online.63.4 Development of the GeneratorGenerators were organized as a set of 8 base genera-tors pk, summarized in Table 4.
+Each base generator6https://github.com/ninjin/roy_and_roth_20151613John sprints to William?s apartment.
+The distance is 32 yards from John?s apartment toWilliam?s apartment.
+It takes John 2 hours to at the end get there.
+How fast did John go?32 / 2Sandra has 7 erasers.
+She grasps 7 more.
+The following day she grasps 18 whistles at thelocal supermarket.
+How many erasers does Sandra have in all?7 + 7A pet store had 81 puppies In one day they sold 41 of them and put the rest into cages with 8in each cage.
+How many cages did they use?
+( 81 - 41 ) / 8S1 V1 Q1 O1 C1 S1(pronoun) V2 Q2 of O1(pronoun) and V2 the rest into O3(plural) withQ3 in each O3.
+How many O3(plural) V3?
+( Q1 - Q2 ) /Q3Table 3: Examples of generated sentences (first 3 rows).
+The last row is the template used to generate the 3rd example wherebrackets indicate modifiers, symbols starting with ?S?
+or ?O?
+indicate a noun phrase for a subject or object, symbols with ?V?indicate a verb phrase, and symbols with ?Q?
+indicate a quantity.
+They are identified with a number to match multiple instances ofthe same token.has several functions associated with it.
+The func-tions were written by a human over 3 days of full-time development.
+The first group of base genera-tors is only based on the type of symbol the equationhas, the second group is the pair (#1, #2) to representequations with one or two symbols.
+Finally, the lasttwo generators are more experimental as they corre-spond to simple modifications applied to the avail-able training data.
+The Noise ?N?
+generator picksone or two random words from a training sample tocreate a new (but very similar) problem.
+Finally, the?P?
+generator is based on computing the statistics ofthe words for the same question pattern (as one cansee in Table 1), and generates data using simple bi-ased word samples, where words are distributed ac-cording to their average positions in the training data(positions are computed relatively to the quantitiesappearing in the text, i.e.
+?before the first number?,?between the 1st and the 2nd number?, etc.
+).3.5 Implementation DetailsWe use a standard stacked RNN encoder-decoder (Sutskever et al, 2014), where wevaried the recurrent unit between LSTM andGRU (Cho et al, 2014), stack depth from 1 to 3,the size of the hidden states from 4 to 512, and thevocabulary threshold size.
+As input to the encoder,we downloaded pre-trained 300-dimensional em-beddings trained on Google News data using theword2vec software (Mikolov et al, 2013).
+Thedevelopment data was used to tune these parametersbefore performing the evaluation on the test set.
+Weobtained the best performances with a single stack,GRU units, and a hidden state size of 256.The problem...+ contains at least one addition- contains at least one subtraction* contains at least one multiplication/ contains at least one division1 has a single mathematical operation2 has a couple of mathematical operationsN is a training sample with words removedP is based on word position frequenciesTable 4: The base generators to create math exam problems.The optimization algorithm was based on stochas-tic gradient descent using Adam as an adaptive stepsize scheme (Kingma and Ba, 2014), with mini-batches of size 32.
+A total of 256 epochs over thedata was used in all the experiments.To evaluate the benefit of learning the data gener-ator, we used a hybrid method as a baseline wherea fraction of the data is real and another fraction isgenerated using the default parameters of the gen-erators (i.e.
+a uniform distribution over all the basegenerators).
+The optimal value for this fraction ob-tained on the development set was 15% real data,85% generated data.
+For GENERE, we used a fixedAI2 IL CC Avg.RR2015 82.4 75.4 55.5 71.1100% Data 72.5 53.7 95.0 73.7100% Gen 60.3 51.2 92.0 67.885%Gen + 15%Data 74.0 55.4 97.5 75.6GENERE 77.9 56.7 98.5 77.7Table 5: Test accuracies of the math-exam methods on theavailable datasets averaged over 10 random runs.1614size learning rate of 0.1, the smoothing coefficientwas selected to be 0.5, and the shrinkage coefficientto be 0.99.We also compared our approach to the publiclyavailable math exam solver RR2015 (Roy and Roth,2015).
+This method is based on a combination oftemplate-based features and categorizers.
+The ac-curacy performance was measured by counting thenumber of times the equation generated the correctresults, so that 10 + 7 and 7 + 10 would both be con-sidered to be correct.
+Results are shown on Table 5.We can see that there is a large difference inperformance between RR2015 and the RNN-basedencoder-decoder approach.
+While their methodseems to be very good on some datasets, it fails onCC, which is the dataset in which one needs twoequations involving parentheses.
+On average, thetrend is the following: using data only does not suc-ceed in giving good results, and we can see that withgenerated data we are performing better already.This could be explained by the fact that the gener-ators?
+vocabulary has a good overlap with the vo-cabulary of the real data.
+However, mixing real andgenerated data improves performance significantly.When GENERE is used, the sampling is tuned to theproblem at hand and give better generalization per-formance.To understand if GENERE learned a meaning-ful data generator, we inspected the coefficients?1, ?
+?
+?
+, ?8 that are used to select the 8 data gener-ators described earlier.
+This is shown is Figure 2.The results are quite surprising at first sight: theAI2 dataset only involves additions and subtractions,but GENERE selects the generator generating divi-sions as the most important.
+Investigating, we notedthat problems generated by the division generatorwere reusing some lexical items that were presentin AI2, making the vocabulary very close to theproblems in AI2, even if it does not cover division.We can also note that the differences in proportionsare quite small among the 4 symbols +,?, ?
+and /across all the datasets.
+We can also clearly see thatthe noisy generator ?N?
+and ?P?
+are not very relevantin general.
+We explain this by the fact that the noiseinduced by these generators is too artificial to gen-erate relevant data for training.
+Their likelihood onthe model trained on real data remains small.Figure 2: Base generators proportions learned by GENERE.4 ConclusionIn this work, we argued that many problems can besolved by high-capacity discriminative probabilisticmodels, such as deep neural nets, at the expense ofa large amount of required training data.
+Unlikethe current trend which is to reduce the size of themodel, or to define features well targeted for thetask, we showed that we can completely decouplethe choice of the model and the design of a data gen-erator.
+We proposed to allow data generators to be?weakly?
+specified, leaving the undetermined coef-ficients to be learned from data.
+We derived an ef-ficient algorithm called GENERE, that jointly esti-mates the parameters of the model and the undeter-mined sampling coefficients, removing the need forcostly cross-validation.
+While this procedure couldbe viewed as a generic way of building informa-tive priors, it does not rely on a complex integra-tion procedure such as Bayesian optimization, butcorresponds to a simple modification of the standardstochastic optimization algorithms, where the sam-pling alternates between the use of real and gener-ated data.
+While the general framework assumesthat the sampling distribution is differentiable withrespect to its learnable parameters, we proposed aGaussian integration trick that does not require the1615data generator to be differentiable, enabling practi-tioners to use any data sampling code, as long as thegenerated data resembles the real data.We also showed in the experiments, that a simpleway to parametrize a data generator is to use a mix-ture of base generators, that might have been derivedindependently.
+The GENERE algorithm learns auto-matically the relative weights of these base genera-tors, while optimizing the original model.
+While theexperiments only focused on sequence-to-sequencedecoding, our preliminary experiments with otherhigh-capacity deep neural nets seem promising.Another future work direction is to derive efficientmechanisms to guide the humans that are creatingthe data generation programs.
+Indeed, there is a lackof generic methodology to understand where to startand which training data to use as inspiration to creategenerators that generalize well to unseen data.AcknowledgmentsWe would like to thank Subhro Roy for helping usrun his model on our new data splits.
+We are verythankful to Thomas Demeester, Johannes Welbl andMatko Bos?njak for their valuable feedback.
+Lastly,we would like to thank the three anonymous review-ers for their helpful comments and feedback.This work was supported by a Marie Curie Ca-reer Integration Award and an Allen DistinguishedInvestigator Award.ReferencesGuillaume Bouchard and Bill Triggs.
+2004.
+The trade-off between generative and discriminative classifiers.In 16th IASC International Symposium on Computa-tional Statistics (COMPSTAT?04), pages 721?728.Kyunghyun Cho, Bart Van Merrie?nboer, C?alar Gu?lc?ehre,Dzmitry Bahdanau, Fethi Bougares, Holger Schwenk,and Yoshua Bengio.
+2014.
+Learning phrase represen-tations using rnn encoder?decoder for statistical ma-chine translation.
+In Proceedings of the 2014 Con-ference on Empirical Methods in Natural LanguageProcessing (EMNLP), pages 1724?1734, Doha, Qatar,October.
+Association for Computational Linguistics.Li Dong and Mirella Lapata.
+2016.
+Language tological form with neural attention.
+arXiv preprintarXiv:1601.01280.Albert Gatt and Ehud Reiter.
+2009.
+Simplenlg: A realisa-tion engine for practical applications.
+In Proceedingsof the 12th European Workshop on Natural LanguageGeneration, pages 90?93.
+Association for Computa-tional Linguistics.Mohammad Javad Hosseini, Hannaneh Hajishirzi, OrenEtzioni, and Nate Kushman.
+2014.
+Learning to solvearithmetic word problems with verb categorization.In Proceedings of the 2014 Conference on EmpiricalMethods in Natural Language Processing (EMNLP),pages 523?533, Doha, Qatar, October.
+Association forComputational Linguistics.Diederik P. Kingma and Jimmy Ba.
+2014.
+Adam:A method for stochastic optimization.
+CoRR,abs/1412.6980.Tomas Mikolov, Ilya Sutskever, Kai Chen, Greg S Cor-rado, and Jeff Dean.
+2013.
+Distributed representa-tions of words and phrases and their compositionality.In Advances in neural information processing systems,pages 3111?3119.P.
+Niyogi, F. Girosi, and T. Poggio.
+1998.
+Incorporatingprior information in machine learning by creating vir-tual examples.
+Proceedings of the IEEE, 86(11):2196?2209, Nov.Sinno Jialin Pan and Qiang Yang.
+2010.
+A survey ontransfer learning.
+Knowledge and Data Engineering,IEEE Transactions on, 22(10):1345?1359.Tim Rockta?schel, Edward Grefenstette, Karl Moritz Her-mann, Toma?s?
+Koc?isky`, and Phil Blunsom.
+2016.
+Rea-soning about entailment with neural attention.
+In In-ternational Conference on Learning Representations.Subhro Roy and Dan Roth.
+2015.
+Solving general arith-metic word problems.
+In Proceedings of the 2015Conference on Empirical Methods in Natural Lan-guage Processing, pages 1743?1752.
+Association forComputational Linguistics.Subhro Roy, Tim Vieira, and Dan Roth.
+2015.
+Reason-ing about quantities in natural language.
+Transactionsof the Association for Computational Linguistics, 3:1?13.Bernhard Scholkopf and Alexander J Smola.
+2001.Learning with kernels: support vector machines, reg-ularization, optimization, and beyond.
+MIT press.Ilya Sutskever, Oriol Vinyals, and Quoc V Le.
+2014.Sequence to sequence learning with neural networks.In Advances in neural information processing systems,pages 3104?3112.Oriol Vinyals, Lukasz Kaiser, Terry Koo, Slav Petrov,Ilya Sutskever, and Geoffrey E. Hinton.
+2014.
+Gram-mar as a foreign language.
+CoRR, abs/1412.7449.Ronald J Williams.
+1988.
+On the use of backpropaga-tion in associative reinforcement learning.
+In NeuralNetworks, 1988., IEEE International Conference on,pages 263?270.
+IEEE.1616

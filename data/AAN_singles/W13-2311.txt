@@ -1,0 +1,166 @@
+Proceedings of the 7th Linguistic Annotation Workshop & Interoperability with Discourse, pages 89?97,Sofia, Bulgaria, August 8-9, 2013. c?2013 Association for Computational LinguisticsMaking UIMA Truly Interoperable with SPARQLRafal Rak and Sophia AnaniadouNational Centre for Text MiningSchool of Computer Science, University of Manchester{rafal.rak,sophia.ananiadou}@manchester.ac.ukAbstractUnstructured Information ManagementArchitecture (UIMA) has been gainingpopularity in annotating text corpora.
+Thearchitecture defines common data struc-tures and interfaces to support interoper-ability of individual processing compo-nents working together in a UIMA appli-cation.
+The components exchange data bysharing common type systems?schemataof data type structures?which extend ageneric, top-level type system built intoUIMA.
+This flexibility in extending typesystems has resulted in the development ofrepositories of components that share oneor several type systems; however, compo-nents coming from different repositories,and thus not sharing type systems, remainincompatible.
+Commonly, this problemhas been solved programmatically by im-plementing UIMA components that per-form the alignment of two type systems,an arduous task that is impractical with agrowing number of type systems.
+We al-leviate this problem by introducing a con-version mechanism based on SPARQL, aquery language for the data retrieval andmanipulation of RDF graphs.
+We pro-vide a UIMA component that serialisesdata coming from a source componentinto RDF, executes a user-defined, type-conversion query, and deserialises the up-dated graph into a target component.
+Theproposed solution encourages ad hoc con-versions, enables the usage of heteroge-neous components, and facilitates highlycustomised UIMA applications.1 IntroductionUnstructured Information Management Architec-ture (UIMA) (Ferrucci and Lally, 2004) is a frame-work that supports the interoperability of media-processing software components by defining com-mon data structures and interfaces the compo-nents exchange and implement.
+The architec-ture has been gaining interest from academia andindustry alike for the past decade, which re-sulted in a multitude of UIMA-supporting repos-itories of analytics.
+Notable examples includeMETANET4U components (Thompson et al2011) featured in U-Compare1, DKPro (Gurevychet al 2007), cTAKES (Savova et al 2010),BioNLP-UIMA Component Repository (Baum-gartner et al 2008), and JULIE Lab?s UIMAComponent Repository (JCoRe) (Hahn et al2008).However, despite conforming to the UIMAstandard, each repository of analytics usuallycomes with its own set of type systems, i.e., rep-resentations of data models that are meant to beshared between analytics and thus ensuring theirinteroperability.
+At present, UIMA does not fa-cilitate the alignment of (all or selected) types be-tween type systems, which makes it impossible tocombine analytics coming from different reposito-ries without an additional programming effort.
+Forinstance, NLP developers may want to use a sen-tence detector from one repository and a tokeniserfrom another repository only to learn that the re-quired input Sentence type for the tokeniser isdefined in a different type system and namespacethan the output Sentence type of the sentencedetector.
+Although both Sentence types repre-sent the same concept and may even have the sameset of features (attributes), they are viewed as twodistinct types by UIMA.Less trivial incompatibility arises from the sameconcept being encoded as structurally differenttypes in different type systems.
+Figures 1 and 2show fragments of some of existing type systems;1http://nactem.ac.uk/ucompare/89(a) DKPro (b) JCoRe (c) ACEFigure 1: UML diagrams representing fragments of type systems that show differences in encodingcoreferences.specifically, they show the differences in encod-ing coreferences and events, respectively.
+For in-stance, in comparison to the JCoRe type system inFigure 1(b), the DKPro type system in Figure 1(a)has an additional type that points to the beginningof the linked list of coreferences.Conceptually similar types in two different typesystems may also be incompatible in terms of theamount of information they convey.
+Compare, forinstance, type systems in Figure 2 that encode asimilar concept, event.
+Not only are they struc-turally different, but the cTAKES type system inFigure 2(a) also involves a larger number of fea-tures than the other two type systems.
+Although,in this case, the alignment of any two structurescannot be carried out without a loss or deficiencyof information, it may still be beneficial to do sofor applications that consist of components that ei-ther fulfill partially complete information or do notrequire it altogether.The available type systems vary greatly in size,their modularity, and intended applicability.
+TheDKPro UIMA software collection, for instance,includes multiple, small-size type systems organ-ised around specific syntactic and semantic con-cepts, such as part of speech, chunks, and namedentities.
+In contrast, the U-Compare project aswell as cTAKES are oriented towards having a sin-gle type system.
+Respectively, the type systemsdefine nearly 300 and 100 syntactic and seman-tic types, with U-Compare?s semantic types biasedtowards biology and chemistry and cTAKES?scovering clinical domain.
+Most of the U-Comparetypes extend a fairly expressive higher-level type,which makes them universally applicable, but atthe same time, breaks their semantic cohesion.The lack of modularity and the all-embroilingtypes suggest that the U-Compare type system isdeveloped primarily to work with the U-Compareapplication.The Center for Computational Pharmacology(CCP) type system (Verspoor et al 2009) is aradically different approach to the previous sys-tems.
+It defines a closed set of top-level typesthat facilitate the use of external resources, suchas databases and ontologies.
+This gives the advan-tage of having a nonvolatile type system, indiffer-ent to changes in the external resources, as well asgreater flexibility in handling some semantic mod-els that would otherwise be impossible to encodein a UIMA type system.
+On the other hand, suchan approach shifts the handling of interoperabilityfrom UIMA to applications that must resolve com-patibility issues at runtime, which also results inthe weakly typed programming of analytics.
+Addi-tionally, the UIMA?s native indexing of annotationtypes will no longer work with such a type system,which prompts an additional programming effortfrom developers.The aforementioned examples suggest that es-tablishing a single type system that could beshared among all providers is unlikely to ever takeplace due to the variability in requirements andapplicability.
+Instead, we adopt an idea of us-ing a conversion mechanism that enables align-ing types across type systems.
+The conversionhas commonly been solved programmatically bycreating UIMA analytics that map all or (morelikely) selected types between two type systems.For instance, U-Compare features a componentthat translates some of the CPP types into the U-Compare types.
+The major drawback of such asolution is the necessity of having to implementan analytic which requires programming skills andbecomes an arduous task with an increasing num-ber of type systems.
+In contrast, we propose aconversion based entirely on developers?
+writing aquery in the well established SPARQL language,90(a) cTAKES (b) ACE(c) Events Type SystemFigure 2: UML diagrams representing fragments of type systems that show differences in encoding eventstructures.an official W3C Recommendation2.
+Our approachinvolves 1) the serialisation of UIMA?s internaldata structures to RDF3, 2) the execution of a user-defined, type-conversion SPARQL query, and 3)the deserialisation of the results back to the UIMAstructure.The remainder of this paper is organised as fol-lows.
+The next section presents related work.
+Sec-tion 3 provides background information on UIMA,RDF and SPARQL.
+Section 4 discusses the pro-posed representation of UIMA structures in RDF,whereas Section 5 examines the utility of ourmethod.
+Section 6 details the available implemen-tation, and Section 7 concludes the paper.2 Related WorkIn practice, type alignment or conversion is thecreation of new UIMA feature structures basedon the existing ones.
+Current efforts in thisarea mostly involve solutions that are essentially2http://www.w3.org/TR/2013/REC-sparql11-overview-201303213http://www.w3.org/RDF/(cascaded) finite state transducers, i.e., an in-put stream of existing feature structures is beingmatched against developers?
+defined patterns, andif a match is found, a series of actions follows andresults in one or more output structures.TextMarker (Kluegl et al 2009) is currentlyone of the most comprehensive tools that de-fines its own rule-based language.
+The languagecapabilities include the definition of new types,annotation-based regular expression matching anda rich set of condition functions and actions.
+Com-bined with a built-in lexer that produces basic to-ken annotations, TextMarker is essentially a self-contained, UIMA-based annotation tool.Hernandez (2012) proposed and developed asuite of tools for tackling the interoperability ofcomponents in UIMA.
+The suite includes uima-mapper, a conversion tool designed to work witha rule-based language for mapping UIMA anno-tations.
+The rules are encoded in XML, and?contrary to the previous language that relies solelyon its own syntax?include XPath expressions forpatterns, constraints, and assigning values to new91feature structures.
+This implies that the input ofthe conversion process must be encoded in XML.PEARL (Pazienza et al 2012) is a language forprojecting UIMA annotations onto RDF reposito-ries.
+Similarly to the previous approaches, the lan-guage defines a set of rules triggered upon encoun-tering UIMA annotations.
+The language is de-signed primarily to work in CODA, a platform thatfacilitates population of ontologies with the outputof NLP analytics.
+Although it does not directlyfacilitate the production or conversion of UIMAtypes, the PEARL language shares similarities toour approach in that it incorporates certain RDFTurtle, SPARQL-like semantics.Contrary to the aforementioned solutions, wedo not define any new language or syntax.
+Instead,we rely completely on an existing data query andmanipulation language, SPARQL.
+By doing so,we shift the problem of conversion from the def-inition of a new language to representing UIMAstructures in an existing language, such that theycan be conveniently manipulated in that language.A separate line of research pertains to the for-malisation of textual annotations with knowledgerepresentations such as RDF and OWL4.
+Buyko etal.
+(2008) link UIMA annotations to the referenceontology OLiA (Chiarcos, 2012) that contains abroad vocabulary of linguistic terminology.
+Theauthors claim that two conceptually similar typesystems can be aligned with the reference ontol-ogy.
+The linking involves the use of OLiA?s as-sociated annotation and linking ontology modelpairs that have been created for a number of an-notation schemata.
+Furthermore, a UIMA typesystem has to define additional features for eachlinked type that tie a given type to an annotationmodel.
+In effect, in order to convert a type from anarbitrary type system to another similar type sys-tem, both systems must be modified and an anno-tation and linking models must be created.
+Suchan approach generalises poorly and is unsuitablefor impromptu type system conversions.3 Background3.1 UIMA OverviewUIMA defines both structures and interfaces tofacilitate interoperability of individual processingcomponents that share type systems.
+Type systemsmay be defined in or imported by a processingcomponent that produces or modifies annotations4http://www.w3.org/TR/owl2-overview/Figure 3: UML diagram representing relationshipsbetween CASes, views, and feature structures inUIMA.
+The shown type system is a fragment ofthe built-in UIMA type system.in a common annotation structure (CAS), i.e., aCAS is the container of actual data bound by thetype system.Types may define multiple primitive features aswell as references to feature structures (data in-stances) of other types.
+The single-parent inheri-tance of types is also possible.
+The resulting struc-tures resemble those present in modern object-oriented programming languages.Feature structures stored in a CAS may begrouped into several views, each of which hav-ing its own subject of analysis (Sofa).
+For in-stance, one view may store annotations abouta Sofa that stores an English text, whereas an-other view may store annotations about a dif-ferent Sofa that stores a French version of thesame text.
+UIMA defines built-in types includingprimitive types (boolean, integer, string, etc.
+), ar-rays, lists, as well as several complex types, e.g.,uima.tcas.Annotation that holds a refer-ence to a Sofa the annotation is asserted about, andtwo features, begin and end, for marking bound-aries of a span of text.
+The relationships be-tween CASes, views, and several prominent built-in types are shown in Figure 3.The built-in complex types may furtherbe extended by developers.
+Custom typesthat mark a fragment of text usually extenduima.tcas.Annotation, and thus inheritthe reference to the subject of analysis, and thebegin and end features.92UIMA element/representation RDF resourceCAS <uima:aux:CAS>Access to CAS?s views rdfs:member or rdf:_1, rdf:_2, ...View <uima:aux:View>View?s name <uima:aux:View:name>View?s Sofa <uima:aux:View:sofa>Access to view?s feature structures rdfs:member or rdf:_1, rdf:_2, ...Access to feature structure?s sequential number <uima:aux:seq>Type uima.tcas.Annotation <uima:ts:uima.tcas.Annotation>Feature uima.tcas.Annotation:begin <uima:ts:uima.cas.Annotation:begin>Access to uima.cas.ArrayBase elements rdfs:member or rdf:_1, rdf:_2, ...Table 1: UIMA elements and their corresponding RDF resource representations3.2 RDF and SPARQLResource Description Framework (RDF) is amethod for modeling concepts in form of makingstatements about resources using triple subject-predicate-object expressions.
+The triples are com-posed of resources and/or literals with the latteravailable only as objects.
+Resources are repre-sented with valid URIs, whereas literals are val-ues optionally followed by a datatype.
+Multipleinterlinked subject and objects ultimately consti-tute RDF graphs.SPARQL is a query language for fetching datafrom RDF graphs.
+Search patterns are createdusing RDF triples that are written in RDF Turtleformat, a human-readable and easy to manipulatesyntax.
+A SPARQL triple may contain variableson any of the three positions, which may (and usu-ally does) result in returning multiple triples froma graph for the same pattern.
+If the same variableis used more than once in patterns, its values arebound, which is one of the mechanisms of con-straining results.Triple-like patterns with variables are simple,yet expressive ways of retrieving data from anRDF graph and constitute the most prominent fea-ture of SPARQL.
+In this work, we additionallyutilise features of SPARQL 1.1 Update sublan-guage that facilitates graph manipulation.4 Representing UIMA in RDFWe use RDF Schema5 as the primary RDF vocab-ulary to encode type systems and feature struc-tures in CASes.
+The schema defines resourcessuch as rdfs:Class, rdf:type (to denote amembership of an instance to a particular class)5http://www.w3.org/TR/rdf-schema/and rdfs:subClassOf (as a class inheritanceproperty)6.
+It is a popular description language forexpressing a hierarchy of concepts, their instancesand relationships, and forms a base for such se-mantic languages as OWL.The UIMA type system structure falls nat-urally into this schema.
+Each type is ex-pressed as rdfs:Class and each feature asrdfs:Property accompanied by appropriaterdfs:domain and rdfs:range statements.Feature structures (instances) are then assignedmemberships of their respective types (classes)through rdf:type properties.A special consideration is given to the typeArrayBase (and its extensions).
+Since the or-der of elements in an array may be of impor-tance, feature structures of the type ArrayBaseare also instances of the class rdf:Seq, a se-quence container, and the elements of an ar-ray are accessed through the properties rdf:_1,rdf:_2, etc., which, in turn, are the subprop-erties of rdfs:member.
+This enables query-ing array structures with preserving the order ofits members.
+Similar, enumeration-property ap-proach is used for views that are members ofCASes and feature structures that are members ofviews.
+The order for the latter two is defined in theinternal indices of a CAS and follows the order inwhich the views and feature structures were addedto those indices.We also define several auxiliary RDF resourcesto represent relationships between CASes, viewsand feature structures (cf.
+Figure 3).
+We intro-duced the scheme name ?uima?
+for the URIs of6Following RDF Turtle notation we denote prefixed formsof RDF resources as prefix:suffix and their full formsas <fullform>93Figure 4: Complete SPARQL query that convertsthe sentence type in one type system to a struc-turally identical type in another type system.the UIMA-related resources.
+The fully qualifiednames of UIMA types and their features are partof the URI paths.
+The paths are additionally pre-fixed by ?ts:?
+to avoid a name clash againstthe aforementioned auxiliary CAS and view URIsthat, in turn, are prefixed with ?aux:?.
+Table 1summarises most of the UIMA elements and theircorresponding representations in RDF.5 Conversion CapabilitiesIn this section we examine the utility of theproposed approach and the expressiveness ofSPARQL by demonstrating several conversion ex-amples.
+We focus on technical aspects of conver-sions and neglect issues related to a loss or defi-ciency of information that is a result of differencesin type system conceptualisation (as discussed inIntroduction).5.1 One-to-one ConversionWe begin with a trivial case where two typesfrom two different type systems have exactly thesame names and features; the only differencelies in the namespace of the two types.
+Fig-ure 4 shows a complete SPARQL query that con-verts (copies) their.Sentence feature struc-tures to our.Sentence structures.
+Both typesextend the uima.tcas.Annotation type andinherit its begin and end features.
+The WHEREclause of the query consists of patterns that matchCASes?
+views and their feature structures of thetype their.Sentence together with the type?sbegin and end features.For each solution of the WHERE clause (eachretrieved tuple), the INSERT clause then creates anew sentence of the target type our.Sentence(the a property is the shortcut of rdf:type)Figure 5: SPARQL query that aligns different con-ceptualisations of event structures between twotype systems.
+Prefix definitions are not shown.and rewrites the begin and end values to its fea-tures.
+The blank node _:sentence is going tobe automatically re-instantiated with a unique re-source for each matching tuple making each sen-tence node distinct.
+The last line of the INSERTclause ties the newly created sentence to the view,which is UIMA?s equivalent of indexing a featurestructure in a CAS.5.2 One-to-many ConversionIn this use case we examine the conversion ofa container of multiple elements to a set of dis-connected elements.
+Let us consider event typesfrom the ACE and Events type systems as shownin Figures 2(b) and 2(c), respectively.
+A singleEvent structure in the ACE type system aggre-gates multiple EventMention structures in aneffort to combine multiple text evidence support-ing the same event.
+The NamedEvent type inthe Events type system, on the other hand, makesno such provision and is agnostic to the fact thatmultiple mentions may refer to the same event.94To avoid confusion, we will refer to the typesusing their RDF prefixed notations, ?ace:?
+and?gen:?, to denote the ACE and ?generic?
+Eventstype systems, respectively.The task is to convert all ace:Eventsand their ace:EventMentions intogen:NamedEvents.
+There is a cou-ple of nuances that need to be takeninto consideration.
+Firstly, although bothace:EventMention and gen:NamedEventextend uima.tcas.Annotation, the be-gin and end features have different mean-ings for the two event representations.
+Thegen:NamedEvent?s begin and end featuresrepresent an anchor/trigger, a word in the text thatinitiates the event.
+The same type of informa-tion is accessible from ace:EventMentionvia its anchor feature instead.
+Secondly,although it may be tempting to disregard theace:Event structures altogether, they containthe type feature whose value will be copied togen:NamedEvent?s name feature.The SPARQL query that performs thatconversion is shown in Figure 5.
+In theWHERE clause, for each ace:Event,patterns select ace:EventMentionsand for each ace:EventMention,ace:EventMentionArguments arealso selected.
+This behaviour resemblestriply nested for loop in programming lan-guages.
+Additionally, ace:Event?s type,ace:EventMention?s anchor begin and endvalues, and ace:EventMentionArgument?srole and target are selected.
+In contrast to theprevious example, we cannot use blank nodes forcreating event resources in the INSERT clause,since the retrieved tuples share event URIs foreach ace:EventMentionArgument.
+Hencethe last two BIND functions create URIs foreach ace:EventMention and its array ofarguments, both of which are used in the INSERTclause.Note that in the INSERT clause, if severalgen:NamedEventParticipants share thesame gen:NamedEvent, the definition of thelatter will be repeated for each such participant.We take advantage of the fact that adding a tripleto an RDF graph that already exists in the graphhas no effect, i.e., an insertion is simply ignoredand no error is raised.
+Alternatively, the querycould be rewritten as two queries, one that createsFigure 6: SPARQL query that converts corefer-ences expressed as linked lists to an array repre-sentation.
+Prefix definitions are not shown.gen:NamedEvent definitions and another thatcreates gen:NamedEventParticipant def-initions.To recapitulate, RDF and SPARQL support one-to-many (and many-to-one) conversions by stor-ing only unique triple statements and by providingfunctions that enable creating arbitrary resourceidentifiers (URIs) that can be shared between re-trieved tuples.5.3 Linked-list-to-Array ConversionFor this example, let us consider two typesof structures for storing coreferences from theDKPro and ACE type systems, as depicted in Fig-ures 1(a) and 1(c), respectively.The idea is to convert DKPro?s chains of linksinto ACE?s entities that aggregate entity mentions,or?using software developers?
+vocabulary?toconvert a linked list into an array.
+The SPARQLquery for this conversion is shown in Figure 6.The WHERE clause first selects alldkpro:CoreferenceChain instances fromviews.
+Access to dkpro:CoreferenceLinkinstances for each chain is provided by a property95path.
+Property paths are convenient shortcutsfor navigating through nodes of an RDF graph.In this case, the property path expands to thechain?s first feature/property followed by anynumber (signified by the asterisk) of links?
+nextfeature/property.
+The pattern with this path willresult in returning all links that are accessiblefrom the originating chain; however, accordingto the SPARQL specification, the order of linksis not guaranteed to be preserved, which incoreference-supporting applications is usually ofinterest.
+A solution is to make use of the property<uima:aux:seq> that points to the sequentialnumber of a feature structure and is unique in thescope of a single CAS.
+Since feature structuresare serialised into RDF using deep-first traversal,the consecutive link structures for each chain willhave their sequence numbers monotonically in-creasing.
+These sequence numbers are translatedto form rdf:_nn properties (nn standing for thenumber), which facilitates the order of elements inthe ace:Entity array of mentions7.
+It shouldbe noted, however, that using the sequence num-ber property will work only if the links of a chainare not referred to from another structure.
+There isanother, robust solution (not shown due to spacelimitation and complexity) that involves multipleINSERT queries and temporary, supporting RDFnodes.
+RDF nodes that are not directly relevantto a CAS and its feature structures are ignoredduring the deserialisation process, and thus it issafe to create any number of such nodes.6 Tool SupportWe have developed a UIMA analysis engine,SPARQL Annotation Editor, that incorporates theserialisation of a CAS into RDF (following theprotocol presented in Section 4), the execution ofa user-defined SPARQL query, and the deseriali-sation of the updated RDF graph back to the CAS.The RDF graph (de)serialisation and SPARQLquery execution is implemented using ApacheJena8, an open-source framework for building Se-mantic Web applications.To further assist in the development of type-conversion SPARQL queries, we have providedtwo additional UIMA components, RDF Writerand RDF Reader.
+RDF Writer serialises CASes to7The rdf:_nn properties are not required to be consec-utive in an RDF container8http://jena.apache.org/files that can then be used with SPARQL query en-gines, such as Jena Fuseki (part of the Apache Jenaproject), to develop and test conversion queries.The modified RDF graphs can be imported backto a UIMA application using RDF Reader, an RDFdeserialisation component.The three components are featured in Argo (Raket al 2012), a web-based workbench for buildingand executing UIMA workflows.7 ConclusionsThe alignment of types between different type sys-tems using SPARQL is an attractive alternative toexisting solutions.
+Compared to other solutions,our approach does not introduce a new languageor syntax; to the contrary, it relies entirely on awell-defined, standardised language, a character-istic that immediately broadens the target audi-ence.
+Likewise, developers who are unfamiliarwith SPARQL should be more likely to learn thiswell-maintained and widely used language thanany other specialised and not standardised syntax.The expressiveness of SPARQL makes themethod superior to the rule-based techniques,mainly due to SPARQL?s inherent capabilityof random data access and simple, triple-basedquerying.
+At the same time, the semantic cohesionof data is maintained by a graph representation.The proposed solution facilitates the rapidalignment of type systems and increases the flexi-bility in which developers choose processing com-ponents to build their UIMA applications.
+As wellas benefiting the design of applications, the con-version mechanism may also prove helpful in thedevelopment of components themselves.
+To en-sure interoperability, developers usually adopt anexisting type system for a new component.
+Thisessential UIMA-development practice undeniablyincreases the applicability of such a component;however, at times it may also result in having theill-defined representation of the data produced bythe component.
+The availability of an easy-to-apply conversion tool promotes constructing fine-tuned type systems that best represent such data.AcknowledgmentsThis work was partially funded by the MRC TextMining and Screening grant (MR/J005037/1).96ReferencesW A Baumgartner, K B Cohen, and L Hunter.
+2008.An open-source framework for large-scale, flexibleevaluation of biomedical text mining systems.
+Jour-nal of biomedical discovery and collaboration, 3:1+.E Buyko, C Chiarcos, and A Pareja-Lora.
+2008.Ontology-based interface specifications for a nlppipeline architecture.
+In Proceedings of the Sixth In-ternational Conference on Language Resources andEvaluation (LREC?08), Marrakech, Morocco.C Chiarcos.
+2012.
+Ontologies of linguistic annota-tion: Survey and perspectives.
+In Proceedings of theEighth International Conference on Language Re-sources and Evaluation (LREC?12), pages 303?310.D Ferrucci and A Lally.
+2004.
+UIMA: An Ar-chitectural Approach to Unstructured InformationProcessing in the Corporate Research Environment.Natural Language Engineering, 10(3-4):327?348.Iryna Gurevych, Max Mu?hlha?user, Christof Mu?ller,Ju?rgen Steimle, Markus Weimer, and Torsten Zesch.2007.
+Darmstadt Knowledge Processing RepositoryBased on UIMA.
+In Proceedings of the First Work-shop on Unstructured Information Management Ar-chitecture at Biannual Conference of the Society forComputational Linguistics and Language Technol-ogy, Tu?bingen, Germany.U Hahn, E Buyko, R Landefeld, M Mu?hlhausen,M Poprat, K Tomanek, and J Wermter.
+2008.
+AnOverview of JCORE, the JULIE Lab UIMA Com-ponent Repository.
+In Proceedings of the LanguageResources and Evaluation Workshop, Towards En-hanc.
+Interoperability Large HLT Syst.
+: UIMA NLP,pages 1?8.N Hernandez.
+2012.
+Tackling interoperability is-sues within UIMA workflows.
+In Proceedings ofthe Eight International Conference on LanguageResources and Evaluation (LREC?12), Istanbul,Turkey.
+European Language Resources Association(ELRA).P Kluegl, M Atzmueller, and F Puppe.
+2009.TextMarker: A Tool for Rule-Based Information Ex-traction.
+In Proceedings of the Biennial GSCL Con-ference 2009, 2nd UIMA@GSCL Workshop, pages233?240.
+Gunter Narr Verlag.M T Pazienza, A Stellato, and A Turbati.
+2012.PEARL: ProjEction of Annotations Rule Language,a Language for Projecting (UIMA) Annotations overRDF Knowledge Bases.
+In Proceedings of the EightInternational Conference on Language Resourcesand Evaluation (LREC?12), Istanbul, Turkey.
+Euro-pean Language Resources Association (ELRA).R Rak, A Rowley, W Black, and S Ananiadou.
+2012.Argo: an integrative, interactive, text mining-basedworkbench supporting curation.
+Database : TheJournal of Biological Databases and Curation, pagebas010.G K Savova, J J Masanz, P V Ogren, J Zheng, S Sohn,K C Kipper-Schuler, and C G Chute.
+2010.
+Mayoclinical Text Analysis and Knowledge ExtractionSystem (cTAKES): architecture, component evalua-tion and applications.
+Journal of the American Med-ical Informatics Association : JAMIA, 17(5):507?513.P Thompson, Y Kano, J McNaught, S Pettifer, T KAttwood, J Keane, and S Ananiadou.
+2011.
+Promot-ing Interoperability of Resources in META-SHARE.In Proceedings of the IJCNLP Workshop on Lan-guage Resources, Technology and Services in theSharing Paradigm (LRTS), pages 50?58.K Verspoor, W Baumgartner Jr, C Roeder, andL Hunter.
+2009.
+Abstracting the Types away from aUIMA Type System.
+From Form to Meaning: Pro-cessing Texts Automatically., pages 249?256.97

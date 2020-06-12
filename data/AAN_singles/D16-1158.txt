@@ -1,0 +1,376 @@
+Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, pages 1516?1525,Austin, Texas, November 1-5, 2016. c?2016 Association for Computational LinguisticsLength bias in Encoder Decoder Models and a Case for Global ConditioningPavel SountsovGooglesiege@google.comSunita Sarawagi ?IIT Bombaysunita@iitb.ac.inAbstractEncoder-decoder networks are popular formodeling sequences probabilistically in manyapplications.
+These models use the power ofthe Long Short-Term Memory (LSTM) archi-tecture to capture the full dependence amongvariables, unlike earlier models like CRFs thattypically assumed conditional independenceamong non-adjacent variables.
+However inpractice encoder-decoder models exhibit a biastowards short sequences that surprisingly getsworse with increasing beam size.In this paper we show that such phenomenon isdue to a discrepancy between the full sequencemargin and the per-element margin enforced bythe locally conditioned training objective of aencoder-decoder model.
+The discrepancy moreadversely impacts long sequences, explainingthe bias towards predicting short sequences.For the case where the predicted sequencescome from a closed set, we show that a glob-ally conditioned model alleviates the aboveproblems of encoder-decoder models.
+Froma practical point of view, our proposed modelalso eliminates the need for a beam-search dur-ing inference, which reduces to an efficientdot-product based search in a vector-space.1 IntroductionIn this paper we investigate the use of neural net-works for modeling the conditional distributionPr(y|x) over sequences y of discrete tokens in re-sponse to a complex input x, which can be another?
+Work done while visiting Google Research on a leavefrom IIT Bombay.sequence or an image.
+Such models have applica-tions in machine translation (Bahdanau et al, 2014;Sutskever et al, 2014), image captioning (Vinyals etal., 2015), response generation in emails (Kannan etal., 2016), and conversations (Khaitan, 2016; Vinyalsand Le, 2015; Li et al, 2015).The most popular neural network for probabilis-tic modeling of sequences in the above applicationsis the encoder-decoder (ED) network (Sutskever etal., 2014).
+A ED network first encodes an input xinto a vector which is then used to initialize a re-current neural network (RNN) for decoding the out-put y.
+The decoder RNN factorizes Pr(y|x) usingthe chain rule as ?j Pr(yj |y1, .
+.
+.
+, yj?1,x) wherey1, .
+.
+.
+, yn denote the tokens in y.
+This factoriza-tion does not entail any conditional independenceassumption among the {yj} variables.
+This is un-like earlier sequence models like CRFs (Lafferty etal., 2001) and MeMMs (McCallum et al, 2000) thattypically assume that a token is independent of allother tokens given its adjacent tokens.
+Modern-dayRNNs like LSTMs promise to capture non-adjacentand long-term dependencies by summarizing the setof previous tokens in a continuous, high-dimensionalstate vector.
+Within the limits of parameter capacityallocated to the model, the ED, by virtue of exactlyfactorizing the token sequence, is consistent.However, when we created and deployed an EDmodel for a chat suggestion task we observed sev-eral counter-intuitive patterns in its predicted outputs.Even after training the model over billions of exam-ples, the predictions were systematically biased to-wards short sequences.
+Such bias has also been seenin translation (Cho et al, 2014).
+Another curious1516phenomenon was that the accuracy of the predictionssometimes dropped with increasing beam-size, morethan could be explained by statistical variations of awell-calibrated model (Ranzato et al, 2016).In this paper we expose a margin discrepancy inthe training loss of encoder-decoder models to ex-plain the above problems in its predictions.
+We showthat the training loss of ED network often under-estimates the margin of separating a correct sequencefrom an incorrect shorter sequence.
+The discrepancygets more severe as the length of the correct sequenceincreases.
+That is, even after the training loss con-verges to a small value, full inference on the trainingdata can incur errors causing the model to be under-fitted for long sequences in spite of low training cost.We call this the length bias problem.We propose an alternative model that avoids themargin discrepancy by globally conditioning theP (y|x) distribution.
+Our model is applicable in themany practical tasks where the space of allowed out-puts is closed.
+For example, the responses gener-ated by the smart reply feature of Inbox is restrictedto lie within a hand-screened whitelist of responsesW ?
+Y (Kannan et al, 2016), and the same holds fora recent conversation assistant feature of Google?sAllo (Khaitan, 2016).
+Our model uses a secondRNN encoder to represent the output as another fixedlength vector.
+We show that our proposed encoder-encoder model produces better calibrated whole se-quence probabilities and alleviates the length-biasproblem of ED models on two conversation tasks.
+Asecond advantage of our model is that inference issignificantly faster than ED models and is guaran-teed to find the globally optimal solution.
+In contrast,inference in ED models requires an expensive beam-search which is both slow and is not guaranteed tofind the optimal sequence.2 Length Bias in Encoder-Decoder ModelsIn this section we analyze the widely used encoder-decoder neural network for modeling Pr(y|x) overthe space of discrete output sequences.
+We usey1, .
+.
+.
+, yn to denote the tokens in a sequence y. Eachyi is a discrete symbol from a finite dictionary V ofsize m. Typically, m is large.
+The length n of a se-quence is allowed to vary from sequence to sequenceeven for the same input x.
+A special token EOS ?
+Vis used to mark the end of a sequence.
+We use Y todenote the space of such valid sequences and ?
+todenote the parameters of the model.2.1 The encoder-decoder networkThe Encoder-Decoder (ED) network representsPr(y|x, ?)
+by applying chain rule to exactly factor-ize it as ?nt=1 Pr(yt|y1, .
+.
+.
+, yt?1,x, ?).
+First, an en-coder with parameters ?x ?
+?
+is used to transformx into a d-dimensional real-vector vx.
+The networkused for the encoder depends on the form of x ?for example, when x is also a sequence, the encodercould be a RNN.
+The decoder then computes eachPr(yt|y1, .
+.
+.
+, yt?1,vx, ?)
+asPr(yt|y1, .
+.
+.
+, yt?1,vx, ?)
+= P (yt|st, ?
+), (1)where st is a state vector implemented using a recur-rent neural network asst ={vx if t = 0,RNN(st?1, ?E,yt?1 , ?R) otherwise.
+(2)where RNN() is typically a stack of LSTM cells thatcaptures long-term dependencies, ?E,y ?
+?
+are pa-rameters denoting the embedding for token y, and?R ?
+?
+are the parameters of the RNN.
+The functionPr(y|s, ?y) that outputs the distribution over the mtokens is a softmax:Pr(y|s, ?)
+= es?S,yes?S,1 + .
+.
+.+ es?S,m , (3)where ?S,y ?
+?
+denotes the parameters for token y inthe final softmax.2.2 The Origin of Length BiasThe ED network builds a single probability distri-bution over sequences of arbitrary length.
+For aninput x, the network needs to choose the highestprobability y among valid candidate sequences ofwidely different lengths.
+Unlike in applications likeentity-tagging and parsing where the length of theoutput is determined based on the input, in appli-cations like response generation valid outputs canbe of widely varying length.
+Therefore, Pr(y|x, ?
+)should be well-calibrated over all sequence lengths.Indeed under infinite data and model capacity the EDmodel is consistent and will represent all sequencelengths faithfully.
+In practice when training data is1517finite, we show that the ED model is biased againstlong sequences.
+Other researchers (Cho et al, 2014)have reported this bias but we are not aware of anyanalysis like ours explaining the reasons of this bias.Claim 2.1.
+The training loss of the ED model under-estimates the margin of separating long sequencesfrom short ones.Proof.
+Let x be an input for which a correct out-put y+ is of length ` and an incorrect output y?is of length 1.
+Ideally, the training loss shouldput a positive margin between y+ and y?
+whichis log Pr(y+|x)?
+log Pr(y?|x).
+Let us investigateif the maximum likelihood training objective of theED model achieves that.
+We can write this objectiveas:max?log Pr(y+1 |x, ?
+)+?`j=2log Pr(y+j |y+1...j?1,x, ?).
+(4)Only the first term in the above objective is in-volved in enforcing a margin between y+ andy?
+because log Pr(y+1 |x) is maximized whenlog Pr(y?1 |x) is correspondingly minimized.
+LetmL(?)
+= log Pr(y+1 |x, ?)
+?
+log Pr(y?1 |x, ?
+), thelocal margin from the first position and mR(?)
+=?`j=2 log Pr(y+j |y+1...j?1,x, ?).
+It is easy to seethat our desired margin between y+ and y?
+islog Pr(y+|x) ?
+log Pr(y?|x) = mL + mR. Letmg = mL +mR.
+Assuming two possible labels forthe first position (m = 2) 1, the training objectivein Equation 4 can now be rewritten in terms of themargins as:min?log(1 + e?mL(?))?mR(?
+)We next argue that this objective is not aligned withour ideal goal of making the global marginmL+mRpositive.First, note that mR is a log probability which un-der finite parameters will be non-zero.
+Second, eventhough mL can take any arbitrary finite value, thetraining objective drops rapidly when mL is positive.When training objective is regularized and trainingdata is finite, the model parameters ?
+cannot take1For m > 2, the objective will be upper bounded bymin?
+log(1 + (m?
+1)e?mL(?))?mR(?).
+The argument thatfollows remains largely unchangedvery large values and the trainer will converge at asmall positive value of mL.
+Finally, we show thatthe value of mR decreases with increasing sequencelength.
+For each position j in the sequence, we addto mR log-probability of y+j .
+The maximum valueof log Pr(y+j |y+1...j?1,x, ?)
+is log(1 ?
+) where  isnon-zero and decreasing with the magnitude of theparameters ?.
+In general, log Pr(y+j |y+1...j?1,x, ?
+)can be a much smaller negative value when the inputx has multiple correct responses as is common in con-versation tasks.
+For example, an input like x =?Howare you?
+?, has many possible correct outputs: y ?
+{?Iam good?, ?I am great?, ?I am fine, how about you??,etc}.
+Let fj denote the relative frequency of outputy+j among all correct responses with prefix y+1...j?1.The value of mR will be upper bounded asmR ??`j=2logmin(1?
+, fj)This term is negative always and increases in mag-nitude as sequence length increases and the set ofpositive outpus have high entropy.
+In this situation,when combined with regularization, our desired mar-gin mg may not remain positive even though mL ispositive.
+In summary, the core issue here is that sincethe ED loss is optimized and regularized on the lo-cal problem it does not control for the global, taskrelevant margin.This mismatch between the local margin optimizedduring training and the global margin explains thelength bias observed by us and others (Cho et al,2014).
+During inference a shorter sequence for whichmR is smaller wins over larger sequences.This mismatch also explains why increasing beamsize leads to a drop in accuracy sometimes (Ran-zato et al, 2016)2.
+When beam size is large, we aremore likely to dig out short sequences that have oth-erwise been separated by the local margin.
+We showempirically in Section 4.3 that for long sequenceslarger beam size hurts accuracy whereas for smallsequences the effect is the opposite.2.3 Proposed fixes to the ED modelsMany ad hoc approaches have been used to alleviatelength bias directly or indirectly.
+Some resort to nor-2Figure 6 in the paper shows a drop in BLEU score by 0.5 asthe beam size is increased from 3 to 10.1518malizing the probability by the full sequence length(Cho et al, 2014; Graves, 2013) whereas (Abadie etal., 2014) proposes segmenting longer sentences intoshorter phrases.
+(Cho et al, 2014) conjectures thatthe length bias of ED models could be because oflimited representation power of the encoder network.Later more powerful encoders based on attentionachieved greater accuracy (Bahdanau et al, 2014)on long sequences.
+Attention can be viewed as amechanism of improving the capacity of the localmodels, thereby making the local margin mL moredefinitive.
+But attention is not effective for all tasks?
+for example, (Vinyals and Le, 2015) report thatattention was not useful for conversation.Recently (Bengio et al, 2015; Ranzato et al, 2016)propose another modification to the ED training ob-jective where the true token yj?1 in the training termlog Pr(yj |y1, .
+.
+.
+, yj?1) is replaced by a sample ortop-k modes from the posterior at position j ?
+1 viaa careful schedule.
+Incidently, this fix also helps toindirectly alleviate the length bias problem.
+The sam-pling causes incorrect tokens to be used as previoushistory for producing a correct token.
+If earlier theincorrect token was followed by a low-entropy EOStoken, now that state should also admit the correcttoken causing a decrease in the probability of EOS,and therefore the short sequence.In the next section we propose our more direct fixto the margin discrepancy problem.3 Globally Conditioned Encoder-EncoderModelsWe represent Pr(y|x, ?)
+as a globally conditionedmodel es(y|x,?)Z(x,?)
+where s(y|x, ?)
+denotes a score foroutput y and Z(x, ?)
+denotes the shared normalizer.We show in Section 3.3 why such global condition-ing solves the margin discrepancy problem of the EDmodel.
+The intractable partition function in globalconditioning introduces several new challenges dur-ing training and inference.
+In this section we discusshow we designed our network to address them.Our model assumes that during inference the out-put has to be selected from a given whitelist of re-sponses W ?
+Y .
+In spite of this restriction, theproblem does not reduce to multi-class classificationbecause of two important reasons.
+First, during train-ing we wish to tap all available input-output pairsincluding the significantly more abundant outputsthat do not come from the whitelist.
+Second, thewhitelist could be very large and treating each outputsequence as an atomic class can limit generalizationachievable by modeling at the level of tokens in thesequence.3.1 Modeling s(y|x, ?
+)We use a second encoder to convert y into a vectorvy of the same size as the vector vx obtained byencoding x as in a ED network.
+The parameters usedto encode vx and vy are disjoint.
+As we are onlyinterested in a fixed dimensional output, unlike in EDnetworks, we have complete freedom in choosingthe type of network to use for this second encoder.For our experiments, we have chosen to use an RNNwith LSTM cells.
+Experimenting with other networkarchitectures, such as bidirectional RNNs remainsan interesting avenue for future work.
+The scores(y|x, ?)
+is the dot-product between vy and vx.
+Thusour model isPr(y|x) = evTx vy?y?
+?Y evTx vy?.
+(5)3.2 Training and InferenceDuring training we use maximum likelihood to esti-mate ?
+given a large set of valid input-output pairs{(x1,y1), .
+.
+.
+, (xN ,yN )} where each yi belongs toY which in general is much larger thanW .
+Our mainchallenge during training is that Y is intractably largefor computing Z.
+We decompose Z asZ = es(y|x,?)
++?y??Y\yes(y?|x,?
+), (6)and then resort to estimating the last term using im-portance sampling.
+Constructing a high quality pro-posal distribution over Y \ y is difficult in its ownright, so in practice, we make the following approxi-mations.
+We extract the most common T sequencesacross a data set into a pool of negative examples.We estimate the empirical prior probability of the se-quences in that pool, Q(y), and then draw k samplesfrom this distribution.
+We take care to remove thetrue sequence from this distribution so as to removethe need to estimate its prior probability.During inference, given an input x we need to findargmaxy?Ws(y|x, ?).
+This task can be performed1519y decoderBOS A EOS BOS BB EOSLSTMEmbeddingSoftmaxLabelInput64 64 64 64 64256256256 256 256 LSTMEmbeddingx encoderInputx0 x1 x2 y0 y1y1 y2y encoderBOS B64 64256 256 LSTMEmbeddingInputEOS64256y0 y1 y2vyvxvxProjection Projection512 512Figure 1: Neural network architectures used in our experiments.
+The context encoder network is used for both encoder-encoder andencoder-decoder models to encode the context sequence (?A?)
+into a vx.
+For the encoder-encoder model, label sequence (?B?)
+areencoded into vy by the label encoder network.
+For the encoder-decoder network, the label sequence is decomposed using the chainrule by the decoder network.efficiently in our network because the vectors vyfor the sequences y in the whitelist W can be pre-computed.
+Given an input x, we compute vx and takedot-product with the pre-computed vectors to find thehighest scoring response.
+This gives us the optimalresponse.
+WhenW is very large, we can obtain anapproximate solution by indexing the vectors vy ofW using recent methods specifically designed fordot-product based retrieval (Guo et al, 2016).3.3 MarginIt is well-known that the maximum likelihood train-ing objective of a globally normalized model is mar-gin maximizing (Rosset et al, 2003).
+We illustratethis property using our set up from Claim 2.1 wherea correct output y+ is of length ` and an incorrectoutput y?
+is of length 1 with two possible labels foreach position (m = 2).The globally conditioned model learns a parameterper possible sequence and assigns the probability toeach sequence using a softmax over those parame-ters.
+Additionally, we place a Gaussian prior on theparameters with a precision c. The loss for a positiveexample becomes:LG(y+) = ?
+loge??y+?y?
+e?
+?y?+ c2?y??2y?
+,where the sums are taken over all possible sequences.We also train an ED model on this task.
+It alsolearns a parameter for every possible sequence, butassigns probability to each sequence using the chainrule.
+We also place the same Gaussian prior as aboveon the parameters.
+Let yj denote the first j tokens{y1, .
+.
+.
+, yj} of sequence y.
+The loss for a positiveexample for this model is then:LL(y+) = ??`j=1??
+?log e?
+?y+j?y?j e?
+?y?j+ c2?y?j?2y?j???
+,where the inner sums are taken over all sequences oflength j.We train both models on synthetic sequences gen-erated using the following rule.
+The first token ischosen to be ?1?
+probability 0.6.
+If ?1?
+is chosen, itmeans that this is a positive example and the remain-ing `?
+1 tokens are chosen to be ?1?
+with probability0.91`?1 .
+If a ?0?
+is chosen as the first token, then thatis a negative example, and the sequence generationdoes not go further.
+This means that there are 2`?1unique positive sequences of length ` and one neg-ative sequence of length 1.
+The remaining possiblesequences do not occur in the training or testing data.By construction the unbiased margin between themost probable correct example and the incorrect ex-ample is length independent and positive.
+We sample10000 such sequences and train both models using15200.0 0.2 0.4 0.6 0.8 1.0c0.40.20.00.20.4MarginGlobal marginED marginED local margin2 3 4 5`0.40.20.00.20.4MarginGlobal marginED marginED local marginFigure 2: Comparing final margins of ED model with a glob-ally conditioned model on example dataset of Section 3.3 as afunction of regularization constant c and message length `.Adagrad (Duchi et al, 2011) for 1000 epochs with alearning rate of 0.1, effectively to convergence.Figure 2 shows the margin for both models (be-tween the most likely correct sequence and the incor-rect sequence) and the local margin for the ED modelat the end of training.
+On the left panel, we usedsequences with ` = 2 and varied the regularizationconstant c. When c is zero, both models learn thesame global margin, but as it is increased the marginfor the ED model decreases and becomes negativeat c > 0.2, despite the local margin remaining pos-itive and high.
+On the right panel we used c = 0.1and varied `.
+The ED model becomes unable to sep-arate the sequences with length above 2 with thisregularization constant setting.4 Experiments4.1 Datasets and TasksWe contrast the quality of the ED and encoder-encoder models on two conversational datasets: OpenSubtitles and Reddit Comments.4.1.1 Open Subtitles DatasetThe Open Subtitles dataset consists of transcrip-tions of spoken dialog in movies and television shows(Lison and Tiedemann, 2016).
+We restrict our model-ing only to the English subtitles, of which results in319 million utternaces.
+Each utterance is tokenizedinto word and punctuation tokens, with the start andend marked by the BOS and EOS tokens.
+We ran-domly split out 90% of the utterances into the trainingset, placing the rest into the validation set.
+As thespeaker information is not present in this data set,we treat each utterance as a label sequence, with thepreceding utterances as context.4.1.2 Reddit Comments DatasetThe Reddit Comments dataset is constructed frompublicly available user comments on submissions onthe Reddit website.
+Each submission is associatedwith a list of directed comment trees.
+In total, thereare 41 million submissions and 501 million com-ments.
+We tokenize the individual comments in thesame way as we have done with the utternaces in theOpen Subtitles dataset.
+We randomly split 90% ofthe submissions and the associated comments intothe training set, and the rest into the validation set.We use each comment (except the ones with no par-ent comments) as a label sequence, with the contextsequence composed of its ancestor comments.4.1.3 Whitelist and VocabularyFrom each dataset, we derived a dictionary of 20thousand most commonly used tokens.
+Additionally,each dictionary contained the unknown token (UNK),BOS and EOS tokens.
+Tokens in the datasets whichwere not present in their associated vocabularies werereplaced by the UNK token.From each data set, we extracted 10 million mostcommon label sequences that also contained at most100 tokens.
+This set of sequences was used as thenegative sample pool for the encoder-encoder models.For evaluation we created a whitelistW out of the100 thousand most common sequences.
+We removedany sequence from this set that contained any UNKtokens to simplify inference.4.1.4 Sequence Prediction TaskTo evaluate the quality of these models, we taskthem to predict the true label sequence given itscontext.
+Due to the computational expense, wesub-sample the validation data sets to around 1 mil-lion context-label pairs.
+We additionally restrict thecontext-label pairs such that the label sequence ispresent in the evaluation set of common messages.We use recall@K as a measure of accuracy of themodel predictions.
+It is defined as the fraction oftest pairs where the correct label is within K most1521probable predictions according to the model.
+Forencoder-encoder models we use an exhaustive searchover the evaluation set of common messages.
+ForED models we use a beam search with width rangingfrom 1 to 15 over a token prefix trie constructed fromthe sequences inW .4.2 Model Structure and Training ProcedureThe context encoder, label encoder and decoderare implemented using LSTM recurrent networks(Hochreiter and Schmidhuber, 1997) with peepholeconnections (Sak et al, 2014).
+The context and labeltoken sequences were mapped to embedding vectorsusing a lookup table that is trained jointly with therest of the model parameters.
+The recurrent netswere unrolled in time up to 100 time-steps, with labelsequences of greater length discarded and contextsequences of greater length truncated.The decoder in the ED model is trained by usingthe true label sequence prefix as input, and a shiftedlabel sequence as output (Sutskever et al, 2014).
+Thepartition function in the softmax over tokens is es-timated using importance sampling with a unigramdistribution over tokens as the proposal distribution(Jean et al, 2014).
+We sample 512 negative examplesfrom Q(y) to estimate the partition function for theencoder-encoder model.
+See Figure 1 for connectiv-ity and network size details.All models were trained using Adagrad (Duchiet al, 2011) with an initial base learning rate of 0.1which we exponentially decayed with a decade of15 million steps.
+For stability, we clip the L2 normof the gradients to a maximum magnitude of 1 asdescribed in (Pascanu et al, 2012).
+All models aretrained for 30 million steps with a mini-batch size of64.
+The models are trained in a distributed manner onCPUs and NVidia GPUs using TensorFlow (Abadi etal., 2015).4.3 ResultsWe first demonstrate the discrepancy between thelocal and global margin in the ED models as dis-cussed in Section 3.3.
+We used a beam size of 15to get the top prediction from our trained ED mod-els on the test data and focussed on the subset forwhich the top prediction was incorrect.
+We measuredlocal and global margin between the top predictedsequence (y?)
+and the correct test sequence (y+) asfollows: Global margin is the difference in their fullsequence log probability.
+Local margin is the differ-ence in the local token probability of the smallestposition j where y?j 6= y+j , that is local margin isPr(y+j |y+1...j?1,x, ?)
+?
+Pr(y?j |y+1...j?1,x, ?).
+Notethe training loss of ED models directly comparesonly the local margin.Global margin is much smaller than local marginIn Figure 3 we show the local and global margin asa 2D histogram with color luminosity denoting fre-quency.
+We observe that the global margin values aremuch smaller than the local margins.
+The prominentspine is for (y+,y?)
+pairs differing only in a singleposition making the local and global margins equal.Most of the mass is below the spine.
+For a significantfraction of cases (27% for Reddit, and 21% for Sub-titles), the local margin is positive while the globalmargin is negative.
+That is, the ED loss for thesesequences is small even though the log-probabilityof the correct sequence is much smaller than the log-probability of the predicted wrong sequence.Beam search is not the bottleneck An interestingside observation from the plots in Figure 3 is thatmore than 98% of the wrong predictions have a nega-tive margin, that is, the score of the correct sequenceis indeed lower than the score of the wrong predic-tion.
+Improving the beam-width beyond 15 is notlikely to improve these models since only in 1.9%and 1.7% of the cases is the correct score higher thanthe score of the wrong prediction.15 10 5 0 5 10Local margin3025201510505Global marginReddit15 10 5 0 5 10Local margin3025201510505Global marginSubtitlesFigure 3: Local margin versus global margin for incorrectlypredicted sequences.
+The color luminosity is proportional tofrequency.1522Margin discrepancy is higher for longer se-quences In Figure 4 we show that this discrep-ancy is significantly more pronounced for longersequences.
+In the figure we show the fraction ofwrongly predicted sequences with a positive localmargin.
+We find that as sequence length increases,we have more cases where the local margin is posi-tive yet the global margin is negative.
+For example,for the Reddit dataset half of the wrongly predictedsequences have a positive local margin indicating thatthe training loss was low for these sequences eventhough they were not adequately separated.Reddit0 1 2 3 4 5 6 7 8 >800.150.30.450.6Sequence LengthSubtitles0 1 2 3 4 5 6 7 8 >800.10.20.30.4Sequence LengthFigure 4: Fraction of incorrect predictions with positive localmargin.Increasing beam size drops accuracy for long se-quences Next we show why this discrepancy leadsto non-monotonic accuracies with increasing beam-size.
+As beam size increases, the predicted se-quence has higher probability and the accuracy isexpected to increase if the trained probabilities arewell-calibrated.
+In Figure 5 we plot the number ofcorrect predictions (on a log scale) against the lengthof the correct sequence for beam sizes of 1, 5, 10,and 15.
+For small sequence lengths, we indeed ob-serve that increasing the beam size produces moreaccurate results.
+For longer sequences (length > 4)we observe a drop in accuracy with increasing thebeam width beyond 1 for Reddit and beyond 5 forSubtitles.Globally conditioned models are more accuratethan ED models We next compare the ED modelwith our globally conditioned encoder-encoder (EE)model.
+In Figure 6 we show the recall@K valuesfor K=1, 3 and 5 for the two datasets for increasinglength of correct sequence.
+We find the EE modelis largely better that the ED model.
+The most in-teresting difference is that for sequences of lengthgreater than 8, the ED model has a recall@5 of zerofor both datasets.
+In contrast, the EE model managesRedditB=1 B=5 B=10 B=151 2 3 4 5+100100010000Sequence LengthNumberCorrectSubtitlesB=1 B=5 B=10 B=151 2 3 4 5 6+100100010000Sequence LengthNumberCorrectFigure 5: Effect of beam width on the number of correct predic-tions broken down by sequence length.to achieve significant recall even at large sequencelengths.Length normalization of ED models A commonmodification to the ED decoding procedure used topromote longer message is normalization of the pre-diction log-probability by its length raised to somepower f (Cho et al, 2014; Graves, 2013).
+We ex-perimented with two settings, f = 0.5 and 1.0.
+Ourexperiments show that while this indeed promoteslonger sequences, it does so at the expense of reduc-ing the accuracy on the shorter sequences.5 Related WorkIn this paper we showed that encoder-decoder mod-els suffer from length bias and proposed a fix us-ing global conditioning.
+Global conditioning hasbeen proposed for other RNN-based sequence pre-diction tasks in (Yao et al, 2014) and (Andor et al,2016).
+The RNN models that these work attempt tofix capture only a weak form of dependency amongvariables, for example they assume x is seen incre-mentally and only adjacent labels in y are directlydependent.
+As proved in (2016) these models aresubject to label bias since they cannot represent a dis-tribution that a globally conditioned model can.
+Thus,their fix for global dependency is using a CRFs.
+Such1523Reddit Recall@1EE ED ED f=0.5 ED f=1.01 2 3 4 5 6 7 8 >800.030.060.090.12Sequence LengthRecallReddit Recall@3EE ED ED f=0.5 ED f=1.01 2 3 4 5 6 7 8 >800.060.120.180.24Sequence LengthRecallReddit Recall@5EE ED ED f=0.5 ED f=1.01 2 3 4 5 6 7 8 >800.0750.150.2250.3Sequence LengthRecallSubtitles Recall@1EE ED ED f=0.5 ED f=1.01 2 3 4 5 6 7 8 >800.10.20.30.4Sequence LengthRecallSubtitles Recall@3EE ED ED f=0.5 ED f=1.01 2 3 4 5 6 7 8 >800.150.30.450.6Sequence LengthRecallSubtitles Recall@5EE ED ED f=0.5 ED f=1.01 2 3 4 5 6 7 8 >800.150.30.450.6Sequence LengthRecallFigure 6: Comparing recall@1, 3, 5 for increasing length of correct sequence.global conditioning will compromise a ED modelwhich does not assume any conditional independenceamong variables.
+The label-bias proof of (2016) isnot applicable to ED models because the proof restson the entire input not being visible during output.Earlier illustrations of label bias of MeMMs in (Bot-tou, 1991; Lafferty et al, 2001) also require localobservations.
+In contrast, the ED model transitionson the entire input and chain rule is an exact factoriza-tion of the distribution.
+Indeed one of the suggestionsin (Bottou, 1991) to surmount label-bias is to use afully connected network, which the ED model al-ready does.Our encoder-encoder network is reminiscent ofthe dual encoder network in (Lowe et al, 2015), alsoused for conversational response generation.
+A cru-cial difference is our use of importance samplingto correctly estimate the probability of a large setof candidate responses, which allows us to use themodel as a standalone response generation system.Other differences include our model using separatesets of parameters for the two encoders, to reflect theassymetry of the prediction task.
+Lastly, we found itcrucial for the model?s quality to use multiple appro-priately weighed negative examples for every positiveexample during training.
+(Ranzato et al, 2016) also highlights limitationsof the ED model and proposes to mix the ED losswith a sequence-level loss in a reinforcement learningframework under a carefully tuned schedule.
+Ourmethod for global conditioning can capture sequence-level losses like BLEU score more easily, but mayalso benefit from a similar mixed loss function.6 ConclusionWe have shown that encoder-decoder models in theregime of finite data and parameters suffer from alength-bias problem.
+We have proved that this arisesdue to the locally normalized models insufficientlyseparating correct sequences from incorrect ones, andhave verified this empirically.
+We explained why thisleads to the curious phenomenon of decreasing accu-racy with increasing beam size for long sequences.Our proposed encoder-encoder architecture side stepsthis issue by operating in sequence probability spacedirectly, yielding improved accuracy for longer se-quences.One weakness of our proposed architecture is thatit cannot generate responses directly.
+An interestingfuture work is to explore if the ED model can be usedto generate a candidate set of responses which arethen re-ranked by our globally conditioned model.Another future area is to see if the techniques formaking Bayesian networks discriminative can fix thelength bias of encoder decoder networks (Peharz etal., 2013; Guo et al, 2012).References[Abadi et al2015] Mart?n Abadi, Ashish Agarwal, PaulBarham, and Eugene Brevdo et al 2015.
+TensorFlow:1524Large-scale machine learning on heterogeneous sys-tems.
+Software available from tensorflow.org.
+[Abadie et al2014] J Pouget Abadie, D Bahdanau, B vanMerrienboer, K Cho, and Y Bengio.
+2014.
+Over-coming the curse of sentence length for neural ma-chine translation using automatic segmentation.
+CoRR,abs/1409.1257.
+[Andor et al2016] D Andor, C Alberti, D Weis, A Severyn,A Presta, K Ganchev, S Petrov, and M Collins.
+2016.Globally normalized transition-based neural network.CoRR, abs/1603.06042.
+[Bahdanau et al2014] Dzmitry Bahdanau, KyunghyunCho, and Yoshua Bengio.
+2014.
+Neural machine trans-lation by jointly learning to align and translate.
+CoRR,abs/1409.0473.
+[Bengio et al2015] Samy Bengio, Oriol Vinyals, NavdeepJaitly, and Noam Shazeer.
+2015.
+Scheduled samplingfor sequence prediction with recurrent neural networks.In NIPS.
+[Bottou1991] L. Bottou.
+1991.
+Une approche theoriquede l?apprentissage connexionniste: Applications a la re-con?naissance de la parole.
+Ph.D. thesis, UniversitedeParis XI.
+[Cho et al2014] KyungHyun Cho, Bart van Merrienboer,Dzmitry Bahdanau, and Yoshua Bengio.
+2014.
+Onthe properties of neural machine translation: Encoder-decoder approaches.
+CoRR, abs/1409.1259.
+[Duchi et al2011] John Duchi, Elan Hazad, and YoramSinger.
+2011.
+Adaptive subgradient methods for onlinelearning and stochastic optimization.
+JMLR, 12.
+[Graves2013] Alex Graves.
+2013.
+Generating sequenceswith recurrent neural networks.
+CoRR, abs/1308.0850.
+[Guo et al2012] Yuhong Guo, Dana F. Wilkinson, andDale Schuurmans.
+2012.
+Maximum margin bayesiannetworks.
+CoRR, abs/1207.1382.
+[Guo et al2016] R. Guo, S. Kumar, K. Choromanski, andD.
+Simcha.
+2016.
+Quantization based fast inner prod-uct search.
+In AISTATS.
+[Hochreiter and Schmidhuber1997] Sepp Hochreiter andJ?rgen Schmidhuber.
+1997.
+Long short-term memory.Neural computation, 9(8):1735?1780.
+[Jean et al2014] S?bastien Jean, Kyunghyun Cho, RolandMemisevic, and Yoshua Bengio.
+2014.
+On using verylarge target vocabulary for neural machine translation.CoRR, abs/1412.2007.
+[Kannan et al2016] Anjuli Kannan, Karol Kurach, SujithRavi, Tobias Kaufmann, Andrew Tomkins, Balint Mik-los, Greg Corrado, L?szl?
+Luk?cs, Marina Ganea, PeterYoung, and Vivek Ramavajjala.
+2016.
+Smart reply:Automated response suggestion for email.
+In KDD.
+[Khaitan2016] Pranav Khaitan.2016.
+Chat smarter with allo.http://googleresearch.blogspot.com/2016/05/chat-smarter-with-allo.html, May.
+[Lafferty et al2001] John Lafferty, Andrew McCallum,and Fernando Pereira.
+2001.
+Conditional randomfields: Probabilistic models for segmenting and labelingsequence data.
+In ICML.
+[Li et al2015] J Li, M Galley, C Brockett, J Gao, andB Dolan.
+2015.
+A diversity-promoting objectivefunction for neural conversation models.
+CoRR,abs/1510.03055.
+[Lison and Tiedemann2016] Pierre Lison and J?rg Tiede-mann.
+2016.
+Opensubtitles2016: Extracting largeparallel corpora from movie and tv subtitles.
+In LREC2016.
+[Lowe et al2015] R Lowe, N Pow, I V Serban, andJ Pineau.
+2015.
+The ubuntu dialogue corpus: A largedataset for research in unstructure multi-turn dialoguesystems".
+In SIGDial.
+[McCallum et al2000] A. McCallum, D. Freitag, andF.
+Pereira.
+2000.
+Maximum entropy markov mod-els for information extraction and segmentation.
+InICML.
+[Pascanu et al2012] Razvan Pascanu, Tomas Mikolov,and Yoshua Bengio.
+2012.
+Understanding the explod-ing gradient problem.
+CoRR, abs/1211.5063.
+[Peharz et al2013] Robert Peharz, Sebastian Tschiatschek,and Franz Pernkopf.
+2013.
+The most generative maxi-mum margin bayesian networks.
+In ICML.
+[Ranzato et al2016] M Ranzato, S Chopra, M Auli, andW Zaremba.
+2016.
+Sequence level training with recur-rent neural networks.
+ICLR.
+[Rosset et al2003] S Rosset, J Zhu, and T Hastie.
+2003.Margin maximizing loss functions.
+In NIPS.
+[Sak et al2014] Hasim Sak, Andrew Senior, and FrancoiseBeaufays.
+2014.
+Long Short-Term Memory RecurrentNeural Network Architectures for Large Scale AcousticModeling.
+In INTERSPEECH 2014.
+[Sutskever et al2014] Ilya Sutskever, Oriol Vinyals, andQuoc V. Le.
+2014.
+Sequence to sequence learning withneural networks.
+In NIPS.
+[Vinyals and Le2015] Oriol Vinyals and Quoc V. Le.2015.
+A neural conversational model.
+CoRR,abs/1506.05869.
+[Vinyals et al2015] Oriol Vinyals, Alexander Toshev,Samy Bengio, and Dumitru Erhan.
+2015.
+Show andtell: A neural image caption generator.
+In CVPR.
+[Yao et al2014] K Yao, B Peng, G Zweig, D Yu, X Li, andF Gao.
+2014.
+Recurrent conditional random field forlanguage understanding.
+In ICASSP.1525

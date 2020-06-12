@@ -1,0 +1,414 @@
+Proceedings of the 53rd Annual Meeting of the Association for Computational Linguisticsand the 7th International Joint Conference on Natural Language Processing, pages 774?784,Beijing, China, July 26-31, 2015.c?2015 Association for Computational LinguisticsEfficient Methods for Inferring Large Sparse Topic HierarchiesDoug Downey, Chandra Sekhar Bhagavatula, Yi YangElectrical Engineering and Computer ScienceNorthwestern Universityddowney@eecs.northwestern.edu,{csb,yiyang}@u.northwestern.eduAbstractLatent variable topic models such as La-tent Dirichlet Allocation (LDA) can dis-cover topics from text in an unsupervisedfashion.
+However, scaling the models upto the many distinct topics exhibited inmodern corpora is challenging.
+?Flat?topic models like LDA have difficultymodeling sparsely expressed topics, andricher hierarchical models become compu-tationally intractable as the number of top-ics increases.In this paper, we introduce efficient meth-ods for inferring large topic hierarchies.Our approach is built upon the SparseBackoff Tree (SBT), a new prior for la-tent topic distributions that organizes thelatent topics as leaves in a tree.
+We showhow a document model based on SBTscan effectively infer accurate topic spacesof over a million topics.
+We introduce acollapsed sampler for the model that ex-ploits sparsity and the tree structure in or-der to make inference efficient.
+In exper-iments with multiple data sets, we showthat scaling to large topic spaces results inmuch more accurate models, and that SBTdocument models make use of large topicspaces more effectively than flat LDA.1 IntroductionLatent variable topic models, such as LatentDirichlet Allocation (Blei et al, 2003), are popu-lar approaches for automatically discovering top-ics in document collections.
+However, learningmodels that capture the large numbers of distincttopics expressed in today?s corpora is challenging.While efficient methods for learning large topicmodels have been developed (Li et al, 2014; Yaoet al, 2009; Porteous et al, 2008), these methodshave focused on ?flat?
+topic models such as LDA.Flat topic models over large topic spaces are proneto overfitting: even in a Web-scale corpus, somewords are expressed rarely, and many documentsare brief.
+Inferring a large topic distribution foreach word and document given such sparse datais challenging.
+As a result, LDA models in prac-tice tend to consider a few thousand topics at most,even when training on billions of words (Mimno etal., 2012).A promising alternative to flat topic models isfound in recent hierarchical topic models (Paisleyet al, 2015; Blei et al, 2010; Li and McCallum,2006; Wang et al, 2013; Kim et al, 2013; Ahmedet al, 2013).
+Topics of words and documents canbe naturally arranged into hierarchies.
+For exam-ple, an article on the topic of the Chicago Bulls isalso relevant to the more general topics of NBA,Basketball, and Sports.
+Hierarchies can combatdata sparsity: if data is too sparse to place theterm ?Pau Gasol?
+within the Chicago Bulls topic,perhaps it can be appropriately modeled at some-what less precision within the Basketball topic.
+Ahierarchical model can make fine-grained distinc-tions where data is plentiful, and back-off to morecoarse-grained distinctions where data is sparse.However, current hierarchical models are hinderedby computational complexity.
+The existing infer-ence methods for the models have runtimes thatincrease at least linearly with the number of top-ics, making them intractable on large corpora withlarge numbers of topics.In this paper, we present a hierarchical topicmodel that can scale to large numbers of dis-tinct topics.
+Our approach is built upon a newprior for latent topic distributions called a SparseBackoff Tree (SBT).
+SBTs organize the latent top-ics as leaves in a tree, and smooth the distribu-tions for each topic with those of similar top-ics nearby in the tree.
+SBT priors use absolutediscounting and learned backoff distributions for774smoothing sparse observation counts, rather thanthe fixed additive discounting utilized in Dirichletand Chinese Restaurant Process models.
+We showhow the SBT?s characteristics enable a novel col-lapsed sampler that exploits the tree structure forefficiency, allowing SBT-based document models(SBTDMs) that scale to hierarchies of over a mil-lion topics.We perform experiments in text modeling andhyperlink prediction, and find that SBTDM ismore accurate compared to LDA and the re-cent nested Hierarchical Dirichlet Process (nHDP)(Paisley et al, 2015).
+For example, SBTDMswith a hundred thousand topics achieve perplex-ities 28-52% lower when compared with a stan-dard LDA configuration using 1,000 topics.
+Weverify that the empirical time complexity of in-ference in SBTDM increases sub-linearly in thenumber of topics, and show that for large topicspaces SBTDM is more than an order of magni-tude more efficient than the hierarchical PachinkoAllocation Model (Mimno et al, 2007) and nHDP.Lastly, we release an implementation of SBTDMas open-source software.12 Previous WorkThe intuition in SBTDM that topics are naturallyarranged in hierarchies also underlies several othermodels from previous work.
+Paisley et al (2015)introduce the nested Hierarchical Dirichlet Pro-cess (nHDP), which is a tree-structured generativemodel of text that generalizes the nested ChineseRestaurant Process (nCRP) (Blei et al, 2010).Both the nCRP and nHDP model the tree struc-ture as a random variable, defined over a flexi-ble (potentially infinite in number) topic space.However, in practice the infinite models are trun-cated to a maximal size.
+We show in our experi-ments that SBTDM can scale to larger topic spacesand achieve greater accuracy than nHDP.
+To ourknowledge, our work is the first to demonstrate ahierarchical topic model that scales to more thanone million topics, and to show that the largermodels are often much more accurate than smallermodels.
+Similarly, compared to other recent hi-erarchical models of text and other data (Petinotet al, 2011; Wang et al, 2013; Kim et al, 2013;Ahmed et al, 2013; Ho et al, 2010), our focus ison scaling to larger data sets and topic spaces.1http://websail.cs.northwestern.edu/projects/sbts/The Pachinko Allocation Model (PAM) intro-duced by Li & McCallum (Li and McCallum,2006) is a general approach for modeling corre-lations among topic variables in latent variablemodels.
+Hierarchical organizations of topics, asin SBT, can be considered as a special case of aPAM, in which inference is particularly efficient.We show that our model is much more efficientthan an existing PAM topic modeling implemen-tation in Section 5.Hu and Boyd-Graber (2012) present a methodfor augmenting a topic model with known hier-archical correlations between words (taken frome.g.
+WordNet synsets).
+By contrast, our focusis on automatically learning a hierarchical orga-nization of topics from data, and we demonstratethat this technique improves accuracy over LDA.Lastly, SparseLDA (Yao et al, 2009) is a methodthat improves the efficiency of inference in LDAby only generating portions of the sampling distri-bution when necessary.
+Our collapsed sampler forSBTDM utilizes a related intuition at each level ofthe tree in order to enable fast inference.3 Sparse Backoff TreesIn this section, we introduce the Sparse BackoffTree, which is a prior for a multinomial distribu-tion over a latent variable.
+We begin with an ex-ample showing how an SBT transforms a set ofobservation counts into a probability distribution.Consider a latent variable topic model of text doc-uments, similar to LDA (Blei et al, 2003) or pLSI(Hofmann, 1999).
+In the model, each token in adocument is generated by first sampling a discretelatent topic variable Z from a document-specifictopic distribution, and then sampling the token?sword type from a multinomial conditioned on Z.We will focus on the document?s distributionover topics, ignoring the details of the word typesfor illustration.
+We consider a model with 12latent topics, denoted as integers from the set{1, .
+.
+.
+, 12}.
+Assume we have assigned latenttopic values to five tokens in the document, specif-ically the topics {1, 4, 4, 5, 12}.
+We indicate thenumber of times topic value z has been selected asnz(Figure 1).Given the five observations, the key questionfaced by the model is: what is the topic distribu-tion over a sixth topic variable from the same doc-ument?
+In the case of the Dirichlet prior utilizedfor the topic distribution in LDA, the probability7752 4 5 6 7 8 9 10 11 12nz             =      1          0         0         2          1          0         0          0         0         0          0          1P(Z|S, n) ?
+0.46    0.36    0.36   1.56     0.56    0.46    0.14    0.14    0.14    0.24    0.24    0.34?
+= 0.243 1 z?
+= 0.36?
+= 0.30 ?
+= 0.30 ?
+= 0.30 ?
+= 0.30?
+= 0.36Figure 1: An example Sparse Backoff Tree over 12 latent variable values.that the sixth topic variable has value z is propor-tional to nz+ ?, where ?
+is a hyperparameter ofthe model.SBT differs from LDA in that it organizes thetopics into a tree structure in which the topics areleaves (see Figure 1).
+In this paper, we assumethe tree structure, like the number of latent top-ics, is manually selected in advance.
+With an SBTprior, the estimate of the probability of a topic zis increased when nearby topics in the tree havepositive counts.
+Each interior node a of the SBThas a discount ?aassociated with it.
+The SBTtransforms the observation counts nzinto pseudo-counts (shown in the last row in the figure) bysubtracting ?afrom each non-zero descendent ofeach interior node a, and re-distributing the sub-tracted value uniformly among the descendants ofa.
+For example, the first state has a total of 0.90subtracted from its initial count n1= 1, and thenreceives 0.30/3 from its parent, 1.08/6 from itsgrandparent, and 0.96/12 from the root node fora total pseudo-count of 0.46.
+The document?s dis-tribution over a sixth topic variable is then propor-tional to these pseudo-counts.When each document tends to discuss a set ofrelated topics, the SBT prior will assign a higherlikelihood to the data when related topics are lo-cated nearby in the tree.
+Thus, by inferring latentvariable values to maximize likelihood, nearbyleaves in the tree will come to represent relatedtopics.
+SBT, unlike LDA, encodes the intuitionthat a topic becomes more likely in a documentthat also discusses other, related topics.
+In theexample, the pseudo-count the SBT produces fortopic six (which is related to other topics that oc-cur in the document) is almost three times largerthan that of topic eight, even though the observa-tion counts are zero in each case.
+In LDA, top-ics six and eight would have equal pseudo-counts(proportional to ?
+).3.1 DefinitionsLetZ be a discrete random variable that takes inte-ger values in the set {1, .
+.
+.
+, L}.
+Z is drawn from amultinomial parameterized by a vector ?
+of lengthL.Definition 1 A Sparse Backoff TreeSBT (T , ?
+?, Q(z)) for the discrete randomvariable Z consists of a rooted tree T containingL leaves, one for each value of Z; a coefficient?a> 0 for each interior node a of T ; and abackoff distribution Q(z).Figure 1 shows an example SBT.
+The exampleincludes simplifications we also utilize in our ex-periments, namely that all nodes at a given depthin the tree have the same number of children andthe same ?
+value.
+However, the inference tech-niques we present in Section 4 are applicable toany tree T and set of coefficients {?a}.For a given SBT S, let ?S(z) indicate the sumof all ?avalues for all ancestors a of leaf node z(i.e., all interior nodes on the path from the root toz).
+For example, in the figure, ?S(z) = 0.90 forall z.
+This amount is the total absolute discountthat the SBT applies to the random variable valuez.We define the SBT prior implicitly in terms ofthe posterior distribution it induces on a randomvariable Z drawn from a multinomial ?
+with anSBT prior, after ?
+is integrated out.
+Let the vectorn = [n1, .
+.
+.
+, nL] denote the sufficient statisticsfor any given observations drawn from ?, where nzis the number of times value z has been observed.Then, the distribution over a subsequent draw of Z776given SBT prior S and observations n is definedas:P (Z = z|S,n) ?
+(1)max(nz?
+?S(z), 0) +B(S, z,n)Q(z)K(S,?ini)where K(S,?ini) is a normalizing constant thatensures the distribution sums to one for any fixednumber of observations?ini, andB(S, z,n) andQ(z) are defined as below.The quantity B(S, z,n) expresses how much ofthe discounts from all other leaves z?contribute tothe probability of z.
+For an interior node a, letdesc(a) indicate the number of leaves that are de-scendants of a, and let desc+(a) indicate the num-ber of leaf descendants z of a that have non-zerovalues nz.
+Then the contribution of the discount?aof node a to each of its descendent leaves isb(a,n) = ?adesc+(a)/desc(a).
+We then defineB(S, z,n) to be the sum of b(a,n) over all inte-rior nodes a on the path from the root to z.The function Q(z) is a backoff distribution.
+Itallows the portion of the discount probability massthat is allocated to z to vary with a proposed dis-tribution Q(z).
+This is useful because in practicethe SBT is used as a prior for a conditional distri-bution, for example the distribution P (Z|w) overtopic Z given a word w in a topic model of text.
+Inthat case, an estimate of P (Z|w) for a rare wordw may be improved by ?mixing in?
+the marginaltopic distribution Q(z) = P (Z = z), analogousto backoff techniques in language modeling.
+Ourdocument model described in the following sec-tion utilizes two different Q functions, one uni-form (Q(z) = 1/T ) and another related to themarginal topic distribution P (z).4 The SBT Document ModelWe now present the SBT document model, a prob-abilistic latent variable model of text documentsthat utilizes SBT priors.
+We then provide a col-lapsed sampler for the model that exploits the treestructure to make inference more efficient.Our document model follows the Latent Dirich-let Allocation (LDA) Model (Blei et al, 2003), il-lustrated graphically in Figure 2 (left).
+In LDA,a corpus of documents is generated by samplinga topic distribution ?dfor each document d, andalso a distribution over words ?zfor each topic.Then, in document d each token w is generatedby first sampling a topic z from the multinomialP (Z|?d), and then sampling w from the multino-mial P (W |Z, ?z).The SBTDM is the same as LDA, with onesignificant difference.
+In LDA, the parameters ?and ?
+are sampled from two Dirichlet priors, withseparate hyperparameters ?
+and ?.
+In SBTDM,the parameters are instead sampled from particu-lar SBT priors.
+Specifically, the generative modelis:?
+?
+SBT (T , ?
+?, Q?
+(z) = 1/T )???
+SBT (T , ?
+?, Q?
+(z) = P?(z))?
+?
+Dirichlet(??)Z|?
+?
+Discrete(?
+)W |z, ?
+?, ?
+?
+Discrete(??
+?.,z/P (z|??
+))The variable ?
+?represents the distribution oftopics given words, P (Z|W ).
+The SBTDM sam-ples a distribution ?
+?wover topics for each wordtype w in the vocabulary (of size V ).
+In SBTDM,the random variable ?
+?whas dimension L, ratherthan V for ?zas in LDA.
+We also draw a priorword frequency distribution, ?
+= {?w} for eachword w.2We then apply Bayes Rule to obtainthe conditional distributions P (W |Z, ??)
+requiredfor inference.
+The expression ??
+?.,z/P (z|??)
+de-notes the normalized element-wise product of twovectors of length V : the prior distribution ?
+overwords, and the vector of probabilities P (z|w) =?
+?w,zover words w for the given topic z.The SBT priors for ?
+?and ?
+share the same treestructure T , which is fixed in advance.
+The SBTshave different discount factors, denoted by the hy-perparameters ?
+?and ??.
+Finally, the backoff dis-tribution for ?
+is uniform, whereas ?
+?s backoff dis-tribution P?is defined below.4.1 Backoff distribution P?
+(z)SBTDM requires choosing a backoff distributionP?
+(z) for ??.
+As we now show, it is possible toselect a natural backoff distribution P?
+(z) that en-ables scalable inference.Given a set of observations n, we will set P?
+(z)proportional to P (z|S?,n).
+This is a recursivedefinition, because P (z|S?,n) depends on P?
+(z).Thus, we define:P?
+(z) ??wmax(nwz?
+?S(z), 0)C ?
+?wBw(S?, z,n)(2)2The word frequency distribution does not impact the in-ferred topics (because words are always observed), and in ourexperiments we simply use maximum likelihood estimatesfor ?w(i.e., setting ?
+?to be negligibly small).
+Exploringother word frequency distributions is an item of future work.777??
+I????
+?
+??I????
+??I?????
+?Figure 2: The Latent Dirichlet Allocation Model (left) and our SBT Document Model (right).where C >?wBw(S?, z,n) is a hyperparame-ter, nwzis the number of observations of topic zfor word w in n, and Bwindicates the functionB(S?, z,n) defined in Section 3.1, for the partic-ular wordw.
+That is,?wBw(S?, z,n) is the totalquantity of smoothing distributed to topic z acrossall words, before the backoff distribution P?
+(z) isapplied.The form of P?
+(z) has two key advantages.The first is that setting P?
+(z) proportional tothe marginal topic probability allows SBTDM toback-off toward marginal estimates, a success-ful technique in language modeling (Katz, 1987)(where it has been utilized for word probabilities,rather than topic probabilities).
+Secondly, settingthe backoff distribution in this way allows us tosimplify inference, as described below.4.2 Inference with Collapsed SamplingGiven a corpus of documents D, we infer the val-ues of the hidden variables Z using the collapsedGibbs sampler popular in Latent Dirichlet Alloca-tion models (Griffiths and Steyvers, 2004).
+Eachvariable Ziis sampled given the settings of allother variables (denoted as n?i):P (Zi= z|n?i, D) ?
+P (z|n?i, T , ??
+)?P (wi|z,n?i, T , ??)
+(3)The first term on the right-hand side is given byEquation 1.
+The second can be rewritten as:P (wi|z,n?i, T , ??)
+=P (z, wi|n?i, T , ??
+)P (z|n?i, T , ??
+)(4)4.3 Efficient Inference ImplementationThe primary computational cost when scaling tolarge topic spaces involves constructing the sam-pling distribution.
+Both LDA with collapsed sam-pling and SBTDM share an advantage in spaceAlgorithm 1 Compute the sampling distributionfor a product of two multinomials with SBT priorswith Q(z) = 1function INTERSECT(SBT Node ar, SBT Node al)if ar, alare leaves then?(i)?
+?(ar)?
+(al)return iend ifi.r ?
+arr(i)?
+b(al) ?
+?(ar)i.l?
+al; b(i.l)?
+0l(i)?
+b(ar) ?
+?(al)?
+b(ar)b(al)desc(ar)?
+(i)+ = r(i) + l(i)for all child c non-zero for arand aldoic?
+INTERSECT(ar.c, al.c)i.children += ic?
+(i) += ?
+(ic)end forreturn iend functioncomplexity: the model parameters are specified bya sparse set of non-zero counts denoting how of-ten tokens of each word or document are assignedto each topic.
+However, in general the samplingdistribution for SBTDM has non-uniform proba-bilities for each of L different latent variable val-ues.
+Thus, even if many parameters are zero, anaive approach that computes the complete sam-pling distribution will still take time linear in L.However, in SBTs the sampling distribution canbe constructed efficiently using a simple recursivealgorithm that exploits the structure of the tree.The result is an inference algorithm that often re-quires far less than linear time in L, as we verifyin our experiments.First, we note that P (z, wi|n?i, T , ??)
+is pro-portional to the sum of two quantities: the dis-counted count max(nz?
+?S, 0) and the smooth-ing probability mass B(S, z,n)Q(z).
+By choos-ing Q(z) = P?
+(z), we can be ensured that P?
+(z)normalizes this sum.
+Thus, the backoff distri-778bution cancels through the normalization.
+Thismeans we can normalize the SBT for ?
+?in ad-vance by scaling the non-zero counts by a factor of1/P?
+(z), and then at inference time we need onlymultiply pointwise two multinomials with SBTpriors and uniform backoff distributions.The intersection of two multinomials drawnfrom SBT priors with uniform backoff distribu-tions can be performed efficiently for sparse trees.The algorithm relies on two quantities defined foreach node of each tree.
+The first, b(a,n), was de-fined in Section 3.
+It denotes the smoothing thatthe interior node a distributes (uniformly) to eachof its descendent leaves.
+We denote b(a,n) as b(a)in this section for brevity.
+The second quantity,?
+(a), expresses the total count mass of all leaf de-scendants of a, excluding the smoothing from an-cestors of a.With the quantities b(a) and ?
+(a) for all a, wecan efficiently compute the sampling distributionof the product of two SBT-governed multinomi-als (which we refer to as an SBTI).
+The methodis shown in Algorithm 1.
+It takes two SBT nodesas arguments; these are corresponding nodes fromtwo SBT priors that share the same tree structureT .
+It returns an SBTI, a data structure representingthe sampling distribution.The efficiency of Algorithm 1 is reflected inthe fact that the algorithm only recurses for childnodes c with non-zero ?
+(c) for both of the SBTnode arguments.
+Because such cases will be rarefor sparse trees, often Algorithm 1 only needs totraverse a small portion of the original SBTs in or-der to compute the sampling distribution exactly.Our experiments illustrate the efficiency of this al-gorithm in practice.Finally, we can efficiently sample from eitheran SBTI or a single SBT-governed multinomial.The sampling methods are straightforward recur-sive methods, supplied in Algorithms 2 and 3.Algorithm 2 Sample(SBT Node a)procedure SAMPLE(SBT Node a)if a is a leaf then return aend ifSample from {b(a)desc(a), ?(a)?
+b(a)desc(a)}.if back-off distribution b(a)desc(a) selected thenreturn Uniform[a?s descendents]elseSample a?s child c ?
+?
+(c)return SAMPLE(c)end ifend procedureAlgorithm 3 Sampling from an SBTIfunction SAMPLE(SBTI Node i)if i is a leaf then return iend ifSample from {r(i), l(i), ?(i)?
+r(i)?
+l(i)}if right distribution r(i) selected thenreturn SAMPLE(i.r)elseif left distribution l(i) selected thenreturn SAMPLE(i.l)elseSample i?s child c ?
+?
+(c)return SAMPLE(c)end ifend ifend function4.4 ExpansionMuch of the computational expense encounteredin inference with SBTDM occurs shortly after ini-tialization.
+After a slow first several samplingpasses, the conditional distributions over topicsfor each word and document become concentratedon a sparse set of paths through the SBT.
+Fromthat point forward, sampling is faster and requiresmuch less memory.We utilize the hierarchical organization of thetopic space in SBTs to side-step this computa-tional complexity by adding new leaves to theSBTs of a trained SBTDM.
+This is a ?coarse-to-fine?
+(Petrov and Charniak, 2011) training ap-proach that we refer to as expansion.
+Using ex-pansion, the initial sampling passes of the largermodel can be much more time and space efficient,because they leverage the already-sparse structureof the smaller trained SBTDM.Our expansion method takes as input an inferredsampling distribution n for a given tree T .
+Thealgorithm adds k new branches to each leaf of Tto obtain a larger tree T?.
+We then transform thesampling state by replacing each ni?
+n with oneof its children in T?.
+For example, in Figure 1,expanding with k = 3 would result in a new treecontaining 36 topics, and the single observation oftopic 4 in T would be re-assigned randomly to oneof the topics {10, 11, 12} in T?.5 ExperimentsWe now evaluate the efficiency and accuracy ofSBTDM.
+We evaluate SBTs on two data sets, theRCV1 Reuters corpus of newswire text (Lewis etal., 2004), and a distinct data set of Wikipedialinks, WPL.
+We consider two disjoint subsets ofRCV1, a small training set (RCV1s) and a larger779training set (RCV1).We compare the accuracy and efficiency ofSBTDM against flat LDA and two existing hier-archical models, the Pachinko Allocation Model(PAM) and nested Hierarchical Dirichlet Process(nHDP).To explore how the SBT structure impacts mod-eling performance, we experiment with two dif-ferent SBTDM configurations.
+SBTDM-wide isa shallow tree in which the branching factor in-creases from the root downward in the sequence3, 6, 6, 9, 9, 12, 12.
+Thus, the largest model weconsider has 3 ?6 ?6 ?9 ?9 ?12 ?12 = 1,259,712 dis-tinct latent topics.
+SBTDM-tall has lower branch-ing factors of either 2 or 3 (so in our evaluation itsdepth ranges from 3 to 15).
+As in SBTDM-wide,in SBTDM-tall the lower branching factors occurtoward the root of the tree.
+We vary the numberof topics by considering balanced subtrees of eachmodel.
+For nHDP, we use the same tree structuresas in SBT-wide.
+In preliminary experiments, usingthe tall structure in nHDP yielded similar accuracybut was somewhat slower.Similar to our LDA implementation, SBTDMoptimizes hyperparameter settings as samplingproceeds.
+We use local beam search to choosenew hyperparameters that maximize leave-one-out likelihood for the distributions P (Z|d) andP (Z|w) on the training data, evaluating the pa-rameters against the current state of the sampler.We trained all models by performing 100 sam-pling passes through the full training corpus (i.e.,approximately 10 billion samples for RCV1, and8 billion samples for WPL).
+We evaluate perfor-mance on held-out test sets of 998 documents forRCV1 (122,646 tokens), and 200 documents forWPL (84,610 tokens).
+We use the left-to-right al-gorithm (Wallach et al, 2009) over a randomizedword order with 20 particles to compute perplex-ity.
+We re-optimize the LDA hyperparameters atregular intervals during sampling.5.1 Small Corpus ExperimentsWe begin with experiments over a small corpusto highlight the efficiency advantages of SBTDM.Data Set Tokens Vocabulary DocumentsRCV1s 2,669,093 46,130 22,149RCV1 101,184,494 283,911 781,262WPL 82,154,551 1,141,670 199,000Table 1: Statistics of the three training corpora.As argued above, existing hierarchical models re-quire inference that becomes expensive as thetopic space increases in size.
+We illustrate this bycomparing our model with PAM and nHDP.
+Wealso compare against a fast ?flat?
+LDA implemen-tation, SparseLDA, from the MALLET softwarepackage (McCallum, 2002).For SBTDM we utilize a parallel inference ap-proach, sampling all variables using a fixed esti-mate of the counts n, and then updating the countsafter each full sampling pass (as in (Wang et al,2009)).
+The SparseLDA and nHDP implementa-tions are also parallel.
+All parallel methods use15 threads.
+The PAM implementation provided inMALLET is single-threaded.Our efficiency measurements are shown in Fig-ure 3.
+We plot the mean wall-clock time to per-form 100 sampling passes over the RCV1s corpus,starting from randomly initialized models (i.e.without expansion in SBTDM).
+For the largestplotted topic sizes for PAM and nHDP, we esti-mate total runtime using a small number of iter-ations.
+The results show that SBTDM?s time tosample increases well below linear in the numberof topics.
+Both SBTDM methods have runtimesthat increase at a rate substantially below that ofthe square root of the number of topics (plottedas a blue line in the figure for reference).
+For thelargest numbers of topics in the plot, when we in-crease the number of topics by a factor of 12, thetime to sample increases by less than a factor of1.7 for both SBT configurations.We also evaluate the accuracy of the mod-els on the small corpus.
+We do not compareagainst PAM, as the MALLET implementationlacks a method for computing perplexity for aPAM model.
+The results are shown in Table 3.The SBT models tend to achieve lower perplexitythan LDA, and SBTDM-tall performs slightly bet-ter than SBTDM-wide for most topic sizes.
+Thebest model, SBT-wide with 8,748 topics, achievesperplexity 14% lower than the best LDA modeland 2% lower than the best SBTDM-tall model.The LDA model overfits for the largest topic con-figuration, whereas at that size both SBT modelsremain at least as accurate as any of the LDA mod-els in Table 3.We also evaluated using the topic coherencemeasure from (Mimno et al, 2011), which re-flects how well the learned topics reflect word co-occurrence statistics in the training data.
+Follow-780Figure 3: Time (in seconds) to perform a samplingpass over the RCV1s corpus as number of topicsvaries, plotted on a log-log scale.
+The SBT modelsscale sub-linearly in the number of topics.ing recent experiments with the measure (Stevenset al, 2012), we use  = 10?12pseudo-co-occurrences of each word pair and we evaluate theaverage coherence using the top 10 words for eachtopic.
+Table 2 shows the results.
+PAM, LDA, andnHDP have better coherence at smaller topic sizes,but SBT maintains higher coherence as the num-ber of topics increases.Topics LDA PAM nHDP SBTDM SBTDM-wide -tall18 -420.8 -421.2 -422.9 -444.3 -440.2108 -434.8 -430.9 -554.3 -445.4 -445.8972 -451.2 - -548.1 -443.3 -443.88748 -615.3 - - -444.3 -444.1Table 2: Average topic coherence on the smallRCV1s corpus.5.1.1 Evaluating ExpansionThe results discussed above do not utilize ex-pansion in SBTDM.
+To evaluate expansion, weperformed separate experiments in which we ex-panded a 972-topic model trained on RCV1s toinitialize a 8,748-topic model.
+Compared to ran-dom initialization, expansion improved efficiencyand accuracy.
+Inference in the expanded modelexecuted approximately 30% faster and used 70%less memory, and the final 8,748-topic models hadapproximately 10% lower perplexity.5.2 Large Corpus ResultsOur large corpus experiments are reported in Ta-ble 4.
+Here, we compare the test set perplexityof a single model for each topic size and modeltype.
+We focus on SBTDM-tall for the largecorpora.
+We utilize expansion (see Section 4.4)for SBTDM-tall models with more than a thou-sand topics on each data set.
+The results showthat on both data sets, SBTDM-tall utilizes largernumbers of topics more effectively.
+On RCV1,LDA improves only marginally between 972 and8,748 topics, whereas SBTDM-tall improves dra-matically.
+For 8,748 topics, SBTDM-tall achievesa perplexity score 17% lower than LDA modelon RCV1, and 29% lower on WPL.
+SBT im-proves even further in larger topic configurations.Training and testing LDA with our implementa-tion using over a hundred thousand topics was nottractable on our data sets due to space complexity(the MALLET implementation exceeded our max-imum 250G of heap space).
+As discussed above,expansion enables SBTDM to dramatically reducespace complexity for large topic spaces.The results highlight the accuracy improve-ments found from utilizing larger numbers of top-ics than are typically used in practice.
+For exam-ple, an SBTDM with 104,976 topics achieves per-plexity 28-52% lower when compared with a stan-dard LDA configuration using only 1,000 topics.RCV1 WPL# Topics LDA SBTDM-tall LDA SBTDM-tall108 1,121 1,148 7,049 7,750972 820 841 2,598 2,0958,748 772 637 1,730 1,236104,976 - 593 - 1,2421,259,712 - 626 - -Table 4: Model accuracy on large corpora (cor-pus perplexity measure).
+The SBT model utilizeslarger numbers of topics more effectively.5.3 Exploring the Learned TopicsLastly, we qualitatively examine whether theSBTDM?s learned topics reflect meaningful hi-erarchical relationships.
+From an SBTDM of104,976 topics trained on the Wikipedia links dataset, we examined the first 108 leaves (these arecontained in a single subtree of depth 5).
+760unique terms (i.e.
+Wikipedia pages) had positivecounts for the topics, and 500 of these terms wererelated to radio stations.The leaves appear to encode fine-grained sub-categorizations of the terms.
+In Figure 4, we pro-vide examples from one subtree of six topics (top-ics 13-18).
+For each topic t, we list the top three781Number of TopicsModel 18 108 972 8,748 104,976LDA 1420 (16.3) 1016 (9.8) 844 (1.8) 845 (3.3) 1058 (4.1)nHDP 1433 (19.6) 1446 (53.3) 1583 (157.7) - -SBTDM-wide 1510 (31.5) 1091 (31.8) 797 (3.5) 723 (18.2) 844 (60.1)SBTDM-tall 1480 (13.5) 1051 (9.1) 787 (10.5) 736 (3.2) 776 (14.1)Table 3: Small training corpus (RCV1s) performance.
+Shown is perplexity averaged over three runs foreach method and number of topics, with standard deviation in parens.
+Both SBTDM models achievelower perplexity than LDA and nHDP for the larger numbers of topics.Rad io StationsT16 WNFZ  WIMZ - FM  WDXI  TN stationsT17 WSCW  WQMA  KPGM  WV, MS, OK stationsT18 WQSE  WHM T  WIGH  TN stationsT13 WVCB  WW IL_(AM)  WCRU  NC Christian AM stationsT14 WOWZ  WHE E  WYBT  VA and FL stationsT15 WRJD  WTIK  WYMY  NC Spanish AM stations?
+?
+?
+?
+?
+?
+?
+?
+?
+?
+?
+?
+??
+?
+?
+?
+?
+?Figure 4: An example of topics from a 104,976-topic SBTDM defined over Wikipedia pages.terms w (ranked by symmetric conditional prob-ability, P (w|t)P (t|w)), and a specific categoriza-tion that applies to the three terms.
+Interestingly,as shown in the figure, the top terms for the sixtopics we examined were all four-character ?callletters?
+for particular radio stations.
+Stations withsimilar content or in nearby locations tend to clus-ter together in the tree.
+For example, the two topicsfocused on radio stations in Tennessee (TN) sharethe same parent, as do the topics focused on NorthCarolina (NC) AM stations.
+More generally, allsix topics focus on radio stations in the southernUS.Figure 5 shows a different example, from amodel trained on the RCV1 corpus.
+In this ex-ample, we first select only those terms that oc-cur at least 2,000 times in the corpus and havea statistical association with their topic that ex-ceeds a threshold, and we again rank terms bysymmetric conditional probability.
+The 27-topicsubtree detailed in the figure appears to focus onterms from major storylines in United States pol-itics in early 1997, including El Ni?no, Lebanon,White House Press Secretary Mike McCarry, andthe Senate confirmation hearings of CIA Directornominee Tony Lake.
+?T 2 1 6 6  ElT 2 1 7 1  Lebanese  Beirut  Lebanon  p oun dT 2 1 7 3  LebaneseT 2 1 6 0  El  drou ghtT 2 1 6 1  Western  resourceT 2 1 6 3  Western  resource?
+?
+?
+?
+???
+?
+?
+?
+T 2 1 7 8  House  White  McCurr yT 2 1 8 1  Lake  HermanT 2 1 8 3  nomination  SenateT 2 1 8 4  White  Clinton  McCurr y  HouseT 2 1 8 5  Bill  T 2 1 8 6  CIA  i ntelligenc eLakeT 2 1 6 8  El?
+??
+?
+?
+??
+?
+?Figure 5: An example of topics from an 8,748-topic SBTDM defined over the RCV1 corpus.6 Conclusion and Future WorkWe introduced the Sparse Backoff Tree (SBT), aprior for latent topic distributions that organizesthe latent topics as leaves in a tree.
+We pre-sented and experimentally analyzed a documentmodel based on the SBT, called an SBTDM.
+TheSBTDM was shown to utilize large topic spacesmore effectively than previous techniques.There are several directions of future work.
+Onelimitation of the current work is that the SBT isdefined only implicitly.
+We plan to investigateexplicit representations of the SBT prior or re-lated variants.
+Other directions include developingmethods to learn the SBT structure from data, aswell as applying the SBT prior to other tasks, suchas sequential language modeling.AcknowledgmentsThis research was supported in part by NSF grantsIIS-1065397 and IIS-1351029, DARPA contractD11AP00268, and the Allen Institute for ArtificialIntelligence.
+We thank the anonymous reviews fortheir helpful comments.782References[Ahmed et al2013] Amr Ahmed, Liangjie Hong, andAlexander Smola.
+2013.
+Nested chinese restau-rant franchise process: Applications to user track-ing and document modeling.
+In Proceedings of the30th International Conference on Machine Learning(ICML-13), pages 1426?1434.
+[Blei et al2003] David M Blei, Andrew Y Ng, andMichael I Jordan.
+2003.
+Latent dirichlet alocation.the Journal of machine Learning research, 3:993?1022.
+[Blei et al2010] David M Blei, Thomas L Griffiths, andMichael I Jordan.
+2010.
+The nested chinese restau-rant process and bayesian nonparametric inferenceof topic hierarchies.
+Journal of the ACM (JACM),57(2):7.
+[Griffiths and Steyvers2004] Thomas L Griffiths andMark Steyvers.
+2004.
+Finding scientific topics.Proceedings of the National academy of Sciences ofthe United States of America, 101(Suppl 1):5228?5235.
+[Ho et al2010] Qirong Ho, Ankur P Parikh, Le Song,and Eric P Xing.
+2010.
+Infinite hierarchical mmsbmodel for nested communities/groups in social net-works.
+arXiv preprint arXiv:1010.1868.
+[Hofmann1999] Thomas Hofmann.
+1999.
+Probabilis-tic latent semantic indexing.
+In Proceedings of the22nd annual international ACM SIGIR conferenceon Research and development in information re-trieval, pages 50?57.
+ACM.
+[Hu and Boyd-Graber2012] Yuening Hu and JordanBoyd-Graber.
+2012.
+Efficient tree-based topic mod-eling.
+In Proceedings of the 50th Annual Meetingof the Association for Computational Linguistics:Short Papers-Volume 2, pages 275?279.
+Associationfor Computational Linguistics.
+[Katz1987] Slava Katz.
+1987.
+Estimation of prob-abilities from sparse data for the language modelcomponent of a speech recognizer.
+Acoustics,Speech and Signal Processing, IEEE Transactionson, 35(3):400?401.
+[Kim et al2013] Suin Kim, Jianwen Zhang, ZhengChen, Alice Oh, and Shixia Liu.
+2013.
+A hierarchi-cal aspect-sentiment model for online reviews.
+InProceedings of AAAI.
+[Lewis et al2004] David D Lewis, Yiming Yang,Tony G Rose, and Fan Li.
+2004.
+Rcv1: Anew benchmark collection for text categorization re-search.
+The Journal of Machine Learning Research,5:361?397.
+[Li and McCallum2006] Wei Li and Andrew McCal-lum.
+2006.
+Pachinko allocation: Dag-structuredmixture models of topic correlations.
+In Proceed-ings of the 23rd International Conference on Ma-chine Learning, ICML ?06, pages 577?584, NewYork, NY, USA.
+ACM.
+[Li et al2014] Aaron Q Li, Amr Ahmed, Sujith Ravi,and Alexander J Smola.
+2014.
+Reducing the sam-pling complexity of topic models.
+In Proceedings ofthe 20th ACM SIGKDD international conference onKnowledge discovery and data mining, pages 891?900.
+ACM.
+[McCallum2002] Andrew Kachites McCallum.
+2002.Mallet: A machine learning for language toolkit.http://mallet.cs.umass.edu.
+[Mimno et al2007] David Mimno, Wei Li, and AndrewMcCallum.
+2007.
+Mixtures of hierarchical top-ics with pachinko allocation.
+In Proceedings of the24th international conference on Machine learning,pages 633?640.
+ACM.
+[Mimno et al2011] David Mimno, Hanna M Wallach,Edmund Talley, Miriam Leenders, and Andrew Mc-Callum.
+2011.
+Optimizing semantic coherence intopic models.
+In Proceedings of the Conference onEmpirical Methods in Natural Language Process-ing, pages 262?272.
+Association for ComputationalLinguistics.
+[Mimno et al2012] David Mimno, Matt Hoffman, andDavid Blei.
+2012.
+Sparse stochastic infer-ence for latent dirichlet alocation.
+arXiv preprintarXiv:1206.6425.
+[Paisley et al2015] J. Paisley, C. Wang, D.M.
+Blei, andM.I.
+Jordan.
+2015.
+Nested hierarchical dirichletprocesses.
+Pattern Analysis and Machine Intelli-gence, IEEE Transactions on, 37(2):256?270, Feb.[Petinot et al2011] Yves Petinot, Kathleen McKeown,and Kapil Thadani.
+2011.
+A hierarchical modelof web summaries.
+In Proceedings of the 49th An-nual Meeting of the Association for ComputationalLinguistics: Human Language Technologies: shortpapers-Volume 2, pages 670?675.
+Association forComputational Linguistics.
+[Petrov and Charniak2011] Slav Petrov and EugeneCharniak.
+2011.
+Coarse-to-fine natural languageprocessing.
+Springer Science & Business Media.
+[Porteous et al2008] Ian Porteous, Arthur Asuncion,David Newman, Padhraic Smyth, Alexander Ihler,and Max Welling.
+2008.
+Fast collapsed gibbs sam-pling for latent dirichlet alocation.
+In In Proceed-ings of the 14th ACM SIGKDD International Con-ference on Knowledge Discovery and Data Mining,pages 569?577.
+[Stevens et al2012] Keith Stevens, Philip Kegelmeyer,David Andrzejewski, and David Buttler.
+2012.
+Ex-ploring topic coherence over many models and manytopics.
+In Proceedings of the 2012 Joint Confer-ence on Empirical Methods in Natural LanguageProcessing and Computational Natural LanguageLearning, pages 952?961.
+Association for Compu-tational Linguistics.783[Wallach et al2009] Hanna M Wallach, Iain Murray,Ruslan Salakhutdinov, and David Mimno.
+2009.Evaluation methods for topic models.
+In Proceed-ings of the 26th Annual International Conference onMachine Learning, pages 1105?1112.
+ACM.
+[Wang et al2009] Yi Wang, Hongjie Bai, Matt Stanton,Wen-Yen Chen, and Edward Y Chang.
+2009.
+Plda:Parallel latent dirichlet alocation for large-scale ap-plications.
+In Algorithmic Aspects in Informationand Management, pages 301?314.
+Springer.
+[Wang et al2013] Chi Wang, Marina Danilevsky, NihitDesai, Yinan Zhang, Phuong Nguyen, ThrivikramaTaula, and Jiawei Han.
+2013.
+A phrase miningframework for recursive construction of a topical hi-erarchy.
+In Proceedings of the 19th ACM SIGKDDInternational Conference on Knowledge Discoveryand Data Mining, KDD ?13, pages 437?445, NewYork, NY, USA.
+ACM.
+[Yao et al2009] Limin Yao, David Mimno, and An-drew McCallum.
+2009.
+Efficient methods for topicmodel inference on streaming document collections.In Proceedings of the 15th ACM SIGKDD interna-tional conference on Knowledge discovery and datamining, pages 937?946.
+ACM.784

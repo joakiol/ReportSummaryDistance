@@ -1,0 +1,163 @@
+Proceedings of the 23rd International Conference on Computational Linguistics (Coling 2010), pages 1101?1109,Beijing, August 2010Large Scale Parallel Document Mining for Machine TranslationJakob Uszkoreit Jay M. Ponte Ashok C. Popat Moshe DubinerGoogle, Inc.{uszkoreit,ponte,popat,moshe}@google.comAbstractA distributed system is described that re-liably mines parallel text from large cor-pora.
+The approach can be regardedas cross-language near-duplicate detec-tion, enabled by an initial, low-qualitybatch translation.
+In contrast to other ap-proaches which require specialized meta-data, the system uses only the textual con-tent of the documents.
+Results are pre-sented for a corpus of over two billion webpages and for a large collection of digi-tized public-domain books.1 IntroductionWhile the World Wide Web provides an abun-dance of readily available monolingual text, par-allel data is still a comparatively scarce resource,yet plays a crucially important role in training sta-tistical machine translation systems.We describe an approach to mining document-aligned parallel text to be used as training datafor a statistical machine translation system.
+Pre-vious approaches have focused on rather homo-geneous corpora and relied on metadata such aspublication dates (Munteanu and Marcu, 2005;Munteanu and Marcu, 2006; Udupa et al, 2009;Do et al, 2009; Abdul-Rauf and Schwenk, 2009)or information about document structure (Resnikand Smith, 2003; Chen and Nie, 2000).
+In largeand unstructured collections of documents such asthe Web, however, metadata is often sparse or un-reliable.
+Our approach, in contrast, scales com-putationally to very large and diverse collectionsof documents and does not require metadata.
+It isbased solely on the textual contents of the inputdocuments.Casting the problem as one of cross-languagenear duplicate detection, we use a baseline ma-chine translation system to translate all input doc-uments into a single language.
+However, thewords and phrases that are most discriminatoryfor the purposes of information retrieval and du-plicate detection are the relatively rare ones, pre-cisely those that are less likely to be translatedwell by the baseline translation system.Our approach to circumvent this problem andto avoid the prohibitive quadratic computationalcomplexity of the naive approach of performing acomparison of every possible pair of input docu-ments is similar to previous work in near duplicatedetection (Broder, 2000; Henzinger, 2006; Man-ber, 1994) and noisy data retrieval (Harding et al,1997).We use shingles consisting of word n-grams toconstruct relatively rare features from more com-mon, in-vocabulary words.
+For each input doc-ument, we identify a comparatively small set ofcandidate pairings with documents sharing at leasta certain number of such features.
+We then per-form a more expensive comparison between eachdocument and all documents in its candidate setusing lower order n-gram features that would typ-ically be too frequent to be used efficiently informing candidate pairings, but provide a highercoverage of the scored document pairs.
+Anotherimportant aspect of our approach is that it can beimplemented in a highly parallel way, as we de-scribe in the following section.11012 System DescriptionThe input is a set of documents from diversesources such as web pages and digitized books.In a first stage, all documents are independentlytranslated into English using a baseline statisticalmachine translation system.We then extract two different sets of n-gramsfrom the translated documents: matching n-gramsthat are used to construct the candidate sets as wellas scoring n-grams used only in the computationof a score for a given pair of documents.
+Thisstage generates two indexes: a forward index list-ing all extracted scoring n-grams, indexed by doc-Machine translate input dataExtract n-gramsFilter inverted indexby document frequency andnumber of original languagesGenerate all pairs of documentssharing matching n-gramsScore unique document pairs,querying the forward IndexDiscard non-symmetric pairsJoin with original input dataEvaluate on reference documentalignmentsFold global, per-scoring n-graminformation from inverted indexinto forward indexDocumentsin MultipleLanguagesEnglishTranslationsForward IndexInverted IndexPer-document n-best listsFigure 1: Architecture of the Parallel Text MiningSystem.ument; and an inverted index referencing all doc-uments from which we extracted a given match-ing n-gram, indexed by n-grams.
+The invertedindex is also used to accumulate global informa-tion about scoring n-grams, such as their docu-ment frequency, yet for scoring n-grams we donot accumulate a posting list of all documents inwhich they occur.In the next step, the system generates all possi-ble pairs of documents for each matching n-gramposting list in the inverted index.
+Since we keeponly those pairs of documents that originated indifferent languages, we can discard posting listsfrom the inverted index that contain only a singledocument, i.e.
+those of singleton n-grams, or onlydocuments in a single language.Crucially, we further discard posting lists formatching n-grams whose frequency exceeds acertain threshold.
+When choosing a sufficientlylarge order for the matching n-grams, their long-tailed distribution causes only a small fraction ofmatching n-grams to be filtered out due to fre-quency, as we show empirically in Section 5.
+Itis this filtering step that causes the overall runtimeof the system to be linear in the size of the inputdata and allows the system to scale to very largedocument collections.In parallel, global information about scoring n-grams accumulated in the inverted index that isrequired for pairwise scoring, such as their doc-ument frequency, is folded into the forward in-dex by iterating over all forward index entries, re-questing the respective per-feature quantities fromthe inverted index and storing them with each oc-currence of a scoring n-gram in an updated for-ward index.In the next stage, we compute pairwise scoresfor all candidate document pairs, accessing theforward index entry of each of the two scored doc-uments to obtain the respective scoring n-grams.Document pairs with a score below a given thresh-old are discarded.
+For each input document, thisresults in one n-best list per language.
+In the laststep we retain only those document pairs whereeach document is contained in the n-best list ofthe other document for its original language.
+Fi-nally we perform a join of our identified transla-tion pairs with the original text by making another1102pass over the original, untranslated input datawhere the contents of document pairs with suffi-ciently high scores are then aggregated and out-put.
+Document pairings involving all languagesare identified simultaneously.
+Each stage of thesystem fits well into the MapReduce program-ming model (Dean and Ghemawat, 2004).
+Thegeneral architecture is shown in Figure 1.2.1 Pairwise ScoringFor scoring a pair of documents d and d?, theforward index is queried for the entries for bothdocuments.
+Let Fd = {f1, f2, ...fn} and Fd?
+={f ?1, f ?2, ...f ?n?}
+be the sets of scoring n-grams inthe forward index entries of d and d?, respectively.Let idf(f) = log |D|df(f) be the inverse documentfrequency of a scoring n-gram f , where |D| isthe number of documents in the input corpus anddf(f) is the number documents from which weextracted the feature f .
+Interpreting Fd and Fd?
+asincidence vectors in the vector space of n-gramsand replacing each non-zero component f withidf(f), we compute the score of the document pairas the inverse document frequency weighted co-sine similarity of Fd and Fd?score(d, d?)
+= Fd ?
+Fd?||Fd|| ?
+||Fd?
+|| (1)The per-document n-best lists are sorted ac-cording to this score and document pairs for whichthe score is below a threshold are discarded com-pletely.We do not use term frequency in the scoringmetric.
+In preliminary experiments, incorporat-ing the term frequency to yield basic tf/idf aswell as using other information retrieval rankingfunctions incorporating term frequencies such asBM25 (Robertson et al, 1995) resulted in a degra-dation of performance compared to the simplerscoring function described above.
+We believe thisis due to the fact that, in contrast to the standardinformation retrieval setting, the overall length ofour queries is on par with that of the documents inthe collection.The scoring is completely agnostic regardingthe scoring n-grams?
+positions in the documents.Since especially for long documents such asbooks this may produce spurious matches, we ap-ply an additional filter to remove document pairsfor which the relative ordering of the matchingscoring n-grams is very different.
+Together witheach scoring n-gram we also extract its relativeposition in each document and store it in the for-ward index.
+When scoring a document pair, wecompute the normalized permutation edit distance(Cormode et al, 2001) between the two sequencesof overlapping n-grams sorted by their position inthe respective document.
+If this distance exceedsa certain threshold, we discard the document pair.2.2 Computational ComplexityBy limiting the frequency of matching n-grams,the complexity becomes linear.
+Let the tunableparameter c be the maximum occurrence count formatching n-grams to be kept in the inverted in-dex.
+Let m be the average number of matchingn-grams extracted from a single document whosecount is below c and D be the set of documentsin the input corpus.
+Then the system generates upto |D| ?m ?
+c candidate pairings.
+Scoring a givencandidate document pair according to cosine sim-ilarity involves computing three dot-products be-tween sparse vectors with one non-zero compo-nent per scoring n-gram extracted and not filteredfrom the respective document.
+Let s be the av-erage number of such scoring n-grams per docu-ment, which is bounded by the average documentlength.
+Then the time complexity of the entiredocument alignment is inO(|D| ?m ?
+c ?
+s) (2)and therefore linear in the number of input doc-uments in the corpus and the average documentsize.The space complexity is dominated by the sizeof the inverted and forward indexes, both of whichare linear in the size of the input corpus.2.3 Sentence-Level AlignmentFurther filtering is performed on a per-sentencebasis during per-document-pair sentence align-ment of the mined text with a standard dynamicprogramming sentence alignment algorithm usingsentence length and multilingual probabilistic dic-tionaries as features.
+Afterwards we crudely align1103words within each pair of aligned source and tar-get sentences.
+This crude alignment is used onlyto filter nonparallel sentences.
+Let S be the setof source words, T the set of target words andS ?
+T the set of ordered pairs.
+Let the sourcesentence contain words S0 ?
+S and the targetsentence contain words T0 ?
+T .
+An alignmentA0 ?
+S0 ?
+T0 will be scored byscore(A0) =?
+(s,t)?A0ln p(s, t)p(s) p(t) (3)where the joint probabilities p(s, t) and marginalprobabilities p(s), p(t) are taken to be the respec-tive empirical distributions (without smoothing)in an existing word aligned corpus.
+This is greed-ily maximized and the result is divided by its ap-proximate expected value?
+(s,t)?S0?Tp(s, t)p(s) lnp(s, t)p(s) p(t) (4)We discard sentence pairs for which the ratio be-tween the actual and the expected score is lessthan 1/3.
+We also drop sentence pairs for whichboth sides are identical, or a language detector de-clares them to be in the wrong language.2.4 Baseline Translation SystemTo translate the input documents into English weuse phrase-based statistical machine translationsystems based on the log-linear formulation of theproblem (Och and Ney, 2002).We train the systems on the Europarl Cor-pus (Koehn, 2002), the DGT MultilingualTranslation Memory (European CommissionDirectorate-General for Translation, 2007) andthe United Nations ODS corpus (United Nations,2006).
+Minimum error rate training (Machereyet al, 2008) under the BLEU criterion is usedto optimize the feature function weights on de-velopment data consisting of the nv-dev2007 andnews-dev2009 data sets provided by the organiz-ers of the 2007 and 2009 WMT shared translationtasks1.
+We use a 4-gram language model trainedon a variety of large monolingual corpora.
+TheBLEU scores of our baseline translation system1available at http://statmt.orgon the test sets from various WMT shared trans-lation tasks are listed in Table 5.
+An empiricalanalysis of the impact of the baseline translationsystem quality on the data mining system is givenin Section 6.3.3 Input Document CollectionsWe evaluate the parallel text mining system ontwo input data sets:web A collection of 2.5 Billion general pagescrawled from the Web, containing only pagesin Czech, English, French, German, Hungar-ian and Spanishbooks A collection of 1.5 Million public domainbooks digitized using an optical characterrecognition system.
+The collection consistsprimarily of English, French and fewer Span-ish volumes3.1 Reference SetsWe created reference sets of groups of docu-ments in multiple languages which are true trans-lations of one another for both the web and thebooks data set.
+Due to the presence of duplicates,each reference pairing can contain more than asingle alternative translation per language.
+Theweb reference set was constructed by exploitingthe systematic hyperlink structure of the web-sitehttp://america.gov/, that links pages inone language to their respective translations intoone or more other languages.
+The resulting refer-ence set contains documents in Arabic, Chinese,English, French, Russian and Spanish, however,for most English pages there is only one transla-tion into one of the other languages.
+Overall, thereference set contains 6,818 documents and 7,286translation pairs.The books reference set contains 30 manuallyaligned groups of translations covering a total of103 volumes in English and French.4 Evaluation MetricsThe fact that the system outputs pairs of docu-ments and the presence of duplicate documents inthe corpus motivate the use of modified versionsof precision and recall.1104Let C be a set of candidate parallel documentpairs and let R be a possibly incomplete referenceset of groups of parallel documents known to existin the corpus.
+Consider the following two subsetsof C:?
+Matching pairs which are in some referencecluster.?
+Touching pairs which are non-matching buthave at least one document in some referencecluster.We definePrecision = |CMatching||CMatching|+ |CTouching|andRecall = |CMatching||R| (5)5 Parameter SelectionWe conducted a series of small-scale experimentson only those documents contained in the web ref-erence data set to empirically determine good set-tings for the tunable parameters of the text min-ing system.
+Among the most important parame-ters are the orders of the n-grams used for pair-ing documents as well as scoring them.
+Asidefrom the obvious impact on the quality of the out-put, these parameters have a very large influenceon the overall computational performance of thesystem.
+The choice of the order of the extractedmatching n-grams is mainly a trade-off betweenrecall and efficiency.
+If the order is too largethe system will miss valid pairs; if too small thethe threshold on matching n-gram frequency willneed to be increased.Figure 2 shows the F1-scores obtained run-ning only on the documents contained in the webreference set with different orders of matchingand scoring n-grams.
+Figure 3 shows the corre-sponding number of pairwise comparisons madewhen using different orders of matching n-grams.While there is a drop of 0.01 in F1 score betweenusing 2-grams and 5-grams as matching n-grams,this drop in quality seems to be well worth the 42-fold reduction in resulting pairwise comparisons.0.890.90.910.920.930.940.950.962 3 4 5F1ScoreonwebTestDataSetScoring n-gram Order2-gram matching3-gram matching4-gram matching5-gram matchingFigure 2: F1 scores on the web reference set fordifferent scoring and matching n-gram orders.1051061072 3 4 5NumberofPairwiseComparisonsMatching n-gram OrderFigure 3: Number of pairwise comparisons madewhen using matching n-grams of different orders.The largest portion of the loss in F1 score is in-curred when increasing the matching n-gram or-der from 4 to 5, the reduction in pairwise compar-isons, however, is still more than twofold.Table 1 shows the precision and recall on theweb reference set when running only on docu-ments in the reference set using 5-grams as match-ing n-grams and bigrams for scoring for differ-ent values of the threshold on the cosine similar-ity score.
+In this setting as well as in large-scaleexperiments on both complete data sets describedin section 6.1, a threshold of 0.1 yields the highestF1 score.1105score threshold 0.06 0.10 0.12 0.16 0.20precision 0.92 0.97 0.98 0.99 0.99recall 0.91 0.91 0.90 0.89 0.83Table 1: Precision and recall on the web referenceset when running only on documents contained inthe reference set.6 EvaluationWe run the parallel text mining system on the weband books data sets using 5-grams for matchingand bigrams for scoring.
+In both cases we discardmatching n-grams which occurred in more than50 documents and output only the highest scoringcandidate for each document.In case of the web data set, we extract every 5-gram as potential matching feature.
+For the booksdata set, however, we downsample the numberof candidate matching 5-grams by extracting onlythose whose integer fingerprints under some hashfunction have four specific bits set, thus keepingon average only 1/16 of the matching n-grams.Here, we also restrict the total number of match-ing n-grams extracted from any given documentto 20,000.
+Scoring bigrams are dropped fromthe forward index if their document frequency ex-ceeds 100,000, at which point their influence onthe pairwise score would be negligible.Running on the web data set, the system onaverage extracts 250 matching 5-grams per doc-ument, extracting a total of approximately 430Billion distinct 5-grams.
+Of those, 78% aresingletons and 21% only occur in a single lan-guage.
+Only approximately 0.8% of all match-ing n-grams are filtered due to having a docu-ment frequency higher than 50.
+The forward in-dex initially contains more than 500 Billion bi-gram occurrences; after pruning out singletonsand bigrams with a document frequency largerthan 100,000, the number of indexed scoring fea-ture occurrences is reduced to 40%.
+During scor-ing, approximately 50 Billion pairwise compar-isons are performed.In total the n-gram extraction, document scor-ing and subsequent filtering takes less than 24hours on a cluster of 2,000 state-of-the-art CPUs.The number of words after sentence-level fil-tering and alignment that the parallel text miningbaseline books webCzech 27.5 M 0 271.9 MFrench 479.8 M 228.5 M 4,914.3 MGerman 54.2 M 0 3,787.6 MHungarian 26.9 M 0 198.9 MSpanish 441.0 M 15.0 M 4,846.8 MTable 2: The number of words per language in thebaseline training corpora and extracted from thetwo different data sets.system extracted for the different languages fromeach dataset are listed in Table 2.score threshold 0.06 0.10 0.12 0.16 0.20precision 0.88 0.93 0.95 0.97 0.97recall 0.68 0.65 0.63 0.52 0.38Table 3: Precision and recall on the reference setwhen running on the complete web data set withdifferent score thresholds.score threshold 0.06 0.10 0.12 0.16 0.20precision 0.95 1.00 1.00 1.00 1.00recall 0.71 0.71 0.71 0.48 0.38Table 4: Precision and recall on the reference setwhen running on the complete books data set withdifferent score thresholds.6.1 Precision and RecallTables 3 and 4 show precision and recall on the re-spective reference sets for the web and the booksinput data sets.
+While the text mining systemmaintains a very high precision, recall drops sig-nificantly compared to running only on the doc-uments in the reference set.
+One reason for thisbehavior is that the number of n-grams in the testdata set which are sufficiently rare to be used asqueries drops with increasing amounts of inputdata and in particular short documents which onlyshare a small number of matching n-grams any-way, may happen to only share matching n-gramswith a too high document frequency.
+Further anal-ysis shows that another, more significant factor isthe existence of multiple, possibly partial transla-tions and near-duplicate documents which causesymmetrization to discard valid document pairsbecause each document in the pair is determinedby the document pair score to be more similar toa different translation of a near-duplicate or sub-1106Language Pair Training Data WMT 2007 news commentary WMT 2008 news WMT 2009 newsCzech English baseline 21.59 14.59 16.46web 29.26 (+7.67) 20.16 (+5.57) 23.25 (+6.76)German English baseline 27.99 20.34 20.03web 32.35 (+4.36) 23.22 (+2.88) 23.35 (+3.32)Hungarian English baseline - 10.21 11.02web - 12.92 (+2.71) 14.68 (+3.66)French Englishbaseline 34.26 22.14 26.39books 34.73 (+0.47) 22.39 (+0.25) 27.15 (+0.76)web 36.65 (+2.39) 23.22 (+1.08) 28.34 (+1.95)Spanish Englishbaseline 43.67 24.15 26.88books 44.07 (+0.40) 24.32 (+0.17) 27.16 (+0.28)web 46.21 (+2.54) 25.52 (+1.37) 28.50 (+1.62)English Czech baseline 14.78 12.45 11.62web 20.65 (+5.86) 18.70 (+6.25) 16.60 (+4.98)English German baseline 19.89 14.67 14.31web 23.49 (+3.60) 16.78 (+2.11) 16.96 (+2.65)English Hungarian baseline - 07.93 08.52web - 10.16 (+2.23) 11.42 (+2.90)English Frenchbaseline 31.59 22.29 25.14books 31.92 (+0.33) 22.42 (+0.13) 25.46 (+0.32)web 34.35 (+2.76) 23.56 (+1.27) 27.05 (+1.91)English Spanishbaseline 42.05 24.65 25.85books 42.05 24.79 (+0.14) 26.07 (+0.22)web 45.21 (+3.16) 26.46 (+1.81) 27.79 (+1.94)Table 5: BLEU scores of the translation systems trained on the automatically mined parallel corporaand the baseline training data.set of the document.
+This problem seems to affectnews articles in particular where there are oftenmultiple different translations of large subsets ofthe same or slightly changed versions of the arti-cle.6.2 Translation QualityArabic English NIST 2006 NIST 2008Baseline (UN ODS) 44.31 42.79Munteanu and Marcu 45.13 43.86Present work 44.72 43.64Chinese English NIST 2006 NIST 2008Baseline (UN ODS) 25.71 19.79Munteanu and Marcu 28.11 21.69Present work 28.08 22.02Table 6: BLEU scores of the Chinese and Arabicto English translation systems trained on the base-line UN ODS corpus and after adding either theMunteanu and Marcu corpora or the training datamined using the presented approach.We trained a phrase-based translation systemon the mined parallel data sets and evaluated iton translation tasks for the language pairs Czech,French, German, Hungarian and Spanish to andfrom English, measuring translation quality withthe BLEU score (Papineni et al, 2002).
+The trans-lation tasks evaluated are the WMT 2007 newscommentary test set as well the WMT 2008 and2009 news test sets.The parallel data for this experiment was minedusing the general settings described in the previ-ous section and a threshold of 0.1 on the pairwisescore.
+We ensure that the test data is not includedin the training data by filtering out all sentencesfrom the training data that share more than 30%of their 6-grams with any sentence from one ofthe test corpora.Table 5 shows the BLEU scores of the differ-ent translation systems.
+The consistent and signif-icant improvements in BLEU score demonstratethe usefulness of the mined document pairs intraining a translation system.Even though the presented approach workson a less granular level than the sentence-levelapproach of Munteanu and Marcu (2005), wecompare results on the same input data2 usedby those authors to automatically generate the2LDC corpora LDC2005T12, LDC2005T14 andLDC2006T02, the second editions of the Arabic, Chineseand English Gigaword corpora.1107Sampling Rate WMT 2007 news commentary WMT 2008 news WMT 2009 newsdegraded Cz?En En?Cz degraded Cz?En En?Cz degraded Cz?En En?Cz1.0 21.59 29.26 20.65 14.59 20.16 18.70 16.46 23.25 16.600.5 20.12 29.16 20.55 13.65 20.16 18.71 15.44 23.16 16.560.25 18.59 29.09 20.61 12.79 20.09 18.58 14.35 23.18 16.500.125 16.69 29.10 20.39 11.87 20.07 18.48 13.05 23.06 16.530.0625 14.72 29.04 20.44 10.87 20.06 18.49 11.62 23.11 16.440.0312 12.60 28.75 20.28 09.71 19.97 18.45 10.43 23.04 16.41Table 7: BLEU scores of the degraded Czech to English baseline systems used for translating Czechdocuments from the web data set as well as those of Czech to and from English systems trained on datamined using translations of varying quality created by sampling from the training data.Arabic English and Chinese English sentence-aligned parallel LDC corpora LDC2007T08 andLDC2007T09.
+We trained Arabic and ChineseEnglish baseline systems on the United NationsODS corpus (United Nations, 2006); we also usethese to translate the non-English portions of theinput data to English.
+We then evaluate the effectsof also training on either the LDC2007T08 andLDC2007T09 corpora or the parallel documentsmined by our approach in addition to the UnitedNations ODS corpus on the NIST 2006 and 2008MT evaluation test sets.
+The results are presentedin Table 6.The approach proposed in (Munteanu andMarcu, 2005) relies critically on the existenceof publication dates in order to be computation-ally feasible, yet it still scales superlinearly in theamount of input data.
+It could therefore not easilybe applied to much larger and less structured inputdata collections.
+While our approach neither usesmetadata nor operates on the sentence level, in allbut one of the tasks, the system trained on the datamined using our approach performs similarly orslightly better.6.3 Impact of Baseline Translation QualityIn order to evaluate the impact of the translationquality of the baseline system on the quality ofthe mined document pairs, we trained artificiallydegraded Czech to English translation systems bysampling from the baseline training data at de-creasing rates.
+We translate the Czech subset ofthe web document collection into English witheach of the degraded systems and apply the paral-lel data mining system in the same configuration.Table 7 shows the BLEU scores of the degradedbaseline systems and those resulting from addingthe different mined data sets to the non-degradedCzech English and English Czech systems.
+De-grading the input data translation quality by up to8.9% BLEU results in a consistent but only com-paratively small decrease of less than 0.6% BLEUin the scores obtained when training on the mineddocument pairs.
+This does not only show that theimpact of variations of the baseline system qualityon the data mining system is limited, but also thatthe data mining system will already work with arather low quality baseline system.7 ConclusionWe presented a scalable approach to mining paral-lel text from collections of billions of documentswith high precision.
+The system makes few as-sumptions about the input documents.
+We demon-strated that it works well on different types ofdata: a large collection of web pages and a col-lection of digitized books.
+We further showed thatthe produced parallel corpora can significantly im-prove the quality of a state-of-the-art statisticalmachine translation system.8 AcknowledgmentsWe thank the anonymous reviewers for their in-sightful comments.ReferencesAbdul-Rauf, Sadaf and Holger Schwenk.
+2009.
+Onthe use of comparable corpora to improve SMT per-formance.
+In EACL, pages 16?23.Broder, Andrei Z.
+2000.
+Identifying and filtering near-duplicate documents.
+In COM ?00: Proceedings ofthe 11th Annual Symposium on Combinatorial Pat-1108tern Matching, pages 1?10, London, UK.
+Springer-Verlag.Chen, Jiang and Jian-Yun Nie.
+2000.
+Parallel webtext mining for cross-language IR.
+In In In Proc.
+ofRIAO, pages 62?77.Cormode, Graham, S. Muthukrishnan, andSu?leyman Cenk Sahinalp.
+2001.
+Permutationediting and matching via embeddings.
+In ICALP?01: Proceedings of the 28th International Collo-quium on Automata, Languages and Programming,,pages 481?492, London, UK.
+Springer-Verlag.Dean, Jeffrey and Sanjay Ghemawat.
+2004.
+MapRe-duce: Simplified data processing on large clusters.In Proceedings of the Sixth Symposium on Operat-ing System Design and Implementation (OSDI-04),San Francisco, CA, USA.Do, Thi-Ngoc-Diep, Viet-Bac Le, Brigitte Bigi, Lau-rent Besacier Eric, and Castelli.
+2009.
+Mining acomparable text corpus for a Vietnamese - Frenchstatistical machine translation system.
+In Proceed-ings of the 4th EACL Workshop on Statistical Ma-chine Translation, pages 165?172, Athens, Greece,March.European Commission Directorate-General for Trans-lation.
+2007.
+DGT-TM parallel corpus.http://langtech.jrc.it/DGT-TM.html.Harding, Stephen M., W. Bruce Croft, and C. Weir.1997.
+Probabilistic retrieval of OCR degraded textusing n-grams.
+In ECDL ?97: Proceedings ofthe First European Conference on Research andAdvanced Technology for Digital Libraries, pages345?359, London, UK.
+Springer-Verlag.Henzinger, Monika.
+2006.
+Finding near-duplicateweb pages: a large-scale evaluation of algorithms.In SIGIR ?06: Proceedings of the 29th annual inter-national ACM SIGIR conference on Research anddevelopment in information retrieval, pages 284?291, New York, NY, USA.
+ACM.Koehn, Philipp.
+2002.
+Europarl: A multilingual cor-pus for evaluation of machine translation.
+Draft.Macherey, Wolfgang, Franz Och, Ignacio Thayer, andJakob Uszkoreit.
+2008.
+Lattice-based minimum er-ror rate training for statistical machine translation.In Proceedings of the 2008 Conference on Empiri-cal Methods in Natural Language Processing, pages725?734, Honolulu, Hi, October.
+Association forComputational Linguistics.Manber, Udi.
+1994.
+Finding similar files in a large filesystem.
+In Proceedings of the USENIX Winter 1994Technical Conferenc.Munteanu, Dragos Stefan and Daniel Marcu.
+2005.Improving machine translation performance by ex-ploiting non-parallel corpora.
+Comput.
+Linguist.,31(4):477?504.Munteanu, Dragos Stefan and Daniel Marcu.
+2006.Extracting parallel sub-sentential fragments fromnon-parallel corpora.
+In ACL.Och, Franz Josef and Hermann Ney.
+2002.
+Dis-criminative training and maximum entropy modelsfor statistical machine translation.
+In Proceedingsof the 40th Annual Meeting of the Association forComputational Linguistics (ACL), pages 295?302,Philadelphia, PA, USA.Papineni, Kishore, Salim Roukos, Todd Ward, andWei-Jing Zhu.
+2002.
+BLEU: a method for auto-matic evaluation of machine translation.
+In Pro-ceedings of the 40th Annual Meeting of the Asso-ciation for Computational Linguistics (ACL), pages311?318, Philadelphia, PA, USA.Resnik, Philip and Noah A. Smith.
+2003.
+The webas a parallel corpus.
+Computational Linguistics,29:349?380.Robertson, S E, S Walker, S Jones, M M Hancock-Beaulieu, and M Gatford.
+1995.
+Okapi at TREC?3.In Proceedings of the Third Text REtrieval Confer-ence (TREC-3).Udupa, Raghavendra, K. Saravanan, A. Kumaran, andJagadeesh Jagarlamudi.
+2009.
+Mint: A methodfor effective and scalable mining of named entitytransliterations from large comparable corpora.
+InEACL, pages 799?807.United Nations.
+2006.
+ODS UN parallel corpus.http://ods.un.org/.1109

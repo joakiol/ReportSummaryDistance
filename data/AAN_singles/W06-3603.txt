@@ -1,0 +1,323 @@
+Workshop on Computationally Hard Problemsand Joint Inference in Speech and Language Processing, pages 17?24,New York City, New York, June 2006. c?2006 Association for Computational LinguisticsComputational Challenges in Parsing by ClassificationJoseph Turian and I. Dan Melamed{lastname}@cs.nyu.eduComputer Science DepartmentNew York UniversityNew York, New York 10003AbstractThis paper presents a discriminativeparser that does not use a generativemodel in any way, yet whose accu-racy still surpasses a generative base-line.
+The parser performs feature selec-tion incrementally during training, as op-posed to a priori, which enables it towork well with minimal linguistic clever-ness.
+The main challenge in building thisparser was fitting the training data intomemory.
+We introduce gradient sampling,which increased training speed 100-fold.Our implementation is freely available athttp://nlp.cs.nyu.edu/parser/.1 IntroductionDiscriminative machine learning methods have im-proved accuracy on many NLP tasks, includingPOS-tagging, shallow parsing, relation extraction,and machine translation.
+However, only limited ad-vances have been made on full syntactic constituentparsing.
+Successful discriminative parsers have usedgenerative models to reduce training time and raiseaccuracy above generative baselines (Collins &Roark, 2004; Henderson, 2004; Taskar et al, 2004).However, relying upon information from a gener-ative model might limit the potential of these ap-proaches to realize the accuracy gains achieved bydiscriminative methods on other NLP tasks.
+Anotherdifficulty is that discriminative parsing approachescan be very task-specific and require quite a bit oftrial and error with different hyper-parameter valuesand types of features.In the present work, we make progress towardsovercoming these obstacles.
+We propose a flexible,well-integrated method for training discriminativeparsers, demonstrating techniques that might alsobe useful for other structured learning problems.The learning algorithm projects the hand-providedatomic features into a compound feature space andperforms incremental feature selection from thislarge feature space.
+We achieve higher accuracy thana generative baseline, despite not using the standardtrick of including an underlying generative model.Our training regime does model selection withoutad-hoc smoothing or frequency-based feature cut-offs, and requires no heuristics to optimize the singlehyper-parameter.We discuss the computational challenges we over-came to build this parser.
+The main difficulty is thatthe training data fit in memory only using an indirectrepresentation,1 so the most costly operation duringtraining is accessing the features of a particular ex-ample.
+We show how to train a parser effectively un-der these conditions.
+We also show how to speed uptraining by using a principled sampling method toestimate the loss gradients used in feature selection.
+?2 describes the parsing algorithm.
+?3 presentsthe learning method and techniques used to reducetraining time.
+?4 presents experiments with discrim-inative parsers built using these methods.
+?5 dis-1Similar memory limitations exist in other large-scale NLPtasks.
+Syntax-driven SMT systems are typically trained onan order of magnitude more sentences than English parsers,and unsupervised estimation methods can generate an arbitrarynumber of negative examples (Smith & Eisner, 2005).17cusses possible issues in scaling to larger examplesets.2 Parsing AlgorithmThe following terms will help to explain our work.A span is a range over contiguous words in the in-put.
+Spans cross if they overlap but neither containsthe other.
+An item is a (span, label) pair.
+A state is apartial parse, i.e.
+a set of items, none of whose spanscross.
+A parse inference is a (state, item) pair, i.e.
+astate and a (consequent) item to be added to it.
+Thefrontier of a state consists of the items with no par-ents yet.
+The children of an inference are the frontieritems below the item to be inferred, and the head ofan inference is the child item chosen by head rules(Collins, 1999, pp.
+238?240).
+A parse path is a se-quence of parse inferences.
+For some input sentenceand training parse tree, a state is correct if the parsercan infer zero or more additional items to obtain thetraining parse tree and an inference is correct if itleads to a correct state.Now, given input sentence s we compute:p?
+= arg minp?P(s)??????????i?pl(i)?????????
+(1)where P(s) are possible parses of the sentence, andthe loss (or cost) l of parse p is summed over theinferences i that lead to the parse.
+To find p?, theparsing algorithm considers a sequence of states.The initial state contains terminal items, whose la-bels are the POS tags given by Ratnaparkhi (1996).The parser considers a set of (bottom-up) inferencesat each state.
+Each inference results in a successorstate to be placed on the agenda.
+The loss functionl can consider arbitrary properties of the input andparse state,2 which precludes a tractable dynamicprogramming solution to Equation 1.
+Therefore, wedo standard agenda-based parsing, but instead ofitems our agenda stores entire states, as per moregeneral best-first search over parsing hypergraphs(Klein & Manning, 2001).
+Each time we pop a statefrom the agenda, l computes a loss for the bottom-up inferences generated from that state.
+If the lossof the popped state exceeds that of the current bestcomplete parse, search is done and we have foundthe optimal parse.2I.e.
+we make no context-free assumptions.3 Training Method3.1 General SettingFrom each training inference i ?
+I we generate thetuple ?X(i), y(i), b(i)?.
+X(i) is a feature vector de-scribing i, with each element in {0, 1}.
+The observedy-value y(i) ?
+{?1,+1} is determined by whether iis a correct inference or not.
+Some training exam-ples might be more important than others, so each isgiven an initial bias b(i) ?
+R+.Our goal during training is to induce a real-valuedinference scoring function (hypothesis) h(i;?
+),which is a linear model parameterized by a vector?
+of reals:h(i;?)
+= ?
+?
+X(i) =?f?
+f ?
+X f (i) (2)Each f is a feature.
+The sign of h(i;?)
+predicts they-value of i and the magnitude gives the confidencein this prediction.The training procedure optimizes ?
+to minimizethe expected risk R:R(I;?)
+= L(I;?)
++ ?(?)
+(3)In principle, L can be any loss function, but in thepresent work we use the log-loss (Collins et al,2002):L(I;?)
+=?i?Il(i;?)
+=?i?Ib(i) ?
+?(?(i;?))
+(4)where:?(?)
+= ln(1 + exp(??))
+(5)and the margin of inference i under the currentmodel ?
+is:?(i;?)
+= y(i) ?
+h(i;?)
+(6)For a particular choice of ?, l(i) in Equation 1 iscomputed according to Equation 4 using y(i) = +1and b(i) = 1.?(?)
+in Equation 3 is a regularizer, which penal-izes overly complex models to reduce overfitting andgeneralization error.
+We use the `1 penalty:?(?)
+=?f?
+?
+|?
+f | (7)where ?
+is the `1 parameter that controls the strengthof the regularizer.
+This choice of objective R is mo-tivated by Ng (2004), who suggests that, given a18learning setting where the number of irrelevant fea-tures is exponential in the number of training exam-ples, we can nonetheless learn effectively by build-ing decision trees to minimize the `1-regularizedlog-loss.
+Conversely, Ng (2004) suggests that mostof the learning algorithms commonly used by dis-criminative parsers will overfit when exponentiallymany irrelevant features are present.3Learning over an exponential feature space is thevery setting we have in mind.
+A priori, we defineonly a set A of simple atomic features (see ?4).However, the learner induces compound features,each of which is a conjunction of possibly negatedatomic features.
+Each atomic feature can have threevalues (yes/no/don?t care), so the size of the com-pound feature space is 3|A|, exponential in the num-ber of atomic features.
+It was also exponential inthe number of training examples in our experiments(|A| ?
+|I|).We use an ensemble of confidence-rated deci-sion trees (Schapire & Singer, 1999) to represent h.4Each node in a decision tree corresponds to a com-pound feature, and the leaves of the decision treeskeep track of the parameter values of the compoundfeatures they represent.
+To score an inference usinga decision tree, we percolate the inference down toa leaf and return that leaf?s confidence.
+The overallscore given to an inference by the whole ensembleis the sum of the confidences returned by the trees inthe ensemble.3.2 Boosting `1-Regularized Decision TreesListing 1 presents our training algorithm.
+(Samplingwill be explained in ?3.3.
+Until then, assume thatthe sample S is the entire training set I.)
+At the be-ginning of training, the ensemble is empty, ?
+= 0,and the `1 parameter ?
+is set to?.
+We train until theobjective cannot be further reduced for the currentchoice of ?.
+We then relax the regularization penaltyby decreasing ?
+and continuing training.
+We also de-3including the following learning algorithms:?
+unregularized logistic regression?
+logistic regression with an `2 penalty (i.e.
+a Gaussian prior)?
+SVMs using most kernels?
+multilayer neural nets trained by backpropagation?
+the perceptron algorithm4Turian and Melamed (2005) show that that decision trees ap-plied to parsing have higher accuracy and training speed thandecision stumps.Listing 1 Training algorithm.1: procedure T????
+(I)2: ensemble?
+?3: h(i)?
+0 for all i ?
+I4: for T = 1 .
+.
+.?
+do5: S ?
+priority sample I6: extract X(i) for all i ?
+S7: build decision tree t using S8: percolate every i ?
+I to a leaf node in t9: for each leaf f in t do10: choose ?
+f to minimize R11: add ?
+f to h(i) for all i in this leaftermine the accuracy of the parser on a held-out de-velopment set using the previous ?
+value (before itwas decreased), and can stop training when this ac-curacy plateaus.
+In this way, instead of choosing thebest ?
+heuristically, we can optimize it during a sin-gle training run (Turian & Melamed, 2005).Our strategy for optimizing ?
+to minimize the ob-jective R (Equation 3) is a variant of steepest descent(Perkins et al, 2003).
+Each training iteration hasseveral steps.
+First, we choose some new compoundfeatures that have high magnitude gradient with re-spect to the objective function.
+We do this by build-ing a new decision tree, whose leaves represent thenew compound features.5 Second, we confidence-rate each leaf to minimize the objective over the ex-amples that percolate down to that leaf.
+Finally, weappend the decision tree to the ensemble and up-date parameter vector ?
+accordingly.
+In this manner,compound feature selection is performed incremen-tally during training, as opposed to a priori.To build each decision tree, we begin with a rootnode, and we recursively split nodes by choosing asplitting feature that will allow us to decrease theobjective.
+We have:?L(I;?)??
+f=?i?I?l(i;?)??(i;?)
+???(i;?)??
+f(8)where:??(i;?)??
+f= y(i) ?
+X f (i) (9)We define the weight of an example under the cur-rent model as:w(i;?)
+= ?
+?l(i;?)??(i;?)
+= b(i) ?11 + exp(?(i;?))
+.
+(10)5Any given compound feature can appear in more than onetree.19and:W y?f (I;?)
+=?i?IX f (i)=1,y(i)=y?w(i;?)
+(11)Combining Equations 8?11 gives:6?L??
+f= W?1f ?W+1f (12)We define the gain G f of feature f as:G f = max(0,???????L??
+f???????
+?
+)(13)Equation 13 has this form because the gradient of thepenalty term is undefined at ?
+f = 0.
+This discontinu-ity is why `1 regularization tends to produce sparsemodels.
+If G f = 0, then the objective R is at its min-imum with respect to parameter ?
+f .
+Otherwise, G fis the magnitude of the gradient of the objective aswe adjust ?
+f in the appropriate direction.The gain of splitting node f using some atomicfeature a is defined as?G f (a) = G f?a + G f?
+?a (14)We allow node f to be split only by atomic featuresa that increase the gain, i.e.
+?G f (a) > G f .
+If no suchfeature exists, then f becomes a leaf node of the de-cision tree and ?
+f becomes one of the values to beoptimized during the parameter update step.
+Other-wise, we choose atomic feature a?
+to split node f :a?
+= arg maxa?A?G f (a) (15)This split creates child nodes f ?
+a?
+and f ??a?.
+If noroot node split has positive gain, then training hasconverged for the current choice of `1 parameter ?.Parameter update is done sequentially on only themost recently added compound features, which cor-respond to the leaves of the new decision tree.
+Afterthe entire tree is built, we percolate examples downto their appropriate leaf nodes.
+We then choose foreach leaf node f the parameter ?
+f that minimizes theobjective R over the examples in that leaf.
+Decisiontrees ensure that these compound features are mu-tually exclusive, so they can be directly optimizedindependently of each other using a line search overthe objective R.6Since ?
+is fixed during a particular training iteration and I isfixed throughout training, we omit parameters (I;?)
+henceforth.3.3 Sampling for Faster Feature SelectionBuilding a decision tree using the entire example setI can be very expensive, which we will demonstratein ?4.2.
+However, feature selection can be effectiveeven if we don?t examine every example.
+Since theweight of high-margin examples can be several or-ders of magnitude lower than that of low-margin ex-amples (Equation 10), the contribution of the high-margin examples to feature weights (Equation 11)will be insignificant.
+Therefore, we can ignore mostexamples during feature selection as long as we havegood estimates of feature weights, which in turn givegood estimates of the loss gradients (Equation 12).As shown in Step 1.5 of Listing 1, before buildingeach decision tree we use priority sampling (Duffieldet al, 2005) to choose a small subset of the ex-amples according to the example weights given bythe current classifier, and the tree is built using onlythis subset.
+We make the sample small enough thatits entire atomic feature matrix will fit in memory.To optimize decision tree building, we compute andcache the sample?s atomic feature matrix in advance(Step 1.6).Even if the sample is missing important informa-tion in one iteration, the training procedure is capa-ble of recovering it from samples used in subsequentiterations.
+Moreover, even if a sample?s gain esti-mates are inaccurate and the feature selection stepchooses irrelevant compound features, confidenceupdates are based upon the entire training set andthe regularization penalty will prevent irrelevant fea-tures from having their parameters move away fromzero.3.4 The Training SetOur training set I contains all inferences consideredin every state along the correct path for each gold-standard parse tree (Sagae & Lavie, 2005).7 Thismethod of generating training examples does not re-quire a working parser and can be run prior to anytraining.
+The downside of this approach is that itminimizes the error of the parser at correct statesonly.
+It does not account for compounded error orteach the parser to recover from mistakes gracefully.7Since parsing is done deterministically right-to-left, there canbe no more than one correct inference at each state.20Turian and Melamed (2005) observed that uni-form example biases b(i) produced lower accuracyas training progressed, because the induced classi-fiers minimized the example-wise error.
+Since weaim to minimize the state-wise error, we express thisbias by assigning every training state equal value,and?for the examples generated from that state?sharing half the value uniformly among the nega-tive examples and the other half uniformly amongthe positive examples.Although there are O(n2) possible spans over afrontier containing n items, we reduce this to theO(n) inferences that cannot have more than 5 chil-dren.
+With no restriction on the number of children,there would be O(n2) bottom-up inferences at eachstate.
+However, only 0.57% of non-terminals in thepreprocessed development set have more than fivechildren.Like Turian and Melamed (2005), we parallelizetraining by inducing 26 label classifiers (one foreach non-terminal label in the Penn Treebank).
+Par-allelization might not uniformly reduce training timebecause different label classifiers train at differentrates.
+However, parallelization uniformly reducesmemory usage because each label classifier trainsonly on inferences whose consequent item has thatlabel.
+Even after parallelization, the atomic featurematrix cannot be cached in memory.
+We can storethe training inferences in memory using only an in-direct representation.
+More specifically, for each in-ference i in the training set, we cache in memoryseveral values: a pointer i to a tree cut, its y-valuey(i), its bias b(i), and its confidence h(i) under thecurrent model.
+We cache h(i) throughout training be-cause it is needed both in computing the gradient ofthe objective during decision tree building (Step 1.7)as well as subsequent minimization of the objectiveover the decision tree leaves (Step 1.10).
+We updatethe confidences at the end of each training iterationusing the newly added tree (Step 1.11).The most costly operation during training is to ac-cess the feature values in X(i).
+An atomic featuretest determines the value Xa(i) for a single atomicfeature a by examining the tree cut pointed to by in-ference i. Alternately, we can perform atomic fea-ture extraction, i.e.
+determine all non-zero atomicfeatures over i.8 Extraction is 100?1000 times moreexpensive than a single test, but is necessary duringdecision tree building (Step 1.7) because we needthe entire vector X(i) to accumulate inferences inchildren nodes.
+Essentially, for each inference i thatfalls in some node f , we accumulate w(i) in Wy(i)f?afor all a with Xa(i) = 1.
+After all the inferences in anode have been accumulated, we try to split the node(Equation 15).
+The negative child weights are eachdetermined as Wyf?
+?a = Wyf ?Wyf?a.4 ExperimentsWe follow Taskar et al (2004) and Turian andMelamed (2005) in training and testing on ?
+15word sentences in the English Penn Treebank (Tay-lor et al, 2003).
+We used sections 02?21 for train-ing, section 22 for development, and section 23,for testing.
+We use the same preprocessing steps asTurian and Melamed (2005): during both trainingand testing, the parser is given text POS-tagged bythe tagger of Ratnaparkhi (1996), with capitalizationstripped and outermost punctuation removed.For reasons given in Turian and Melamed (2006),items are inferred bottom-up right-to-left.
+As men-tioned in ?2, the parser cannot infer any item thatcrosses an item already in the state.
+To ensure theparser does not enter an infinite loop, no two itemsin a state can have both the same span and the samelabel.
+Given these restrictions, there were roughly 40million training examples.
+These were partitionedamong the constituent label classifiers.Our atomic feature set A contains features ofthe form ?is there an item in group J whose la-bel/headword/headtag/headtagclass9 is ?X???.
+Pos-sible values of ?X?
+for each predicate are collectedfrom the training data.
+Some examples of possiblevalues for J include the last n child items, the first nleft context items, all right context items, and the ter-minal items dominated by the non-head child items.Space constraints prevent enumeration of the head-tagclasses and atomic feature templates, which are8Extraction need not take the na?
+?ve approach of performing |A|different tests, and can be optimized by using knowledge aboutthe nature of the atomic feature templates.9The predicate headtagclass is a supertype of the headtag.Given our compound features, these are not strictly neces-sary, but they accelerate training.
+An example is ?proper noun,?which contains the POS tags given to singular and plural propernouns.21Figure 1 F1 score of our parser on the developmentset of the Penn Treebank, using only ?
+15 word sen-tences.
+The dashed line indicates the percent of NPexample weight lost due to sampling.
+The bottomx-axis shows the number of non-zero parameters ineach parser, summed over all label classifiers.7.5K5K2.5K1.5K1K 84%85%86%87%88%89%90%91%5.42.51.00.5Devel.
+F-measuretotal number of non-zero parameterstraining time (days)0%5%10%15%20%25%30%35%weight lost dueto samplinginstead provided at the URL given in the abstract.These templates gave 1.1 million different atomicfeatures.
+We experimented with smaller feature sets,but found that accuracy was lower.
+Charniak andJohnson (2005) use linguistically more sophisticatedfeatures, and Bod (2003) and Kudo et al (2005) usesub-tree features, all of which we plan to try in fu-ture work.We evaluated our parser using the standard PAR-SEVAL measures (Black et al, 1991): labelledprecision, labelled recall, and labelled F-measure(Prec., Rec., and F1, respectively), which are basedon the number of non-terminal items in the parser?soutput that match those in the gold-standard parse.The solid curve Figure 1 shows the accuracy ofthe parser over the development set as training pro-gressed.
+The parser exceeded 89% F-measure af-ter 2.5 days of training.
+The peak F-measure was90.55%, achieved at 5.4 days using 6.3K activeparameters.
+We omit details given by Turian andMelamed (2006) in favor of a longer discussion in?4.2.4.1 Test Set ResultsTo situate our results in the literature, we compareour results to those reported by Taskar et al (2004)and Turian and Melamed (2005) for their discrimi-native parsers, which were also trained and tested on?
+15 word sentences.
+We also compare our parserto a representative non-discriminative parser (Bikel,Table 1 PARSEVAL results of parsers on the testset, using only ?
+15 word sentences.F1 % Rec.
+% Prec.
+%Turian and Melamed (2005) 87.13 86.47 87.80Bikel (2004) 88.30 87.85 88.75Taskar et al (2004) 89.12 89.10 89.14our parser 89.40 89.26 89.55Table 2 Profile of an NP training iteration, givenin seconds, using an AMD Opteron 242 (64-bit,1.6Ghz).
+Steps refer to Listing 1.Step Description mean stddev %1.5 Sample 1.5s 0.07s 0.7%1.6 Extraction 38.2s 0.13s 18.6%1.7 Build tree 127.6s 27.60s 62.3%1.8 Percolation 31.4s 4.91s 15.3%1.9?11 Leaf updates 6.2s 1.75s 3.0%1.5?11 Total 204.9s 32.6s 100.0%2004),10 the only one that we were able to train andtest under exactly the same experimental conditions(including the use of POS tags from Ratnaparkhi(1996)).
+Table 1 shows the PARSEVAL results ofthese four parsers on the test set.4.2 Efficiency40% of non-terminals in the Penn Treebank areNPs.
+Consequently, the bottleneck in training isinduction of the NP classifier.
+It was trained on1.65 million examples.
+Each example had an aver-age of 440 non-zero atomic features (stddev 123),so the direct representation of each example re-quires a minimum 440 ?
+sizeof(int) = 1760 bytes,and the entire atomic feature matrix would re-quire 1760 bytes ?
+1.65 million = 2.8 GB.
+Con-versely, an indirectly represent inference requiresno more 32 bytes: two floats (the cached confi-dence h(i) and the bias term b(i)), a pointer to atree cut (i), and a bool (the y-value y(i)).
+Indi-rectly storing the entire example set requires only32 bytes ?
+1.65 million = 53 MB plus the treebankand tree cuts, a total of 400 MB in our implementa-tion.We used a sample size of |S | = 100, 000 examplesto build each decision tree, 16.5 times fewer thanthe entire example set.
+The dashed curve in Figure 110Bikel (2004) is a ?clean room?
+reimplementation of theCollins (1999) model with comparable accuracy.22shows the percent of NP example weight lost dueto sampling.
+As training progresses, fewer examplesare informative to the model.
+Even though we ignore94% of examples during feature selection, samplingloses less than 1% of the example weight after a dayof training.The NP classifier used in our final parser wasan ensemble containing 2316 trees, which tookfive days to build.
+Overall, there were 96871 de-cision tree leaves, only 2339 of which were non-zero.
+There were an average of 40.4 (7.4 std-dev) decision tree splits between the root of atree and a non-zero leaf, and nearly all non-zero leaves were conjunctions of atomic fea-ture negations (e.g.
+?
+(some child item is a verb) ??
+(some child item is a preposition)).
+The non-zeroleaf confidences were quite small in magnitude(0.107 mean, 0.069 stddev) but the training exam-ple margins over the entire ensemble were nonethe-less quite high: 11.7 mean (2.92 stddev) for correctinferences, 30.6 mean (11.2 stddev) for incorrect in-ferences.Table 2 profiles an NP training iteration, in whichone decision tree is created and added to theNP ensemble.
+Feature selection in our algorithm(Steps 1.5?1.7) takes 1.5+38.2+127.6 = 167.3s, farfaster than in na?
+?ve approaches.
+If we didn?t do sam-pling but had 2.8GB to spare, we could eliminate theextraction step (Step 1.6) and instead cache the en-tire atomic feature matrix before the loop.
+However,tree building (Step 1.7) scales linearly in the numberof examples, and would take 16.5 ?127.6s = 2105.4susing the entire example set.
+If we didn?t do sam-pling and couldn?t cache the atomic feature matrix,tree building would also require repeatedly perform-ing extraction.
+The number of individual feature ex-tractions needed to build a single decision tree is thesum over the internal nodes of the number of exam-ples that percolate down to that node.
+There are anaverage of 40.8 (7.8 stddev) internal nodes in eachtree and most of the examples fall in nearly all ofthem.
+This property is caused by the lopsided treesinduced under `1 regularization.
+A conservative es-timate is that each decision tree requires 25 extrac-tions times the number of examples.
+So extractionwould add at least 25 ?
+16.5 ?
+38.2s = 15757.5s ontop of 2105.40s, and hence building each decisiontree would take at least (15757.5+2105.40)/167.3 ?100 times as long as it does currently.Our decision tree ensembles contain over two or-ders of magnitude more compound features thanthose in Turian and Melamed (2005).
+Our overalltraining time was roughly equivalent to theirs.
+Thisratio corroborates the above estimate.5 DiscussionThe NP classifier was trained only on the 1.65 mil-lion NP examples in the 9753 training sentences with?
+15 words (168.8 examples/sentence).
+The numberof examples generated is quadratic in the sentencelength, so there are 41.7 million NP examples in all39832 training sentences of the whole Penn Tree-bank (1050 examples/sentence), 25 times as manyas we are currently using.The time complexity of each step in the train-ing loop (Steps 1.5?11) is linear over the numberof examples used by that step.
+When we scale upto the full treebank, feature selection will not re-quire a sample 25 times larger, so it will no longerbe the bottleneck in training.
+Instead, each itera-tion will be dominated by choosing leaf confidencesand then updating the cached example confidences,which would require 25 ?
+(31.4s + 6.2s) = 940s periteration.
+These steps are crucial to the current train-ing algorithm, because it is important to have exam-ple confidences that are current with respect to themodel.
+Otherwise, we cannot determine the exam-ples most poorly classified by the current model, andwill have no basis for choosing an informative sam-ple.We might try to save training time by buildingmany decision trees over a single sample and thenupdating the confidences of the entire example setusing all the new trees.
+But, if this confidence up-date is done using feature tests, then we have merelydeferred the cost of the confidence update over theentire example set.
+The amount of training done ona particular sample is proportional to the time sub-sequently spent updating confidences over the entireexample set.
+To spend less time doing confidenceupdates, we must use a training regime that is sub-linear with respect to the training time.
+For exam-ple, Riezler (2004) reports that the `1 regularizationterm drives many of the model?s parameters to zeroduring conjugate gradient optimization, which are23then pruned before subsequent optimization steps toavoid numerical instability.
+Instead of building de-cision tree(s) at each iteration, we could perform n-best feature selection followed by parallel optimiza-tion of the objective over the sample.The main limitation of our work so far is thatwe can do training reasonably quickly only on shortsentences, because a sentence with n words gen-erates O(n2) training inferences in total.
+Althoughgenerating training examples in advance without aworking parser (Sagae & Lavie, 2005) is much fasterthan using inference (Collins & Roark, 2004; Hen-derson, 2004; Taskar et al, 2004), our training timecan probably be decreased further by choosing aparsing strategy with a lower branching factor.
+Likeour work, Ratnaparkhi (1999) and Sagae and Lavie(2005) generate examples off-line, but their parsingstrategies are essentially shift-reduce so each sen-tence generates only O(n) training examples.6 ConclusionOur work has made advances in both accuracy andtraining speed of discriminative parsing.
+As far aswe know, we present the first discriminative parserthat surpasses a generative baseline on constituentparsing without using a generative component, andit does so with minimal linguistic cleverness.The main bottleneck in our setting was memory.We could store the examples in memory only usingan indirect representation.
+The most costly opera-tion during training was accessing the features of aparticular example from this indirect representation.We showed how to train a parser effectively underthese conditions.
+In particular, we used principledsampling to estimate loss gradients and reduce thenumber of feature extractions.
+This approximationincreased the speed of feature selection 100-fold.We are exploring methods for scaling trainingup to larger example sets.
+We are also investigat-ing the relationship between sample size, trainingtime, classifier complexity, and accuracy.
+In addi-tion, we shall make some standard improvementsto our parser.
+Our parser should infer its own POStags.
+A shift-reduce parsing strategy will generatefewer examples, and might lead to shorter trainingtime.
+Lastly, we plan to give the model linguisticallymore sophisticated features.
+We also hope to applythe model to other structured learning tasks, such assyntax-driven SMT.ReferencesBikel, D. M. (2004).
+Intricacies of Collins?
+parsing model.Computational Linguistics.Black, E., Abney, S., Flickenger, D., Gdaniec, C., Grishman,R., Harrison, P., et al (1991).
+A procedure for quantitativelycomparing the syntactic coverage of English grammars.
+InSpeech and Natural Language.Bod, R. (2003).
+An efficient implementation of a new DOPmodel.
+In EACL.Charniak, E., & Johnson, M. (2005).
+Coarse-to-fine n-best pars-ing and MaxEnt discriminative reranking.
+In ACL.Collins, M. (1999).
+Head-driven statistical models for naturallanguage parsing.
+Doctoral dissertation.Collins, M., & Roark, B.
+(2004).
+Incremental parsing with theperceptron algorithm.
+In ACL.Collins, M., Schapire, R. E., & Singer, Y.
+(2002).
+Logistic re-gression, AdaBoost and Bregman distances.
+Machine Learn-ing, 48(1-3).Duffield, N., Lund, C., & Thorup, M. (2005).
+Prior-ity sampling estimating arbitrary subset sums.
+(http://arxiv.org/abs/cs.DS/0509026)Henderson, J.
+(2004).
+Discriminative training of a neural net-work statistical parser.
+In ACL.Klein, D., & Manning, C. D. (2001).
+Parsing and hypergraphs.In IWPT.Kudo, T., Suzuki, J., & Isozaki, H. (2005).
+Boosting-basedparse reranking with subtree features.
+In ACL.Ng, A. Y.
+(2004).
+Feature selection, `1 vs. `2 regularization, androtational invariance.
+In ICML.Perkins, S., Lacker, K., & Theiler, J.
+(2003).
+Grafting: Fast,incremental feature selection by gradient descent in functionspace.
+Journal of Machine Learning Research, 3.Ratnaparkhi, A.
+(1996).
+A maximum entropy part-of-speechtagger.
+In EMNLP.Ratnaparkhi, A.
+(1999).
+Learning to parse natural languagewith maximum entropy models.
+Machine Learning, 34(1-3).Riezler, S. (2004).
+Incremental feature selection of `1 regular-ization for relaxed maximum-entropy modeling.
+In EMNLP.Sagae, K., & Lavie, A.
+(2005).
+A classifier-based parser withlinear run-time complexity.
+In IWPT.Schapire, R. E., & Singer, Y.
+(1999).
+Improved boosting usingconfidence-rated predictions.
+Machine Learning, 37(3).Smith, N. A., & Eisner, J.
+(2005).
+Contrastive estimation: Train-ing log-linear models on unlabeled data.
+In ACL.Taskar, B., Klein, D., Collins, M., Koller, D., & Manning, C.(2004).
+Max-margin parsing.
+In EMNLP.Taylor, A., Marcus, M., & Santorini, B.
+(2003).
+The Penn Tree-bank: an overview.
+In A. Abeille?
+(Ed.
+), Treebanks: Buildingand using parsed corpora (chap.
+1).Turian, J., & Melamed, I. D. (2005).
+Constituent parsing byclassification.
+In IWPT.Turian, J., & Melamed, I. D. (2006).
+Advances in discriminativeparsing.
+In ACL.24

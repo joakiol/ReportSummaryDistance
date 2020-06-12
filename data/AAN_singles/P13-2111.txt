@@ -1,0 +1,174 @@
+Proceedings of the 51st Annual Meeting of the Association for Computational Linguistics, pages 628?633,Sofia, Bulgaria, August 4-9 2013. c?2013 Association for Computational LinguisticsEfficient Implementation of Beam-Search Incremental Parsers?Yoav GoldbergDept.
+of Computer ScienceBar-Ilan UniversityRamat Gan, Tel Aviv, 5290002 Israelyoav.goldberg@gmail.comKai Zhao Liang HuangGraduate Center and Queens CollegeCity University of New York{kzhao@gc, lhuang@cs.qc}.cuny.edu{kzhao.hf, liang.huang.sh}.gmail.comAbstractBeam search incremental parsers are ac-curate, but not as fast as they could be.We demonstrate that, contrary to popu-lar belief, most current implementationsof beam parsers in fact run in O(n2),rather than linear time, because each state-transition is actually implemented as anO(n) operation.
+We present an improvedimplementation, based on Tree StructuredStack (TSS), in which a transition is per-formed in O(1), resulting in a real linear-time algorithm, which is verified empiri-cally.
+We further improve parsing speedby sharing feature-extraction and dot-product across beam items.
+Practically,our methods combined offer a speedup of?2x over strong baselines on Penn Tree-bank sentences, and are orders of magni-tude faster on much longer sentences.1 IntroductionBeam search incremental parsers (Roark, 2001;Collins and Roark, 2004; Zhang and Clark, 2008;Huang et al, 2009; Huang and Sagae, 2010;Zhang and Nivre, 2011; Zhang and Clark, 2011)provide very competitive parsing accuracies forvarious grammar formalisms (CFG, CCG, and de-pendency grammars).
+In terms of purning strate-gies, they can be broadly divided into two cat-egories: the first group (Roark, 2001; Collinsand Roark, 2004) uses soft (aka probabilistic)beams borrowed from bottom-up parsers (Char-niak, 2000; Collins, 1999) which has no controlof complexity, while the second group (the restand many more recent ones) employs hard beamsborrowed from machine translation (Koehn, 2004)which guarantee (as they claim) a linear runtimeO(kn) where k is the beam width.
+However, wewill demonstrate below that, contrary to popular?Supported in part by DARPA FA8750-13-2-0041 (DEFT).belief, in most standard implementations their ac-tual runtime is in fact O(kn2) rather than linear.Although this argument in general also applies todynamic programming (DP) parsers,1 in this pa-per we only focus on the standard, non-dynamicprogramming approach since it is arguably still thedominant practice (e.g.
+it is easier with the populararc-eager parser with a rich feature set (Kuhlmannet al, 2011; Zhang and Nivre, 2011)) and it bene-fits more from our improved algorithms.The dependence on the beam-size k is becauseone needs to do k-times the number of basic opera-tions (feature-extractions, dot-products, and state-transitions) relative to a greedy parser (Nivre andScholz, 2004; Goldberg and Elhadad, 2010).
+Notethat in a beam setting, the same state can expandto several new states in the next step, which is usu-ally achieved by copying the state prior to makinga transition, whereas greedy search only stores onestate which is modified in-place.Copying amounts to a large fraction of theslowdown of beam-based with respect to greedyparsers.
+Copying is expensive, because the statekeeps track of (a) a stack and (b) the set ofdependency-arcs added so far.
+Both the arc-set andthe stack can grow to O(n) size in the worst-case,making the state-copy (and hence state-transition)an O(n) operation.
+Thus, beam search imple-mentations that copy the entire state are in factquadratic O(kn2) and not linear, with a slowdownfactor of O(kn) with respect to greedy parsers,which is confirmed empirically in Figure 4.We present a way of decreasing the O(n) tran-sition cost to O(1) achieving strictly linear-timeparsing, using a data structure of Tree-StructuredStack (TSS) that is inspired by but simpler thanthe graph-structured stack (GSS) of Tomita (1985)used in dynamic programming (Huang and Sagae,2010).2 On average Treebank sentences, the TSS1The Huang-Sagae DP parser (http://acl.cs.qc.edu)does run in O(kn), which inspired this paper when we ex-perimented with simulating non-DP beam search using GSS.2Our notion of TSS is crucially different from the data628input: w0 .
+.
+.
+wn?1axiom 0 : ?0, ?
+: ?SHIFT` : ?j, S?
+: A`+ 1 : ?j + 1, S|wj?
+: Aj < nREDUCEL` : ?j, S|s1|s0?
+: A`+ 1 : ?j, S|s0?
+: A ?
+{s1xs0}REDUCER` : ?j, S|s1|s0?
+: A`+ 1 : ?j, S|s1?
+: A ?
+{s1ys0}goal 2n?
+1 : ?n, s0?
+: AFigure 1: An abstraction of the arc-standard de-ductive system Nivre (2008).
+The stack S is a listof heads, j is the index of the token at the front ofthe buffer, and ` is the step number (beam index).A is the arc-set of dependency arcs accumulatedso far, which we will get rid of in Section 4.1.version, being linear time, leads to a speedup of2x?2.7x over the naive implementation, and about1.3x?1.7x over the optimized baseline presentedin Section 5.Having achieved efficient state-transitions, weturn to feature extraction and dot products (Sec-tion 6).
+We present a simple scheme of sharingrepeated scoring operations across different beamitems, resulting in an additional 7 to 25% speed in-crease.
+On Treebank sentences, the methods com-bined lead to a speedup of ?2x over strong base-lines (?10x over naive ones), and on longer sen-tences they are orders of magnitude faster.2 Beam Search Incremental ParsingWe assume familiarity with transition-based de-pendency parsing.
+The unfamiliar reader is re-ferred to Nivre (2008).
+We briefly describe astandard shift-reduce dependency parser (which iscalled ?arc-standard?
+by Nivre) to establish nota-tion.
+Parser states (sometimes called configura-tions) are composed of a stack, a buffer, and anarc-set.
+Parsing transitions are applied to states,and result in new states.
+The arc-standard systemhas three kinds of transitions: SHIFT, REDUCEL,structure with the same name in an earlier work of Tomita(1985).
+In fact, Tomita?s TSS merges the top portion of thestacks (more like GSS) while ours merges the bottom por-tion.
+We thank Yue Zhang for informing us that TSS wasalready implemented for the CCG parser in zpar (http://sourceforge.net/projects/zpar/) though it was not men-tioned in his paper (Zhang and Clark, 2011).and REDUCER, which are summarized in the de-ductive system in Figure 1.
+The SHIFT transitionremoves the first word from the buffer and pushesit to the stack, and the REDUCEL and REDUCERactions each add a dependency relation betweenthe two words on the top of the stack (which isachieved by adding the arc s1xs0 or s1ys0 to thearc-set A), and pops the new dependent from thestack.
+When reaching the goal state the parser re-turns a tree composed of the arcs in the arc-set.At parsing time, transitions are chosen based ona trained scoring model which looks at featuresof the state.
+In a beam parser, k items (hypothe-ses) are maintained.
+Items are composed of a stateand a score.
+At step i, each of the k items is ex-tended by applying all possible transitions to thegiven state, resulting in k ?
+a items, a being thenumber of possible transitions.
+Of these, the topscoring k items are kept and used in step i+1.
+Fi-nally, the tree associated with the highest-scoringitem is returned.3 The Common Implementation of StateThe stack is usually represented as a list or an arrayof token indices, and the arc-set as an array headsof length n mapping the word at position m to theindex of its parent.
+In order to allow for fast fea-ture extraction, additional arrays are used to mapeach token to its left-most and right-most modi-fier, which are used in most incremental parsers,e.g.
+(Huang and Sagae, 2010; Zhang and Nivre,2011).
+The buffer is usually implemented as apointer to a shared sentence object, and an index jto the current front of the buffer.
+Finally, it is com-mon to keep an additional array holding the tran-sition sequence leading to the current state, whichcan be represented compactly as a pointer to theprevious state and the current action.
+The statestructure is summarized below:class statestack[n] of token_idsarray[n] headsarray[n] leftmost_modifiersarray[n] rightmost_modifiersint jint last_actionstate previousIn a greedy parser, state transition is performed in-place.
+However, in a beam parser the states cannotbe modified in place, and a state transition oper-ation needs to result in a new, independent stateobject.
+The common practice is to copy the cur-rent state, and then update the needed fields in thecopy.
+Copying a stack and arrays of size n is an629O(n) operation.
+In what follows, we present a wayto perform transitions in O(1).4 Efficient State Transitions4.1 Distributed Representation of TreesThe state needs to keep track of the set of arcsadded to the tree so far for two reasons:(a) In order to return the complete tree at the end.
+(b) In order to compute features when parsing.Observe that we do not in fact need to store anyarc in order to achieve (a) ?
+we could reconstructthe entire set by backtracking once we reach thefinal configuration.
+Hence, the arc-set in Figure 1is only needed for computing features.
+Instead ofstoring the entire arc-set, we could keep only theinformation needed for feature computation.
+Inthe feature set we use (Huang and Sagae, 2010),we need access to (1) items on the buffer, (2)the 3 top-most elements of the stack, and (3) thecurrent left-most and right-most modifiers of thetwo topmost stack elements.
+The left-most andright-most modifiers are already kept in the staterepresentation, but store more information thanneeded: we only need to keep track of the mod-ifiers of current stack items.
+Once a token is re-moved from the stack it will never return, and wewill not need access to its modifiers again.
+Wecan therefore remove the left/rightmost modifierarrays, and instead have the stack store triplets(token, leftmost_mod, rightmost_mod).
+Theheads array is no longer needed.
+Our new staterepresentation becomes:class statestack[n] of (tok, left, right)int jint last_actionstate previous4.2 Tree Structured Stack: TSSWe now turn to handle the stack.
+Notice that thebuffer, which is also of size O(n), is representedas a pointer to an immutable shared object, and istherefore very efficient to copy.
+We would like totreat the stack in a similar fashion.An immutable stack can be implemented func-tionally as a cons list, where the head is the topof the stack and the tail is the rest of the stack.Pushing an item to the stack amounts to adding anew head link to the list and returning it.
+Poppingan item from the stack amounts to returning thetail of the list.
+Notice that, crucially, a pop opera-tion does not change the underlying list at all, anda push operation only adds to the front of a list.Thus, the stack operations are non-destructive, inthe sense that once you hold a reference to a stack,the view of the stack through this reference doesnot change regardless of future operations that areapplied to the stack.
+Moreover, push and pop op-erations are very efficient.
+This stack implementa-tion is an example of a persistent data structure ?
+adata structure inspired by functional programmingwhich keeps the old versions of itself intact whenmodified (Okasaki, 1999).While each client sees the stack as a list, the un-derlying representation is a tree, and clients holdpointers to nodes in the tree.
+A push operationadds a branch to the tree and returns the newpointer, while a pop operation returns the pointerof the parent, see Figure 3 for an example.
+We callthis representation a tree-structured stack (TSS).Using this stack representation, we can replacethe O(n) stack by an integer holding the item atthe top of the stack (s0), and a pointer to the tail ofthe stack (tail).
+As discussed above, in additionto the top of the stack we also keep its leftmost andrightmost modifiers s0L and s0R.
+The simplifiedstate representation becomes:class stateint s0, s0L, s0Rstate tailint jint last_actionstate previousState is now reduced to seven integers, and thetransitions can be implemented very efficiently aswe show in Figure 2.
+The parser state is trans-formed into a compact object, and state transitionsare O(1) operations involving only a few pointerlookups and integer assignments.4.3 TSS vs. GSS; Space ComplexityTSS is inspired by the graph-structured stack(GSS) used in the dynamic-programming parser ofHuang and Sagae (2010), but without reentrancy(see also Footnote 2).
+More importantly, the statesignature in TSS is much slimmer than that inGSS.
+Using the notation of Huang and Sagae, in-stead of maintaining the full DP signature off?DP(j, S) = (j, fd(sd), .
+.
+.
+, f0(s0))where sd denotes the dth tree on stack, in non-DPTSS we only need to store the features f0(s0) forthe final tree on the stack,f?noDP(j, S) = (j, f0(s0)),630def Shift(state)newstate.s0 = state.jnewstate.s0L = Nonenewstate.s0R = Nonenewstate.tail = statenewstate.j = state.j + 1return newstatedef ReduceL(state)newstate.s0 = state.s0newstate.s0L = state.tail.s0newstate.s0R = state.s0Rnewstate.tail = state.tail.tailnewstate.j = jreturn newstatedef ReduceR(state)newstate.s0 = state.tail.s0newstate.s0L = state.tail.s0Lnewstate.s0R = state.s0newstate.tail = state.tail.tailnewstate.j = jreturn newstateFigure 2: State transitions implementation in the TSS representation (see Fig.
+3 for the tail pointers).The two lines on s0L and s0R are specific to feature set design, and can be expanded for richer featuresets.
+To conserve space, we do not show the obvious assignments to last_action and previous.b1 2c3aa d4bc0bccLRLRsh sh sh shshshFigure 3: Example of tree-structured stack.
+Theforward arrows denote state transitions, and thedotted backward arrows are the tail pointers tothe stack tail.
+The boxes denote the top-of-stack ateach state.
+Notice that for b = shift(a) we performa single push operation getting b.tail = a, whilefor b = reduce(a) transition we perform two popsand a push, resulting in b.tail = a.tail.tail.thanks to the uniqueness of tail pointers (?left-pointers?
+in Huang and Sagae).In terms of space complexity, each state is re-duced from O(n) in size to O(d) with GSS andto O(1) with TSS,3 making it possible to store theentire beam in O(kn) space.
+Moreover, the con-stant state-size makes memory management easierand reduces fragmentation, by making it possibleto pre-allocate the entire beam upfront.
+We didnot explore its empirical implications in this work,as our implementation language, Python, does notsupport low-level memory management.4.4 Generality of the ApproachWe presented a concrete implementation for thearc-standard system with a relatively simple (yetstate-of-the-art) feature set.
+As in Kuhlmann etal.
+(2011), our approach is also applicable toother transitions systems and richer feature-setswith some additional book-keeping.
+A well-3For example, a GSS state in Huang and Sagae?s experi-ments also stores s1, s1L, s1R, s2 besides the f0(s0) fea-tures (s0, s0L, s0R) needed by TSS.
+d is treated as a con-stant by Huang and Sagae but actually it could be a variable.documented Python implementation for the la-beled arc-eager system with the rich feature setof Zhang and Nivre (2011) is available on the firstauthor?s homepage.5 Fewer Transitions: Lazy ExpansionAnother way of decreasing state-transition costsis making less transitions to begin with: insteadof performing all possible transitions from eachbeam item and then keeping only k of the re-sulting states, we could perform only transitionsthat are sure to end up on the next step in thebeam.
+This is done by first computing transitionscores from each beam item, then keeping the topk highest scoring (state, action) pairs, perform-ing only those k transitions.
+This technique isespecially important when the number of possi-ble transitions is large, such as in labeled parsing.The technique, though never mentioned in the lit-erature, was employed in some implementations(e.g., Yue Zhang?s zpar).
+We mention it here forcompleteness since it?s not well-known yet.6 (Partial) Feature SharingAfter making the state-transition efficient, we turnto deal with the other major expensive operation:feature-extractions and dot-products.
+While wecan?t speed up the process, we observe that somecomputations are repeated in different parts of thebeam, and propose to share these computations.Notice that relatively few token indices from astate can determine the values of many features.For example, knowing the buffer index j deter-mines the words and tags of items after locationj on the buffer, as well as features composed ofcombinations of these values.Based on this observation we propose the no-tion of a state signature, which is a set of tokenindices.
+An example of a state signature wouldbe sig(state) = (s0, s0L, s1, s1L), indicating theindices of the two tokens at the top of the stack to-gether with their leftmost modifiers.
+Given a sig-631Figure 4: Non-linearity of the standard beamsearch compared to the linearity of our TSS beamsearch for labeled arc-eager and unlabeled arc-standard parsers on long sentences (running timesvs.
+sentence length).
+All parsers use beam size 8.nature, we decompose the feature function ?
+(x)into two parts ?
+(x) = ?s(sig(x)) + ?o(x), where?s(sig(x)) extracts all features that depend exclu-sively on signature items, and ?o(x) extracts allother features.4 The scoring function w ?
+?
+(x) de-composes into w ?
+?s(sig(x)) + w ?
+?o(x).
+Dur-ing beam decoding, we maintain a cache map-ping seen signatures sig(state) to (partial) tran-sition scores w ?
+?s(sig(state)).
+We now needto calculate w ?
+?o(x) for each beam item, butw ?
+?s(sig(x)) only for one of the items sharingthe signature.
+Defining the signature involves anatural balance between signatures that repeat of-ten and signatures that cover many features.
+In theexperiments in this paper, we chose the signaturefunction for the arc-standard parser to contain allcore elements participating in feature extraction5,and for the arc-eager parser a signature containingonly a partial subset.67 ExperimentsWe implemented beam-based parsers using thetraditional approach as well as with our proposedextension and compared their runtime.The first experiment highlights the non-linearbehavior of the standard implementation, com-pared to the linear behavior of the TSS method.4One could extend the approach further to use several sig-natures and further decompose the feature function.
+We didnot pursue this idea in this work.5s0,s0L,s0R,s1,s1L,s1R,s2,j.6s0, s0L, s0R,s0h,b0L,j, where s0h is the parent ofs0, and b0L is the leftmost modifier of j.system plain plain plain plain +TSS+lazy+TSS +lazy +TSS +feat-share(sec 3) (sec 4) (sec 5) +lazy (sec 6)ArcS-U 20.8 38.6 24.3 41.1 47.4ArcE-U 25.4 48.3 38.2 58.2 72.3ArcE-L 1.8 4.9 11.1 14.5 17.3Table 1: Parsing speeds for the different tech-niques measured in sentences/sec (beam size 8).All parsers are implemented in Python, with dot-products in C. ArcS/ArcE denotes arc-standardvs.
+arc-eager, L/U labeled (stanford deps, 49 la-bels) vs. unlabeled parsing.
+ArcS use feature setof Huang and Sagae (2010) (50 templates), and ArcEthat of Zhang and Nivre (2011) (72 templates).As parsing time is dominated by score computa-tion, the effect is too small to be measured onnatural language sentences, but it is noticeablefor longer sentences.
+Figure 4 plots the runtimefor synthetic examples with lengths ranging from50 to 1000 tokens, which are generated by con-catenating sentences from Sections 22?24 of PennTreebank (PTB), and demonstrates the non-linearbehavior (dataset included).
+We argue parsinglonger sentences is by itself an interesting andpotentially important problem (e.g.
+for other lan-guages such as Arabic and Chinese where wordor sentence boundaries are vague, and for pars-ing beyond sentence-level, e.g.
+discourse parsingor parsing with inter-sentence dependencies).Our next set of experiments compares the actualspeedup observed on English sentences.
+Table 1shows the speed of the parsers (sentences/sec-ond) with the various proposed optimization tech-niques.
+We first train our parsers on Sections 02?21 of PTB, using Section 22 as the test set.
+Theaccuracies of all our parsers are at the state-of-the-art level.
+The final speedups are up to 10xagainst naive baselines and ?2x against the lazy-transitions baselines.8 ConclusionsWe demonstrated in both theory and experimentsthat the standard implementation of beam searchparsers run in O(n2) time, and have presented im-proved algorithms which run in O(n) time.
+Com-bined with other techniques, our method offerssignificant speedups (?2x) over strong baselines,or 10x over naive ones, and is orders of magnitudefaster on much longer sentences.
+We have demon-strated that our approach is general and we believeit will benefit many other incremental parsers.632ReferencesEugene Charniak.
+2000.
+A maximum-entropy-inspired parser.
+In Proceedings of NAACL.Michael Collins and Brian Roark.
+2004.
+Incrementalparsing with the perceptron algorithm.
+In Proceed-ings of ACL.Michael Collins.
+1999.
+Head-Driven Statistical Mod-els for Natural Language Parsing.
+Ph.D. thesis,University of Pennsylvania.Yoav Goldberg and Michael Elhadad.
+2010.
+An ef-ficient algorithm for easy-first non-directional de-pendency parsing.
+In Proceedings of HLT-NAACL,pages 742?750.Liang Huang and Kenji Sagae.
+2010.
+Dynamic pro-gramming for linear-time incremental parsing.
+InProceedings of ACL 2010.Liang Huang, Wenbin Jiang, and Qun Liu.
+2009.Bilingually-constrained (monolingual) shift-reduceparsing.
+In Proceedings of EMNLP.Philipp Koehn.
+2004.
+Pharaoh: a beam search de-coder for phrase-based statistical machine transla-tion models.
+In Proceedings of AMTA, pages 115?124.Marco Kuhlmann, Carlos Gmez-Rodrguez, and Gior-gio Satta.
+2011.
+Dynamic programming algorithmsfor transition-based dependency parsers.
+In Pro-ceedings of ACL.Joakim Nivre and Mario Scholz.
+2004.
+Deterministicdependency parsing of english text.
+In Proceedingsof COLING, Geneva.Joakim Nivre.
+2008.
+Algorithms for deterministic in-cremental dependency parsing.
+Computational Lin-guistics, 34(4):513?553.Chris Okasaki.
+1999.
+Purely functional data struc-tures.
+Cambridge University Press.Brian Roark.
+2001.
+Probabilistic top-down parsingand language modeling.
+Computational Linguistics,27(2):249?276.Masaru Tomita.
+1985.
+An efficient context-free pars-ing algorithm for natural languages.
+In Proceedingsof the 9th international joint conference on Artificialintelligence - Volume 2, pages 756?764.Yue Zhang and Stephen Clark.
+2008.
+A tale oftwo parsers: investigating and combining graph-based and transition-based dependency parsing us-ing beam-search.
+In Proceedings of EMNLP.Yue Zhang and Stephen Clark.
+2011.
+Shift-reduce ccgparsing.
+In Proceedings of ACL.Yue Zhang and Joakim Nivre.
+2011.
+Transition-baseddependency parsing with rich non-local features.
+InProceedings of ACL, pages 188?193.633

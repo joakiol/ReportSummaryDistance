@@ -1,0 +1,409 @@
+Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics, pages 599?609,Berlin, Germany, August 7-12, 2016.c?2016 Association for Computational LinguisticsLatent Predictor Networks for Code GenerationWang Ling?
+Edward Grefenstette?
+Karl Moritz Hermann?Tom?a?s Ko?cisk?y??
+Andrew Senior?
+Fumin Wang?
+Phil Blunsom??
+?Google DeepMind ?University of Oxford{lingwang,etg,kmh,tkocisky,andrewsenior,awaw,pblunsom}@google.comAbstractMany language generation tasks requirethe production of text conditioned on bothstructured and unstructured inputs.
+Wepresent a novel neural network architec-ture which generates an output sequenceconditioned on an arbitrary number of in-put functions.
+Crucially, our approachallows both the choice of conditioningcontext and the granularity of generation,for example characters or tokens, to bemarginalised, thus permitting scalable andeffective training.
+Using this framework,we address the problem of generating pro-gramming code from a mixed natural lan-guage and structured specification.
+Wecreate two new data sets for this paradigmderived from the collectible trading cardgames Magic the Gathering and Hearth-stone.
+On these, and a third preexistingcorpus, we demonstrate that marginalis-ing multiple predictors allows our modelto outperform strong benchmarks.1 IntroductionThe generation of both natural and formal lan-guages often requires models conditioned on di-verse predictors (Koehn et al, 2007; Wong andMooney, 2006).
+Most models take the restrictiveapproach of employing a single predictor, such asa word softmax, to predict all tokens of the outputsequence.
+To illustrate its limitation, suppose wewish to generate the answer to the question ?Whowrote The Foundation??
+as ?The Foundation waswritten by Isaac Asimov?.
+The generation of thewords ?Issac Asimov?
+and ?The Foundation?
+froma word softmax trained on annotated data is un-likely to succeed as these words are sparse.
+A ro-bust model might, for example, employ one pre-Figure 1: Example MTG and HS cards.dictor to copy ?The Foundation?
+from the input,and a another one to find the answer ?Issac Asi-mov?
+by searching through a database.
+However,training multiple predictors is in itself a challeng-ing task, as no annotation exists regarding the pre-dictor used to generate each output token.
+Fur-thermore, predictors generate segments of differ-ent granularity, as database queries can generatemultiple tokens while a word softmax generatesa single token.
+In this work we introduce LatentPredictor Networks (LPNs), a novel neural archi-tecture that fulfills these desiderata: at the coreof the architecture is the exact computation of themarginal likelihood over latent predictors and gen-erated segments allowing for scalable training.We introduce a new corpus for the automaticgeneration of code for cards in Trading CardGames (TCGs), on which we validate our model1.TCGs, such as Magic the Gathering (MTG) andHearthstone (HS), are games played between twoplayers that build decks from an ever expandingpool of cards.
+Examples of such cards are shownin Figure 1.
+Each card is identified by its attributes1Dataset available at https://deepmind.com/publications.html599(e.g., name and cost) and has an effect that is de-scribed in a text box.
+Digital implementations ofthese games implement the game logic, which in-cludes the card effects.
+This is attractive froma data extraction perspective as not only are thedata annotations naturally generated, but we canalso view the card as a specification communi-cated from a designer to a software engineer.This dataset presents additional challenges toprior work in code generation (Wong and Mooney,2006; Jones et al, 2012; Lei et al, 2013; Artziet al, 2015; Quirk et al, 2015), including thehandling of structured input?i.e.
+cards are com-posed by multiple sequences (e.g., name anddescription)?and attributes (e.g., attack and cost),and the length of the generated sequences.
+Thus,we propose an extension to attention-based neu-ral models (Bahdanau et al, 2014) to attend overstructured inputs.
+Finally, we propose a code com-pression method to reduce the size of the codewithout impacting the quality of the predictions.Experiments performed on our new datasets,and a further pre-existing one, suggest that our ex-tensions outperform strong benchmarks.The paper is structured as follows: We firstdescribe the data collection process (Section 2)and formally define our problem and our base-line method (Section 3).
+Then, we propose ourextensions, namely, the structured attention mech-anism (Section 4) and the LPN architecture (Sec-tion 5).
+We follow with the description of our codecompression algorithm (Section 6).
+Our modelis validated by comparing with multiple bench-marks (Section 7).
+Finally, we contextualize ourfindings with related work (Section 8) and presentthe conclusions of this work (Section 9).2 Dataset ExtractionWe obtain data from open source implementationsof two different TCGs, MTG in Java2and HS inPython.3The statistics of the corpora are illus-trated in Table 1.
+In both corpora, each card is im-plemented in a separate class file, which we stripof imports and comments.
+We categorize the con-tent of each card into two different groups: sin-gular fields that contain only one value; and textfields, which contain multiple words representingdifferent units of meaning.
+In MTG, there are sixsingular fields (attack, defense, rarity, set, id, and2github.com/magefree/mage/3github.com/danielyule/hearthbreaker/MTG HSProgramming Language Java PythonCards 13,297 665Cards (Train) 11,969 533Cards (Validation) 664 66Cards (Test) 664 66Singular Fields 6 4Text Fields 8 2Words In Description (Average) 21 7Characters In Code (Average) 1,080 352Table 1: Statistics of the two TCG datasets.health) and four text fields (cost, type, name, anddescription), whereas HS cards have eight singu-lar fields (attack, health, cost and durability, rar-ity, type, race and class) and two text fields (nameand description).
+Text fields are tokenized bysplitting on whitespace and punctuation, with ex-ceptions accounting for domain specific artifacts(e.g., Green mana is described as ?{G}?
+in MTG).Empty fields are replaced with a ?NIL?
+token.The code for the HS card in Figure 1 is shownin Figure 2.
+The effect of ?drawing cards until theplayer has as many cards as the opponent?
+is im-plemented by computing the difference betweenthe players?
+hands and invoking the draw methodthat number of times.
+This illustrates that the map-ping between the description and the code is non-linear, as no information is given in the text regard-ing the specifics of the implementation.class DivineFavor(SpellCard):def __init__(self):super().__init__("Divine Favor", 3,CHARACTER_CLASS.PALADIN, CARD_RARITY.RARE)def use(self, player, game):super().use(player, game)difference = len(game.other_player.hand)- len(player.hand)for i in range(0, difference):player.draw()Figure 2: Code for the HS card ?Divine Favor?.3 Problem DefinitionGiven the description of a card x, our decodingproblem is to find the code y?
+so that:y?
+= argmaxylogP (y | x) (1)Here logP (y | x) is estimated by a given model.We define y = y1..y|y|as the sequence of char-acters of the code with length |y|.
+We index eachinput field with k = 1..|x|, where |x| quantifies the600number of input fields.
+|xk| denotes the number oftokens in xkand xkiselects the i-th token.4 Structured AttentionBackground When |x| = 1, the atten-tion model of Bahdanau et al (2014) ap-plies.
+Following the chain rule, logP (y|x) =?t=1..|y|logP (yt|y1..yt?1, x), each token ytispredicted conditioned on the previously gener-ated sequence y1..yt?1and input sequence x1=x11..x1|x1|.
+Probability are estimated with a soft-max over the vocabulary Y :p(yt|y1..yt?1, x1) = softmaxyt?Y(ht) (2)where htis the Recurrent Neural Network (RNN)state at time stamp t, which is modeled asg(yt?1,ht?1, zt).
+g(?)
+is a recurrent update func-tion for generating the new state htbased onthe previous token yt?1, the previous state ht?1,and the input text representation zt.
+We imple-ment g using a Long Short-Term Memory (LSTM)RNNs (Hochreiter and Schmidhuber, 1997).The attention mechanism generates the repre-sentation of the input sequence x = x11..x1|x1|,and ztis computed as the weighted sum zt=?i=1..|x1|aih(x1i), where aiis the attention co-efficient obtained for token x1iand h is a func-tion that maps each x1ito a continuous vector.
+Ingeneral, h is a function that projects x1iby learn-ing a lookup table, and then embedding contex-tual words by defining an RNN.
+Coefficients aiare computed with a softmax over input tokensx11..x1|x1|:ai= softmaxx1i?x(v(h(x1i),ht?1)) (3)Function v computes the affinity of each token x1iand the current output context ht?1.
+A commonimplementation of v is to apply a linear projectionfrom h(x1i) : ht?1(where : is the concatenationoperation) into a fixed size vector, followed by atanh and another linear projection.Our Approach We extend the computation ofztfor cases when x corresponds to multiple fields.Figure 3 illustrates how the MTG card ?Serra An-gel?
+is encoded, assuming that there are two singu-lar fields and one text field.
+We first encode eachtoken xkiusing the C2W model described in Linget al (2015), which is a replacement for lookup ta-bles where word representations are learned at theFigure 3: Illustration of the structured attentionmechanism operating on a single time stamp t.character level (cf.
+C2W row).
+A context-awarerepresentation is built for words in the text fieldsusing a bidirectional LSTM (cf.
+Bi-LSTM row).Computing attention over multiple input fields isproblematic as each input field?s vectors have dif-ferent sizes and value ranges.
+Thus, we learn alinear projection mapping each input token xkitoa vector with a common dimensionality and valuerange (cf.
+Linear row).
+Denoting this process asf(xki), we extend Equation 3 as:aki= softmaxxki?x(v(f(xki),ht?1)) (4)Here a scalar coefficient akiis computed for eachinput token xki(cf.
+?Tanh?, ?Linear?, and ?Soft-max?
+rows).
+Thus, the overall input representationztis computed as:zt=?k=1..|x|,i=1..|xk|aijf(xki) (5)5 Latent Predictor NetworksBackground In order to decode from x to y,many words must be copied into the code, suchas the name of the card, the attack and the costvalues.
+If we observe the HS card in Figure 1and the respective code in Figure 2, we observethat the name ?Divine Favor?
+must be copied intothe class name and in the constructor, along withthe cost of the card ?3?.
+As explained earlier,this problem is not specific to our task: for in-stance, in the dataset of Oda et al (2015), a modelmust learn to map from timeout = int (timeout ) to ?convert timeout into an integer.
+?,where the name of the variable ?timeout?
+mustbe copied into the output sequence.
+The same is-sue exists for proper nouns in machine translation601Figure 4: Generation process for the code init(?Tirion Fordring?,8,6,6) using LPNs.which are typically copied from one language tothe other.
+Pointer networks (Vinyals et al, 2015)address this by defining a probability distributionover a set of units that can be copied c = c1..c|c|.The probability of copying a unit ciis modeled as:p(ci) = softmaxci?c(v(h(ci),q)) (6)As in the attention model (Equation 3), v is a func-tion that computes the affinity between an embed-ded copyable unit h(ci) and an arbitrary vector q.Our Approach Combining pointer networkswith a character-based softmax is in itself difficultas these generate segments of different granularityand there is no ground truth of which predictor touse at each time stamp.
+We now describe LatentPredictor Networks, which model the conditionalprobability logP (y|x) over the latent sequence ofpredictors used to generate y.We assume that our model uses multiple pre-dictors r ?
+R, where each r can generatemultiple segments st= yt..yt+|st|?1with ar-bitrary length |st| at time stamp t. An ex-ample is illustrated in Figure 4, where we ob-serve that to generate the code init(?TirionFordring?,8,6,6), a pointer network canbe used to generate the sequences y137=Tirionand y2214=Fordring (cf.
+?Copy From Name?row).
+These sequences can also be generated us-ing a character softmax (cf.
+?Generate Characters?row).
+The same applies to the generation of theattack, health and cost values as each of these pre-dictors is an element inR.
+Thus, we define our ob-jective function as a marginal log likelihood func-tion over a latent variable ?
+:logP (y | x) = log????
+?P (y, ?
+| x) (7)Formally, ?
+is a sequence of pairs rt, st, wherert?
+R denotes the predictor that is used at time-stamp t and stthe generated string.
+We decom-pose P (y, ?
+| x) as the product of the probabilitiesof segments stand predictors rt:P (y, ?
+| x) =?rt,st?
+?P (st, rt| y1..yt?1, x) =?rt,st?
+?P (st| y1..yt?1, x, rt)P (rt| y1..yt?1, x)where the generation of each segment is per-formed in two steps: select the predictor rtwithprobability P (rt| y1..yt?1, x) and then gener-ate stconditioned on predictor rtwith probabil-ity logP (st| y1..yt?1, x, rt).
+The probability ofeach predictor is computed using a softmax overall predictors in R conditioned on the previousstate ht?1and the input representation zt(cf.
+?Se-lect Predictor?
+box).
+Then, the probability of gen-erating the segment stdepends on the predictortype.
+We define three types of predictors:602Character Generation Generate a single char-acter from observed characters from the trainingdata.
+Only one character is generated at each timestamp with probability given by Equation 2.Copy Singular Field For singular fields onlythe field itself can be copied, for instance, thevalue of the attack and cost attributes or the typeof card.
+The size of the generated segment is thenumber of characters in the copied field and thesegment is generated with probability 1.Copy Text Field For text fields, we allow eachof the words xkiwithin the field to be copied.The probability of copying a word is learned witha pointer network (cf.
+?Copy From Name?
+box),where h(ci) is set to the representation of the wordf(xki) and q is the concatenation ht?1: ztof thestate and input vectors.
+This predictor generates asegment with the size of the copied word.It is important to note that the state vector ht?1is generated by building an RNN over the se-quence of characters up until the time stamp t?
+1,i.e.
+the previous context yt?1is encoded at thecharacter level.
+This allows the number of pos-sible states to remain tractable at training time.5.1 InferenceAt training time we use back-propagation to max-imize the probability of observed code, accordingto Equation 7.
+Gradient computation must be per-formed with respect to each computed probabil-ity P (rt| y1..yt?1, x) and P (st| y1..yt?1, x, rt).The derivative?
+logP (y|x)?P (rt|y1..yt?1,x)yields:?
+?tP (rt| y1..yt?1, x)?t,rt+ ?rtP (y | x)?P (rt| y1..yt?1, x)=?t?t,rt?|y|+1Here ?tdenotes the cumulative probability of allvalues of ?
+up until time stamp t and ?|y|+1yieldsthe marginal probability P (y | x).
+?t,rt= P (st|y1..yt?1)?t+|st|?1denotes the cumulative proba-bility starting from predictor rtat time stamp t, ex-clusive.
+This includes the probability of the gener-ated segment P (st| y1..yt?1, x, rt) and the proba-bility of all values of ?
+starting from timestamp t+|st|?1, that is, all possible sequences that generatesegment y after segment stis produced.
+For com-pleteness, ?rdenotes the cumulative probabilitiesof all ?
+that do not include rt.
+To illustrate this,we refer to Figure 4 and consider the timestampt = 14, where the segment s14=Fordring isgenerated.
+In this case, the cumulative probability?14is the sum of the path that generates the se-quence init(?Tirion with characters alone,and the path that generates the word Tirion bycopying from the input.
+?21includes the prob-ability of all paths that follow the generation ofFordring, which include 2?3?3 different pathsdue to the three decision points that follow (e.g.generating 8 using a character softmax vs. copy-ing from the cost).
+Finally, ?rrefers to the paththat generates Fordring character by character.While the number of possible paths grows ex-ponentially, ?
+and ?
+can be computed efficientlyusing the forward-backward algorithm for Semi-Markov models (Sarawagi and Cohen, 2005),where we associate P (rt| y1..yt?1, x) to edgesand P (st| y1..yt?1, x, rt) to nodes in the Markovchain.The derivative?
+logP (y|x)?P (st|y1..yt?1,x,rt)can be com-puted using the same logic:?
+?t,stP (st| y1..yt?1, x, rt)?t+|st|?1+ ?rtP (y | x)?P (st| y1..yt?1, x, rt)=?t,rt?t+|st|?1?|y|+1Once again, we denote ?t,rt= ?tP (rt|y1..yt?1, x) as the cumulative probability of allvalues of ?
+that lead to st, exclusive.An intuitive interpretation of the derivatives isthat gradient updates will be stronger on prob-ability chains that are more likely to generatethe output sequence.
+For instance, if the modellearns a good predictor to copy names, such asFordring, other predictors that can also gener-ate the same sequences, such as the character soft-max will allocate less capacity to the generationof names, and focus on elements that they excel at(e.g.
+generation of keywords).5.2 DecodingDecoding is performed using a stack-based de-coder with beam search.
+Each state S corre-sponds to a choice of predictor rtand segment stat a given time stamp t. This state is scored asV (S) = logP (st| y1..yt?1, x, rt) + logP (rt|y1..yt?1, x) + V (prev(S)), where prev(S) de-notes the predecessor state of S. At each timestamp, the n states with the highest scores Vare expanded, where n is the size of the beam.For each predictor rt, each output stgenerates anew state.
+Finally, at each timestamp t, all states603which produce the same output up to that point aremerged by summing their probabilities.6 Code CompressionAs the attention-based model traverses all inputunits at each generation step, generation becomesquite expensive for datasets such as MTG wherethe average card code contains 1,080 characters.While this is not the essential contribution in ourpaper, we propose a simple method to compressthe code while maintaining the structure of thecode, allowing us to train on datasets with longercode (e.g., MTG).The idea behind that method is that manykeywords in the programming language (e.g.,public and return) as well as frequently usedfunctions and classes (e.g., Card) can be learnedwithout character level information.
+We exploitthis by mapping such strings onto additional sym-bols Xi(e.g., public class copy() ??X1X2X3()?).
+Formally, we seek the string v?among all strings V (max) up to length max thatmaximally reduces the size of the corpus:v?
+= argmaxv?V (max)(len(v)?
+1)C(v) (8)where C(v) is the number of occurrences ofv in the training corpus and len(v) its length.
+(len(v) ?
+1)C(v) can be seen as the number ofcharacters reduced by replacing v with a non-terminal symbol.
+To find q(v) efficiently, we lever-age the fact that C(v) ?
+C(v?)
+if v contains v?.
+Itfollows that (max?
+1)C(v) ?
+(max?
+1)C(v?
+),which means that the maximum compression ob-tainable for v at size max is always lower thanthat of v?.
+Thus, if we can find a v?
+such that(len(v?)
+?
+1)C(v?)
+> (max ?
+1)C(v?
+), that is v?at the current size achieves a better compressionrate than v?at the maximum length, then it fol-lows that all sequences that contain v can be dis-carded as candidates.
+Based on this idea, our itera-tive search starts by obtaining the counts C(v) forall segments of size s = 2, and computing the bestscoring segment v?.
+Then, we build a list L(s) ofall segments that achieve a better compression ratethan v?
+at their maximum size.
+At size s + 1, onlysegments that contain a element in L(s ?
+1) needto be considered, making the number of substringsto be tested to be tractable as s increases.
+The al-gorithm stops once s reaches max or the newlygenerated list L(s) contains no elements.X v sizeX1card)?{?super(card);?}?
+@Override?public 1041X2bility 1002X3;?this.
+964X4(UUID ownerId)?
+{?super(ownerId 934X5public 907X6new 881X7copy() 859X8}?
+)X3expansionSetCode = ?
+837X9X6CardType[]{CardType.
+815X10ffect 794Table 2: First 10 compressed units in MTG.
+Wereplaced newlines with ?
+and spaces with .Once v?
+is obtained, we replace all occurrencesof v?
+with a new non-terminal symbol.
+This pro-cess is repeated until a desired average size for thecode is reached.
+While training is performed onthe compressed code, the decoding will undergoan additional step, where the compressed code isrestored by expanding the all Xi.
+Table 2 showsthe first 10 replacements from the MTG dataset,reducing its average size from 1080 to 794.7 ExperimentsDatasets Tests are performed on the twodatasets provided in this paper, described in Ta-ble 1.
+Additionally, to test the model?s ability ofgeneralize to other domains, we report results inthe Django dataset (Oda et al, 2015), comprisingof 16000 training, 1000 development and 1805 testannotations.
+Each data point consists of a line ofPython code together with a manually created nat-ural language description.Neural Benchmarks We implement two stan-dard neural networks, namely a sequence-to-sequence model (Sutskever et al, 2014) and anattention-based model (Bahdanau et al, 2014).The former is adapted to work with multiple in-put fields by concatenating them, while the latteruses our proposed attention model.
+These modelsare denoted as ?Sequence?
+and ?Attention?.Machine Translation Baselines Our problemcan also be viewed in the framework of seman-tic parsing (Wong and Mooney, 2006; Lu et al,2008; Jones et al, 2012; Artzi et al, 2015).
+Unfor-tunately, these approaches define strong assump-tions regarding the grammar and structure of theoutput, which makes it difficult to generalize forother domains (Kwiatkowski et al, 2010).
+How-ever, the work in Andreas et al (2013) provides604evidence that using machine translation systemswithout committing to such assumptions can leadto results competitive with the systems describedabove.
+We follow the same approach and createa phrase-based (Koehn et al, 2007) model and ahierarchical model (or PCFG) (Chiang, 2007) asbenchmarks for the work presented here.
+As thesemodels are optimized to generate words, not char-acters, we implement a tokenizer that splits on allpunctuation characters, except for the ?
+?
+charac-ter.
+We also facilitate the task by splitting Camel-Case words (e.g., class TirionFordring?
+class Tirion Fordring).
+Otherwise allclass names would not be generated correctly bythese methods.
+We used the models implementedin Moses to generate these baselines using stan-dard parameters, using IBM Alignment Model 4for word alignments (Och and Ney, 2003), MERTfor tuning (Sokolov and Yvon, 2011) and a 4-gramKneser-Ney Smoothed language model (Heafieldet al, 2013).
+These models will be denoted as?Phrase?
+and ?Hierarchical?, respectively.Retrieval Baseline It was reported in (Quirk etal., 2015) that a simple retrieval method that out-puts the most similar input for each sample, mea-sured using Levenshtein Distance, leads to goodresults.
+We implement this baseline by computingthe average Levenshtein Distance for each inputfield.
+This baseline is denoted ?Retrieval?.Evaluation A typical metric is to compute theaccuracy of whether the generated code exactlymatches the reference code.
+This is informativeas it gives an intuition of how many samples canbe used without further human post-editing.
+How-ever, it does not provide an illustration on the de-gree of closeness to achieving the correct code.Thus, we also test using BLEU-4 (Papineni etal., 2002) at the token level.
+There are clearlyproblems with these metrics.
+For instance, sourcecode can be correct without matching the refer-ence.
+The code in Figure 2, could have also beenimplemented by calling the draw function in ancycle that exists once both players have the samenumber of cards in their hands.
+Some tasks, suchas the generation of queries (Zelle and Mooney,1996), have overcome this problem by executingthe query and checking if the result is the sameas the annotation.
+However, we shall leave thestudy of these methologies for future work, asadapting these methods for our tasks is not triv-ial.
+For instance, the correctness cards with con-ditional (e.g.
+if player has no cards,then draw a card) or non-deterministc (e.g.put a random card in your hand) ef-fects cannot be simply validated by running thecode.Setup The multiple input types (Figure 3) arehyper-parametrized as follows: The C2W model(cf.
+?C2W?
+row) used to obtain continuous vec-tors for word types uses character embeddings ofsize 100 and LSTM states of size 300, and gener-ates vectors of size 300.
+We also report on resultsusing word lookup tables of size 300, where wereplace singletons with a special unknown tokenwith probability 0.5 during training, which is thenused for out-of-vocabulary words.
+For text fields,the context (cf.
+?Bi-LSTM?
+row) is encoded witha Bi-LSTM of size 300 for the forward and back-ward states.
+Finally, a linear layer maps the differ-ent input tokens into a common space with of size300 (cf.
+?Linear?
+row).
+As for the attention model,we used an hidden layer of size 200 before ap-plying the non-linearity (row ?Tanh?).
+As for thedecoder (Figure 4), we encode output characterswith size 100 (cf.
+?output (y)?
+row), and an LSTMstate of size 300 and an input representation ofsize 300 (cf.
+?State(h+z)?
+row).
+For each pointernetwork (e.g., ?Copy From Name?
+box), the inter-section between the input units and the state unitsare performed with a vector of size 200.
+Train-ing is performed using mini-batches of 20 sam-ples using AdaDelta (Zeiler, 2012) and we reportresults using the iteration with the highest BLEUscore on the validation set (tested at intervals of5000 mini-batches).
+Decoding is performed with abeam of 1000.
+As for compression, we performeda grid search over compressing the code from 0%to 80% of the original average length over inter-vals of 20% for the HS and Django datasets.
+Onthe MTG dataset, we are forced to compress thecode up to 80% due to performance issues whentraining with extremely long sequences.7.1 ResultsBaseline Comparison Results are reported inTable 3.
+Regarding the retrieval results (cf.
+?Re-trieval?
+row), we observe the best BLEUscores among the baselines in the card datasets(cf.
+?MTG?
+and ?HS?
+columns).
+A key advantageof this method is that retrieving existing entitiesguarantees that the output is well formed, with no605MTG HS DjangoBLEU Acc BLEU Acc BLEU AccRetrieval 54.9 0.0 62.5 0.0 18.6 14.7Phrase 49.5 0.0 34.1 0.0 47.6 31.5Hierarchical 50.6 0.0 43.2 0.0 35.9 9.5Sequence 33.8 0.0 28.5 0.0 44.1 33.2Attention 50.1 0.0 43.9 0.0 58.9 38.8Our System 61.4 4.8 65.6 4.5 77.6 62.3?
+C2W 60.9 4.4 67.1 4.5 75.9 60.9?
+Compress - - 59.7 6.1 76.3 61.3?
+LPN 52.4 0.0 42.0 0.0 63.3 40.8?
+Attention 39.1 0.5 49.9 3.0 48.8 34.5Table 3: BLEU and Accuracy scores for the pro-posed task on two in-domain datasets (HS andMTG) and an out-of-domain dataset (Django).Compression 0% 20% 40% 60% 80%Seconds Per CardSoftmax 2.81 2.36 1.88 1.42 0.94LPN 3.29 2.65 2.35 1.93 1.41BLEU ScoresSoftmax 44.2 46.9 47.2 51.4 52.7LPN 59.7 62.8 61.1 66.4 67.1Table 4: Results with increasing compression rateswith a regular softmax (cf.
+?Softmax?)
+and a LPN(cf.
+?LPN?).
+Performance values (cf.
+?Seconds PerCard?
+block) are computed using one CPU.syntactic errors such as producing a non-existentfunction call or generating incomplete code.
+AsBLEU penalizes length mismatches, generatingcode that matches the length of the reference pro-vides a large boost.
+The phrase-based transla-tion model (cf.
+?Phrase?
+row) performs well inthe Django (cf.
+?Django?
+column), where map-ping from the input to the output is mostly mono-tonic, while the hierarchical model (cf.
+?Hierar-chical?
+row) yields better performance on the carddatasets as the concatenation of the input fieldsneeds to be reordered extensively into the out-put sequence.
+Finally, the sequence-to-sequencemodel (cf.
+?Sequence?
+row) yields extremely lowresults, mainly due to the lack of capacity neededto memorize whole input and output sequences,while the attention based model (cf.
+?Attention?row) produces results on par with phrase-basedsystems.
+Finally, we observe that by including allthe proposed components (cf.
+?Our System?
+row),we obtain significant improvements over all base-lines in the three datasets and is the only one thatobtains non-zero accuracies in the card datasets.Component Comparison We present ablationresults in order to analyze the contribution of eachof our modifications.
+Removing the C2W model(cf.
+??
+C2W?
+row) yields a small deterioration, asword lookup tables are more susceptible to spar-sity.
+The only exception is in the HS dataset,where lookup tables perform better.
+We believethat this is because the small size of the trainingset does not provide enough evidence for the char-acter model to scale to unknown words.
+Surpris-ingly, running our model compression code (cf.
+??Compress?
+row) actually yields better results.
+Ta-ble 4 provides an illustration of the results for dif-ferent compression rates.
+We obtain the best re-sults with an 80% compression rate (cf.
+?BLEUScores?
+block), while maximising the time eachcard is processed (cf.
+?Seconds Per Card?
+block).While the reason for this is uncertain, it is simi-lar to the finding that language models that outputcharacters tend to under-perform those that outputwords (J?ozefowicz et al, 2016).
+This applies whenusing the regular optimization process with a char-acter softmax (cf.
+?Softmax?
+rows), but also whenusing the LPN (cf.
+?LPN?
+rows).
+We also notethat the training speed of LPNs is not significantlylower as marginalization is performed with a dy-namic program.
+Finally, a significant decrease isobserved if we remove the pointer networks (cf.
+??LPN?
+row).
+These improvements also generalizeto sequence-to-sequence models (cf.
+??
+Attention?row), as the scores are superior to the sequence-to-sequence benchmark (cf.
+?Sequence?
+row).Result Analysis Examples of the code gener-ated for two cards are illustrated in Figure 5.We obtain the segments that were copied by thepointer networks by computing the most likelypredictor for those segments.
+We observe from themarked segments that the model effectively copiesthe attributes that match in the output, includingthe name of the card that must be collapsed.
+Asexpected, the majority of the errors originate frominaccuracies in the generation of the effect of thecard.
+While it is encouraging to observe that asmall percentage of the cards are generated cor-rectly, it is worth mentioning that these are the re-sult of many cards possessing similar effects.
+The?Madder Bomber?
+card is generated correctly asthere is a similar card ?Mad Bomber?
+in the train-ing set, which implements the same effect, exceptthat it deals 3 damage instead of 6.
+Yet, it is apromising result that the model was able to capture606this difference.
+However, in many cases, effectsthat radically differ from seen ones tend to be gen-erated incorrectly.
+In the card ?Preparation?, weobserve that while the properties of the card aregenerated correctly, the effect implements a unre-lated one, with the exception of the value 3, whichis correctly copied.
+Yet, interestingly, it still gener-ates a valid effect, which sets a minion?s attack to3.
+Investigating better methods to accurately gen-erate these effects will be object of further studies.Figure 5: Examples of decoded cards from HS.Copied segments are marked in green and incor-rect segments are marked in red.8 Related WorkWhile we target widely used programming lan-guages, namely, Java and Python, our work isrelated to studies on the generation of any ex-ecutable code.
+These include generating regu-lar expressions (Kushman and Barzilay, 2013),and the code for parsing input documents (Leiet al, 2013).
+Much research has also been in-vested in generating formal languages, such asdatabase queries (Zelle and Mooney, 1996; Be-rant et al, 2013), agent specific language (Kateet al, 2005) or smart phone instructions (Le etal., 2013).
+Finally, mapping natural languageinto a sequence of actions for the generation ofexecutable code (Branavan et al, 2009).
+Fi-nally, a considerable effort in this task has fo-cused on semantic parsing (Wong and Mooney,2006; Jones et al, 2012; Lei et al, 2013; Artziet al, 2015; Quirk et al, 2015).
+Recently pro-posed models focus on Combinatory CategoricalGrammars (Kushman and Barzilay, 2013; Artziet al, 2015), Bayesian Tree Transducers (Jones etal., 2012; Lei et al, 2013) and Probabilistic Con-text Free Grammars (Andreas et al, 2013).
+Thework in natural language programming (Vadas andCurran, 2005; Manshadi et al, 2013), where userswrite lines of code from natural language, is alsorelated to our work.
+Finally, the reverse map-ping from code into natural language is exploredin (Oda et al, 2015).Character-based sequence-to-sequence modelshave previously been used to generate code fromnatural language in (Mou et al, 2015).
+Inspiredby these works, LPNs provide a richer frameworkby employing attention models (Bahdanau et al,2014), pointer networks (Vinyals et al, 2015) andcharacter-based embeddings (Ling et al, 2015).Our formulation can also be seen as a generaliza-tion of Allamanis et al (2016), who implementa special case where two predictors have the samegranularity (a sub-token softmax and a pointer net-work).
+Finally, HMMs have been employed inneural models to marginalize over label sequencesin (Collobert et al, 2011; Lample et al, 2016) bymodeling transitions between labels.9 ConclusionWe introduced a neural network architecturenamed Latent Prediction Network, which allowsefficient marginalization over multiple predictors.Under this architecture, we propose a generativemodel for code generation that combines a char-acter level softmax to generate language-specifictokens and multiple pointer networks to copy key-words from the input.
+Along with other exten-sions, namely structured attention and code com-pression, our model is applied on on both exist-ing datasets and also on a newly created one withimplementations of TCG game cards.
+Our experi-ments show that our model out-performs multiplebenchmarks, which demonstrate the importance ofcombining different types of predictors.ReferencesM.
+Allamanis, H. Peng, and C. Sutton.
+2016.
+A Con-volutional Attention Network for Extreme Summa-rization of Source Code.
+ArXiv e-prints, February.Jacob Andreas, Andreas Vlachos, and Stephen Clark.2013.
+Semantic parsing as machine translation.
+InProceedings of the 51st Annual Meeting of the Asso-ciation for Computational Linguistics, pages 47?52,August.607Yoav Artzi, Kenton Lee, and Luke Zettlemoyer.
+2015.Broad-coverage ccg semantic parsing with amr.
+InProceedings of the 2015 Conference on EmpiricalMethods in Natural Language Processing, pages1699?1710, September.Dzmitry Bahdanau, Kyunghyun Cho, and YoshuaBengio.
+2014.
+Neural machine translation byjointly learning to align and translate.
+CoRR,abs/1409.0473.Jonathan Berant, Andrew Chou, Roy Frostig, and PercyLiang.
+2013.
+Semantic parsing on freebase fromquestion-answer pairs.
+In Proceedings of the 2013Conference on Empirical Methods in Natural Lan-guage Processing, pages 1533?1544.S.
+R. K. Branavan, Harr Chen, Luke S. Zettlemoyer,and Regina Barzilay.
+2009.
+Reinforcement learn-ing for mapping instructions to actions.
+In Pro-ceedings of the Joint Conference of the 47th AnnualMeeting of the ACL and the 4th International JointConference on Natural Language Processing of theAFNLP, pages 82?90.David Chiang.
+2007.
+Hierarchical phrase-based trans-lation.
+Comput.
+Linguist., 33(2):201?228, June.Ronan Collobert, Jason Weston, L?eon Bottou, MichaelKarlen, Koray Kavukcuoglu, and Pavel Kuksa.2011.
+Natural language processing (almost) fromscratch.
+J. Mach.
+Learn.
+Res., 12:2493?2537,November.Kenneth Heafield, Ivan Pouzyrevsky, Jonathan H.Clark, and Philipp Koehn.
+2013.
+Scalable modi-fied Kneser-Ney language model estimation.
+In Pro-ceedings of the 51th Annual Meeting on Associationfor Computational Linguistics, pages 690?696.Sepp Hochreiter and J?urgen Schmidhuber.
+1997.
+Longshort-term memory.
+Neural Comput., 9(8):1735?1780, November.Bevan Keeley Jones, Mark Johnson, and Sharon Gold-water.
+2012.
+Semantic parsing with bayesian treetransducers.
+In Proceedings of the 50th AnnualMeeting of the Association for Computational Lin-guistics, pages 488?496.Rafal J?ozefowicz, Oriol Vinyals, Mike Schuster, NoamShazeer, and Yonghui Wu.
+2016.
+Exploring the lim-its of language modeling.
+CoRR, abs/1602.02410.Rohit J. Kate, Yuk Wah Wong, and Raymond J.Mooney.
+2005.
+Learning to transform natural to for-mal languages.
+In Proceedings of the Twentieth Na-tional Conference on Artificial Intelligence (AAAI-05), pages 1062?1068, Pittsburgh, PA, July.Philipp Koehn, Hieu Hoang, Alexandra Birch, ChrisCallison-Burch, Marcello Federico, Nicola Bertoldi,Brooke Cowan, Wade Shen, Christine Moran,Richard Zens, Chris Dyer, Ond?rej Bojar, AlexandraConstantin, and Evan Herbst.
+2007.
+Moses: Opensource toolkit for statistical machine translation.
+InProceedings of the 45th Annual Meeting of the ACLon Interactive Poster and Demonstration Sessions,pages 177?180.Nate Kushman and Regina Barzilay.
+2013.
+Using se-mantic unification to generate regular expressionsfrom natural language.
+In Proceedings of the 2013Conference of the North American Chapter of theAssociation for Computational Linguistics: HumanLanguage Technologies, pages 826?836, Atlanta,Georgia, June.Tom Kwiatkowski, Luke Zettlemoyer, Sharon Goldwa-ter, and Mark Steedman.
+2010.
+Inducing proba-bilistic ccg grammars from logical form with higher-order unification.
+In Proceedings of the 2010 Con-ference on Empirical Methods in Natural LanguageProcessing, pages 1223?1233.G.
+Lample, M. Ballesteros, S. Subramanian,K.
+Kawakami, and C. Dyer.
+2016.
+NeuralArchitectures for Named Entity Recognition.
+ArXive-prints, March.Vu Le, Sumit Gulwani, and Zhendong Su.
+2013.Smartsynth: Synthesizing smartphone automationscripts from natural language.
+In Proceeding ofthe 11th Annual International Conference on Mo-bile Systems, Applications, and Services, pages 193?206.Tao Lei, Fan Long, Regina Barzilay, and Martin Ri-nard.
+2013.
+From natural language specificationsto program input parsers.
+In Proceedings of the51st Annual Meeting of the Association for Compu-tational Linguistics (Volume 1: Long Papers), pages1294?1303, Sofia, Bulgaria, August.Wang Ling, Tiago Lu?
+?s, Lu?
+?s Marujo, R?amon Fernan-dez Astudillo, Silvio Amir, Chris Dyer, Alan WBlack, and Isabel Trancoso.
+2015.
+Finding functionin form: Compositional character models for openvocabulary word representation.
+In Proceedings ofthe 2015 Conference on Empirical Methods in Nat-ural Language Processing.Wei Lu, Hwee Tou Ng, Wee Sun Lee, and Luke S.Zettlemoyer.
+2008.
+A generative model for pars-ing natural language to meaning representations.
+InProceedings of the 2008 Conference on EmpiricalMethods in Natural Language Processing, EMNLP?08, pages 783?792, Stroudsburg, PA, USA.
+Associ-ation for Computational Linguistics.Mehdi Hafezi Manshadi, Daniel Gildea, and James F.Allen.
+2013.
+Integrating programming by exam-ple and natural language programming.
+In MariedesJardins and Michael L. Littman, editors, AAAI.AAAI Press.Lili Mou, Rui Men, Ge Li, Lu Zhang, and Zhi Jin.2015.
+On end-to-end program generation fromuser intention by deep neural networks.
+CoRR,abs/1510.07211.608Franz Josef Och and Hermann Ney.
+2003.
+A sys-tematic comparison of various statistical alignmentmodels.
+Comput.
+Linguist., 29(1):19?51, March.Yusuke Oda, Hiroyuki Fudaba, Graham Neubig,Hideaki Hata, Sakriani Sakti, Tomoki Toda, andSatoshi Nakamura.
+2015.
+Learning to gener-ate pseudo-code from source code using statisticalmachine translation.
+In 30th IEEE/ACM Interna-tional Conference on Automated Software Engineer-ing (ASE), Lincoln, Nebraska, USA, November.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2002.
+Bleu: A method for automatic eval-uation of machine translation.
+In Proceedings of the40th Annual Meeting on Association for Computa-tional Linguistics, pages 311?318.Chris Quirk, Raymond Mooney, and Michel Galley.2015.
+Language to code: Learning semantic parsersfor if-this-then-that recipes.
+In Proceedings of the53rd Annual Meeting of the Association for Compu-tational Linguistics, pages 878?888, Beijing, China,July.Sunita Sarawagi and William W. Cohen.
+2005.
+Semi-markov conditional random fields for informationextraction.
+In L. K. Saul, Y. Weiss, and L. Bottou,editors, Advances in Neural Information ProcessingSystems 17, pages 1185?1192.
+MIT Press.Artem Sokolov and Franc?ois Yvon.
+2011.
+Mini-mum Error Rate Semi-Ring.
+In Mikel Forcada andHeidi Depraetere, editors, Proceedings of the Eu-ropean Conference on Machine Translation, pages241?248, Leuven, Belgium.Ilya Sutskever, Oriol Vinyals, and Quoc V. Le.
+2014.Sequence to sequence learning with neural net-works.
+CoRR, abs/1409.3215.David Vadas and James R. Curran.
+2005.
+Program-ming with unrestricted natural language.
+In Pro-ceedings of the Australasian Language TechnologyWorkshop 2005, pages 191?199, Sydney, Australia,December.Oriol Vinyals, Meire Fortunato, and Navdeep Jaitly.2015.
+Pointer networks.
+In C. Cortes, N.D.Lawrence, D.D.
+Lee, M. Sugiyama, and R. Garnett,editors, Advances in Neural Information ProcessingSystems 28, pages 2674?2682.
+Curran Associates,Inc.Yuk Wah Wong and Raymond J. Mooney.
+2006.Learning for semantic parsing with statistical ma-chine translation.
+In Proceedings of the Main Con-ference on Human Language Technology Confer-ence of the North American Chapter of the Associa-tion of Computational Linguistics, pages 439?446.Matthew D. Zeiler.
+2012.
+ADADELTA: an adaptivelearning rate method.
+CoRR, abs/1212.5701.John M. Zelle and Raymond J. Mooney.
+1996.
+Learn-ing to parse database queries using inductive logicprogramming.
+In AAAI/IAAI, pages 1050?1055,Portland, OR, August.
+AAAI Press/MIT Press.609

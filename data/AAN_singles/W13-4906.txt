@@ -1,0 +1,226 @@
+Proceedings of the Fourth Workshop on Statistical Parsing of Morphologically Rich Languages, pages 53?62,Seattle, Washington, USA, 18 October 2013. c?2013 Association for Computational LinguisticsExploring beam-based shift-reduce dependency parsing with DyALog:Results from the SPMRL 2013 shared task?ric Villemonte de la ClergerieINRIA - Rocquencourt - B.P.
+10578153 Le Chesnay Cedex, FRANCEEric.De_La_Clergerie@inria.frAbstractThe SPMRL 2013 shared task was the op-portunity to develop and test, with promisingresults, a simple beam-based shift-reduce de-pendency parser on top of the tabular logicprogramming system DYALOG.
+The parserwas also extended to handle ambiguous wordlattices, with almost no loss w.r.t.
+disam-biguated input, thanks to specific training, useof oracle segmentation, and large beams.
+Webelieve that this result is an interesting newone for shift-reduce parsing.1 IntroductionDYALOG is a tabular-based logic programming en-vironment, including a language (variant of Prolog),a bootstrapped compiler, and C-based abstract ma-chine.
+It is mostly used for chart-like parsing (de LaClergerie, 2005b), in particular for a wide coverageFrench Tree Adjoining Grammar (de La Clergerie,2005a).
+However, DYALOG offers all the powerof a programming language a la Prolog, with somespecific advantages, and it was tempting to try iton statistical parsing paradigms.
+The SPMRL 2013shared task (Seddah et al 2013) was an interestingopportunity to develop a simple (non-deterministic)beam-based shift-reduce dependency parser, calledDYALOG-SR, inspired by (Huang and Sagae, 2010).The main advantage of logic programming is the(almost) transparent handling of non-determinism,useful for instance to handle ambiguous word lat-tices.
+DYALOG allows an easy tabulation of items,and their fast retrieval (thanks to full term indexing),needed for the dynamic programming part of the al-gorithm.
+Thanks to structure sharing and term hash-ing, it also reduces the costs related to the tabulationof multiple items (sharing subparts) and to term uni-fication.
+Logic programs tend to be very concise,with, in our case, around 1500 lines of DYALOGcode.
+However, one of the disadvantages of (pure)logic programming, and of DYALOG in particular,is the handling of mutable structures, which moti-vated the development of a companion C module(around 850 lines) to handle statistical models (load-ing, querying, updating, and saving).We briefly present the implemented algorithm(Section 2) and list the preliminary adaptations donefor the 9 languages of the shared task (Section 3).We analyze in Section 4 the official results forDYALOG-SR.
+Recent developments corrected someweaknesses of DYALOG-SR.
+In particular, we ex-plain in Section 5 how we seriously improved theparsing of ambiguous lattices, an important new re-sult for shift-reduce parsing.
+Finally, Section 6 pro-vides some empirical data about the efficiency andcomplexity of the algorithm.2 A Dynamic Programming Shift-ReduceparserWe used (Huang and Sagae, 2010) as the startingpoint for this work, in particular using the samesimple arc-standard strategy for building projectivedependency trees, defined by the deductive systemof Figure 1.
+In a configuration m:?j, S?
+:c, m de-notes the number of transitions applied since the ax-iom configuration, j the current position in the in-put string, S the stack of partial dependency treesbuilt so far, and c the cost.
+A shift transition pushesthe next input symbol on top of the stack while thetwo reduce transitions combine the 2 topmost stacktrees, add a new (labeled) leftmost or rightmost de-53pendency edge between their roots, and remove thenewly governed subtree from the stack.
+The deltacost ?, ?, and ?
+denote the cost of each operationw.r.t.
+the input configuration.input: w0 .
+.
+.
+wn?1axiom 0:?0, ?
+:0shiftm:?j, S?
+:cm+ 1:?j + 1, S|wj?
+:c+ ?relxm:?j, S|s1|s0?
+:cm+ 1:?j, S|s1 lxs0?
+:c+ ?reylm:?j, S|s1|s0?
+:cm+ 1:?j, S|s1 yl s0?
+:c+ ?goal 2n?
+1:?n, s0?
+:cFigure 1: Arc-standard deductive systemFrom the configurations, the deductive system,and the configuration elements used to determinethe transition costs, it is relatively straightforward todesign items denoting partial configurations stand-ing for equivalence classes of configurations and al-lowing computation sharing, following the principleof Dynamic Programming.
+The deduction rules areadapted to work on items and beam search (with sizeb) is then achieved by keeping only the b best itemsfor each step m1.
+By following backpointers fromitems to parents, it is possible to retrieve the besttransition sequence and the best dependency tree.i t em { s t e p => M,r i g h t => J ,s t a c k => S0 , % t o p m o s t t r e e ss t a c k 1 => S1 , %p r e f i x => Cost , % max c o s ti n s i d e => I C o s t % i n s i d e c o s t} .back ( Item , Act ion , P a r e n t 1 , P a r e n t 2 , C) .t a i l ( I tem , A n c e s t o r ) .Listing 1: Item structureInstead of the items proposed in (Huang andSagae, 2010), we switched to items closer to thoseproposed in (Goldberg et al 2013), corresponding1Because we use Dynamic Programming techniques, keep-ing the b-best items at step m actually corresponds to keep morethan the b-best configurations at step m.to Tree Structured Stacks (TSS), where stack tailsare shared among items, as defined by Listing 1.
+Theprefix cost corresponds to the maximal cost attachedto the item, starting from the initial item.
+The insidecost is the maximal cost for a derivation from someancestor item where s0 was shifted on the stack, andis used to adjust the total cost for different ancestoritems.
+The items are completed by backpointers (us-ing asserted facts back/5) and links to the potentialstack tails (using asserted facts tail/2) needed toretrieve the lower part of a stack when applying a re-duce action.
+Figure 2 shows the adaptation for itemsof some of the deductive rules.shiftI = m:?j, s0, s1?
+:(c, ?
+)J = m+ 1:?j + 1, wj , s0?
+:(c+ ?, ?
+)tail(J)+= Iback(J)+=(shift, I,nil, c+ ?
+)relxI = m:?j, s0, s1?
+:(c, ?
+)J = _:?_, s1, s2?
+:(c?, ??)
+?
+tail(I)K = m+ 1:?j, s1 lxs0, s2?:(c?
++ ?, ??
++ ?)?
+= ?+ ?tail(K)?=tail(J)back(K)+=(lx, I, J, c?
++ ?
+)Figure 2: Deductive system on items (fragment)The stack elements for configuration are depen-dency trees, but approximations can be used for theitem fields stack and stack1, under the con-dition that sufficient information remains to applythe transitions and to compute the costs.
+In prac-tice, we keep information about the root node, and,when present, the leftmost and rightmost depen-dency edges, the numbers of left and right depen-dencies (valency), and the label sets (domain) for theleft and right dependencies.The training phase relies on sequences of ac-tions provided by an oracle and uses a simple av-eraged structured perceptron algorithm (Daume,2006).
+The underlying statistical model is updatedpositively for the actions of the oracle and negativelyfor the actions of the parser, whenever a point of di-vergence is found.
+Several updating strategies maybe considered (Huang et al 2012), and, in our case,we update as early (early update) and as often aspossible: after completion of Step m+1, we updatethe model locally (i.e.
+for the last action) whenever54?
+the best item BOm+1 derived from the oracleitem Om at Step m differs from the expectedoracle item Om+1;?
+the oracle item Om+1 is not in the beam, forintermediary steps m < 2n?
+2;?
+the oracle item Om+1 is not the best item, forthe last step m = 2n?
+2.We use a relatively standard set of word featuresrelated to the CONLL fields such as lex (FORM),lemma, cat (CPOSTAG), fullcat (POSTAG),mstag (morphosyntactic features FEATS).
+Theyapply to the next unread word (*I, say lemmaI),the two next lookahead words (*I2 and *I3),and (when present) to the 2 stack root nodes (*0and *1), their leftmost and rightmost child (beforeb*[01] and after a*[01]).
+We have dependencyfeatures such as the labels of the leftmost and right-most edges ([ab]label[01]), the left and rightvalency and domains ([ab][vd][01]).
+Finally,we have 3 (discretized) distance features betweenthe next word and the stack roots (delta[01])and between the two stack roots (delta01).
+Mostfeature values are atomic (either numerical or sym-bolic), but they can also be (recursively) a list ofvalues, for instance for the mstag and domain fea-tures.A tagset (for a given language and/or treebank)contains a set of feature templates, each tem-plate being a sequence of features (for instancefullcat0:fullcat1:blabel0).Model management is a key factor for the effi-ciency of the algorithm, both for querying or updat-ing the costs attached to a configuration.
+Therefore,we developed a specialized C companion module.
+Amodel is represented by a hash trie to factor the pre-fixes of the templates.
+Costs are stored in the leaves(for selecting the labels) and their immediate par-ent (for selecting between the shift and reducebase actions), ensuring join learning with smoothingof an action and a label.
+Querying is done by pro-viding a tree-structured argument representing thefeature values for all templates2, with the possibil-2The tree structure of the argument mirrors the tree structureof the templates and getting the argument tree for a configura-tion is actually a fast and very low memory operation, thanks tounification and structure sharing.ity to leave underspecified the action and the label.By traversing in a synchronous way the model trieand the argument tree, and accumulating costs forall possible actions and labels, a single query returnsin order the cost for the b best actions.
+Furthermore,when a feature value is a list, the traversal is runfor all its components (with summation of all foundcosts).3 Preparing the shared taskWe trained the parser on the training and dev de-pendency treebanks kindly provided by the organiz-ers for the 9 languages of the task, namely Ara-bic3, Basque (Aduriz et al 2003), French (Abeill?et al 2003), German (Brants et al 2002; Seekerand Kuhn, 2012), Hebrew (Sima?an et al 2001;Tsarfaty, 2013; Goldberg, 2011), Hungarian (Vinczeet al 2010; Csendes et al 2005), Korean (Choiet al 1994; Choi, 2013) , Polish (S?widzin?ski andWolin?ski, 2010), Swedish (Nivre et al 2006).Being very short in time, we essentially used thesame set of around 110 templates for all languages.Nevertheless, minimal tuning was performed forsome languages and for the pred data mode (whenusing predicted data), as summarized below.For French, the main problem was to retrieveMWEs (Multi Word Expression) in pred datamode.
+Predicted features mwehead and pred wereadded, thanks to a list of MWEs collected in the goldtreebank and in the French lexicon LEFFF (Sagotet al 2006).
+We also added the predicted featureis_number to help detecting numerical MWEssuch as 120 000, and also a is_capitalizedfeature.
+For all data modes, we added a sub-categorization feature for verbs (with a list value),again extracted from LEFFF.For Arabic, Hebrew, and Swedish, the lemmafeature is removed because of the absence of lemmain the treebanks.
+Similarly, for Polish and German,with identical CPOS and POS tagsets, we removethe cat feature.For Hungarian, the SubPOS morphosyntacticfeature is appended to the fullcat feature, to get a3We used the shared task Arabic data set, originally providedby the LDC (Maamouri et al 2004), specifically its SPMRL2013 dependency instance, derived from the Columbia CatibTreebank (Habash and Roth, 2009; Habash et al 2009)55richer set of POS.
+The set of dependency labels be-ing large (450 labels), we split the labels into lists ofmore elementary ones for the label features.Similarly, the Korean POS tags are also split intolists, because of their large number (2743 tags) andof their compound structure.For French, Hebrew, and Korean, in order to com-pensate initially large differences in performancebetween the gold and pred modes, we added, forthe pred mode, dict features filled by predictedinformation about the possible tags for a givenform, thanks to the dict lexicons provided by theIMS_SZEGED team.Finally, we discovered very late that the depen-dency trees were not necessarily projective for a fewlanguages.
+A last-second solution was to use theMALT projectivization / deprojectivization wrap-pers (Nivre and Nilsson, 2005) to be able to trainon projectivized versions of the treebanks for Ger-man, Hungarian, and Swedish, while returning nonprojective trees.4 First resultsUnder the team label ALPAGE-DYALOG, we havereturned parsed data for the 9 languages of theshared task, for the full and 5k training size modes,and for the gold and pred data modes.
+For eachconfiguration, we provided 3 runs, for beam sizes8, 6, and 4.
+The results are synthesized in Tables 2,with LAS4 on the test and dev files, contrastedwith the LAS for the best system, the baseline, andthe mean LAS of all systems.
+The tables show thatDYALOG-SR cannot compete with the best system(like most other participants !
+), but performs reason-ably well w.r.t.
+the baseline and the mean LAS ofthe participants, at least in the gold/full case.The system is proportionally less accurate onsmaller training treebanks (5k case), lacking goodsmoothing mechanisms to deal with data sparseness.The pred case is also more difficult, possibly againbecause of data sparseness (less reliable informationnot compensated by bigger treebanks) but also be-cause we exploited no extra information for somelanguages (such as Basque or Swedish).The big drop for German in pred/5k case4Labeled Attachment Score, with punctuation being takinginto account.comes from the fact we were unable to de-projectivize the parsed test file with Malt5 and re-turned data built using an old model not relying onMalt proj/deproj wrappers.For Hungarian, a possible reason is the high levelof multiple roots in sentences, not compatible withour initial assumption of a single root per sentence.New experiments, after modifying slightly the al-gorithm to accept multiple roots6, confirm this hy-pothesis for Hungarian, and for other languages withmultiple roots, as shown in Table 1.language #roots/sent single multipleHungarian 2.00 79.22 82.90Arabic 1.21 87.17 87.71Basque 1.21 81.09 82.28German 1.09 90.95 91.29Table 1: Taking into account multiple roots (on gold/full)Finally, the Korean case, where we are below thebaseline, remains to be explained.
+For the pred case,it could come from the use of the KAIST tagset in-stead of the alternative Seijong tagset.
+For the goldcase, the results for all participants are actually rela-tively close.5 Handling ambiguous latticesOne of the important and innovative sub-tasks of theSPMRL campaign was to parse ambiguous latticesusing statistical methods.
+A word lattice is just a Di-rected Acyclic Graph (DAG) whose edges are deco-rated by words with their features and whose nodesdenote positions in the sentence, as represented inFigure 3 for an Hebrew sentence.
+A valid analysisfor a sentence should follow a path in the DAG fromits root node at position 0 till its final node at posi-tion n. Each edge may be associated with an uniqueidentifier to be able to refer it.Lattice parsing is rather standard in chart-parsing7and since the beginning, thanks to DYALOG?s sup-port, DYALOG-SR was designed to parse ambigu-ous word lattices as input, but originally using5because of non-termination on at least one sentence.6Essentially, the initial configuration becomes 0:?0,0?
+:0and the final one 2n:?n,0 y ??
+:c using 0 as a virtual rootnode.7being formalized as computing the intersection of a gram-mar with a regular language.56DYALOG-SR other systemslanguage test dev b best baseline meanArabic 85.87 86.99 4 89.83 82.28 86.11Basque 80.39 81.09 6 86.68 69.19 79.58French 87.69 87.94 8 90.29 79.86 85.99German 88.25 90.89 6 91.83 79.98 86.80Hebrew 80.70 81.31 8 83.87 76.61 80.13Hungarian 79.60 79.09 4 88.06 72.34 81.36Korean 88.23 89.24 6 89.59 88.43 88.91Polish 86.00 86.94 8 89.58 77.70 83.79Swedish 79.80 75.94 6 83.97 75.73 79.21(a) gold/fullDYALOG-SR other systemslanguage test dev b best baseline meanArabic 83.25 84.24 8 87.35 80.36 83.79Basque 79.11 79.03 8 85.69 67.13 78.33French 85.66 0.00 8 88.73 78.16 84.49German 83.88 87.21 6 87.70 76.64 83.06Hebrew 80.70 81.31 8 83.87 76.61 80.13Hungarian 78.42 79.09 4 87.21 71.27 80.42Korean 81.91 84.50 6 83.74 81.93 82.74Polish 85.67 0.00 8 89.16 76.64 83.13Swedish 79.80 0.00 6 83.97 75.73 79.21(b) gold/5kDYALOG-SR other systemslanguage test dev b best baseline meanArabic 81.20 82.18 8 86.21 80.36 82.57Basque 77.55 78.47 4 85.14 70.11 79.13French 82.06 82.88 8 85.86 77.98 81.03German 84.80 88.38 8 89.65 77.81 84.33Hebrew 73.63 74.74 6 80.89 69.97 73.30Hungarian 75.58 75.74 6 86.13 70.15 79.23Korean 81.02 82.45 6 86.62 82.06 83.09Polish 82.56 83.87 8 87.07 75.63 81.40Swedish 77.54 73.37 8 82.13 73.21 77.65(c) pred/fullDYALOG-SR other systemslanguage test dev b best baseline meanArabic 78.65 79.25 8 83.66 78.48 80.19Basque 76.06 76.11 6 83.84 68.12 77.76French 80.11 0.00 4 83.60 76.54 79.31German 73.07 84.69 8 85.08 74.81 79.34Hebrew 73.63 74.74 6 80.89 69.97 73.30Hungarian 74.48 75.55 6 85.24 69.08 78.31Korean 73.79 76.66 6 80.80 74.87 76.34Polish 82.04 0.00 8 86.69 75.29 80.96Swedish 77.54 72.44 8 82.13 73.21 77.65(d) pred/5kTable 2: Official results0 1 2 3 4 5 61:AIF/NN2:AIF/VB3:AIF/NNT4:LA/RB5:NISH/VB6:NISH/NN7:L/PREP8:LHSTIR/VB9:HSTIR/VB10:ZAT/PRPFigure 3: An ambiguous Hebrew word lattice (with gold segmentation path AIF LA NISH LHSTIR ZAT)models trained on standard CONLL non ambigu-ous sentences.
+However, the initial experimentswith Hebrew lattices (Table 3, using TED metric)have shown an important drop of 11 points betweennon ambiguous lattices (similar to standard CONLLfiles) and ambiguous ones.Hebrew Arabicdisamb nodisamb disambno training 87.34 76.35 87.32spec.
+training 86.75Table 3: Results on dev lattices (TED accuracy ?
+100)The main reason for that situation is that multi-ple paths of various lengths are now possible whentraversing a lattice.
+Final items are no longer associ-ated with the same number of steps (2n?1) and finalitems with a large number of steps (corresponding tolongest paths in the lattice) tend to be favored overthose with a small number of steps (correspondingto shortest paths), because the transition costs tendto be positive in our models.A first attempt to compensate this bias was to?normalize?
+path lengths by adding (incrementally)some extra cost to the shortest paths, proportionalto the number of missing steps.
+Again using modelstrained on non-ambiguous segmentations, we gainedaround 3 points (TED accuracy around 79) usingthis approach, still largely below the non-ambiguouscase.Finally, we opted for specific training on lattice,with the idea of introducing the new length wordfeature, whose value is defined, for a word, asthe difference between its right and left positionin the lattice.
+To exploit this feature, we addedthe following 9 templates: length[I,I2,0],57fullcat[I,I2,0]:length[I,I2,0],lengthI:lengthI2, length0:lengthI,and length0:lengthI:lengthI2.Then, to ensure that we follow valid lattice paths,the configurations and items were completed withthree extra lookahead fields la[123] to remem-ber the edge identifiers of the lookahead words thatwere consulted.
+Obviously, adding this extra infor-mation increases the number of items, only differingon their lookahead sequences, but it is an importantelement for the coherence of the algorithm.The reduce actions are kept unchanged, modulothe propagation without change of the lookaheadidentifiers, as shown below:relxm :< j, S|s1|s0, la1, la2, la3 >: cm+ 1 :< j, S|s1 lxs0, la1, la2, la3 >: c+ ?reylm :< j, S|s1|s0, la1, la2, la3 >: cm+ 1 :< j, S|s1 yl s0, la1, la2, la3 >: c+ ?On the other hand, the shift action consumes itsfirst lookahead identifier la1 (for a word between po-sition j and k) and selects a new lookahead identifierla4 (which must be a valid choice for continuing thepath la1, la2, la3):shiftm :< j, S, la1, la2, la3 >: cm+ 1 :< k, S|la1, la2, la3, la4 >: c+ ?It should be noted that for a given position j inthe lattice, we may have several items only differ-ing by their lookahead sequences la1, la2, la3, andeach of them will produce at least one new item byshifting la1, and possibly more than one because ofmultiple la4.
+However, several of these new shifteditems are discarded because of the beam.
+Learninggood estimations for the shift actions becomes a keypoint, more important than for usual shift-reduce al-gorithms.In order to do that, we modified the oracle to pro-vide information about the oracle segmentation pathin the lattice, essentially by mentioning which edgeidentifier should be used for each oracle shift action.It should be noted that this information is also suffi-cient to determine the lookahead sequence for eachoracle item, and in particular, the new edge identifierla4 to be retrieved for the shift actions.An issue was however to align the predicted lat-tices with the gold sentences (implementing a stan-dard dynamic programming algorithm) in order tofind the oracle segmentation paths.
+Unfortunately,we found that the segmentation path was missingfor 1,055 sentences in the provided Hebrew lattices(around 20% of all sentences).
+Rather than discard-ing these sentences from an already small trainingset, we decided to keep them with incomplete prefixsegmentation paths and oracles.Figure 4 shows the strong impact of a specifictraining and of using large beams, with a TED accu-racy climbing up to 86.75 (for beam size 16), closeto the 87.34 reached on non-ambiguous lattices (forbeam 6).
+Increasing beam size (around 3 times)seems necessary, probably for compensating the lat-tice ambiguities (2.76 transitions per token on aver-age).
+However, even at beam=6, we get much betterresults (TED=83.47) than without specific trainingfor the same beam size (TED=76.35).6 8 10 12 14 16848586beam size100?TEDaccuracyFigure 4: Score on Hebrew lattices w.r.t.
+beam sizeTo test the pertinence of the length features,we did some training experiments without these fea-tures.
+Against our expectations, we observed only avery low drop in performance (TED 86.50, loss =0.25).
+It is possible that the lex features are suffi-cient, because only a relatively restricted set of (fre-quent) words have segmentations with length > 1.In practice, for the Hebrew 5k training lattices, wehave 4,141 words with length > 1 for 44,722 oc-currences (22.21% of all forms, and 12.65% of alloccurrences), with around 80% of these occurrencescovered by only 1,000 words.
+It is also possible thatwe under-employ the length features in too fewtemplates, and that larger gains could be obtained.586 Empirical analysisThe diversity and amount of data provided for theshared task was the opportunity to investigate moreclosely the properties of DYALOG-SR, to identify itsweaknesses, and to try to improve it.The usefulness of beams has been already provedin the case of Hebrew ambiguous lattices, and Fig-ure 5 confirms that, in general, we get serious im-provements using a beam, but in practice, beam sizesabove 8 are not worth it.
+However, we observe al-most no gain for Korean, a situation to be investi-gated.2 4 6 8848586878889beam sizeLASArabicFrenchKoreanFigure 5: Accuracy evolution w.r.t.
+beam sizeEfficiency was not the main motivation for thiswork and for the shared task.
+However, it is worth-while to examine the empirical complexity of the al-gorithm w.r.t.
+beam size and w.r.t.
+sentence length.As shown in Figure 6, the average speed at beam=1is around 740 tokens by second.
+At best, we ex-pect a linear decreasing of the speed w.r.t.
+to beamsize, motivating the use of a normalized speed bymultiplying by the size.
+Surprisingly, we observea faster normalized speed than expected for smallbeam sizes, maybe arising from computation shar-ing.
+However, for larger beam sizes, we observea strong decrease, maybe related to beam manage-ment through (longer) sorted DYALOG lists, but alsoto some limits of term indexing8.
+The same experi-ence carried for large beam sizes on the Hebrew lat-tices does not exhibit the same degradation, a pointto be investigated but which suggests some kind of8Even with efficient term indexing, checking the presence ofan item in DYALOG table is not a constant time operation.equivalence between beam=4 on non ambiguous in-put string and beam=12 on ambiguous lattices (alsoreflected in accuracy evolution).2 4 6 86008001,0001,200beam size(tokenspersecond)?beamHe HuPo avgFigure 6: Normalized speed w.r.t.
+beam size (dev)6 8 10 12 14 16260280300320340beam size(tokenspersecond)?beamFigure 7: Normalized speed w.r.t.
+beam size (lattices)Collecting parsing times for the sentences underlength 80 from all training files and for all trainingiterations, Figure 8 confirms that parsing time (di-vided by beam size) is linear w.r.t.
+sentence lengthboth for beam=1 and beam=8.
+On the other hand,we observe, Figure 9, that the number of updatesincreases with beam size (confirming that largerbeams offer more possibilities of updates), but alsonon linearly with sentence length.7 ConclusionWe have presented DYALOG-SR, a new implemen-tation on top of DYALOG system of a beam-based5920 40 60 8050100150200250sentence lengthtime/beam(ms)b=1b=8Figure 8: Parsing time w.r.t.
+sentence length (train)20 40 60 80020406080100sentence length#updatesb=1b=8Figure 9: Number of updates w.r.t.
+sentence length (train)shift-reduce parser with some preliminary supportfor training on ambiguous lattices.
+Although devel-oped and tuned in less than a month, the participa-tion of this very young system to the SPMRL 2013shared task has shown its potential, even if far fromthe results of the best participants.
+As far as weknow, DYALOG-SR is also the first system to showthat shift-parsing techniques can be applied on am-biguous lattices, with almost no accuracy loss andwith only minimal modifications (but large beams).Several options are currently under considera-tion for improving the performances of DYALOG-SR.The first one is the (relatively straightforward) evo-lution of the parsing strategy for handling directlynon-projective dependency trees, through the addi-tion of some kind of SWAP transition (Nivre, 2009).Our preliminary experiments have shown the impor-tance of larger beam sizes to cover the increasedlevel of ambiguity due to lattices.
+However, it seemspossible to adjust locally the beam size in functionof the topology of the lattice, for improved accu-racy and faster parsing.
+It also seems necessary toexplore feature filtering, possibly using a tool likeMALTOPTIMIZER (Ballesteros and Nivre, 2012), todetermine the most discriminating ones.The current implementation scales correctly w.r.t.sentence length and, to a lesser extent, beam size.Nevertheless, for efficiency reasons, we plan to im-plement a simple C module for beam management toavoid the manipulation in DYALOG of sorted lists.Interestingly, such a module, plus the already im-plemented model manager, should also be usable tospeed up the disambiguation process of DYALOG-based TAG parser FRMG (de La Clergerie, 2005a).Actually, these components could be integrated in aslow but on-going effort to add first-class probabili-ties (or weights) in DYALOG, following the ideas of(Eisner and Filardo, 2011) or (Sato, 2008).Clearly, DYALOG-SR is still at beta stage.
+How-ever, for interested people, the sources are freelyavailable9, to be packaged in a near future.AcknowledgementsWe would like to thank the organizers of the SPMRL2013 shared task and the providers of the datasets forthe 9 languages of the task.ReferencesAnne Abeill?, Lionel Cl?ment, and Fran?ois Toussenel.2003.
+Building a treebank for French.
+In AnneAbeill?, editor, Treebanks.
+Kluwer, Dordrecht.Itziar Aduriz, M. J. Aranzabe, J. M. Arriola, A. Atutxa,A.
+D?az de Ilarraza, A. Garmendia, and M. Oronoz.2003.
+Construction of a Basque dependency treebank.In TLT-03, pages 201?204.Miguel Ballesteros and Joakim Nivre.
+2012.
+MaltOp-timizer: an optimization tool for MaltParser.
+In Pro-ceedings of the Demonstrations at the 13th Conferenceof the European Chapter of the Association for Com-putational Linguistics, pages 58?62.Sabine Brants, Stefanie Dipper, Silvia Hansen, Wolf-gang Lezius, and George Smith.
+2002.
+The TIGERtreebank.
+In Erhard Hinrichs and Kiril Simov, edi-tors, Proceedings of the First Workshop on Treebanks9via Subversion on INRIA GForge at https://gforge.inria.fr/scm/viewvc.php/dyalog-sr/trunk/?root=dyalog60and Linguistic Theories (TLT 2002), pages 24?41, So-zopol, Bulgaria.Key-Sun Choi, Young S Han, Young G Han, and Oh WKwon.
+1994.
+KAIST tree bank project for Korean:Present and future development.
+In Proceedings ofthe International Workshop on Sharable Natural Lan-guage Resources, pages 7?14.
+Citeseer.Jinho D. Choi.
+2013.
+Preparing Korean Data for theShared Task on Parsing Morphologically Rich Lan-guages.
+ArXiv e-prints, September.D?ra Csendes, Jan?s Csirik, Tibor Gyim?thy, and An-dr?s Kocsor.
+2005.
+The Szeged treebank.
+In V?clavMatou?ek, Pavel Mautner, and Tom??
+Pavelka, editors,Text, Speech and Dialogue: Proceedings of TSD 2005.Springer.Harold Charles Daume.
+2006.
+Practical structuredlearning techniques for natural language processing.Ph.D.
+thesis, University of Southern California.
+?ric de La Clergerie.
+2005a.
+From metagrammars to fac-torized TAG/TIG parsers.
+In Proceedings of IWPT?05(poster), pages 190?191, Vancouver, Canada.
+?ric de La Clergerie.
+2005b.
+DyALog: a tabularlogic programming based environment for NLP.
+InProceedings of 2nd International Workshop on Con-straint Solving and Language Processing (CSLP?05),Barcelone, Espagne, October.Jason Eisner and Nathaniel W. Filardo.
+2011.
+Dyna: Ex-tending Datalog for modern AI.
+In Tim Furche, GeorgGottlob, Giovanni Grasso, Oege de Moor, and AndrewSellers, editors, Datalog 2.0, Lecture Notes in Com-puter Science.
+Springer.
+40 pages.Yoav Goldberg, Kai Zhao, and Liang Huang.
+2013.Efficient implementation of beam-search incremen-tal parsers.
+In Proc.
+of the 51st Annual Meeting ofthe Association for Computational Linguistics (ACL),Sophia, Bulgaria, August.Yoav Goldberg.
+2011.
+Automatic syntactic processing ofModern Hebrew.
+Ph.D. thesis, Ben Gurion Universityof the Negev.Nizar Habash and Ryan Roth.
+2009.
+Catib: TheColumbia Arabic Treebank.
+In Proceedings of theACL-IJCNLP 2009 Conference Short Papers, pages221?224, Suntec, Singapore, August.
+Association forComputational Linguistics.Nizar Habash, Reem Faraj, and Ryan Roth.
+2009.
+Syn-tactic Annotation in the Columbia Arabic Treebank.
+InProceedings of MEDAR International Conference onArabic Language Resources and Tools, Cairo, Egypt.Liang Huang and Kenji Sagae.
+2010.
+Dynamic program-ming for linear-time incremental parsing.
+In Proceed-ings of the 48th Annual Meeting of the Association forComputational Linguistics, pages 1077?1086.
+Associ-ation for Computational Linguistics.Liang Huang, Suphan Fayong, and Yang Guo.
+2012.Structured perceptron with inexact search.
+In Proceed-ings of HLT-NAACL 2012, pages 142?151.Mohamed Maamouri, Ann Bies, Tim Buckwalter, andWigdan Mekki.
+2004.
+The Penn Arabic Treebank:Building a Large-Scale Annotated Arabic Corpus.
+InNEMLAR Conference on Arabic Language Resourcesand Tools.Joakim Nivre and Jens Nilsson.
+2005.
+Pseudo-projectivedependency parsing.
+In Proceedings of the 43rd An-nual Meeting on Association for Computational Lin-guistics, pages 99?106.Joakim Nivre, Jens Nilsson, and Johan Hall.
+2006.
+Tal-banken05: A Swedish treebank with phrase structureand dependency annotation.
+In Proceedings of LREC,pages 1392?1395, Genoa, Italy.Joakim Nivre.
+2009.
+Non-projective dependency parsingin expected linear time.
+In Proceedings of the JointConference of the 47th Annual Meeting of the ACL andthe 4th International Joint Conference on Natural Lan-guage Processing of the AFNLP: Volume 1-Volume 1,pages 351?359.Beno?t Sagot, Lionel Cl?ment, ?ric de La Clergerie, andPierre Boullier.
+2006.
+The Lefff 2 syntactic lexiconfor French: architecture, acquisition, use.
+In Proceed-ings of the 5th Language Resources and EvaluationConference (LREC?06), Genova, Italie.Taisuke Sato.
+2008.
+A glimpse of symbolic-statisticalmodeling by PRISM.
+J. Intell.
+Inf.
+Syst., 31(2):161?176.Djam?
+Seddah, Reut Tsarfaty, Sandra K?bler, Marie Can-dito, Jinho Choi, Rich?rd Farkas, Jennifer Foster, IakesGoenaga, Koldo Gojenola, Yoav Goldberg, SpenceGreen, Nizar Habash, Marco Kuhlmann, WolfgangMaier, Joakim Nivre, Adam Przepiorkowski, RyanRoth, Wolfgang Seeker, Yannick Versley, VeronikaVincze, Marcin Wolin?ski, Alina Wr?blewska, and ?ricVillemonte de la Clergerie.
+2013.
+Overview of theSPMRL 2013 shared task: A cross-framework evalu-ation of parsing morphologically rich languages.
+InProceedings of the 4th Workshop on Statistical Pars-ing of Morphologically Rich Languages: Shared Task,Seattle, WA.Wolfgang Seeker and Jonas Kuhn.
+2012.
+Making El-lipses Explicit in Dependency Conversion for a Ger-man Treebank.
+In Proceedings of the 8th Interna-tional Conference on Language Resources and Eval-uation, pages 3132?3139, Istanbul, Turkey.
+EuropeanLanguage Resources Association (ELRA).Khalil Sima?an, Alon Itai, Yoad Winter, Alon Altman,and Noa Nativ.
+2001.
+Building a Tree-Bank forModern Hebrew Text.
+In Traitement Automatique desLangues.61Marek S?widzin?ski and Marcin Wolin?ski.
+2010.
+Towardsa bank of constituent parse trees for Polish.
+In Text,Speech and Dialogue: 13th International Conference(TSD), Lecture Notes in Artificial Intelligence, pages197?204, Brno, Czech Republic.
+Springer.Reut Tsarfaty.
+2013.
+A Unified Morpho-SyntacticScheme of Stanford Dependencies.
+Proceedings ofACL.Veronika Vincze, D?ra Szauter, Attila Alm?si, Gy?rgyM?ra, Zolt?n Alexin, and J?nos Csirik.
+2010.
+Hun-garian dependency treebank.
+In LREC.62

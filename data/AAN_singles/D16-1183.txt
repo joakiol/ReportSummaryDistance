@@ -1,0 +1,433 @@
+Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, pages 1775?1786,Austin, Texas, November 1-5, 2016. c?2016 Association for Computational LinguisticsNeural Shift-Reduce CCG Semantic ParsingDipendra K. Misra and Yoav ArtziDepartment of Computer Science and Cornell TechCornell UniversityNew York, NY 10011{dkm,yoav}@cs.cornell.eduAbstractWe present a shift-reduce CCG semanticparser.
+Our parser uses a neural network ar-chitecture that balances model capacity andcomputational cost.
+We train by transferring amodel from a computationally expensive log-linear CKY parser.
+Our learner addresses twochallenges: selecting the best parse for learn-ing when the CKY parser generates multiplecorrect trees, and learning from partial deriva-tions when the CKY parser fails to parse.
+Weevaluate on AMR parsing.
+Our parser per-forms comparably to the CKY parser, whiledoing significantly fewer operations.
+We alsopresent results for greedy semantic parsingwith a relatively small drop in performance.1 IntroductionShift-reduce parsing is a class of parsing methodsthat guarantees a linear number of operations in sen-tence length.
+This is a desired property for practicalapplications that require processing large amounts oftext or real-time response.
+Recently, such techniqueswere used to build state-of-the-art syntactic parsers,and have demonstrated the effectiveness of deepneural architectures for decision making in linear-time dependency parsing (Chen and Manning, 2014;Dyer et al, 2015; Andor et al, 2016; Kiperwasserand Goldberg, 2016).
+In contrast, semantic parsingoften relies on algorithms with polynomial numberof operations, which results in slow parsing timesunsuitable for practical applications.
+In this paper,we apply shift-reduce parsing to semantic parsing.Specifically, we study transferring a learned Combi-natory Categorial Grammar (CCG; Steedman, 1996,2000) from a dynamic-programming CKY model toa shift-reduce neural network architecture.We focus on the feed-forward architecture ofChen and Manning (2014), where each parsing stepis a multi-class classification problem.
+The state ofthe parser is represented using simple feature em-beddings that are passed through a multilayer per-ceptron to select the next action.
+While simple, thecapacity of this model to capture interactions be-tween primitive features, instead of relying on sparsecomplex features, has led to new state-of-the-art per-formance (Andor et al, 2016).
+However, applyingthis architecture to semantic parsing presents learn-ing and inference challenges.In contrast to dependency parsing, semantic pars-ing corpora include sentences labeled with the sys-tem response or the target formal representation, andomit derivation information.
+CCG induction fromsuch data relies on latent-variable techniques and re-quires careful initialization (e.g., Zettlemoyer andCollins, 2005, 2007).
+Such feature initializationdoes not directly transfer to a neural network archi-tecture with dense embeddings, and the use of hid-den layers further complicates learning by addinga large number of latent variables.
+We focus ondata that includes sentence-representation pairs, andlearn from a previously induced log-linear CKYparser.
+This drastically simplifies learning, and canbe viewed as bootstrapping a fast parser from a slowone.
+While this dramatically narrows down the num-ber of parses per sentence, it does not eliminate am-biguity.
+In our experiments, we often get multiplecorrect parses, up to 49K in some cases.
+We alsoobserve that the CKY parser generates no parses for1775Some old networks remain inoperableNP[x]/N[x] N[x]/N[x] N[pl] S\NP[pl]/(N[pl]/N[pl]) N[x]/N[x]?f.A(?x.f(x) ?
+quant(x, ?f.?x.f(x)?
+?n.network(n) ?f.?x.f(?r.remain-01(r)?
+?f.
+?x.f(x) ?
+ARG3(x,A(?s.some(s)))) mod(x,A(?o.old(o))) ARG1(r, x)) A(?p.possible(p) ?
+polarity(p,?
+)?domain(p,A(?o.operate-01(o)))))> >N[pl] S\NP[pl]?n.network(n)?
+?x.
+?r.remain-01(r) ?
+ARG1(r, x) ?
+ARG3(r,A(?p.possible(p)mod(n,A(?o.old(o))) ?polarity(p,?)
+?
+domain(p,A(?o.operate-01(o)))))>NP[pl]A(?n.network(n) ?mod(n,A(?o.old(o))) ?
+quant(n,A(?s.some(s))))<S?r.remain-01(r) ?
+ARG1(r,A(?n.network(n) ?mod(n,A(?o.old(o))) ?
+quant(n,A(?s.some(s)))))?ARG3(r,A(?p.possible(p) ?
+polarity(p,?)
+?
+domain(p,A(?o.operate-01(o)))))Figure 1: Example CCG tree with five lexical entries, three forward applications (>) and a backward application (<).a significant number of training sentences.
+There-fore, we propose an iterative algorithm that automat-ically selects the best parses for training at each iter-ation, and identifies partial derivations for best-effortlearning, if no parses are available.CCG parsing largely relies on two types of ac-tions: using a lexicon to map words to their cate-gories, and combining categories to acquire the cat-egories of larger phrases.
+In most semantic pars-ing approaches, the number of operations is dom-inated by the large number of categories availablefor each word in the lexicon.
+For example, the lex-icon in our experiments includes 1.7M entries, re-sulting in an average of 146, and up to 2K, ap-plicable actions.
+Additionally, both operations andparser state have complex structures, for exampleincluding both syntactic and semantic information.Therefore, unlike in dependency parsing (Chen andManning, 2014), we can not treat action selection asmulti-class classification, and must design an archi-tecture that can accommodate a varying number ofactions.
+We present a network architecture that con-siders a variable number of actions, and emphasizeslow computational overhead per action, instead fo-cusing computation on representing the parser state.We evaluate on Abstract Meaning Representa-tion (AMR; Banarescu et al, 2013) parsing.
+Wedemonstrate that our modeling and learning contri-butions are crucial to effectively commit to early de-cisions during parsing.
+Somewhat surprisingly, ourshift-reduce parser provides equivalent performanceto the CKY parser used to generate the training data,despite requiring significantly fewer operations, onaverage two orders of magnitude less.
+Similar toprevious work, we use beam search, but also, forthe first time, report greedy CCG semantic parsingresults at a relatively modest 9% decrease in perfor-mance, while the source CKY parser with a beam ofone demonstrates a 71% decrease.
+While we focuson semantic parsing, our learning approach makesno task-specific assumptions and has potential forlearning efficient models for structured predictionfrom the output of more expensive ones.12 Task and BackgroundOur goal is to learn a function that, given a sentencex, maps it to a formal representation of its meaningz with a linear number of operations in the length ofx.
+We assume access to a training set ofN examplesD = {(x(i), z(i))}Ni=1, each containing a sentencex(i) and a logical form z(i).
+Since D does not con-tain complete derivations, we instead assume accessto a CKY parser learned from the same data.
+Weevaluate performance on a test set {(x(i), z(i))}Mi=1of M sentences x(i) labeled with logical forms z(i).While we describe our approach in general terms,we apply our approach to AMR parsing and evalu-ate on a common benchmark (Section 6).To map sentences to logical forms, we use CCG,a linguistically-motivated grammar formalism formodeling a wide-range of syntactic and seman-tic phenomena (Steedman, 1996, 2000).
+A CCGis defined by a lexicon ?
+and sets of unary Ruand binary Rb rules.
+In CCG parse trees, eachnode is a category.
+Figure 1 shows a CCG treefor the sentence Some old networks remain inop-erable.
+For example, S\NP[pl]/(N[pl]/N[pl]) :?f.
+?x.f(?r.remain-01(r)?ARG1(r, x)) is the cat-egory of the verb remain.
+The syntactic typeS\NP[pl]/(N[pl]/N[pl]) indicates that two argu-ments are expected: first an adjectiveN[pl]/N[pl] andthen a plural noun phrase NP[pl].
+The final syntac-tic type will be S. The forward slash / indicatesthe argument is expected on the right, and the back-ward slash \ indicates it is expected on the left.
+Thesyntactic attribute pl is used to express the plural-1The source code and pre-trained models are available athttp://www.cs.cornell.edu/~dkm/ccgparser.1776ity constraint of the verb.
+The simply-typed lambdacalculus logical form in the category represents se-mantic meaning.
+The typing system includes atomictypes (e.g., entity e, truth value t) and functionaltypes (e.g., ?e, t?
+is the type of a function from e tot).
+In the example category above, the expression onthe right of the colon is a ??
+?e, t?, ?e, t?
+?, ?e, ?e, t??
+?-typed function expecting first an adjectival modi-fier and then an ARG1 modifier.
+The conjunction?
+specifies the roles of remain-01.
+The lexicon ?maps words to CCG categories.
+For example, thelexical entry remain ` S\NP[pl]/(N[pl]/N[pl]) :?f.
+?x.f(?r.remain-01(r) ?ARG1(r, x)) pairs theexample category with remain.
+The parse tree in thefigure includes four binary operations: three forwardapplications (>) and a backward application (<).3 Neural Shift Reduce Semantic ParsingGiven a sentence x = ?x1, .
+.
+.
+, xm?
+with m tokensxi and a CCG lexicon ?, let GEN(x; ?)
+be a functionthat generates CCG parse trees.
+We design GEN asa shift-reduce parser, and score decisions using em-beddings of parser states and candidate actions.3.1 Shift-Reduce Parsing for CCGShift-reduce parsers perform a single pass of thesentence from left to right to construct a parse tree.The parser configuration2 is defined with a stack anda buffer.
+The stack contains partial parse trees, andthe buffer the remainder of the sentence to be pro-cessed.
+Formally, a parser configuration c is a tu-ple ?
+?, ?
+?, where the stack ?
+is a list of CCG trees[sl ?
+?
+?
+s1], and the buffer ?
+is a list of tokens from xto be processed [xi ?
+?
+?xm].3 For example, the top-left of Figure 2 shows a parsing configuration withtwo partial trees on the stack and two words on thebuffer (remain and inoperable).Parsing starts with the configuration?
+[], [x1 ?
+?
+?xm]?, where the stack is empty andthe buffer is initialized with x.
+In each parsingstep, the parser either consumes a word fromthe buffer and pushes a new tree to the stack, orapplies a parsing rule to the trees at the top of thestack.
+For simplicity, we apply CCG rules to trees,2We use the terms parser configuration and parser stateinterchangeably.3The head of the stack ?
+is the right-most entry, and thehead of the buffer ?
+is the left-most entry.where a rule is applied to the root categories of theargument trees to create a new tree with the argu-ments as children.
+We treat lexical entries as treeswith a single node.
+There are three types of actions:4SHIFT(l, ?
+?, xi| ?
+?
+?
+|xj |??)
+= ?
+?|g, ?
+?BINARY(b, ?
+?|s2|s1, ??)
+= ?
+?|b(s2, s1), ?
+?UNARY(u, ?
+?|s1, ??)
+= ?
+?|u(s1), ??
+.Where b ?
+Rb is a binary rule, u ?
+Ru is a unaryrule, and l is a lexical entry xi, .
+.
+.
+xj ` g for the to-kens xi,.
+.
+.
+,xj and CCG category g. SHIFT creates atree given a lexical entry for the words at the top ofthe buffer, BINARY applies a binary rule to the twotrees at the head of the stack, and UNARY applies aunary rule to the tree at head of the stack.
+A config-uration is terminal when no action is applicable.Given a sentence x, a derivation is a sequence ofaction-configuration pairs ?
+?c1, a1?, .
+.
+.
+, ?ck, ak?
+?,where action ai is applied to configuration ci to gen-erate configuration ci+1.
+The result configurationck+1 is of the form ?
+[s], []?, where s represents acomplete parse tree, and the logical form z at theroot category represents the meaning of the com-plete sentence.
+Following previous work with CKYparsing (Zettlemoyer and Collins, 2005), we disal-low consecutive unary actions.
+We denote the set ofactions allowed from configuration c as A(c).3.2 ModelOur goal is to balance computation and model ca-pacity.
+To recover a rich representation of the con-figuration, we use a multilayer perceptron (MLP) tocreate expressive interactions between a small num-ber of simple features.
+However, since we con-sider many possible actions in each step, comput-ing activations for multiple hidden layers for eachaction is prohibitively expensive.
+Instead, we optfor a computationally-inexpensive action represen-tation computed by concatenating feature embed-dings.
+Figure 2 illustrates our architecture.Given a configuration c, the probability of an ac-tion a is:p(a | c) = exp {?
+(a, c)WbF(?(c))}?a?
+?A(c) exp {?
+(a?, c)WbF(?
+(c))},4We follow the standard notation of L|x indicating a listwith all the entries from L and x as the right-most element.1777Stack Bufferh2 = max{0,W2h1 + b2}h1 = max{0,W1h0 + b1}h3 =W3h2 + b3Embedding LayerHidden LayersDimensionality Reduction LayerEmbedding LayerEmbedding LayerBilinear Softmax LayerConfiguration Embedding (a1, c) (a2, c)cConfiguration A(c)ActionsFMLP?
+(c)s2 s1 b2Some old networks remain inoperableNP[x]/N[x] N[x]/N[x] N[pl] S\NP[pl]/(N[pl]/N[pl]) N[x]/N[x] f.A( x.f(x) ^ quant(x,  f. x.f(x)^  n.network(n)  f. x.f( r.remain-01(r)^  f. x.f(x) ^ARG3(x,A( p.possible(p)^A( s.some(s)))) MOD(x,A( o.old(o))) ARG1(r, x)) polarity(p, ) ^ domain(p,A( o.operate-01(o)))))> >N[pl] S\NP[pl] n.network(n)^  x. r.remain-01(r) ^ARG1(r, x) ^ARG3(r,A( p.possible(p)MOD(n,A( o.old(o))) ^polarity(p, ) ^ domain(p,A( o.operate-01(o)))))>NP[pl]A( n.network(n) ^MOD(n,A( o.old(o))) ^ quant(n,A( s.some(s))))<S r.remain-01(r) ^ARG1(r,A( n.network(n) ^MOD(n,A( o.old(o))) ^ quant(n,A( s.some(s)))))^ARG3(r,A( p.possible(p) ^ polarity(p, ) ^ domain(p,A( o.operate-01(o)))))1Some old networks remain inoperableNP[x]/N[x] N[x]/N[x] N[pl] S\NP[pl]/(N[pl]/N[pl]) N[x]/N[x] f.A( x.f(x) ^ quant(x,  f. x.f(x)^  n.network(n)  f. x.f( r.remain-01(r)^  f. x.f(x) ^ARG3(x,A( p.possible(p)^A( s.some(s)))) MOD(x,A( o.old(o))) ARG1(r, x)) polarity(p, ) ^ domain(p,A( o.operate-01(o)))))> >N[pl] S\NP[pl] n.network(n)^  x. r.remain-01(r) ^ARG1(r, x) ^ARG3(r,A( p.possible(p)MOD(n,A( o.old(o))) ^polarity(p, ) ^ domain(p,A( o.operate-01(o)))))>NP[pl]A( n.network(n) ^MOD(n,A( o.old(o))) ^ quant(n,A( s.some(s))))<S r.remain-01(r) ^ARG1(r,A( n.network(n) ^MOD(n,A( o.old(o))) ^ quant(n,A( s.some(s)))))^ARG3(r,A( p.possible(p) ^ polarity(p, ) ^ domain(p,A( o.operate-01(o)))))1Some old networks remain inoperableNP[x]/N[x] N[x]/N[x] N[pl] S\NP[pl]/(N[pl]/N[pl]) N[x]/N[x] f.A( x.f(x) ^ quant(x,  f. x.f(x)^  n.network(n)  f. x.f( r.remain-01(r)^  f. x.f(x) ^ARG3(x,A( p.possible(p)^A( s.some(s)))) MOD(x,A( o.old(o))) ARG1(r, x)) polarity(p, ) ^ domain(p,A( o.operate-01(o)))))> >N[pl] S\NP[pl] n.network(n)^  x. r.remain-01(r) ^ARG1(r, x) ^ARG3(r,A( p.possible(p)MOD(n,A( o.old(o))) ^polarity(p, ) ^ domain(p,A( o.operate-01(o)))))>NP[pl]A( n.network(n) ^MOD(n,A( o.old(o))) ^ quant(n,A( s.some(s))))<S r.remain-01(r) ^ARG1(r,A( n.network(n) ^MOD(n,A( o.old(o))) ^ quant(n,A( s.some(s)))))^ARG3(r,A( p.possible(p) ^ polarity(p, ) ^ domain(p,A( o.operate-01(o)))))1b1plxNP/NNSome old networks remain inoperableNP[x]/N[x] N[x]/N[x] N[pl] S\NP[pl]/(N[pl]/N[pl]) N[x]/N[x] f.A( x.f(x) ^ quant(x,  f. x.f(x)^  n.network(n)  f. x.f( r.remain-01(r)^  f. x.f(x) ^ARG3(x,A( p.possible(p)^A( s.some(s)))) MOD(x,A( o.old(o))) ARG1(r, x)) polarity(p, ) ^ domain(p,A( o.operate-01(o)))))> >N[pl] S\NP[pl] n.network(n)^  x. r.remain-01(r) ^ARG1(r, x) ^ARG3(r,A( p.possible(p)MOD(n,A( o.old(o))) ^polarity(p, ) ^ domain(p,A( o.operate-01(o)))))>NP[pl]A( n.network(n) ^MOD(n,A( o.old(o))) ^ quant(n,A( s.some(s))))<S r.remain-01(r) ^ARG1(r,A( n.network(n) ^MOD(n,A( o.old(o))) ^ quant(n,A( s.some(s)))))^ARG3(r,A( p.possible(p) ^ polarity(p, ) ^ domain(p,A( o.operate-01(o)))))1Some old networks remain inoperableNP[x]/N[x] N[x]/N[x] N[pl] S\NP[pl]/(N[pl]/N[pl]) N[x]/N[x] f.A( x.f(x) ^ quant(x,  f. x.f(x)^  n.network(n)  f. x.f( r.remain-01(r)^  f. x.f(x) ^ARG3(x,A( p.po sible(p)^A( s.some(s ) MOD(x,A( o.old(o ) ARG1(r, x ) polarity(p, ) ^ domain(p,A( o.operate-01(o )> >N[pl] S\NP[pl] n.network(n)^  x. r.remain-01(r) ^ARG1(r, x) ^ARG3(r,A( p.po sible(p)MOD(n,A( o.old(o ) ^polarity(p, ) ^ domain(p,A( o.operate-01(o )>NP[pl]A( n.network(n) ^MOD(n,A( o.old(o ) ^ quant(n,A( s.some(s )<S r.remain-01(r) ^ARG1(r,A( n.network(n) ^MOD(n,A( o.old(o ) ^ quant(n,A( s.some(s )^ARG3(r,A( p.po sible(p) ^ polarity(p, ) ^ domain(p,A( o.operate-01(o )1a1 = Binary(forward-apply, c)a2 = Unary(bare-plural, c)Some networks remain inoperableNP[x]/N[x] N[pl] S\NP[pl]/(N[pl]/N[pl]) N[x]/N[x] f.A1( x.f(x) ^ REL(x,  n.network(n)  f. x.f( r.remain-01(r)^  f. x.f(x) ^ REL(x,A3( p.possible(p) ^ REL(p, )^A2( s.some(s)))) ARG1(r, x)) REL(p,A4( o.operate-01(o)))))> >NP[pl] S\NP[pl]A1( n.network(n) ^ REL(n,A2( s.some(s))))  x. r.remain-01(r) ^ARG1(r, x) ^ REL(r,A3( p.possible(p) ^ REL(p, )^REL(p,A4( o.operate-01(o))))) <S r.remain-01(r) ^ARG1(r,A1( n.network(n) ^ REL(n,A2( s.some(s)))))^REL(r,A3( p.possible(p) ^ REL(p, ) ^ REL(p,A4( o.operate-01(o)))))1a|A(c)| = Shift, c!P (ai) / exp( (ai, c)Wbh3)8i = 1 .
+.
+.
+|A(c)| (a|A(c)|, c)Figure 2: Illustration of scoring the next action given the configuration c when parsing the sentence Some old networksremain inoperable.
+Embeddings of the same feature type are colored the same.
+The configuration embedding ?
+(c) is aconcatenation of syntax embeddings (green) and the logical form embedding (blue; computed by ?)
+for the top entriesin the stack.
+We then pass ?
+(c) through the MLP F .
+Given the actions A(c), we compute the embeddings ?
+(ai, c),i = 1 .
+.
+.
+|A(c)|.
+The actions and MLP representation are combined with a bilinear softmax layer.
+The number ofconcatenated vectors and stack elements used is for illustration.
+The details are described in Section 3.2.where ?
+(a, c) is the action embedding, ?
+(c) is theconfiguration embedding, and F is an MLP.
+Wbis a bilinear transformation matrix.
+Given a sen-tence x and a sequence of action-configuration pairs?
+?c1, a1?, .
+.
+.
+, ?ck, ak?
+?, the probability of a CCGtree y isp(y | x) =?i=1...kp(ai | ci) .The probability of a logical form z is thenp(z | x) =?y?Y(z)p(y | x) ,where Y(z) is the set of CCG trees with the logicalform z at the root.MLP Architecture F We use a MLP with twohidden layers parameterized by {W1,W2,b1,b2}with a ReLu non-linearity (Glorot et al, 2011).Since the output of F influences the dimensionalityof Wb, we add a linear layer parameterized by W3and b3 to reduce the dimensionality of the configu-ration, thereby reducing the dimensionality of Wb.Configuration Embedding ?
+(c) Given a config-uration c = ?
+[sl ?
+?
+?
+s1], [xi ?
+?
+?xm]?, the input to Fis a concatenation of syntactic and semantic embed-dings, as illustrated in Figure 2.
+We concatenate em-beddings from the top three trees in the stack s1, s2,s3.5 When a feature is not present, for example whenthe stack or buffer are too small, we use a tunablenull embedding.Given a tree on the stack sj , we define two syn-tactic features: attribute set and stripped syntax.The attribute feature is created by extracting all thesyntactic attributes of the root category of sj .
+Thestripped syntax feature is the syntax of the root cat-egory without the syntactic attributes.
+For example,in Figure 2, we embed the stripped category N andattribute pl for s1, and NP/N and x for s2.
+The at-tributes are separated from the syntax to reduce spar-sity, and the interaction between them is computedby F .
+The sparse features are converted to denseembeddings using a lookup table and concatenated.In addition, we also embed the logical form at theroot of sj .
+Figure 3 illustrates the recursive embed-ding function ?.6 Using a recursive function to em-bed logical forms is computationally intensive.
+Dueto strong correlation between sentence length andlogical form complexity, this computation increases5For simplicity, the figure shows only the top two trees.6The algorithm is provided in the supplementary material.1778{Wr,  r}{Wr,  r}{Wr,  r}JOHNarg0exx x.arg0(x, JOHN)arg0(x, JOHN)(x, JOHN)he, he, tii{Wr,  r}{Wr,  r}JOHNarg0Figure 3: Illustration of embedding the logical form?x.arg0(x, JOHN) with the recursive embedding func-tion ?.
+In each level in ?, the children nodes are com-bined with a single-layer neural network parameterizedby Wr, ?r, and the tanh activation function.
+Com-puted embeddings are in dark gray, and embeddings fromlookup tables are in light gray.
+Constants are embed-ded by combining name and type embeddings, literalsare unrolled to binary recursive structures, and lambdaterms are combinations of variable type and body em-beddings.
+For example, JOHN is embedded by com-bining the embeddings of its name and type, the literalarg0(x, JOHN) is recursively embedded by first embed-ding the arguments (x, JOHN) and then combining thepredicate, and the lambda term is embedded to create theembedding of the entire logical form.the cost of configuration embedding by a factor lin-ear in sentence length.
+In Section 6, we experimentwith including this option, balancing between poten-tial expressivity and speed.Action Embedding ?
+(a, c) Given an action a ?A(c), and the configuration c, we generate the actionrepresentation by computing sparse features, con-verting them to dense embeddings via table lookup,and concatenating.
+If more than one feature of thesame type is triggered, we average their embed-dings.
+When no features of a given type are trig-gered, we use a tunable placeholder embedding in-stead.
+The features include all the features used byArtzi et al (2015), including all conjunctive fea-tures, as well as properties of the action and configu-ration, such as the POS tags of tokens on the buffer.7Discussion Our use of an MLP is inspired by Chenand Manning (2014).
+However, their architecture isdesigned to handle only a fixed number of actions,while we observe varying number of actions.
+There-fore, we adopt a probabilistic model similar to Dyeret al (2015) to effectively combine the benefits of7See the supplementary material for feature details.the two approaches.8 We factorize the exponent inour objective into action ?
+(a, c) and configurationF(?
+(c)) embeddings.
+While every parse step in-volves a single configuration, the number of actionsis significantly higher.
+With the goal of minimizingthe amount of computation per action, we use simpleconcatenation only for action embedding.
+However,this requires retaining sparse conjunctive action fea-tures since they are never combined through hiddenlayers similar to configuration features.3.3 InferenceTo compute the set of parse trees GEN(x; ?
+), weperform beam search to recover the top-k parses.The beam contains configurations.
+At each step, weexpand all configurations with all actions, and keeponly the top-k new configurations.
+To promote di-versity in the beam, given two configurations withthe same signature, we keep only the highest scor-ing one.
+The signature includes the previous config-uration in the derivation, the state of the buffer, andthe root categories of all stack elements.
+Since allfeatures are computed from these elements, this op-timization does not affect the max-scoring tree.
+Ad-ditionally, since words are assigned structured cat-egories, a key problem is unknown words or worduses.
+Following Zettlemoyer and Collins (2007), weuse a two-pass parsing strategy, and allow skippingwords controlled by the term ?
+in the second pass.The term ?
+is added to the exponent of the actionprobability when words are skipped.
+See the sup-plementary material for the exact form.Complexity Analysis The shift-reduce parser pro-cesses the sentence from left to right with a linearnumber of operations in sentence length.
+We definean operation as applying an action to a configuration.Formally, the number of operations for a sentence oflengthm is bounded byO(4mk(|?|+ |Rb|+ |Ru|)),where |?| is the number of lexical entries per to-ken, k is the beam size, Rb is the set of binaryrules, and Ru the set of unary rules.
+In compari-son, the number of operations for the CKY parser,where an operation is applying a rule to a singlecell or two adjacent cells in the chart, is boundedby O(m|?| + m3k2|Rb| + m2b|Ru|).
+For sentence8We experimented with an LSTM parser similar to Dyeret al (2015).
+However, performance was not competitive.
+Thisdirection remains an important avenue for future work.1779length 25, the mean in our experiments, the shift-reduce parser performs 100 time fewer operations.See the supplementary material for the full analysis.4 LearningWe assume access to a training set of N examplesD = {(x(i), z(i))}Ni=1, each containing a sentencex(i) and a logical form z(i).
+The data does not in-clude information about the lexical entries and CCGparsing operations required to construct the correctderivations.
+We bootstrap this information from alearned parser.
+In our experiments we use a learneddynamic-programming CKY parser.
+We transfer thelexicon ?
+directly from the input parser, and focuson estimating the parameters ?, which include fea-ture embeddings, hidden layer matrices, and biasterms.
+The main challenge is learning from the noisysupervision provided by the input parser.
+In our ex-periments, the CKY parser fails to correctly parse40% of the training data, and returns on average 147max-scoring correct derivations for the rest.
+We pro-pose an iterative algorithm that treats the choice be-tween multiple parse trees as latent, and effectivelylearns from partial analysis when no correct deriva-tion is available.The learning algorithm (Algorithm 1) starts byprocessing the data using the CKY parser (lines 3 -4).
+For each sentence x(i), we collect the max-scoring CCG trees with z(i) at the root.
+The CKYparser often contains many correct parses with iden-tical scores, up to 49K parses per sentence.
+There-fore, we randomly sample and keep up to 1K trees.This process is done once, and the algorithm thenruns for T iterations.
+At each iteration, given the setsof parses from the CKY parser Y , we select the max-probability parse according to our current parame-ters ?
+(line 10) and add all the shift-reduce decisionsfrom this parse to DA (line 12), the action data setthat we use to estimate the parameters.
+We approxi-mate the arg max with beam search using an oraclecomputed from the CKY parses.9 CONFGEN aggre-gates the configuration-action pairs from the highestscoring derivation.
+Parse selection depends on ?
+andthis choice will gradually converge as the parame-ters improve.
+The action data set is used to computethe `2-regularized negative log-likelihood objective9Our oracle is non-deterministic and incomplete (Goldbergand Nivre, 2013).Algorithm 1 The learning algorithm.Input: Training set D = {(x(i), z(i))}Ni=1, learning rate ?,regularization parameter `2, and number of iterations T .Definitions: GENMAXCKY(x, z) returns the set of max-scoring CKY parses for x with z at the root.
+SCORE(y, ?
+)scores a tree y according to the parameters ?
+(Section 3.2).CONFGEN(x, y) is the sequence of action-configurationpairs that generates y given x (Section 3.1).
+BP(?J )takes the objective J and back-propagates the error ?Jthrough the computation graph for the sample used to com-pute the objective.
+ADAGRAD(?)
+applies a per-featurelearning rate to the gradient ?
+(Duchi et al, 2011).Output: Model parameters ?.1: ?
+Get trees from CKY parser.2: Y ?
+[]3: for i = 1 to N do4: Y[i] = GENMAXCKY(x(i), z(i))5: for t = 1 to T do6: ?
+Pick max-scoring trees and create action dataset.7: DA = ?8: for i = 1 to N do9: if Y[i] 6= ?
+then10: A?
+CONFGEN(x(i),11: arg maxy?Y[i] SCORE(y, ?
+))12: for ?c, a?
+?
+A do13: DA ?
+DA ?
+{?c, a?
+}14: ?
+Back-propagate the loss through the network.15: for ?c, a?
+?
+DA do16: J def= ?
+log p(a | c) + `22 ?T ?17: ??
+BP(?J )18: ?
+?
+?
+?
+?ADAGRAD(?
+)19: return ?J (line 16) and back-propagate the error to computethe gradient (line 17).
+We use AdaGrad (Duchi et al,2011) to update the parameters ?
+(line 18).4.1 Learning from Partial DerivationsThe input parser often fails to generate correctparses.
+In our experiments, this occurs for 40% ofthe training data.
+In such cases, we can obtain aforest of partial parse trees Yp.
+Each partial treey ?
+Yp corresponds to a span of tokens in the sen-tence and is scored by the input parser.
+In practice,the spans are often overlapping.
+Our goal is to gen-erate high quality configuration-action pairs ?c, a?from Yp.
+These pairs will be added to DA for train-ing.
+While extracting actions a is straightforward,generating configurations c requires reconstructingthe stack ?
+from an incomplete forest of partial treesYp.
+Figure 4 illustrates our proposed process.
+LetCKYSCORE(y) be the CKY score of the partial treey.
+To reconstruct ?, we select non-overlapping par-1780x1 x2 x3 x16x1:6 x11:14Figure 4: Partial derivation selection for learning (Sec-tion 4.1).
+The dotted triangles represent skipped spansin the sentence, where no high quality partial trees werefound.
+Dark triangles represent the selected partial trees.We identify two contiguous spans, 1-6 and 11-14, andgenerate two synthetic sentences for training: the tokensare treated as complete sentences and actions and stackstate are generated from the partial trees.tial trees Y that correspond to the entire sentenceby solving arg maxY?Yp CKYSCORE(y) under twoconstraints: (a) no two trees from Y correspond tooverlapping tokens, and (b) for each token in x, thereexists y ?
+Y that corresponds to it.
+We solve thearg max using dynamic programming.
+The gener-ated set Y approximates an intermediate state of ashift-reduce derivation.
+However, Yp often does notcontain high quality partial derivation for all spans.To skip low quality partial trees and spans that haveno trees, we generate empty trees ye for every span,where CKYSCORE(ye) = 0, and add them to Yp.If the set of selected partial trees Y includes emptytrees, we divide the sentence to separate examplesand ignore these parts.
+This results in partial andapproximate stack reconstruction.
+Finally, since YPis noisy, we prune from it partial trees with a rootthat does not match the syntactic type for this spanfrom an automatically generated CCGBank (Hock-enmaier and Steedman, 2007) syntactic parse.Our complete learning algorithm alternates be-tween epochs of learning with complete parse treesand learning with partial derivations.
+In epochswhere we use partial derivations, we use a modifiedversion of Algorithm 1, where lines 9-10 are updatedto use the above process.5 Related workOur approach is inspired by recent results in de-pendency parsing, specifically by the architectureof Chen and Manning (2014), which was furtherdeveloped by Weiss et al (2015) and Andor et al(2016).
+Dyer et al (2015) proposed to encodethe parser state using an LSTM recurrent architec-ture, which has been shown generalize well betweenlanguages (Ballesteros et al, 2015; Ammar et al,2016).
+Our network architecture combines ideasfrom the two threads: we use feature embeddingsand a simple MLP to score actions, while our prob-ability distribution is similar to the LSTM parser.The majority of CCG approaches for semanticparsing rely on CKY parsing with beam search (e.g.,Zettlemoyer and Collins, 2005, 2007; Kwiatkowskiet al, 2010, 2011; Artzi and Zettlemoyer, 2011,2013; Artzi et al, 2014; Matuszek et al, 2012;Kushman and Barzilay, 2013).
+Semantic parsingwith other formalisms also often relied on CKY-style algorithms (e.g., Liang et al, 2009; Kim andMooney, 2012).
+With a similar goal to ours, Berantand Liang (2015) designed an agenda-based parser.In contrast, we focus on a method with linear num-ber of operations guarantee.Following the work of Collins and Roark (2004)on learning for syntactic parsers, Artzi et al (2015)proposed an early update procedure for inducingCCG grammars with a CKY parser.
+Our partialderivations learning method generalizes this methodto parsers with global features.6 Experimental SetupTask and Data We evaluate on AMR parsing withCCG.
+AMR is a general-purpose meaning represen-tation, which has been used in multiple tasks (Panet al, 2015; Liu et al, 2015; Sawai et al, 2015;Garg et al, 2016), We use the newswire portionof AMR Bank 1.0 release (LDC2014T12), whichdisplays some of the fundamental challenges in se-mantic parsing, including long newswire sentenceswith a broad array of syntactic and semantic phe-nomena.
+We follow the standard train/dev/test splitof 6603/826/823 sentences.
+We evaluate with theSMATCH metric (Cai and Knight, 2013).
+Our parseris incorporated into the two-stage approach of Artziet al (2015).
+The approach includes a bi-directionaland deterministic conversion between AMR andlambda calculus.
+Distant references, for examplesuch as introduced by pronouns, are representedusing Skolem IDs, globally-scoped existentially-quantified unique IDs.
+A derivation includes a CCGtree, which maps the sentence to an underspecifiedlogical form, and a constant mapping, which mapsunderspecified elements to their fully specified form.The key to the approach is the underspecified logi-cal forms, where distant references and most rela-tions are not fully specified, but instead represented1781AMR Underspecified Logical Form Logical Form(c/conclude-02:ARG0 (l/lawyer):ARG1 (a/argument:poss l):time (l2/late))A1(?c.conclude-02(c) ?ARG0(c,A2(?l.lawyer(l))) ?ARG1(c,A3(?a.argument(a) ?poss(a,R(ID)))) ?REL(c,A4(?l2.late(l2))))A1(?c.conclude-02(c) ?ARG0(c,A2(?l.lawyer(l))) ?ARG1(c,A3(?a.argument(a) ?poss(a,R(2)))) ?time(c,A4(?l2.late(l2))))Figure 5: AMR for the sentence the lawyer concluded his arguments late.
+In Artzi et al (2015), The AMR (left) isdeterministically converted to the logical form (right).
+The underspecified logical form is the result of the first stage,CCG parsing, and contains two placeholders (bolded): ID for a reference, and REL for a relation.
+To generate thefinal logical form, the second stage resolves ID to the identifier of the lawyer (2), and REL to the relation time.
+Wefocus on a model for the first stage and use an existing model for the second stage.as placeholders.
+Figure 5 shows an example AMR,its lambda calculus conversion, and its underspec-ified logical form.
+(Artzi et al, 2015) use a CKYparser to identify the best CCG tree, and a factorgraph for the second stage.
+We integrate our shift-reduce parser into the two-stage setup by replacingthe CKY parser.
+We use the same CCG configura-tion and integrate our parser into the join probabilis-tic model.
+Formally, given a sentence x, the proba-bility of an AMR logical form z isp(z | x) =?up(z | u, x)?y?Y(u)p(y | x) ,where u is an underspecified logical form, Y(u) isthe set of CCG trees with u at the root.
+We use ourshift-reduce parser to compute p(y | x) and use thepre-trained model from Artzi et al (2015) for p(z |u, x).
+Following Artzi et al (2015), we disallowconfigurations that will not result in a valid AMR,and design a heuristic post-processing technique torecover a single logical form from terminal config-urations that include multiple disconnected partialtrees on the stack.
+We use the recovery techniquewhen no complete parses are available.Tools We evaluate with the SMATCH metric (Caiand Knight, 2013).
+We use EasyCCG (Lewis andSteedman, 2014) for CCGBank categories (Sec-tion 4.1).
+We implement our system using CornellSPF (Artzi, 2016), and the deeplearning4j library.10The setup of Artzi et al (2015) also includes the Illi-nois NER (Ratinov and Roth, 2009) and StanfordCoreNLP POS Tagger (Manning et al, 2014).Parameters and Initialization We minimize ourloss on a held-out 10% of the training data to tuneour parameters, and train the final model on thefull data.
+We set the number of epochs T = 3,regularization coefficient `2 = 10?6, learning rate10http://deeplearning4j.org/Parser P R FCKY (Artzi et al, 2015) 67.2 65.1 66.1Greedy CKY 64.1 11.29 19.19SR (complete model) 67.0 63.4 65.3w/o semantic embedding 67.1 63.3 65.1w/o partial derivation learning 66.0 62.2 64.0Ensemble SR (syntax) 68.2 64.1 66.0Ensemble SR (syntax, semantics) 68.1 63.9 65.9SR with CKY model 52.5 49.36 50.88Table 1: Development SMATCH results.Parser P R FJAMR11 67.8 59.2 63.2CKY (Artzi et al, 2015) 66.8 65.7 66.3Shift Reduce 68.1 64.2 66.1Wang et al (2015a)13 72.0 67.0 70.0Table 2: Test SMATCH results.12?
+= 0.05, skipping term ?
+= 1.0.
+We set the di-mensionality of feature embeddings based on the vo-cabulary size of the feature type.
+The exact dimen-sions are listed in the supplementary material.
+Weuse 65 ReLU units for h1 and h2, and 50 units forh3.
+We initialize ?
+with the initialization scheme ofGlorot and Bengio (2010), except the bias term forReLu layers, which we initialize to 0.1 to increasethe number of active units on initialization.
+Duringtest, we use the vector 0 as embedding for unseenfeatures.
+We use a beam of 512 for testing and 2 forCONFGEN (Section 4).Model Ensemble For our final results, wemarginalize the output over three models M usingp(z | x, ?,?)
+= 1|M |?m?M p(z | m,x, ?,?
+).7 ResultsTable 1 shows development results.
+We trained eachmodel three times and report the best performance.We observed a variance of roughly 0.5 in these runs.We experimented with different features for con-figuration embedding and with removing learningwith partial derivations (Section 4.1).
+The com-1782plete model gives the best single-model performanceof 65.3 F1 SMATCH, and we observe the benefitsfor semantic embeddings and learning from partialderivations.
+Using partial derivations allowed usto learn 370K more features, 22% of observed em-beddings.
+We also evaluate ensemble performance.We observe an overall improvement in performance.However, with multiple models, the benefit of us-ing semantic embeddings vanishes.
+This result isencouraging since semantic embeddings can be ex-pensive to compute if the logical form grows withsentence length.
+We also provide results for run-ning a shift-reduce log-linear parser p(a | c) ?exp{wT?CKY(a, c)} using the input CKY model.We observe a significant drop in performance, whichdemonstrates the overall benefit of our architecture.Figure 6 shows the development performance ofour best performing ensemble model for differentbeam sizes.
+The performance decays slowly withdecreasing beam size.
+Surprisingly, our greedyparser achieves 59.77 SMATCH F1, while the CKYparser with a beam of 1 achieves only 19.2 SMATCHF1 (Table 1).
+This allows our parser to trade-off amodest drop in accuracy for a significant improve-ment in runtime.Table 2 shows the test results using our best per-forming model (ensemble with syntax features).
+Wecompare our approach to the CKY parser of Artziet al (2015) and JAMR (Flanigan et al, 2014).11,12We also list the results of Wang et al (2015b), whodemonstrated the benefit of auxiliary analyzers andis the current state of the art.13 Our performance iscomparable to the CKY parser of (Artzi et al, 2015),which we use to bootstrap our system.
+This demon-strates the ability of our parser to match the perfor-mance of a dynamic-programming parser, which ex-ecutes significantly more operations per sentence.Finally, Figure 7 shows our parser runtime rel-ative to sentence length.
+In this analysis, we fo-cus on runtime, and therefore use a single model.11 JAMR results are taken from Artzi et al (2015).12 Pust et al (2015), Flanigan et al (2014), and Wang et al(2015b) report results on different sections of the corpus.
+Theseresults are not comparable to ours.13Our goal is to study the effectiveness of our model trans-fer approach and architecture.
+Therefore, we avoid using anyresources used in (Wang et al, 2015b) that are not used in theCKY parser we compare to.1 32 128 256 512 600596266Beam sizeSMATCHF1Figure 6: The effect of beam size on model performance.5 10 15 20 25 30 35 40 45 50 55 600204060Sentence lengthWalltime(sec.
+)Figure 7: Wall-time performance of shift reduce parserwith only syntax features (blue), with syntax and seman-tic features (orange) and the CKY parser of Artzi et al(2015) (black).We compare two versions of our system, includingand excluding semantic embeddings, and the CKYparser of Artzi et al (2015).
+We run both parserswith 16 cores and 122GB memory.
+The shift-reduceparser is three times faster on average, and up to tentimes faster on long sentences.
+Since our parser iscurrently using CPUs, future work focused on GPUporting is likely to see further improvements.8 ConclusionOur parser design emphasizes a balance betweenmodel capacity and the ability to combine atomicfeatures against the computational cost of scor-ing actions.
+We also design a learning algorithmto transfer learned models and learn neural net-work models from ambiguous and partial supervi-sion.
+Our model shares many commonalities withtransition-based dependency parsers.
+This makes ita good starting point to study the effectiveness ofother dependency parsing techniques for semanticparsing, for example global normalization (Andoret al, 2016) and bidirectional LSTM feature repre-sentations (Kiperwasser and Goldberg, 2016).AcknowledgmentsThis research was supported in part by gifts fromGoogle and Amazon.
+The authors thank Kenton Leefor technical advice, and Adam Gibson and AlexBlack of Skymind for help with Deeplearning4j.
+Wealso thank Tom Kwiatkowski, Arzoo Katiyar, TianzeShi, Vlad Niculae, the Cornell NLP Group, and thereviewers for helpful advice.1783ReferencesAmmar, W., Mulcaire, G., Ballesteros, M., Dyer, C.,and Smith, N. A.
+(2016).
+Many languages, oneparser.
+Transactions of the Association for Com-putational Linguistics.Andor, D., Alberti, C., Weiss, D., Severyn, A.,Presta, A., Ganchev, K., Petrov, S., and Collins,M.
+(2016).
+Globally normalized transition-basedneural networks.
+CoRR.Artzi, Y.
+(2016).
+Cornell SPF: Cornell semanticparsing framework.
+ArXiv e-prints.Artzi, Y., Das, D., and Petrov, S. (2014).
+Learn-ing compact lexicons for CCG semantic parsing.In Proceedings of the Conference on EmpiricalMethods in Natural Language Processing.Artzi, Y., Lee, K., and Zettlemoyer, L. (2015).Broad-coverage CCG semantic parsing withAMR.
+In Proceedings of the Conference on Em-pirical Methods in Natural Language Processing.Artzi, Y. and Zettlemoyer, L. S. (2011).
+Bootstrap-ping semantic parsers from conversations.
+In Pro-ceedings of the Conference on Empirical Methodsin Natural Language Processing.Artzi, Y. and Zettlemoyer, L. S. (2013).
+Weakly su-pervised learning of semantic parsers for mappinginstructions to actions.
+Transactions of the Asso-ciation for Computational Linguistics, 1.Ballesteros, M., Dyer, C., and Smith, N. A.
+(2015).Improved transition-based parsing by modelingcharacters instead of words with LSTMs.Banarescu, L., Bonial, C., Cai, S., Georgescu, M.,Griffitt, K., Hermjakob, U., Knight, K., Koehn,P., Palmer, M., and Schneider, N. (2013).
+Abstractmeaning representation for sembanking.
+In Pro-ceedings of the Linguistic Annotation Workshop.Berant, J. and Liang, P. (2015).
+Imitation learningof agenda-based semantic parsers.
+Transactionsof the Association for Computational Linguistics,3.Cai, S. and Knight, K. (2013).
+Smatch: an eval-uation metric for semantic feature structures.
+InProceedings of the Conference of the Associationof Computational Linguistics.Chen, D. and Manning, C. D. (2014).
+A fast and ac-curate dependency parser using neural networks.In Proceedings of the Conference on EmpiricalMethods in Natural Language Processing.Collins, M. and Roark, B.
+(2004).
+Incremental pars-ing with the perceptron algorithm.
+In Proceedingsof the Annual Meeting on Association for Compu-tational Linguistics.Duchi, J., Hazan, E., and Singer, Y.
+(2011).
+Adap-tive subgradient methods for online learning andstochastic optimization.
+The Journal of MachineLearning Research.Dyer, C., Ballesteros, M., Ling, W., Matthews, A.,and Smith, N. A.
+(2015).
+Transition-based depen-dency parsing with stack long short-term memory.In Proceedings of the Annual Meeting on Associ-ation for Computational Linguistics.Flanigan, J., Thomson, S., Carbonell, J., Dyer, C.,and Smith, N. A.
+(2014).
+A discriminative graph-based parser for the Abstract Meaning Represen-tation.
+In Proceedings of the Conference of theAssociation of Computational Linguistics.Garg, S., Galstyan, A., Hermjakob, U., and Marcu,D.
+(2016).
+Extracting biomolecular interactionsusing semantic parsing of biomedical text.
+In Pro-ceedings of the Conference on Artificial Intelli-gence.Glorot, X. and Bengio, Y.
+(2010).
+Understanding thedifficulty of training deep feedforward neural net-works.
+In International Conference on ArtificialIntelligence and Statistics.Glorot, X., Bordes, A., and Bengio, Y.
+(2011).
+Deepsparse rectifier neural networks.
+In InternationalConference on Artificial Intelligence and Statis-tics.Goldberg, Y. and Nivre, J.
+(2013).
+Training de-terministic parsers with non-deterministic ora-cles.
+Transactions of the Association for Com-putational Linguistics, 1.Hockenmaier, J. and Steedman, M. (2007).
+CCG-Bank: A corpus of CCG derivations and depen-dency structures extracted from the Penn Tree-bank.
+Computational Linguistics.Kim, J. and Mooney, R. J.
+(2012).
+UnsupervisedPCFG induction for grounded language learning1784with highly ambiguous supervision.
+In Proceed-ings of the Conference on Empirical Methods inNatural Language Processing.Kiperwasser, E. and Goldberg, Y.
+(2016).
+Simpleand accurate dependency parsing using bidirec-tional LSTM feature representations.
+Transac-tions of the Association for Computational Lin-guistics, 4.Kushman, N. and Barzilay, R. (2013).
+Using se-mantic unification to generate regular expressionsfrom natural language.
+In Proceedings of theHuman Language Technology Conference of theNorth American Association for ComputationalLinguistics.Kwiatkowski, T., Zettlemoyer, L. S., Goldwater, S.,and Steedman, M. (2010).
+Inducing probabilisticCCG grammars from logical form with higher-order unification.
+In Proceedings of the Confer-ence on Empirical Methods in Natural LanguageProcessing.Kwiatkowski, T., Zettlemoyer, L. S., Goldwater, S.,and Steedman, M. (2011).
+Lexical generalizationin CCG grammar induction for semantic parsing.In Proceedings of the Conference on EmpiricalMethods in Natural Language Processing.Lewis, M. and Steedman, M. (2014).
+A* CCG pars-ing with a supertag-factored model.
+In Proceed-ings of the Conference on Empirical Methods inNatural Language Processing.Liang, P., Jordan, M., and Klein, D. (2009).
+Learn-ing semantic correspondences with less supervi-sion.
+In Proceedings of the Joint Conference ofthe Association for Computational Linguistics theInternational Joint Conference on Natural Lan-guage Processing.Liu, F., Flanigan, J., Thomson, S., Sadeh, N., andSmith, N. A.
+(2015).
+Toward abstractive summa-rization using semantic representations.
+In Pro-ceedings of the North American Association forComputational Linguistics.Manning, C. D., Surdeanu, M., Bauer, J., Finkel, J.,Bethard, S. J., and McClosky, D. (2014).
+TheStanford CoreNLP natural language processingtoolkit.
+In Proceedings of the Annual Meeting ofthe Association for Computational Linguistics.Matuszek, C., FitzGerald, N., Zettlemoyer, L. S.,Bo, L., and Fox, D. (2012).
+A joint model of lan-guage and perception for grounded attribute learn-ing.
+In Proceedings of the International Confer-ence on Machine Learning.Pan, X., Cassidy, T., Hermjakob, U., Ji, H., andKnight, K. (2015).
+Unsupervised entity linkingwith Abstract Meaning Representation.
+In Pro-ceedings of the North American Association forComputational Linguistics.Pust, M., Hermjakob, U., Knight, K., Marcu, D.,and May, J.
+(2015).
+Parsing english into abstractmeaning representation using syntax-based ma-chine translation.
+In Proceedings of the Confer-ence on Empirical Methods in Natural LanguageProcessing.Ratinov, L. and Roth, D. (2009).
+Design challengesand misconceptions in named entity recognition.In Proceedings of the Conference on Computa-tional Natural Language Learning.Sawai, Y., Shindo, H., and Matsumoto, Y.
+(2015).Semantic structure analysis of noun phrases usingabstract meaning representation.
+In Proceedingsof the annual meeting on Association for Compu-tational Linguistics.Steedman, M. (1996).
+Surface Structure and Inter-pretation.
+The MIT Press.Steedman, M. (2000).
+The Syntactic Process.
+TheMIT Press.Wang, C., Xue, N., and Pradhan, S. (2015a).
+Boost-ing transition-based amr parsing with refined ac-tions and auxiliary analyzers.
+In Proceedings ofthe Annual Meeting of the Association for Com-putational Linguistics.Wang, C., Xue, N., Pradhan, S., and Pradhan, S.(2015b).
+A transition-based algorithm for AMRparsing.
+In Proceedings of the North AmericanAssociation for Computational Linguistics.Weiss, D., Alberti, C., Collins, M., and Petrov, S.(2015).
+Structured training for neural networktransition-based parsing.
+In Proceedings of theannual meeting on Association for ComputationalLinguistics.Zettlemoyer, L. S. and Collins, M. (2005).
+Learningto map sentences to logical form: Structured clas-1785sification with probabilistic categorial grammars.In Proceedings of the Conference on Uncertaintyin Artificial Intelligence.Zettlemoyer, L. S. and Collins, M. (2007).
+Onlinelearning of relaxed CCG grammars for parsing tological form.
+In Proceedings of the Joint Confer-ence on Empirical Methods in Natural LanguageProcessing and Computational Natural LanguageLearning.1786

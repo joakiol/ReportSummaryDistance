@@ -1,0 +1,412 @@
+Exploiting Parallel News Streams for Unsupervised Event ExtractionCongle Zhang, Stephen Soderland & Daniel S. WeldComputer Science & EngineeringUniversity of WashingtonSeattle, WA 98195, USA{clzhang, soderlan, weld}@cs.washington.eduAbstractMost approaches to relation extraction, thetask of extracting ground facts from naturallanguage text, are based on machine learningand thus starved by scarce training data.
+Man-ual annotation is too expensive to scale to acomprehensive set of relations.
+Distant super-vision, which automatically creates trainingdata, only works with relations that alreadypopulate a knowledge base (KB).
+Unfortu-nately, KBs such as FreeBase rarely coverevent relations (e.g.
+?person travels to loca-tion?).
+Thus, the problem of extracting a widerange of events ?
+e.g., from news streams ?is an important, open challenge.This paper introduces NEWSSPIKE-RE, anovel, unsupervised algorithm that discoversevent relations and then learns to extract them.NEWSSPIKE-RE uses a novel probabilisticgraphical model to cluster sentences describ-ing similar events from parallel news streams.These clusters then comprise training datafor the extractor.
+Our evaluation shows thatNEWSSPIKE-RE generates high quality train-ing sentences and learns extractors that per-form much better than rival approaches, morethan doubling the area under a precision-recallcurve compared to Universal Schemas.1 IntroductionRelation extraction, the process of extracting struc-tured information from natural language text, growsincreasingly important for Web search and ques-tion answering.
+Traditional supervised approaches,which can achieve high precision and recall, are lim-ited by the cost of labeling training data and are un-likely to scale to the thousands of relations on theWeb.
+Another approach, distant supervision (Cravenand Kumlien, 1999; Wu and Weld, 2007), creates itsown training data by matching the ground instancesof a Knowledge base (KB) (e.g.
+Freebase) to the un-labeled text.Unfortunately, while distant supervision can workwell in some situations, the method is limited to rela-tively static facts (e.g., born-in(person, location) orcapital-of(location,location)) where there is a cor-responding knowledge base.
+But what about dy-namic event relations (also known as fluents), suchas travel-to(person, location) or fire(organization,person)?
+Since these time-dependent facts areephemeral, they are rarely stored in a pre-existingKB.
+At the same time, knowledge of real-timeevents is crucial for making informed decisions infields like finance and politics.
+Indeed, news storiesreport events almost exclusively, so learning to ex-tract events is an important open problem.This paper develops a new unsupervised tech-nique, NEWSSPIKE-RE, to both discover event rela-tions and extract them with high precision.
+The in-tuition underlying NEWSSPIKE-RE is that the textof articles from two different news sources are notindependent, since they are each conditioned on thesame real-world events.
+By looking for rarely de-scribed entities that suddenly ?spike?
+in popularityon a given date, one can identify paraphrases.
+Suchtemporal correspondence (Zhang and Weld, 2013)allow one to cluster diverse sentences, and the re-sulting clusters may be used to form training data inorder to learn event extractors.
+Furthermore, one canalso exploit parallel news to obtain direct negativeevidence.
+To see this, suppose one day the news in-cludes the following: (a) ?Snowden travels to HongKong, off southeastern China.?
+(b) ?Snowden can-not stay in Hong Kong as Chinese officials will notallow ...?
+Since news stories are usually coherent, itis highly unlikely that travel to and stay in (which isnegated) are synonymous.
+By leveraging such directnegative phrases, we can learn extractors capable ofdistinguishing heavily co-occurring but semanticallydifferent phrases, thereby avoiding many extractionerrors.
+Our NEWSSPIKE-RE system encapuslatesthese intuitions in a novel graphical model making117Transactions of the Association for Computational Linguistics, vol.
+3, pp.
+117?129, 2015.
+Action Editor: Hal Daume?
+III.Submission batch: 10/2014; Revision batch 1/2015; Published 2/2015.
+c?2015 Association for Computational Linguistics.the following contributions:?
+We develop a method to discover a set of dis-tinct, salient event relations from news streams.?
+We describe an algorithm to exploit paral-lel news streams to cluster sentences that be-long to the same event relations.
+In particu-lar, we propose the temporal negation heuris-tic to avoid conflating co-occurring but non-synonymous phrases.?
+We introduce a probabilistic graphical model togenerate training for a sentential event extractorwithout requiring any human annotations.?
+We present detailed experiments demonstratingthat the event extractors, learned from the gener-ated training data, significantly outperform sev-eral competitive baselines, e.g.
+our system morethan doubles the area under the micro-averaged,PR curve (0.80 vs. 0.30) compared to Riedel?sUniversal Schema (Riedel et al., 2013).2 Previous WorkSupervised learning approaches have been widelydeveloped for event extraction tasks such as MUC-4and ACE.
+They often focus on a hand-crafted on-tology and train the extractor with manually createdtraining data.
+While they can offer high precisionand recall, they are often domain-specific (e.g.
+bio-logical events (Riedel et al., 2011; McClosky et al.,2011) and entertainment events (Benson et al., 2011;Reichart and Barzilay, 2012)), and are hard to scaleover the events on the Web.Open IE systems extract open domain relations(e.g.
+(Banko et al., 2007; Fader et al., 2011)) andevents (e.g.
+(Ritter et al., 2012)).
+They often performself-supervised learning of relation-independent ex-tractions.
+It allows them to scale but makes themunable to output canonicalized relations.Distant supervised approaches have been devel-oped to learn extractors by exploiting the facts exis-ting in a knowledge base, thus avoiding human an-notation.
+Wu et al.
+(2007) and Reschke et al.
+(2014)learned Infobox relations from Wikipedia, whileMintz et al.
+(2009) heuristically matched Freebasefacts to texts.
+Since the training data generatedby the heuristic matching is often imperfect, multi-instance learning approaches (Riedel et al., 2010;Hoffmann et al., 2011; Surdeanu et al., 2012) havebeen developed to combat this problem.
+Unfortu-nately, most facts existing in the KBs are static factslike geographical or biographical data.
+They fallshort of learning extractors for fluent facts such assports results or travel and meetings by a person.Bootstrapping is another common extractiontechnique (Brin, 1999; Agichtein and Gravano,2000; Carlson et al., 2010; Nakashole et al., 2011;Huang and Riloff, 2013).
+This typically takes a setof seeds as input, which can be ground instances orkey phrases.
+The algorithms then iteratively gener-ate more positive instances and phrases.
+While thereare many successful examples of bootstrapping, thechallenge is to avoid semantic drift.
+Large-scale sys-tems, therefore, often require extra processing suchas manual validation between the iterations or addi-tional negative seeds as the input.Unsupervised approaches have been developedfor relation discovery and extractions.
+These algo-rithms are usually based on some clustering assump-tions over a large unlabeled corpus.
+Common as-sumptions include the distributional hypothesis usedby (Hasegawa et al., 2004; Shinyama and Sekine,2006), latent topic assumption by (Yao et al., 2012;Yao et al., 2011), and low rank assumption by (Taka-matsu et al., 2011; Riedel et al., 2013).
+Since theassumptions largely rely on co-occurrence, previousunsupervised approaches tend to confuse correlatedbut semantically different phrases during extraction.In contrast to this, our work largely avoids these er-rors by exploiting the temporal negation heuristicin parallel news streams.
+In addition, unlike manyunsupervised algorithms requiring human effort tocanonicalize the clusters, our work automaticallydiscovers events with readable names.Paraphrasing techniques inspire our work.
+Sometechniques, such as DIRT (Lin and Pantel, 2001)and Resolver (Yates and Etzioni, 2009), are basedon the distributional hypothesis.
+Another commonapproach is to use parallel corpora, including newsstreams (Barzilay and Lee, 2003; Dolan et al., 2004;Zhang and Weld, 2013), multiple translations of thesame story (Barzilay and McKeown, 2001) andbilingual sentence pairs (Ganitkevitch et al., 2013)to generate the paraphrases.
+Although these algo-rithms create many good paraphrases, they can notbe directly used to generate enough training data totrain a relation extractor for two reasons: first, thesemantics of the paraphrases is often context depen-dent; second, the generated paraphrases are often in118Parallel newsstreamsE=e(t1,t2)EventDiscovereventrelationsNewsSpike w/Parallel sentencesr1 r2 r3(a1,a2,t)r1 r2 r3  r4 r5r1 r2 r3NS=(a1,a2,d,S)GroupS={s1, s2 ,s3} r1 r2 r3(a1,a2,t)r1 r2 r3  r4 r5r1 r2 r3E=e(t1,t2)s?E(a1,a2)s?
+?E(a?1,a?2)Generatetraining dataTraining sentencesEventExtractorlearnTestsentencesinput extracts?
+E(a1,a2)ExtractionssTraining Phase Testing PhaseFigure 1: During its training phase, NEWSSPIKE-REfirst groups parallel sentences as NewsSpikes.
+Next, thesystem automatically discovers a set of event relations.Then, a probabilistic graphical model clusters sentencesfrom the NewsSpike as training data for each discoveredrelation, which is used to learn sentential event extrac-tors.
+During the testing phase, the extractor takes testsentences as input and predicts event extractions.small clusters and it remains challenging to mergethem for the purpose of training an extractor.
+Ourwork extends previous paraphrasing techniques, no-tably that of Zhang and Weld (2013), but we fo-cus on generating high-quality, positive and negativetraining sentences for the discovered events in orderto learn extractors with high precision and recall.3 System OverviewNews articles report an enormous number of eventsevery day.
+Our system, NEWSSPIKE-RE, alignsparalel news streams to indentify and extract theseevents as shown in Figure 1.
+NEWSSPIKE-REhas both training and test phases.
+Its trainingphase has two main steps: event-relation discov-ery and training-set generation.
+Section 4 describesour event relation discovery algorithm, which pro-cesses time-stamped news articles to discern a setof salient, distinct event relations in the form ofE = e(t1, t2), where e is a representative eventphrase and ti are types of the two arguments.NEWSSPIKE-RE generates the event phrases usingan Open Information Extraction (IE) system (Faderet al., 2011), and uses a fine-grained entity recogni-tion system FIGER (Ling and Weld, 2012) to gen-erate type descriptors such as ?company ?, ?politi-cian?, and ?medical treatment?.The second part of NEWSSPIKE-RE?s trainingphase, described in Section 5, is a method for build-ing extractors for the discovered event relations.
+Ourapproach is motivated by the intuition, adapted fromZhang and Weld (2013), that articles from differentnews sources typically use different sentences to de-scribe the same event, and that corresponding sen-tences can be identified when they mention a uniquepair of real-world entities.
+For example, when an un-usual entity pair (Selena, Norway) is suddenly seenin three articles on a single day:Selena traveled to Norway to see her ex-boyfriend.Selena arrived in Norway for a rendezvous with Justin.Selena?s trip to Norway was no coincidence.It is likely that all three refer to the same event re-lation, travel-to(person, location)1, and can be usedas positive training examples for the relation.
+As inZhang & Weld (2013), we group parallel sentencessharing the same argument pair and date in a struc-ture called a NewsSpike.
+However, we include allsentences mentioning the arguments (e.g.
+Selena?strip to Norway) in the NewsSpike (not just thoseyielding OpenIE extractions), and use the lexical-ized dependency path between the arguments (e.g.<-[poss]-trip-[prep-to]->2, as the event phrase.
+Inthis way, we can generalize extractors beyond thescope of OpenIE.
+Formally, a NewsSpike is a tu-ple, (a1, a2, d, S), where a1 and a2 are arguments(e.g.
+Selena), d is a date, and S is a set of argument-labeled sentences {(s, a1, a2, p) .
+.
+.}
+in which s is asentence with arguments ai and event phrase p.It?s important that non-synonomous sentenceslike ?Selena stays in Norway?
+should be excludedfrom the training data for travel-to(person, loca-tion) even if a travel-to event did apply to that argu-ment pair.
+In order to select only the synonomoussentences, we develop a probabilistic graphicalmodel, described in Section 5.2, to accurately as-sign sentences from NewsSpikes to each discov-ered event relation E. Given this annotated data,NEWSSPIKE-RE trains extractors using a multi-class logistic regression classfier.During the testing phase, NEWSSPIKE-RE ac-cepts arbitrary sentences (no date-stamp required),uses FIGER to identify possible arguments, and usesthe classifier to predicts which events (if any) holdbetween an argument pair.
+We describe the extrac-tion process in Section 6.Note that NEWSSPIKE-RE is an unsupervised al-1For clarity in the paper, we refer to this relation as travel-to,even though the phrase arrive in is actually more frequent andis selected as the name of this relation by our event discoveryalgorithm, as shown in Table 2.2This dependency path will be referred to as ?
+?s trip to?.119??
+????
+??
+???
+?Figure 2: A simple example of the edge-cover algo-rithm with K=2, where Ei are event relations and ?j areNewsSpikes.
+The optimal solution selects E1 with edgesto ?1 and ?2, and E3 with edge to ?3.
+These two eventrelations cover all the NewsSpikes.gorithm that requires no manual labelling of thetraining instances.
+Like distant supervision, thekey is to automatically generate the training data,at which point a traditional supervised classifiermay be applied to learn an extractor.
+Because dis-tant supervision creates very noisy annotations, re-searchers often use specialized learners that modelthe correctness of a training example with a la-tent variable (Riedel et al., 2010; Hoffmann etal., 2011), but we found this unnecessary, becauseNEWSSPIKE-RE creates high quality training data.4 Discovering Salient EventsThe first step of NEWSSPIKE-RE is to discover aset of event relations in the form of E = e(t1, t2),where e is an event phrase, and ti are fine-grained ar-gument types generated by FIGER, augmented withthe important types ?number?
+and ?money?, whichare recognized by the Stanford name entity recogni-tion system (Finkel et al., 2005).
+To be most useful,the discovered event relations should cover salientevents that are frequently reported in the news ar-ticles.
+Formally, we say that a NewsSpike ?
+=(a1, a2, d, S) mentions E = e(t1, t2) if the typesof ai are ti for each i, and one of its sentence has eas the event phrase between the arguments.
+To max-imize the salience of the events, NEWSSPIKE-REwill prefer event relations that are ?mentioned?
+bymore NewsSpikes.In addition, the set of event relations should bedistict.
+For example, if the relation travel-to(person,location) is already in the set, then visit(person, lo-cation) should not be selected as a separate relation.To reduce overlap, discovered event relations shouldnot be mentioned by the same NewsSpike.Let E be all candidate event relations, N be allNewsSpikes.
+Our goal is to select theK most salientrelations from E , minimizing overlap between re-lations.
+We can frame this task as a variant of thebipartite graph edge-cover problem.
+Let a bipartitegraph G have one node Ei for each event relation inE and one node ?j for each NewsSpike in N .
+Thereis an edge between Ei and ?j if ?j mentions Ei.
+Theedge-cover problem is to select a largest subset ofedges subject to (1) at most K nodes of Ei are cho-sen and all edges incident to them are chosen as thecovered edges; (2) each node of ?j is incident to atmost one edge.
+The first constraint guarantees thatthere are exactly K event relations discovered; thesecond constraint ensures that no NewsSpike partic-ipates in two event relations.
+Figure 2 shows theoptimized solution of a simple graph with K = 2,which can cover 3 edges with 2 event relations thathave no overlapping NewsSpikes.Since both the objective function and constraintsare linear, we can optimize this edge-cover problemwith integer linear programming (Nemhauser andWolsey, 1988).
+By solving the optimization prob-lem, NEWSSPIKE-RE finds a salient set of event re-lations incident to the covered edges.
+The discov-ered relations with K set to 30 are shown in Table 2in Section 7.
+In addition, the covered edges bringus the initial mapping between the event types andNewsSpikes, which is used to train the probablisticmodel in Section 5.3.5 Generating the Training SentencesAfter NEWSSPIKE-RE has discovered a set of eventrelations, it then generates training instances to learnan extractor for each relation.
+In this section, wepresent our algorithm for generating the trainingsentences.
+As shown in Figure 1, the generator takesN NewsSpikes {?i = (a1i, a2i, di, Si)|i = 1 .
+.
+.
+N}and K event relations {Ek = ek(t1k, t2k)|k =1 .
+.
+.K} as input.
+For every event relation, Ek,the generator identifies a subset of sentences from?Ni=1Si expressing the event relation as training sen-tences.
+In this section, we first characterize theparaphrased event phrases and the parallel sentencesin NewsSpikes.
+Then we show how to encodethis heuristic in a probabilistic graphical model thatjointly paraphrases the event phrases and identifies aset of training sentences.5.1 Exploiting Properties of Parallel NewsPrevious work (Zhang and Weld, 2013) proposedseveral heuristics that are useful to find similar sen-tences in a NewsSpike.
+For example, the tempo-ral functionality heuristic says that sentences in a120NewsSpike with the same tense tend to be para-phrases.
+Unfortunately, these methods are too weakto generate enough data for training high qualityevent extractors: (1) they are ?in-spike heuristics?that tend to generate small clusters from individualNewsSpikes.
+It remains unclear how to merge sim-ilar events occuring on different days and betweendifferent entities to increase cluster size.
+(2) they in-cluded heuristics to ?gain precision at the expenseof recall?
+(e.g.
+news articles do not state the samefact twice), because it is hard to obtain direct nega-tive phrases inside one NewsSpike.
+In this paper, weexploit news streams in a cross-spike, global man-ner to obtain accurate positive and negative signals.This allows us to dramatically improve recall whilemaintaining high precision.Our system starts from the basic observation thatthe parallel sentences tend to be coherent.
+So if aNewsSpike ?
+= (a1, a2, d, S) is an instance of anevent relation E = e(t1, t2), the event phrases in itsparallel sentences tend to be paraphrases.
+But some-times the sentences in the NewsSpike are related butnot paraphrases.
+For example, one day ?Snowdenwill stay in Hong Kong ...?
+appears together with?Snowden travels to Hong Kong ...?.
+Although thefact stay-in(Snowden, Hong Kong) is true, it is harm-ful to include ?Snowden will stay in Hong Kong?
+inthe training for travel-to(person, location).Detecting paraphrases remains a challenge tomost unsupervised approaches because they tendto cluster heavily co-occurring phrases which mayturn out to be semantically different or even antony-mous.
+(Zhang and Weld, 2013) presented a methodto avoid confusion between antonym and synonymsin NewsSpikes, but did not address the problem ofrelated but different phrases like travel to and stayin in a NewsSpike.To handle this, our method rests on a simple ob-servation: when you read ?Snowden travels to HongKong?
+and ?Snowden cannot stay in Hong Kongas Chinese officials do not allow ...?
+in the sameNewsSpike, it is unlike that travel to and stay in aresynonymous event phrases because otherwise thetwo news stories are describing the opposite event.This observation leads to:Temporal Negation Heuristic.
+Two event phrasesp and q tend to be semantically different if they co-occur in the NewsSpike but one of them is in negatedform.The temporal negation heuristic helps in twoways: (1) it provides some direct negative phrasesfor the event relations; NEWSSPIKE-RE uses theseto heuristically label some variables in the model.
+(2) It creates some useful features to implement aform of transitvity.
+For example, if we find that livein and stay in are frequently co-occurring and thetemporal negation heuristic tells us that travel to andstay in are not paraphrases, this is evidence that livein is unlikely to be a paraphrase of travel to, even ifthey are heavily co-occurring.The following section describes our implementa-tion that uses these properties to generate high qual-ity training.
+Our goal is the following: a sentence(s, a1, a2, p) from NewsSpike ?
+= (a1, a2, d, S)should be included in the training data for event re-lation E = e(t1, t2) if the event phrase p is a para-phrase of e and the event relation E happens to theargument pair (a1, a2) at time d.5.2 Joint Cluster ModelAs discussed above, to identify a high quality set oftraining sentences from NewsSpikes, one needs tocombine evidence that event phrases are paraphraseswith evidence from NewsSpikes.
+For this purpose,we define an undirected graphical model to jointlyreason about paraphrasing the event phrases andidentifying the training sentences from NewsSpikes.We first list the notation used in this section:E event relationp ?
+P event phrasess ?
+Sp sentences w/ the event phrase pY p Is p a paraphrase for E?Zsp Is s w/ p good training for E??
+factorsLet P be the union of all the event phrases fromevery NewsSpike.
+For each p ?
+P , let Sp be the setof sentences having p as its event phrase.Figure 3(a) shows the model in plate form.
+Thereare two kinds of random variables corresponding tophrases and sentences, respectively.
+For each eventrelationE = e(t1, t2), there exists a connected com-ponent for every event phrase p ?
+P that models (1)whether p is a paraphrase of e or not (modeled us-ing Boolean phrase variables, Y p); and (2) whethereach sentence of Sp is a good training sentence forE (modeled using |Sp| Boolean sentence variables{Zsp |s ?
+Sp}.
+Intuitively, the goal of the modelis to find the set of good training sentences, with121??????(a)1??1?
+???????
+?1 0Selena Gomez?s trip toNorway ????UCLA?s?????
+?NebraskaTsarnaev?s six-month trip toRussia ?s?a??s???&/?sa????????2?
+3???????????????????????(b)00??????
+?0Snowden plans to stay in HongkongManziel stays in Austin to attend a fraternity party????????????????????
+(c)Figure 3: (a) The connected components depicted as plate model, where each Y is a Boolean variable for a relationphrase and each Z is a Boolean variable for a training sentence for with that phrase; (b) and (c) are example connectedcomponents for the event phrases ?s trip to and stay in respectively.
+The goal of the model is to set Y = 1 for goodparaphrases of a relation and to set Z = 1 for good training sentences.Zsp = 1.
+The union of such sentences over the dif-ferent phrases, ?p{s|Zsp = 1}, defines the trainingsentences for the event.
+Figure 3(b) and 3(c) showtwo example connected-components for the eventphrases ?s trip to and stay in respectively.Now, we can define the joint distribution overthe event phrases and the sentences.
+The joint dis-tribution is a function defined on factors that en-code our observations about NewsSpikes as featuresand constraints.
+The phrase factor ?phrase is a log-linear function attaching to Y p with the paraphras-ing features, such as whether p and e co-occur inthe NewsSpikes, or whether p shares the same headword with e. They are used to distinguish whether pis a good event phrase.A sentence should not be identified as a goodtraining sentence if it does not contain a positiveevent phrase.
+For example, if Y stay in in Figure 3(b)takes the value of 0, thus all sentences with the eventphrase stay in should also take the value of 0.
+Weimplement this constraint with a joint factor ?jointamong Y p and Zsp variable.In addition, good training sentences occur whenthe NewsSpike is an event instance.
+To encode thisobservation, we need to featurize the NewsSpikesand let them bias the assignments.
+Our model im-plements this with two types of log-linear factors:(1) the unary in-spike factor ?in depends on the sen-tence variables and contains features about the cor-responding NewsSpike.
+The factor is used to dis-tinguish whether the NewsSpike is an instance ofe(t1, t2), such as whether the argument types of theNewsSpike match the designated types t1, t2; (2) thepairwise cross-spike factors ?cross connect pairs ofsentences.
+This uses features such as whether thepair of NewsSpikes for the two sentences have hightextual similarity, and whether two NewsSpikes con-tain negated event phrases.We define the joint distribution for the connectedcomponent for p as follows.
+Let Z be the vector ofsentence variables, let x be the features.
+The jointdistribution is:p(Y = y,Z = z|x; ?)
+def= 1Zx?phrase(y,x)?
+?joint(y, z)?s?in(zs,x)?s,s?
+?cross(zs, zs?
+,x)where the parameter vector ?
+is the weight vec-tor of the features in ?in and ?cross, which are log-linear functions.
+The joint factors ?joint is zero whenY p = 0 but some Zsp = 1.
+Otherwise, it is set to 1.We use integer linear programming to perform MAPinference on the model, finding the predictions y, zthat maximize the probability.5.3 Learning from Heuristic LabelsWe now present the learning algorithm for our jointcluster model.
+The goal of the learning algorithmis to set ?
+for the log-linear functions in the factorsin a way that maximizes the likelihood estimation.We do this in a totally unsupervised manner, sincemanual annotation is expensive and not scalable tolarge numbers of event relations.The weights are learned in three steps: (1)NEWSSPIKE-RE creates a set of heuristic labels fora subset of variables in the graphical model; (2)it uses the heuristic labels as supervision for themodel; (3) it updates ?
+with the perceptron learningalgorithm.
+The weights are used to infer the valuesof the variables that don?t have heuristic labels.
+Theprocedure is summarized in Figure 4.For each event relation E = e(t1, t2),NEWSSPIKE-RE creates heuristic labels as follows:122Input: NewsSpikes and the connected components ofthe model;Heuristic Labels:1. find positive and negative phrases and sentencesP+, P?, S+, S?;2.
+label the connected componenets accordinglyand create {(Y labeli ,Zlabeli ) |Mi=1}.Learning: Update ?
+with the perceptron learning al-gorithm.Output: the values of all variables in the connectedcomponents with the MAP inference.Figure 4: Learning from Heuristic Labels(1) P+: the temporal functionality heuristic (Zhangand Weld, 2013) says that if an event phrase p co-occurs with e in the NewsSpikes, it tends to be aparaphrase of e. We add the most frequently co-occurring event phrases to P+.
+P+ also includes eitself.
+(2) P?
+: the temporal negation heuristic saysthat if p and e co-occur in the NewsSpike but oneof them is in its negated form, p should be nega-tively labeled.
+We add those event phrases to P?.If a phrase p appears in both P+ and P?, we re-move it from both sets.
+(3) S+: we first get thepositive NewsSpikes from the solution of the edge-cover problem in section 4.
+We treat the NewsSpike?
+as positive if the edge between ?
+and E is cov-ered.
+Next, every sentence with p ?
+P+ is addedinto S+.
+(4) S?
+: since the event relations discoveredin section 4 tend to be distinct relations, a sentenceis treated as negative sentence for E if it is heuris-tically labeled as positive for E?
+6= E. In addition,S?
+includes all sentences with p ?
+P?.With P+, P?, S+, S?, we define the heuristic la-beled set to be {(Y labeli ,Zlabeli ) |Mi=1}, where Mis the number of the connected components withthe corresponding event phrases p ?
+P+ ?
+P?
+;Y labeli = 1 if p ?
+P+ and Y labeli = 0 if p ?
+P?.
+Ziis labeled similarly, but note that if the sentence inthe connected component doesn?t exist in S+ ?
+S?,NEWSSPIKE-RE doesn?t include the correspondingvariable in Zlabeli .
+With {(Y labeli ,Zlabeli ) |Mi=1}, learn-ing can be done with maximum likelihood estima-tion as L(?)
+= log?i p(Yi = ylabeli ,Zi = zlabeli |xi,?).
+Following (Collins, 2002), we use a fast per-ceptron learning approach to update ?.
+It consistsof iterating two steps: (1) MAP inference given thecurrent weight; (2) penalizing the weights if the in-ferred assignments are different from the heuristiclabeled assignments.6 Sentential Event ExtractionAs shown in Figure 1, we learn the extractors fromthe generated training sentences.
+Note that most dis-tant supervised (Hoffmann et al., 2011; Surdeanu etal., 2012) approaches use multi-instance, aggregate-level training (i.e.
+the supervision comes from la-beled sets of instances instead of individually la-beled sentences).
+Coping with the noise inherentin these multi-instance bags remains a big challengefor distant supervision.
+In contrast, our sentence-level training data is more direct and minimizesnoise.
+Therefore, we implement the event extrac-tor as a simple multi-class, L2-regularized logisticregression classifier.For features of the classifier, we use the lexi-calized dependency paths, the OpenIE phrases, theminimal subtree of the dependency parse and thebag-of-words between the arguments.
+We also aug-ment them with fine grained argument types pro-duced by FIGER (Ling and Weld, 2012).
+The eventextractor that is learned can take individual test sen-tences (s, a1, a2) as input and predict whether thatsentence expresses the event between (a1, a2).7 Empirical EvaluationOur evaluation addresses two questions.
+Section 7.2considers whether our training generation algorithmidentifies accurate and diverse sentences.
+Then,Section 7.3 investigates whether the event extrac-tor, learned from the training sentences, outperformsother extraction approaches.7.1 Experimental SetupWe follow the procedure described in (Zhang andWeld, 2013) to collect parallel news streams andgenerate the NewsSpikes: first, we get news seedsand query the Bing newswire search engine to gatheradditional, time-stamped, news articles on a simi-lar topic; next, we extract OpenIE tuples from thenews articles and group the sentences that share thesame arguments and date into NewsSpikes.
+We col-lected the news stream corpus from March 1st 2013to July 1st 2014.
+We split the dataset into two parts:in the training phrase, we use the news streams in2013 (named NS13) to generate the training sen-tences.
+NS13 has 33k NewsSpikes containing 173ksentences.We evaluated the extraction performance on newsarticles collected in 2014 (named NS14).
+In this123way, we make sure the test sentences are unseenduring training.
+There are 15 million sentences inNS14.
+We randomly sample 100k unique sentenceshaving two different arguments recognized by thename entity recognition system.For our event discovery algorithm, we set thenumber of event relations to be 30 and ran the al-gorithm on NS13.
+The algorithm takes 6 secondsto run on a 2.3GHz CPU.
+Note that most previousunsupervised relation discovery algorithms requireadditional manual post-processing to assign namesto the output clusters.
+In contrast, NEWSSPIKE-REdiscovers the event relations fully automatically andthe output is self-explanatory.
+We list them togetherwith the by-event extraction performance in Table 2.From the table, we can see that most of the discov-ered event relations are salient with little overlap be-tween relations.While we arbitrarily set K to 30 in our experi-ments, there is no inherent limit to the number ofrelation phrases as long as the news corpus providessufficient support to learn an extractor for each rela-tion.
+In future, we plan to explore much larger setsof event relations to see if the extraction accuracy ismaintained.The joint cluster model that identifies trainingsentences for each event relation E = e(t1, t2) usescosine similarity between the event phrase p of asentence and the canonical phrases of each relationas features in the phrase factors in Figure 3(a).
+Italso includes the cosine similarity between p and aset of ?anti-phrases?
+for the event relation which arerecognized by the temporal negation heuristic.For the in-spike factor, we measure whether thefine-grained argument types of the sentence returnedfrom the FIGER system matches the required tirespectively.
+In addition, we implement the fea-tures from (Zhang and Weld, 2013) to measurewhether the sentence is describing the event of theNewsSpike.
+For the cross-spike factors, we use tex-tual similarity features between the two sets of par-allel sentences to measure the distance between thepair of NewsSpikes.7.2 Quality of the Generated Training SetThe key to a good learning system is a high-qualitytraining set.
+In this section, we compare our jointmodel against pipeline systems that consider para-phrases and argument type matching sequentially,system all diverse# mi.
+ma.
+# mi.
+ma.Basic 43,718 .50 .62 12,701 .38 .51Yates09 15,212 .78 .76 586 .48 .50Ganit13 14,420 .74 .71 1,210 .53 .53Zhang13 14,804 .76 .75 890 .63 .61NEWSSPIKE-RE 20,105 .88 .89 2,156 .71 .72w/o cross 16,463 .86 .86 1,883 .67 .69w/o neg 33,548 .76 .81 4,019 .64 .68Table 1: Quality of the generated training sentences(count, micro- and macro- accuracy), where ?all?
+in-cludes sentences with all event phrases and ?diverse?
+arethose with distinct event phrases.based on the following paraphrasing techniques.Basic is based on the temporal functionalityheuristic of (Zhang and Weld, 2013).
+It treats allevent phrases appearing in the same NewsSpikeas paraphrases.
+Yates09 uses Resolver (Yates andEtzioni, 2009) to create clusters of phrases.
+Re-solver measures the similarity between the phrasesby means of both distributional features and textualfeatures.
+We convert the sentences in NewsSpikesinto tuples in the form of (a1, p, a2), and run Re-solver on these tuples to generate the paraphrases.Zhang13: We used the generated paraphrase setfrom (Zhang and Weld, 2013).
+Ganit13: Gan-itkevitch et al.
+(2013) released a large paraphrasedatabase (PPDB) based on exploiting the bilingualparallel corpora.
+Note that some of these para-phrasing systems do not handle dependency paths.So when p is a dependency path, we use the sur-face string between the arguments as the phrase.NewsSpike-RE: We also conduct ablation testingon NEWSSPIKE-RE to measure the effect of thecross-spike factors and the temporal negation heuris-tic: w/o Cross uses a simpler model by remov-ing the cross-spike factors of NEWSSPIKE-RE; w/oNegation uses the same joint cluster model asNEWSSPIKE-RE but removes the features and theheuristic labels coming from the temporal negationheuristic.We measured the micro- and macro- accuracy ofeach system by manually labeling 1000 randomlychosen output from each system3.
+Annotators readeach training sentence, and decided if it was a goodexample for a particular event.
+We also report thenumber of generated sentences.
+Since the extrac-tor should generalize over sentences with dissimilarexpressions, it is crucial to identify sentences with3Two Odesk workers were asked to label the dataset, a grad-uate student then reconciled any disagreements.124Event F1 @ max recall area u/ PR curve area u/ diverse PR curve# R13 R13P N-RE R13 R13P N-RE # R13 R13P N-REacquire(organization,person) 59 0.34 0.33 0.58 0.26 0.26 0.57 20 0.26 0.17 0.58arrive in(organization,location) 95 0.11 0.40 0.56 0.01 0.12 0.42 18 0.01 0.02 0.50arrive in(person,location) 130 0.61 0.86 0.86 0.35 0.67 0.93 18 0.26 0.33 0.80beat(organization,organization) 178 0.42 0.85 0.90 0.14 0.64 0.84 24 0.06 0.53 0.58beat(person,person) 107 0.57 0.82 0.94 0.21 0.53 0.91 14 0.08 0.25 0.77buy(organization,organization) 84 0.47 0.47 0.78 0.25 0.50 0.82 34 0.19 0.40 0.79defend(person,person) 41 0.37 0.38 0.52 0.36 0.47 0.65 12 0.13 0.06 0.47die at(person,number) 158 0.53 0.97 0.98 0.31 0.93 0.97 17 0.33 0.83 0.94die(person,time) 179 0.85 0.91 0.97 0.66 0.80 0.96 16 0.22 0.63 0.87fire(organization,person) 39 0.36 0.33 0.53 0.32 0.45 0.88 8 0.20 0.10 0.66hit(event,location) 33 0.00 0.42 0.64 0.00 0.51 0.48 24 0.00 0.45 0.50lead(person,organization/sports team) 119 0.77 0.86 0.87 0.57 0.73 0.77 14 0.30 0.36 0.62leave(person,organization) 61 0.40 0.52 0.59 0.14 0.38 0.57 14 0.07 0.13 0.38meet with(person,person) 137 0.74 0.86 0.92 0.48 0.73 0.88 14 0.28 0.56 0.93nominate(person/politician,person) 44 0.12 0.38 0.54 0.13 0.44 0.77 27 0.11 0.53 0.75pay(organization,money) 134 0.77 0.91 0.93 0.52 0.85 0.90 17 0.33 0.90 0.56place(organization,person) 34 0.17 0.28 0.50 0.24 0.23 0.95 16 0.19 0.21 0.94play(person/artist,person) 173 0.92 0.89 0.87 0.88 0.79 0.73 15 0.63 0.56 0.47release(organization,person) 30 0.18 0.22 0.60 0.08 0.25 0.72 16 0.06 0.15 0.81replace(person,person) 115 0.82 0.89 0.94 0.62 0.75 0.87 18 0.46 0.58 0.89report(government agency,time) 140 0.37 0.84 0.91 0.09 0.74 0.83 35 0.06 0.52 0.70report(written work,time) 130 0.64 0.85 0.83 0.43 0.82 0.74 22 0.38 0.58 0.51return to(person/athlete,location) 45 0.14 0.34 0.50 0.03 0.30 0.49 21 0.08 0.23 0.78shoot(person,number) 101 0.71 0.89 0.92 0.49 0.74 0.84 8 0.35 0.37 0.48sign with(person,organization) 129 0.47 0.62 0.89 0.25 0.46 0.85 44 0.15 0.17 0.91sign(organization,person) 110 0.45 0.71 0.85 0.26 0.63 0.79 26 0.15 0.27 0.66unveil(organization,product) 88 0.43 0.71 0.44 0.26 0.52 0.30 22 0.31 0.22 0.63vote(government,time) 32 0.29 0.24 0.74 0.32 0.25 0.77 19 0.35 0.22 0.83win at(person,location) 100 0.24 0.68 0.85 0.08 0.60 0.90 40 0.01 0.42 0.90win(person,event) 107 0.54 0.77 0.86 0.22 0.63 0.77 19 0.03 0.26 0.78micro average 2,903 0.53 0.70 0.81 0.30 0.59 0.80 609 0.15 0.31 0.71macro average 97 0.46 0.64 0.76 0.30 0.56 0.76 20 0.20 0.37 0.70Table 2: Performance of extractors by event relation, reporting both precision and the area under the PR curve.
+The# column shows the number of true extractions in the pool of sampled output.
+NEWSSPIKE-RE (labeled N-RE)outperforms two implementations of Riedel?s Universal Schemas (See Section 7.3 for details).
+The advantage ofNEWSSPIKE-RE over Universal Schemas is greatest on a diverse test set where each sentence has a distinct eventphrase.diverse event phrases.
+Therefore we also measuredthe accuracy and the count of a ?diverse?
+condition:only consider the subset of sentences with distinctevent phrases.Table 1 shows the accuracy and the numberof training examples.
+The basic temporal systembrings us 0.50/0.62 micro- and macro- accuracyoverall and 0.38/0.51 in the diverse condition.
+Itshows that NewsSpikes are promising resources togenerate the training set, but that elaboration is nec-essary.
+Yates09 gets 0.78/0.76 accuracy overall be-cause its textual features help it to recognize manygood sentences with similar phrases.
+But for the di-verse condition, it gets lower precision because thedistributional hypothesis fails to distinguish thosecorrelated but different phrases.Although Ganitkevitch13 and Zhang13 leverageexisting paraphrase databases, it is interesting thattheir accuracy is still not good.
+It is largely becausemany times the paraphrasing must depend on thecontext: e.g.
+?Cutler hits Martellus Bennett with TDin closing seconds.?
+is not good for the beat(team,team) relation, even though hit is a synonym for beatin general.
+These two systems show that it is notenough to use an off-the-shelf paraphrasing databasefor extraction.The ablation test shows the effectiveness of thetemporal negation hypothesis: after turning off therelevant features and heuristic labels, the precisiondrops about 10 percentage points.
+In addition,the cross-spike factors bring NEWSSPIKE-RE about22% more training sentences and also increase theaccuracy.We did bootstrap sampling to test the statisticalsignificance of NEWSSPIKE-RE?s improvement inaccuracy over each comparison system and abla-tion of NEWSSPIKE-RE.
+For each system we com-puted the accuracy of 10 samples of 100 labeledoutputs.
+We then ran the paired t-test over the ac-curacy numbers of each other system compared to125NEWSSPIKE-RE.
+For all but w/o cross the improve-ment is strongly significant with p-value less than1%.
+The increase in accuracy compared to w/o crosshas borderline significance (p-value 5.5%), but is aclear win with its 22% increase in training size.7.3 Performance of the Event ExtractorsMost previous relation extraction approaches eitherrequire a manually labeled training set, or workonly on a pre-defined set of relations that haveground instances from KBs.
+The closest work toNEWSSPIKE-RE is Universal Schemas (Riedel etal., 2013), which addresses the limitation of dis-tant supervision that the relations must exist in KBs.Their solution is to treat the surface strings, de-pendency paths, and relations from KBs as equal?schemas?, and then to exploit the correlation be-tween the instances and the schemas from a verylarge unlabeled corpus.
+In their paper, Riedel et al.evaluated only on static relations from Freebase andachieve state-of-the-art performance.
+But UniversalSchemas can be adapted to handle events, by intro-ducing the events as schemas and heuristically find-ing seed instances.We set up a competing system (R13) as follows:(1) We take the NYTimes corpus published between1987 and 2007 (Sandhaus, 2008), the dataset usedby Riedel et al.
+(2013) containing 1.8 million NYTimes articles; (2) The instances (i.e.
+the rows of thematrix) come from the entity pairs from the news ar-ticles; (3) There are two types of columns: some arethe extraction features used by NEWSSPIKE-RE, in-cluding the lexicalized dependency paths describedin Riedel et al.
+; others are event relations E =e(t1, t2); (4) For an entity pair (a1, a2), if there isan OpenIE extraction (a1, e, a2) and the entity typesof (a1, a2) match (t1, t2), we assume the event rela-tion E is observed on that instance.As shown in Table 1, parallel news streams area promising resource for clustering because of thestrong correlation between the instances and theevent phrases.
+We train another version of UniversalSchemas R13P on the parallel news streams NS13.In particular, entity pairs from different NewsSpikesare used as different rows in the matrix.We would like to measure the precision and re-call of the extractors.
+But note that it is impos-sible to fully label all the sentences, so we followthe ?pooling?
+technique described in (Riedel et al.,2013) to create the labeled dataset.
+For every com-peting system, we sample 100 top outputs for everyevent relation and add this to the pool.
+The anno-tators are shown these sentences and asked to judgewhether the sentence expresses the event relation ornot.
+After that, the labeled set become ?gold?
+andcan be used to measure the precision and pseudo-recall.
+There are in all 6,178 distinct sentences inthe pool, since some outputs are produced by mul-tiple systems.
+Among them, 2,903 sentences are la-beled as positive.
+In Table 2, the # columns showthe number of true extractions in the pool for everyevent relation.Similar to the diverse condition in Table 1, it isimportant that the extractor can correctly predict ondiverse sentences that are dissimilar to each other.Thus we conducted a ?diverse pooling?
+: for eachsystem, we report numbers for the sentences withdifferent dependency paths between the argumentsfor every discovered event.Figure 5(a) shows the precision pseudo-recallcurve for all sentences for the three systems.NEWSSPIKE-RE outperforms the competing sys-tems by a large margin.
+For example, the area un-der the curve (AUC) of NEWSSPIKE-RE for all sen-tences is 0.80 while that of R13P and R13 are 0.59and 0.30.
+This is a 35% increase over R13P and 2.7times the area compared to R13.
+Similar increasesin AUC are observed on diverse sentences.
+Table 2further lists the breakdown numbers for each eventrelation, as well as the micro and macro average.Although Universal Schemas had some success forseveral relations, NEWSSPIKE-RE achieved the bestF1 for 26 out of 30 event relations; best AUC for 26out of 30.
+The advantage is even greater in the di-verse condition.
+It is interesting to see that R13Pperforms much better than R13, since the data com-ing from NYTimes is much noisier.A closer look shows that Universal Schemastends to confuse correlated but different phrases.NEWSSPIKE-RE, however, rarely made these errorsbecause our model can effectively exploit negativeevidence to distinguish them.7.3.1 Comparing to Distant SupervisionAlthough the most event relations in Table 2 can-not be handled by the distant supervised approach,it is possible to match buy(org,org) to Freebase re-lations with appropriate database operators such as1260.0 0.2 0.4 0.6 0.8 1.00.00.20.40.60.81.0R13: Uschema on NYTR13P: Uschema on NS13NewsSpike-RE on NS13Pseudo RecallPrecision(a)0.0 0.2 0.4 0.6 0.8 1.00.00.20.40.60.81.0R13: Uschema on NYTR13P: Uschema on NS13NewsSpike-RE on NS13Pseudo RecallPrecisionDS on NYT(b)Figure 5: Precision pseudo-recall curves for (a) all event relations; (b) buy(org, org), this figure includes the distantsupervision algorithm MIML learned from matching the Freebase relation5 to The New York Times.
+NEWSSPIKE-REhas AUC 0.80, more than doubling R13 (0.30) and 35% higher than R13P (0.59) for all event relations.join and select (Zhang et al., 2012).
+To evaluatehow distant supervision performs, we introduce thesystem DS on NYT based on a manual mapping ofbuy(org,org) to the join relation4 in Freebase.
+Thenwe match its instances to NYTimes articles and fol-low the steps of Surdeanu et al.
+(2012) to train theextractor.The matching to NYTimes brings us 264 positiveinstances having 5,333 sentences, but unfortunatelythe sentence-level accuracy is only 13% based onexamination of 100 random sentences.
+Figure 5(b)shows the PR curves for all the competing systems.Distant supervision predicts the top extractions cor-rectly because the multi-instance technique recog-nizes some common expressions (e.g.
+buy, acquire),but the precision drops dramatically since most pos-itive expressions are overwhelmed by the noise.8 Conclusions and Future WorkPopular distant supervised approaches have limitedability to handle event extraction, since fluent factsare highly time dependent and often do not exist inany KB.
+This paper presents a novel unsupervisedapproach for event extraction that exploits parallelnews streams.
+Our NEWSSPIKE-RE system auto-matically identifies a set of argument-typed eventsfrom a news corpus, and then learns a sentential(micro-reading) extractor for each event.We introduced a novel, temporal negation heuris-tic for parallel news streams that identifies eventphrases that are correlated, but are not paraphrases.We encoded this in a probabilistic graphical model4/organization/organization/companies_acquired1/business/acquisition/company_acquiredto cluster sentences, generating high quality trainingdata to learn a sentential extractor.
+This providesnegative evidence crucial to achieving high preci-sion training data.Experiments show the high quality of the gener-ated training sentences and confirm the importanceof our negation heuristic.
+Our most important exper-iment shows that we can learn accurate event extrac-tors from this training data.
+NEWSSPIKE-RE out-performs comparable extractors by a wide margin,more than doubling the area under a precision-recallcurve compared to Universal Schemas.In future work we plan to implement our systemas an end-to-end online service.
+This would allowusers to conveniently define events of interest, learnextractors for each event, and return extracted factsfrom news streams.AcknowledgmentsWe thank Hal Daume III, Xiao Ling, Luke Zettle-moyer and the reviewers.
+This work was supportedby ONR grant N00014-12-1-0211, the WRF/CableProfessorship, a gift from Google, and the DefenseAdvanced Research Projects Agency (DARPA) Ma-chine Reading Program under Air Force ResearchLaboratory (AFRL) prime contract no.
+FA8750-09-C-0181.
+Any opinions, findings, and conclusionsor recommendations expressed in this material arethose of the author(s) and do not necessarily reflectthe view of DARPA, AFRL, or the US government.127ReferencesEugene Agichtein and Luis Gravano.
+2000.
+Snowball:extracting relations from large plain-text collections.In ACM DL, pages 85?94.Michele Banko, Michael J. Cafarella, Stephen Soderland,Matthew Broadhead, and Oren Etzioni.
+2007.
+Openinformation extraction from the web.
+In Proceedingsof the 20th International Joint Conference on ArtificialIntelligence (IJCAI-07), pages 2670?2676.Regina Barzilay and Lillian Lee.
+2003.
+Learning toparaphrase: an unsupervised approach using multiple-sequence alignment.
+In Proceedings of the 2003 Con-ference of the North American Chapter of the Associ-ation for Computational Linguistics on Human Lan-guage Technology (HLT-NAACL), pages 16?23.Regina Barzilay and Kathleen R McKeown.
+2001.
+Ex-tracting paraphrases from a parallel corpus.
+In Pro-ceedings of the 39th Annual Meeting on Associationfor Computational Linguistics (ACL), pages 50?57.Edward Benson, Aria Haghighi, and Regina Barzilay.2011.
+Event discovery in social media feeds.
+In Pro-ceedings of the 49th Annual Meeting of the Associa-tion for Computational Linguistics: Human LanguageTechnologies (HLT-NAACL), pages 389?398.Sergey Brin.
+1999.
+Extracting patterns and relationsfrom the world wide web.
+In The World Wide Weband Databases, pages 172?183.Andrew Carlson, Justin Betteridge, Bryan Kisiel, BurrSettles, Estevam R. Hruschka Jr., and Tom M.Mitchell.
+2010.
+Toward an architecture for never-ending language learning.
+In Proceedings of the AAAIConference on Artificial Intelligence (AAAI-10).Michael Collins.
+2002.
+Discriminative training meth-ods for hidden Markov models: Theory and experi-ments with perceptron algorithms.
+In Proceedings ofthe ACL-02 conference on Empirical methods in natu-ral language processing-Volume 10, pages 1?8.Mark Craven and Johan Kumlien.
+1999.
+Constructingbiological knowledge bases by extracting informationfrom text sources.
+In Proceedings of the Seventh Inter-national Conference on Intelligent Systems for Molec-ular Biology (ISMB), pages 77?86.Bill Dolan, Chris Quirk, and Chris Brockett.
+2004.
+Un-supervised construction of large paraphrase corpora:Exploiting massively parallel news sources.
+In Com-putational Linguistics, page 350.Anthony Fader, Stephen Soderland, and Oren Etzioni.2011.
+Identifying relations for open informationextraction.
+In Proceedings of the Conference onEmpirical Methods in Natural Language Processing(EMNLP), pages 1535?1545.Jenny Rose Finkel, Trond Grenager, and ChristopherManning.
+2005.
+Incorporating non-local informa-tion into information extraction systems by Gibbs sam-pling.
+In Proceedings of the 43rd Annual Meetingon Association for Computational Linguistics (ACL),pages 363?370.Juri Ganitkevitch, Benjamin Van Durme, and ChrisCallison-Burch.
+2013.
+PPDB: The paraphrasedatabase.
+In Joint Human Language Technology Con-ference/Annual Meeting of the North American Chap-ter of the Association for Computational Linguistics(HLT-NAACL 2013), pages 758?764.Takaaki Hasegawa, Satoshi Sekine, and Ralph Grishman.2004.
+Discovering relations among named entitiesfrom large corpora.
+In Proceedings of the 42nd AnnualMeeting on Association for Computational Linguistics(ACL), page 415.Raphael Hoffmann, Congle Zhang, Xiao Ling, LukeZettlemoyer, and Daniel S Weld.
+2011.
+Knowledge-based weak supervision for information extraction ofoverlapping relations.
+In Proceedings of the 49th An-nual Meeting of the Association for ComputationalLinguistics: Human Language Technologies (HLT-ACL), pages 541?550.Ruihong Huang and Ellen Riloff.
+2013.
+Multi-facetedevent recognition with bootstrapped dictionaries.
+Inthe Conference of the North American Chapter of theAssociation for Computational Linguistics: HumanLanguage Technologies (HLT-NAACL), pages 41?51.Dekang Lin and Patrick Pantel.
+2001.
+Discovery of infer-ence rules for question-answering.
+Natural LanguageEngineering, 7(4):343?360.Xiao Ling and Daniel S Weld.
+2012.
+Fine-grained entityrecognition.
+In Association for the Advancement ofArtificial Intelligence (AAAI).David McClosky, Mihai Surdeanu, and Christopher DManning.
+2011.
+Event extraction as dependency pars-ing.
+In Proceedings of the 49th Annual Meeting ofthe Association for Computational Linguistics: Hu-man Language Technologies (HLT-ACL), pages 1626?1635.Mike Mintz, Steven Bills, Rion Snow, and Daniel Juraf-sky.
+2009.
+Distant supervision for relation extrac-tion without labeled data.
+In Proceedings of the 47thAnnual Meeting of the Association for ComputationalLinguistics (ACL), pages 1003?1011.Ndapandula Nakashole, Martin Theobald, and GerhardWeikum.
+2011.
+Scalable knowledge harvesting withhigh precision and high recall.
+In Proceedings of thefourth ACM international conference on Web searchand data mining (WSDM), pages 227?236.George L Nemhauser and Laurence A Wolsey.
+1988.
+In-teger and combinatorial optimization, volume 18.
+Wi-ley New York.128Roi Reichart and Regina Barzilay.
+2012.
+Multi event ex-traction guided by global constraints.
+In Proceedingsof the 2012 Conference of the North American Chap-ter of the Association for Computational Linguistics:Human Language Technologies (HLT-NAACL), pages70?79.Kevin Reschke, Martin Jankowiak, Mihai Surdeanu,Christopher D Manning, and Daniel Jurafsky.
+2014.Event extraction using distant supervision.
+In Lan-guage Resources and Evaluation Conference (LREC).Sebastian Riedel, Limin Yao, and Andrew McCallum.2010.
+Modeling relations and their mentions with-out labeled text.
+In Machine Learning and KnowledgeDiscovery in Databases (ECML), pages 148?163.Sebastian Riedel, David McClosky, Mihai Surdeanu, An-drew McCallum, and Christopher D Manning.
+2011.Model combination for event extraction in BioNLP2011.
+In Proceedings of the BioNLP Shared Task 2011Workshop, pages 51?55.Sebastian Riedel, Limin Yao, Benjamin M. Mar-lin, and Andrew McCallum.
+2013.
+Relationextraction with matrix factorization and universalschemas.
+In Joint Human Language Technology Con-ference/Annual Meeting of the North American Chap-ter of the Association for Computational Linguistics(HLT-NAACL).Alan Ritter, Oren Etzioni, Sam Clark, et al.
+2012.
+Opendomain event extraction from twitter.
+In Proceedingsof the 18th ACM SIGKDD international conference onKnowledge discovery and data mining (KDD), pages1104?1112.Evan Sandhaus.
+2008.
+The New York Times annotatedcorpus.
+Linguistic Data Consortium.Yusuke Shinyama and Satoshi Sekine.
+2006.
+Preemp-tive information extraction using unrestricted relationdiscovery.
+In Proceedings of the main conferenceon Human Language Technology Conference of theNorth American Chapter of the Association of Com-putational Linguistics (HLT-NAACL), pages 304?311.Mihai Surdeanu, Julie Tibshirani, Ramesh Nallapati, andChristopher D Manning.
+2012.
+Multi-instance multi-label learning for relation extraction.
+In Proceedingsof the 2012 Joint Conference on Empirical Methodsin Natural Language Processing and ComputationalNatural Language Learning (EMNLP), pages 455?465.Shingo Takamatsu, Issei Sato, and Hiroshi Nakagawa.2011.
+Probabilistic matrix factorization leveragingcontexts for unsupervised relation extraction.
+In Ad-vances in Knowledge Discovery and Data Mining,pages 87?99.Fei Wu and Daniel S. Weld.
+2007.
+Autonomously se-mantifying wikipedia.
+In Proceedings of the Inter-national Conference on Information and KnowledgeManagement (CIKM), pages 41?50.Limin Yao, Aria Haghighi, Sebastian Riedel, and AndrewMcCallum.
+2011.
+Structured relation discovery usinggenerative models.
+In Proceedings of the Conferenceon Empirical Methods in Natural Language Process-ing (EMNLP), pages 1456?1466.Limin Yao, Sebastian Riedel, and Andrew McCallum.2012.
+Unsupervised relation discovery with sense dis-ambiguation.
+In Proceedings of the 50th Annual Meet-ing of the Association for Computational Linguistics(ACL), pages 712?720.Alexander Yates and Oren Etzioni.
+2009.
+Unsupervisedmethods for determining object and relation synonymson the web.
+Journal of Artificial Intelligence Research,34(1):255.Congle Zhang and Daniel S Weld.
+2013.
+Harvesting par-allel news streams to generate paraphrases of event re-lations.
+In Proceedings of the 2013 Joint Conferenceon Empirical Methods in Natural Language Process-ing and Computational Natural Language Learning(EMNLP), pages 455?465.Congle Zhang, Raphael Hoffmann, and Daniel S Weld.2012.
+Ontological smoothing for relation extractionwith minimal supervision.
+In Association for the Ad-vancement of Artificial Intelligence (AAAI).129130

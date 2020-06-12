@@ -1,0 +1,329 @@
+Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, pages 1973?1978,Austin, Texas, November 1-5, 2016. c?2016 Association for Computational LinguisticsSpeed-Accuracy Tradeoffs in Taggingwith Variable-Order CRFs and Structured SparsityTim Vieira?
+and Ryan Cotterell?
+and Jason EisnerDepartment of Computer ScienceJohns Hopkins University{timv,ryan.cotterell,jason}@cs.jhu.eduAbstractWe propose a method for learning the structureof variable-order CRFs, a more flexible variantof higher-order linear-chain CRFs.
+Variable-order CRFs achieve faster inference by in-cluding features for only some of the tag n-grams.
+Our learning method discovers theuseful higher-order features at the same timeas it trains their weights, by maximizing anobjective that combines log-likelihood with astructured-sparsity regularizer.
+An active-setouter loop allows the feature set to grow asfar as needed.
+On part-of-speech tagging in 5randomly chosen languages from the UniversalDependencies dataset, our method of shrink-ing the model achieved a 2?6x speedup over abaseline, with no significant drop in accuracy.1 IntroductionConditional Random Fields (CRFs) (Lafferty et al,2001) are a convenient formalism for sequence label-ing tasks common in NLP.
+A CRF defines a feature-rich conditional distribution over tag sequences (out-put) given an observed word sequence (input).The key advantage of the CRF framework is theflexibility to consider arbitrary features of the input,as well as enough features over the output structure toencourage it to be well-formed and consistent.
+How-ever, inference in CRFs is fast only if the featuresover the output structure are limited.
+For example,an order-k CRF (or ?k-CRF?
+for short, with k > 1being ?higher-order?)
+allows expressive features overa window of k+1 adjacent tags (as well as the input),and then inference takes time O(n?|Y |k+1), whereY is the set of tags and n is the length of the input.How large does k need to be?
+Typically k = 2works well, with big gains from 0?
+1 and modest?Equal contribution0 1000 2000 3000 4000 5000Number of Tag String Features9192939495969798Accuracy 0-CRF1-CRF2-CRFBulgarianNorwegianHindiSlovenianBasqueFigure 1: Speed-accuracy tradeoff curves on test datafor the 5 languages.
+Large dark circles represent the k-CRFs of ascending orders along x-axis (marked on forSlovenian).
+Smaller triangles each represent a VoCRFdiscovered by sweeping the speed parameters ?.
+We findfaster models at similar accuracy to the best k-CRFs (?5).gains from 1?2 (Fig.
+1).
+Small k may be sufficientwhen there is enough training data to allow the modelto attend to many fine-grained features of the input(Toutanova et al, 2003; Liang et al, 2008).
+For ex-ample, when predicting POS tags in morphologically-rich languages, certain words are easily tagged basedon their spelling without considering the context(k=0).
+In fact, such languages tend to have a morefree word order, making tag context less useful.We investigate a hybrid approach that gives theaccuracy of higher-order models while reducing run-time.
+We build on variable-order CRFs (Ye et al,2009) (VoCRF), which support features on tag sub-sequences of mixed orders.
+Since only modest gainsare obtained from moving to higher-order models,we posit that only a small fraction of the higher-orderfeatures are necessary.
+We introduce a hyperparam-eter ?
+that discourages the model from using manyhigher-order features (= faster inference) and a hy-perparameter ?
+that encourages generalization.
+Thus,sweeping a range of values for ?
+and ?
+gives rise to a1973number of operating points along the speed-accuracycurve (triangle points in Fig.
+1).We present three contributions: (1) A simplifiedexposition of VoCRFs, including an algorithm forcomputing gradients that is asymptotically more ef-ficient than prior art (Cuong et al, 2014).
+(2) Wedevelop a structure learning algorithm for discover-ing the essential set of higher-order dependencies sothat inference is fast and accurate.
+(3) We investigatethe effectiveness of our approach on POS taggingin five diverse languages.
+We find that the amountof required context for accurate prediction is highlylanguage-dependent.
+In all languages, however, ourapproach meets the accuracy of fixed-order modelsat a fraction of the runtime.2 Variable-Order CRFsAn order-k CRF (k-CRF, for short) is a conditionalprobability distribution of the formp?
+(y |x)= 1Z?
+(x) exp(?n+1t=1 ?>f(x, t, yt?k .
+.
+.
+yt))where n is the length of the input x, ?
+?Rd is themodel parameter, and f is an arbitrary user-definedfunction that computes a vector in Rd of features ofthe tag substring s = yt?k .
+.
+.
+yt when it appears atposition t of input x.
+We define yi to be a distin-guished boundary tag # when i /?
+[1, n].A variable-order CRF or VoCRF is a refinement ofthe k-CRF, in which f may not always depend on allk + 1 of the tags that it has access to.
+The featuresof a particular tag substring s may sometimes bedetermined by a shorter suffix of s.To be precise, a VoCRF specifies a finite setW ?
+Y ?
+that is sufficient for feature computation(where Y ?
+denotes the set of all tag sequences).1 TheVoCRF?s featurization function f(x, t, s) is then de-fined as f ?
+(x, t,w(s)) where f ?
+can be any functionandw(s) ?
+Y ?
+is the longest suffix of s that appearsin W (or ?
+if none exists).
+The full power of a k-CRF can be obtained by specifyingW = Y k+1, butsmallerW will in general allow speedups.To support our algorithms, we define W to bethe closure of W under prefixes and last-charactersubstitution.
+Formally,W is the smallest nonemptysuperset ofW such that if hy ?
+W for some h ?
+Y ?1The constructions given in this section assume thatW does notcontain ?
+nor any sequence having ## as a proper prefix.Algorithm 1 FORWARD: Compute logZ?(x).?
+(?, ?)
+= 0; ?
+(0,#) = 1 .
+initializationfor t = 1 to n+ 1 :if t = n+ 1 then Yt = {#} else yt = Y \{#}for h ?
+H, yt ?
+Yt :h?
+= NEXT(h, yt)z = exp(?>f ?
+(x, t,w(hyt)))?(t,h?)
++= ?
+(t?1,h) ?
+zZ =?h?H ?
+(n+ 1,h) .
+sum over final statesreturn logZAlgorithm 2 GRADIENT: Compute??
+logZ?(x).?
+(?, ?)
+= 0; ?
+= 0?
+(n+ 1,h) = 1 for all h ?
+H .
+initializationfor t = n+ 1 downto 1 :for h ?
+H, yt ?
+Yt :h?
+= NEXT(h, yt)z = exp(?>f ?
+(x, t,w(hyt)))?
++= f ?
+(x, t,w(hyt))??
+(t?1,h)?z ??(t,h?)?
+(t?1,h) += z ?
+?(t,h?
+)return ?/Zand y ?
+Y , then h ?
+W and also hy?
+?
+W for ally?
+?
+Y .
+This implies that we can factorW asH?Y ,whereH ?
+Y ?
+is called the set of histories.We now define NEXT(h, y) to return the longestsuffix of hy that is inH (which may be hy itself, oreven ?).
+We may regard NEXT as the transition func-tion of a deterministic finite-state automaton (DFA)with state setH and alphabet Y .
+If this DFA is used toread any tag sequence y ?
+Y ?, then the arc that readsyt comes from a state h such that hyt is the longestsuffix of s = yt?k .
+.
+.
+yt that appears in W?andthus w(hyt) = w(s) ?
+W and provides sufficientinformation to compute f(x, t, s).2For a given x of length n and given parameters ?,the log-normalizer logZ?
+(x)?which will be neededto compute the log-probability in eq.
+(1) below?canbe found in time O(|W|n) by dynamic program-ming.
+Concise pseudocode is in Alg.
+1.
+In effect, this2Our DFA construction is essentially that of Cotterell and Eisner(2015, Appendix B.5).
+However, Appendix B of that paper alsogives a construction that obtains an even smaller DFA by usingfailure arcs (Allauzen et al, 2003), which remove the require-ment thatW be closed under last-character substitution.
+Thiswould yield a further speedup to our Alg.
+1 (replacing it withthe efficient backward algorithm in footnote 16 of that paper)and similarly to our Alg.
+2 (by differentiating the new Alg.
+1).1974runs the forward algorithm on the lattice of taggingsgiven by length-n paths through the DFA.For finding the parameters ?
+that minimize eq.
+(1)below, we want the gradient ??
+logZ?(x).
+Byapplying algorithmic differentiation to Alg.
+1, weobtain Alg.
+2, which uses back-propagation tocompute the gradient (asymptotically) as fast asAlg.
+1 and |H| times faster than Cuong et al (2014)?salgorithm?a significant speedup since |H| is oftenquite large (up to 300 in our experiments).
+Algs.
+1?2together effectively run the forward-backwardalgorithm on the lattice of taggings.3It is straightforward to modify Alg.
+1 to obtaina Viterbi decoder that finds the most-likely tag se-quence under p?(?
+| x).
+It is also straightforward tomodify Alg.
+2 to compute the marginal probabilitiesof tag substrings occurring at particular positions.3 Structured Sparsity and Active SetsWe begin with a k-CRF model whose feature vectorf(x, t, yt?k .
+.
+.
+yt) is partitioned into non-stationarylocal features f (1)(x, t, yt) and stationary higher-order features f (2)(yt?k .
+.
+.
+yt).
+Specifically, f (2)includes an indicator feature for each tag string w ?Y ?
+with 1 ?
+|w| ?
+k + 1, where f (2)w (yt?k .
+.
+.
+yt)is 1 ifw is a suffix of yt?k .
+.
+.
+yt and is 0 otherwise.4To obtain the advantages of a VoCRF, we merelyhave to choose a sparse weight vector ?.
+The setW can then be defined to be the set of strings inY ?
+whose features have nonzero weight.
+Prior work(Cuong et al, 2014) has left the construction ofW todomain experts or ?one size fits all?
+strategies (e.g.,k-CRF).
+Our goal is to choose ?
+?and thusW?sothat inference is accurate and fast.Our approach is to modify the usual L2-regularized log-likelihood training criterion with acarefully defined runtime penalty scaled by a param-eter ?
+to balance competing objectives: likelihood onthe data {(x(i),y(i))}mi=1 vs. efficiency (smallW).
+?m?i=1log p?
+(y(i) |x(i))?
+??
+?loss+ ?||?||22?
+??
+?generalization+ ?R(?)?
+??
+?runtime(1)Recall that the runtime of inference on a givensentence is proportional to the size ofW , the closure3Eisner (2016) explains the connection between algorithmicdifferentiation and the forward-backward algorithm.4Extensions to richer sets of higher-order features are possible,such as conjunctions with properties of the words at position t.?N VNN NV VN VVGVG"Figure 2: A visual depiction of the tree-structured grouplasso penalty.
+Each node represents a tag string feature.The group indexed by a node?s tag string is defined as theset of features that are proper descendants of the node.For example, the lavender box indicates the largest groupG?
+and the aubergine box indicates a smaller group GV.To avoid clutter, not all groups are marked.ofW under prefixes and last-character replacement.
+(Any tag strings in W\W can get nonzero weightwithout increasing runtime.)
+Thus,R(?)
+would ide-ally measure |W|, or proportionately, |H|.
+Experi-mentally, we find that |W| has > 99% Pearson cor-relation with wallclock time, making it an excellentproxy for wallclock time while being more replicable.We relax this regularizer to a convex function?a tree-structured group lasso objective (Yuan andLin, 2006; Nelakanti et al, 2013).
+For each stringh ?
+Y ?, we have a group Gh consisting of the in-dicator features (in f (2)) for all strings w ?
+W thathave h as a proper prefix.
+Fig.
+2 gives a visual depic-tion.
+We now defineR(?)
+=?h?Y ?
+||?Gh ||2.
+Thispenalty encourages each group of weights to remainall at zero (thereby conserving runtime, in our setting,because it means that h does not need to be addedto H).
+Once a single weight in a group becomesnonzero, the ?initial inertia?
+induced by the grouplasso penalty is overcome, and other features in thegroup can be more cheaply adjusted away from zero.Although eq.
+(1) is now convex, directly optimiz-ing it would be expensive for large k, since ?
+thencontains very many parameters.
+We thus use a heuris-tic optimization algorithm, the active set method(Schmidt, 2010), which starts with a low-dimensional?
+and incrementally adds features to the model.
+Thisalso frees us from needing to specify a limit k. Rather,W grows until further extensions are unhelpful, andthen implicitly k = maxw?W |w| ?
+1.The method defines f (2) to include indicator fea-tures for all tag sequences w in an active setWactive.Thus, ?
+(2) is always a vector of |Wactive| real numbers.Initially, we takeWactive = Y and ?
+= 0.
+At each1975active set iteration, we fully optimize eq.
+(1) to obtaina sparse ?
+and a setW = {w ?
+Wactive | ?
+(2)w 6= 0}of features that are known to be ?useful.
+?5 We thenupdate Wactive to {wy | w ?
+W, y ?
+Y }, so thatit includes single-tag extensions of these useful fea-tures; this expands ?
+to consider additional featuresthat plausibly might prove useful.
+Finally, we com-plete the iteration by updatingWactive to its closureWactive, simply because this further expansion of thefeature set will not slow down our algorithms.
+Wheneq.
+(1) is re-optimized at the next iteration, some ofthese newly added features in Wactive may acquirenonzero weights and thus enterW , allowing furtherextensions.
+We can halt onceW no longer changes.As a final step, we follow common practice byrunning ?debiasing?
+(Martins et al, 2011a), wherewe fix our f (2) feature set to be given by the finalW ,and retrain ?
+without the group lasso penalty term.In practice, we optimized eq.
+(1) using the onlineproximal gradient algorithm SPOM (Martins et al,2011b) and Adagrad (Duchi et al, 2011) with ?
+=0.01 and 15 inner epochs.
+We limited to 3 active setiterations, and as a result, our finalW contained atmost tag trigrams.4 Related WorkOur paper can be seen as transferring methods ofCotterell and Eisner (2015) to the CRF setting.They too used tree-structured group lasso and activeset to select variable-order n-gram features W forglobally-normalized sequence models (in their case,to rapidly and accurately approximate beliefs duringmessage-passing inference).
+Similarly, Nelakanti etal.
+(2013) used tree-structured group lasso to regu-larize a variable-order language model (though theirfocus was training speed).
+Here we apply these tech-niques to conditional models for tagging.Our work directly builds on the variable-order CRFof Cuong et al (2014), with a speedup in Alg.
+2, butour approach also learns the VoCRF structure.
+Ourmethod is also related to the generative variable-ordertagger of Schu?tze and Singer (1994).Our static feature selection chooses a single modelthat permits fast exact marginal inference, similar tolearning a low-treewidth graphical model (Bach and5Each gradient computation in this inner optimization takes timeO(|Wactive|n), which is especially fast at early iterations.Jordan, 2001; Elidan and Gould, 2008).
+This con-trasts with recent papers that learn to do approximate1-best inference using a sequence of models, whetherby dynamic feature selection within a greedy infer-ence algorithm (Strubell et al, 2015), or by graduallyincreasing the feature set of a 1-best global inferencealgorithm and pruning its hypothesis space after eachincrease (Weiss and Taskar, 2010; He et al, 2013).Schmidt (2010) explores the use of group lassopenalties and the active set method for learningthe structure of a graphical model, but does notconsider learning repeated structures (in our setting,W defines a structure that is reused at each position).Steinhardt and Liang (2015) jointly modeled theamount of context to use in a variable-order modelthat dynamically determines how much context touse in a beam search decoder.5 Experiments6Data: We conduct experiments on multilingual POStagging.
+The task is to label each word in a sen-tence with one of |Y |=17 labels.
+We train on fivetypologically-diverse languages from the UniversalDependencies (UD) corpora (Petrov et al, 2012):Basque, Bulgarian, Hindi, Norwegian and Slovenian.For each language, we start with the original train /dev / test split in the UD dataset, then move randomsentences from train into dev until the dev set has3000 sentences.
+This ensures more stable hyperpa-rameter tuning.
+We use these new splits below.Eval: We train models with (?, ?)
+?
+{10?4 ?m, 10?3 ?m, 10?2 ?m}?
+{0, 0.1 ?m, 0.2 ?m, .
+.
+.
+,m},where m is the number of training sentences.
+To taga dev or test sentence, we choose its most probabletag sequence.
+For each of several model sizes, Ta-ble 1 selects the model of that size that achieved thehighest per-token tagging accuracy on the dev set,and reports that model?s accuracy on the test set.Features: Recall from ?3 that our features includenon-stationary zeroth-order features f (1) as well asthe stationary features based onW .
+For f (1)(x, t, yt)we consider the following language-agnostic proper-ties of (x, t):?
+The identities of the tokens xt?3, ..., xt+3,and the token bigrams (xt+1, xt), (xt, xt?1),6Code and data are available at the following URLs:http://github.com/timvieira/vocrfhttp://universaldependencies.org1976k-CRF (|W| = 17k+1) VoCRF at different model sizes |W| (which is proportional to runtime)0 (17) 1 (289) 2 (4913) ?
+34 ?
+85 ?
+170 ?
+340 ?
+850 ?
+1700 ?
+2550 ?
+3400 ?
+4250 ?
+5100Ba 91.611,2 92.350 92.490 92.250,2 92.250,2 92.380 92.340 92.440 92.440 92.440 92.540 92.540 92.540Bu 96.481,2 97.110,2 97.290,1 96.750,1,2 96.780,1,2 96.990,1,2 97.080,2 97.180,1 97.250,1 97.340,1 97.340,1 97.340,1 97.340,1Hi 95.961,2 96.220 96.210 95.971,2 96.220 96.220 96.260 96.130 96.130 96.240 96.240 96.240 96.240No 96.001,2 96.640 96.660 96.071,2 96.260,1,2 96.410 96.600 96.620 96.640 96.670 96.640 96.640 96.640Sl 94.461,2 95.410,2 95.620,1 94.821,2 95.180,2 95.360,2 95.390,2 95.390,2 95.690,1 95.690,1 95.690,1 95.690,1 95.670,1Table 1: Part-of-speech tagging with Universal Tags: This table shows test results on 5 languages at different targetruntimes.
+Each row?s best results are in boldface, where ties in accuracy are broken in favor of faster models.
+Superscriptk indicates that the accuracy is significantly different from the k-CRF (paired permutation test, p < 0.05) and thissuperscript is in blue/red if the accuracy is higher/lower than the k-CRF.
+In all cases, we find a VoCRF (underlined) thatis about as accurate as the 2-CRF (i.e., not significantly less accurate) and far faster, since the 2-CRF has |W| = 4913.Fig.
+1 plots the Pareto frontiers.
+(xt?1, xt+1).
+We use special boundary symbolsfor tokens at positions beyond the start or endof the sentence.?
+Prefixes and suffixes of xt, up to 4 characterslong, that occur ?
+5 times in the training data.?
+Indicators for whether xt is all caps, islowercase, or has a digit.?
+Word shape of xt, which maps the token stringinto the following character classes (uppercase,lowercase, number) with punctuation unmod-ified (e.g., VoCRF-like?
+AaAAA-aaaa, $5,432.10?
+$8,888.88).For efficiency, we hash these properties into 222 bins.The f (1) features are obtained by conjoining thesebins with yt (Weinberger et al, 2009): e.g., there isa feature that returns 0 unless yt = NOUN, in whichcase it counts the number of bin 1234567?s propertiesthat (x, t) has.
+(The f (2) features are not hashed.
+)Results: Our results are presented in Fig.
+1 andTable 1.
+We highlight two key points: (i) Across alllanguages we learned a tagger about as accurate asa 2-CRF, but much faster.
+(ii) The size of the setW required is highly language-dependent.
+For manylanguages, learning a full k-CRF is wasteful; ourmethod resolves this problem.In each language, the fastest ?good?
+VoCRF israther faster than the fastest ?good?
+k-CRF (where?good?
+means statistically indistinguishable from the2-CRF).
+These two systems are underlined; the un-derlined VoCRF systems are smaller than the under-lined k-CRF systems (for the 5 languages respec-tively) by factors of 1.9, 6.4, 3.4, 1.9, and 2.9.
+Inevery language, we learn a VoCRF with |W| ?
+850that is not significantly worse than a 2-CRF with|W| = 173 = 4913.We also notice an interesting language-dependenteffect, whereby certain languages require a smallnumber of tag strings in order to perform well.For example, Hindi has a competitive model thatignores the previous tag yt?1 unless it is in{NOUN, VERB, ADP, PROPN}: thus the stationary fea-tures are 17 unigrams plus 4?
+17 bigrams, for a totalof |W| = 85.
+At the other extreme, the Slavic lan-guages Slovenian and Bulgarian seem to require moreexpressive models over the tag space, rememberingas many as 98 useful left-context histories (unigramsand bigrams) for the current tag.
+An interesting direc-tion for future research would be to determine whichmorpho-syntactic properties of a language tend toincrease the complexity of tagging.6 ConclusionWe presented a structured sparsity approach for struc-ture learning in VoCRFs, which achieves the accu-racy of higher-order CRFs at a fraction of the runtime.Additionally, we derive an asymptotically faster al-gorithm for the gradients necessary to train a VoCRFthan prior work.
+Our method provides an effectivespeed-accuracy tradeoff for POS tagging across fivelanguages?confirming that significant speed-ups arepossible with little-to-no loss in accuracy.Acknowledgments: This material is based in part onresearch sponsored by DARPA under agreement num-ber FA8750-13-2-0017 (DEFT program) and the Na-tional Science Foundation under Grant No.
+1423276.The second author was funded by a DAAD Long-term research grant and an NDSEG fellowship.1977ReferencesCyril Allauzen, Mehryar Mohri, and Brian Roark.
+2003.Generalized algorithms for constructing statistical lan-guage models.
+In Proceedings of ACL, pages 40?47.F.
+R. Bach and M. I. Jordan.
+2001.
+Thin junction trees.
+InNIPS, pages 569?576.Ryan Cotterell and Jason Eisner.
+2015.
+Penalized expec-tation propagation for graphical models over strings.
+InNAACL-HLT, pages 932?942.Nguyen Viet Cuong, Nan Ye, Wee Sun Lee, and Hai LeongChieu.
+2014.
+Conditional random field with high-orderdependencies for sequence labeling and segmentation.JMLR, 15(1):981?1009.John Duchi, Elad Hazan, and Yoram Singer.
+2011.Adaptive subgradient methods for online learning andstochastic optimization.
+JMLR, 12:2121?2159.Jason Eisner.
+2016.
+Inside-outside and forward-backwardalgorithms are just backprop.
+In Proceedings of theEMNLP 16 Workshop on Structured Prediction for NLP,Austin, TX, November.G.
+Elidan and S. Gould.
+2008.
+Learning boundedtreewidth Bayesian networks.
+In NIPS, pages 417?424.He He, Hal Daume?
+III, and Jason Eisner.
+2013.
+Dynamicfeature selection for dependency parsing.
+In EMNLP,pages 1455?1464.John D. Lafferty, Andrew McCallum, and Fernando C. N.Pereira.
+2001.
+Conditional random fields: Probabilisticmodels for segmenting and labeling sequence data.
+InICML, pages 282?289.Percy Liang, Hal Daume?
+III, and Dan Klein.
+2008.
+Struc-ture compilation: trading structure for features.
+InICML, pages 592?599.Andre?
+F. T. Martins, Noah A. Smith, Pedro M. Q. Aguiar,and Ma?rio A. T. Figueiredo.
+2011a.
+Structured sparsityin structured prediction.
+In EMNLP, pages 1500?1511.Andre?
+F. T. Martins, Noah A. Smith, Eric P. Xing, Pe-dro M. Q. Aguiar, and Ma?rio A.T. Figueiredo.
+2011b.Online learning of structured predictors with multiplekernels.
+In AISTATS, pages 507?515.Anil Nelakanti, Cedric Archambeau, Julien Mairal, Fran-cis Bach, and Guillaume Bouchard.
+2013.
+Structuredpenalties for log-linear language models.
+In EMNLP,pages 233?243.Slav Petrov, Dipanjan Das, and Ryan T. McDonald.
+2012.A universal part-of-speech tagset.
+In LREC, pages2089?2096.Mark Schmidt.
+2010.
+Graphical Model Structure Learn-ing with `1-Regularization.
+Ph.D. thesis, University ofBritish Columbias.Hinrich Schu?tze and Yoram Singer.
+1994.
+Part-of-speechtagging using a variable memory Markov model.
+InACL, pages 181?187.Jacob Steinhardt and Percy Liang.
+2015.
+Reified contextmodels.
+In ICML, pages 1043?1052.Emma Strubell, Luke Vilnis, Kate Silverstein, and AndrewMcCallum.
+2015.
+Learning dynamic feature selectionfor fast sequential prediction.
+In ACL, pages 146?155.Kristina Toutanova, Dan Klein, Christopher D. Manning,and Yoram Singer.
+2003.
+Feature-rich part-of-speechtagging with a cyclic dependency network.
+In ACL,pages 173?180.Kilian Weinberger, Anirban Dasgupta, John Langford,Alex Smola, and Josh Attenberg.
+2009.
+Feature hash-ing for large scale multitask learning.David J. Weiss and Benjamin Taskar.
+2010.
+Structuredprediction cascades.
+In AISTATS, pages 916?923.Nan Ye, Wee S. Lee, Hai L. Chieu, and Dan Wu.
+2009.Conditional random fields with high-order features forsequence labeling.
+In NIPS, pages 2196?2204.Ming Yuan and Yi Lin.
+2006.
+Model selection and esti-mation in regression with grouped variables.
+Journalof the Royal Statistical Society: Series B (StatisticalMethodology), 68(1):49?67.1978

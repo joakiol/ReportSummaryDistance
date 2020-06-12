@@ -1,0 +1,722 @@
+Semi-Supervised Semantic Role Labelingvia Structural AlignmentHagen Fu?rstenau?Columbia UniversityMirella Lapata?
+?University of EdinburghLarge-scale annotated corpora are a prerequisite to developing high-performance semantic rolelabeling systems.
+Unfortunately, such corpora are expensive to produce, limited in size, andmay not be representative.
+Our work aims to reduce the annotation effort involved in creatingresources for semantic role labeling via semi-supervised learning.
+The key idea of our approachis to find novel instances for classifier training based on their similarity to manually labeled seedinstances.
+The underlying assumption is that sentences that are similar in their lexical materialand syntactic structure are likely to share a frame semantic analysis.
+We formalize the detection ofsimilar sentences and the projection of role annotations as a graph alignment problem, which wesolve exactly using integer linear programming.
+Experimental results on semantic role labelingshow that the automatic annotations produced by our method improve performance over usinghand-labeled instances alone.1.
+IntroductionRecent years have seen growing interest in the shallow semantic analysis of naturallanguage text.
+The term is most commonly used to refer to the automatic identificationand labeling of the semantic roles conveyed by sentential constituents (Gildea andJurafsky 2002).
+Semantic roles themselves have a long-standing tradition in linguistictheory, dating back to the seminal work of Fillmore (1968).
+They describe the relationsthat hold between a predicate and its arguments, abstracting over surface syntacticconfigurations.
+Consider the following example sentences:(1) a.
+The burglar broke the window with a hammer.b.
+A hammer broke the window.c.
+The window broke.?
+Center for Computational Learning Systems, Columbia University, 475 Riverside Drive, Suite 850,New York, NY 10115, USA.
+E-mail: hagen@ccls.columbia.edu.
+(The work reported in this paper was carried out while the author was at Saarland University, Germany.)??
+School of Informatics, University of Edinburgh, 10 Crichton Street, Edinburgh, EH8 9AB, UK.E-mail: mlap@inf.ed.ac.uk.Submission received: 30 August 2010; revised submission received: 29 April 2011; accepted for publication:14 June 2011.?
+2012 Association for Computational LinguisticsComputational Linguistics Volume 38, Number 1Here, the phrase the window occupies different syntactic positions?it is the object ofbreak in sentences (1a) and (1b), and the subject in (1c)?and yet bears the same semanticrole denoting the affected physical object of the breaking event.
+Analogously, hammer isthe instrument of break both when attested with a prepositional phrase in (1a) and asa subject in (1b).
+The examples represent diathesis alternations1 (Levin 1993), namely,regular variations in the syntactic expressions of semantic roles, and their computationaltreatment is one of the main challenges faced by automatic semantic role labelers.Several theories of semantic roles have been proposed in the literature, differingprimarily in the number and type of roles they postulate.
+These range from Fillmore?s(1968) small set of universal roles (e.g., Agentive, Instrumental, Dative) to individualroles for each predicate (Palmer, Gildea, and Kingsbury 2005).
+Frame semantic theory(Fillmore, Johnson, and Petruck 2003) occupies the middle ground by postulatingsituations (or frames) that can be evoked by different predicates.
+In this case, rolesare not specific to predicates but to frames, and therefore ought to generalize amongsemantically related predicates.
+As an example, consider the sentences in Example (2):(2) a.
+[Lee]Agent [punched]CAUSE HARM [John]Victim [in the eye]Body part.b.
+[A falling rock]Cause [crushed]CAUSE HARM [my ankle]Body part.c.
+[She]Agent [slapped]CAUSE HARM [him]Victim [hard]Degree [for hischange of mood]Reason.d.
+[Rachel]Agent [injured]CAUSE HARM [her friend]Victim [by closingthe car door on his left hand]Means.Here, the verbs punch, crush, slap, and injure are all frame evoking elements (FEEs),that is, they evoke the CAUSE HARM frame, which in turn exhibits the frame-specific(or ?core?)
+roles Agent, Victim, Body part, and Cause, and the more general (?non-core?
+)roles Degree, Reason, and Means.
+A frame may be evoked by different lexical items,which may in turn inhabit several frames.
+For instance, the verb crush may also evokethe GRINDING frame, and slap the IMPACT frame.The creation of resources that document the realization of semantic roles inexample sentences such as FrameNet (Fillmore, Johnson, and Petruck 2003) andPropBank (Palmer, Gildea, and Kingsbury 2005) has greatly facilitated the develop-ment of learning algorithms capable of automatically analyzing the role semantic struc-ture of input sentences.
+Moreover, the shallow semantic analysis produced by existingsystems has been shown to benefit a wide spectrum of applications ranging frominformation extraction (Surdeanu et al 2003) and question answering (Shen and Lapata2007), to machine translation (Wu and Fung 2009) and summarization (Melli et al 2005).Most semantic role labeling (SRL) systems to date conceptualize the task asa supervised learning problem and rely on role-annotated data for model training.Supervised methods deliver reasonably good performance2 (F1 measures in the low80s on standard test collections for English); however, the reliance on labeled trainingdata, which is both difficult and highly expensive to produce, presents a major obstacleto the widespread application of semantic role labeling across different languages andtext genres.
+And although nowadays corpora with semantic role annotations exist in1 Sentences (1a) and (1b) illustrate the instrument subject alternation and sentences (1a) and (1c) illustratethe causative/inchoative alternation.2 We refer the interested reader to the reports on the SemEval-2007 shared task (Baker, Ellsworth, and Erk2007) for an overview of the state of the art.136Fu?rstenau and Lapata Semi-Supervised SRL via Structural Alignmentother languages (e.g., German, Spanish, Catalan, Chinese, Korean), they tend to besmaller than their English equivalents and of limited value for modeling purposes.It is also important to note that the performance of supervised systems degradesconsiderably (by 10%) on out-of-domain data even within English, a language for whichtwo major annotated corpora are available (Pradhan, Ward, and Martin 2008).
+And thisis without taking unseen events into account, which unavoidably affect coverage.
+Thelatter is especially an issue for FrameNet (version 1.3) which is still under development,despite being a relatively large resource?it contains almost 140,000 annotated sentencesfor a total of 502 frames, which are evoked by over 5,000 different lexical units.
+Coverageissues involve not only lexical units but also missing frames and incompletely exempli-fied semantic roles.In this article, we attempt to alleviate some of these problems by using semi-supervised methods that make use of a small number of manually labeled traininginstances and a large number of unlabeled instances.
+Whereas manually labeled data areexpensive to create, unlabeled data are often readily available in large quantities.
+Ourapproach aims to improve the performance of a supervised SRL system by enlargingits training set with automatically inferred annotations of unlabeled sentences.
+The keyidea of our approach is to find novel instances for classifier training based on their simi-larity to manually labeled seed instances.
+The underlying assumption is that sentencesthat are similar in their lexical material and syntactic structure are likely to share a framesemantic analysis.
+The annotation of an unlabeled sentence can therefore be inferred froma sufficiently similar labeled sentence.
+For example, given the labeled sentence (3) andthe unlabeled sentence (4), we wish to recognize that they are lexically and structurallysimilar; and infer that thumped also evokes the IMPACT frame, whereas the rest of his bodyand against the front of the cage represent the Impactor and Impactee roles, respectively.
+(3) [His back]Impactor [thudded]IMPACT [against the wall]Impactee.
+(4) The rest of his body thumped against the front of the cage.We formalize the detection of similar sentences and the projection of role annota-tions in graph-theoretic terms by conceptualizing the similarity between labeled andunlabeled sentences as a graph alignment problem.
+Specifically, we represent sentencesas dependency graphs and seek an optimal (structural) alignment between them.
+Giventhis alignment, we then project annotations from the labeled onto the unlabeled sen-tence.
+Graphs are scored using a function based on lexical and syntactic similarity whichallows us to identify alternations like those presented in Example (1) and more generallyto obtain training instances with novel structure and lexical material.
+We obtain the bestscoring graph alignment using integer linear programming, a general-purpose exactoptimization framework.
+Importantly, our approach is not tied to a particular SRLsystem.
+We obtain additional annotations irrespective of the architecture or implemen-tation details of the supervised role labeler that uses them.
+This renders our approachportable across learning paradigms, languages, and domains.After discussing related work (Section 2), we describe the details of our semi-supervised method (Section 3) and then move on to evaluate its performance (Section 4).We conduct two sets of experiments using data from the FrameNet corpus: In Section 5,we apply our method to increase the training data for known predicates, that is, wordsfor which some seed annotations already exist.
+In Section 6, we focus on the comple-mentary task of creating training instances for unknown predicates, that is, words thatdo not occur in the FrameNet corpus at all.
+Section 7 concludes the article.137Computational Linguistics Volume 38, Number 12.
+Related WorkThe lack of annotated data presents an obstacle to developing many natural languageapplications, especially for resource-poor languages.
+It is therefore not surprising thatprevious efforts to reduce the need for semantic role annotation have focused primarilyon languages other than English.Annotation projection is a popular framework for transferring semantic role anno-tations from one language to another while exploiting the translational and structuralequivalences present in parallel corpora.
+The idea here is to leverage the existing En-glish FrameNet and rely on word or constituent alignments to automatically create anannotated corpus in a new language.
+Pado?
+and Lapata (2009) transfer semantic roleannotations from English onto German and Johansson and Nugues (2006) from Englishonto Swedish.
+A different strategy is presented in Fung and Chen (2004), where EnglishFrameNet entries are mapped to concepts listed in HowNet, an on-line ontology forChinese, without consulting a parallel corpus.
+Then, Chinese sentences with predicatesinstantiating these concepts are found in a monolingual corpus and their arguments arelabeled with FrameNet roles.Other work attempts to alleviate the data requirements for semantic role labelingwithin the same language either by increasing the coverage of existing resources or byinducing role annotations from unlabeled data.
+Swier and Stevenson (2004) proposea method for bootstrapping a semantic role labeler.
+Given a verb instance, they firstselect a frame from VerbNet, a semantic role resource akin to FrameNet and PropBank,and label each argument slot with sets of possible roles.
+Their algorithm then proceedsiteratively by first making initial unambiguous role assignments, and then successivelyupdating a probability model on which future assignments are based.
+Gordon andSwanson (2007) attempt to increase the coverage of PropBank.
+Their approach leveragesexisting annotations to handle novel verbs.
+Rather than annotating new sentences thatcontain novel verbs, they find syntactically similar verbs and use their annotations assurrogate training data.Much recent work has focused on increasing the coverage of FrameNet, eitherby generalizing semantic roles across different frames or by determining the framemembership of unknown predicates.
+Matsubayashi, Okazaki, and Tsujii (2009) proposeto exploit the relations between semantic roles in an attempt to overcome the scarcityof frame-specific role annotations.
+They propose several ways of grouping roles intoclasses based on the FrameNet role hierarchy, human-understandable descriptors ofroles, selectional restrictions, and a FrameNet to VerbNet role mapping.
+They show thattransforming this information into feature functions and incorporating it into super-vised learning improves role classification considerably.The task of relating known frames to unknown predicates is addressed primarily byresorting to WordNet (Fellbaum 1998).
+For example, Burchardt, Erk, and Frank (2005)apply a word sense disambiguation system to annotate predicates with a WordNet senseand hyponyms of these predicates are then assumed to evoke the same frame.
+Johanssonand Nugues (2007b) treat this problem as an instance of supervised classification.
+Usinga feature representation based also on WordNet, they learn a classifier for each frame,which decides whether an unseen word belongs to the frame or not.
+Pennacchiottiet al (2008) create ?distributional profiles?
+for frames.
+The meaning of each frame isrepresented by a vector, which is the (weighted) centroid of the vectors representingthe predicates that can evoke it.
+Unknown predicates are then assigned to the mostsimilar frame.
+They also propose a WordNet-based model that computes the similaritybetween the synsets representing an unknown predicate and those activated by the138Fu?rstenau and Lapata Semi-Supervised SRL via Structural Alignmentpredicates of a frame (see Section 6 for details).
+Das et al (2010) represent a departurefrom the WordNet-based approaches in their use of a latent variable model to allow forthe disambiguation of unknown predicates.Unsupervised approaches to SRL have been few and far between.
+Abend, Reichart,and Rappoport (2009) propose an algorithm that identifies the arguments of predicatesby relying only on part-of-speech annotations, without, however, assigning their se-mantic roles.
+In contrast, Grenager and Manning (2006) focus on role induction whichthey formalize as probabilistic inference in a Bayesian network.
+Their model definesa joint probability distribution over a verb, its semantic roles, and possible syntacticrealizations.
+More recently, Lang and Lapata (2010) formulate the role induction prob-lem as one of detecting alternations and finding a canonical syntactic form for them.Their model extends the logistic classifier with hidden variables and is trained on parsedoutput which is used as a noisy target for learning.Our own work aims to reduce but not entirely eliminate the annotation effortinvolved in semantic role labeling.
+We thus assume that a small number of manual an-notations is initially available.
+Our algorithm augments these with unlabeled exampleswhose roles are inferred automatically.
+We apply our method in a monolingual setting,and thus do not project annotations between languages but within the same language.Importantly, we acquire new training instances for both known and unknown pred-icates.
+Previous proposals extend FrameNet with novel predicates without inducingannotations that exemplify their usage.
+We represent labeled and unlabeled instancesas graphs, and seek to find a globally optimal alignment between their nodes, subject tosemantic and structural constraints.
+Finding similar labeled and unlabeled sentences isreminiscent of paraphrase identification (Qiu, Kan, and Chua 2006; Wan et al 2006; Dasand Smith 2009; Chang et al 2010), the task of determining whether one sentence is aparaphrase of another.
+The sentences we identify are not strictly speaking paraphrases(even if the two predicates are similar their arguments often are not); however, theidea of modeling the correspondence structure (or alignment) between parts of thetwo sentences is also present in the paraphrase identification work (Das and Smith2009; Chang et al 2010).
+Besides machine translation (Matusov, Zens, and Ney 2004;Taskar, Lacoste-Julien, and Klein 2005), methods based on graph alignments have beenpreviously employed for the recognition of semantic entailments (Haghighi, Ng, andManning 2005; de Marneffe et al 2007), where an optimization problem similar toours is solved using approximate techniques (our method is exact) and an alignmentscoring function is learned from annotated data (our scoring function does not requireextensive supervision).
+On a related note, de Salvo Braz et al (2005) model entail-ments via a subsumption algorithm that operates over concept graphs representinga source S and target T sentence and uses integer linear programming to prove thatS  T.3.
+MethodIn this section we describe the general idea behind our semi-supervised algorithm andthen move on to present our specific implementation.
+Given a set L of sentences labeledwith FrameNet frames and roles (the seed corpus) and a (much larger) set U of unla-beled sentences (the expansion corpus), we wish to automatically create a set X ?
+Uof novel annotated instances.
+Algorithm 1 describes our approach, which consists oftwo parts.
+In the labeling stage, annotations are proposed for every unlabeled sentence(lines 1?20), and in the selection stage, instances with high quality annotations arechosen to make up the final new corpus (lines 21?26).139Computational Linguistics Volume 38, Number 1In the labeling stage, (almost) every unlabeled sentence u ?
+U receives an annota-tion via projection from the seed l?
+?
+L most similar to it.
+In theory, this means that eachunlabeled sentence u is compared with each labeled seed l. In practice, however, wereduce the number of comparisons by requiring that u and l have identical or at leastsimilar FEEs.
+This process will yield many sentences for every seed with annotationsof varying quality.
+In default of a better way of distilling high-quality annotations, weuse similarity as our criterion in the selection stage.
+From the annotations originatingfrom a particular seed, we therefore collect the k instances with the highest similarityvalues.
+Our selection procedure is guided by the seeds available rather than the corpusfrom which unlabeled sentences are extracted.
+This is intended, as the seeds can beused to create a balanced training set or one that exemplifies difficult or rare traininginstances.In the remainder of this section, we present the labeling stage of our algorithm inmore detail.
+Section 3.1 formally introduces the notion of semantically labeled depen-dency graphs and defines the subgraphs M and N representing relevant predicate?argument structures.
+Section 3.2 formalizes alignments as mappings between graphnodes and defines our similarity score as a function on alignments between labeledand unlabeled dependency graphs.
+Section 3.3 formulates an integer linear program140Fu?rstenau and Lapata Semi-Supervised SRL via Structural Alignment(ILP) for finding optimal alignments, and Section 3.4 presents an efficient algorithmfor solving this ILP.
+Finally, Section 3.5 describes how annotations are projected fromlabeled onto unlabeled graphs.3.1 Semantically Labeled Dependency GraphsSeed sentences labeled with role-semantic annotations are represented by dependencygraphs.
+The latter capture grammatical relations between words via directed edgesfrom syntactic heads to their dependents (e.g., from a verb to its subject or from anoun to a modifying adjective).
+Edges can be labeled to indicate the type of head?dependent relationship (e.g., subject, object, modifier).
+In our case, dependency graphsare further augmented with FrameNet annotations corresponding to the FEE and itssemantic roles.A dependency graph of the sentence Old Herkimer blinked his eye and nodded wiselyis shown in Figure 1.
+Nodes are indicated by rectangles and dependencies by edges(arrows).
+Solid arrows represent syntactic dependencies (e.g., subject, object), anddashed arrows correspond to FrameNet annotations.
+Here, blink evokes the frameBody movement, Herkimer bears the role Agent, and eye the role Body part.Unfortunately, FrameNet annotations have not been created with dependencygraphs in mind.
+FEEs and roles are marked as substrings and contain limited syntac-tic information, distinguishing only the grammatical functions ?external argument,??object,?
+and ?dependent?
+for the arguments of verbal FEEs.
+To obtain dependencygraphs with semantic annotations like the one shown in Figure 1, we parse the sentencesin the seed corpus with a dependency parser and compare the FrameNet annotations(substrings) to the nodes of the dependency graph.
+For the FEE, we simply look for agraph node that coincides with the word marked by FrameNet.
+Analogously, we mapFigure 1Dependency graph with semantic annotations for the sentence Old Herkimer blinked his eye andnodded wisely (taken from the FrameNet corpus).
+Nodes in the alignment domain are indicatedby double frames.
+Labels in italics denote frame roles, and grammatical roles are rendered insmall capitals.
+Annotations are only shown for the predicate blink, which evokes the frameBody Movement.141Computational Linguistics Volume 38, Number 1role annotations onto the graph by finding a node with a yield equal to the markedsubstring, that is, a node that (together with its dominated nodes) represents the wordsof the role.
+Our experiments make use of the dependency graphs produced by RASP(Briscoe, Carroll, and Watson 2006), although there is nothing inherent in our approachthat assumes this specific parser.
+Any other dependency parser with broadly similaroutput could be used instead.Searching for nodes representing the FEE and its semantic roles may in some casesyield no match.
+There are two reasons for this?parser errors and role annotations vio-lating syntactic structure.
+We address this problem heuristically: If no perfect match isfound, the closest match is determined based on the number of mismatching charactersin the string.
+We thus compute a mismatch score for the FEE and each role.
+To makeallowances for parser errors, we compute these scores for the n-best parses producedby the dependency parser and retain the dependency graph with the lowest mismatch.This mapping procedure is more thoroughly discussed in Fu?rstenau (2008).Each sentence in the seed corpus contains annotations for a predicate and its se-mantic roles.
+A complex sentence (with many subordinate clauses) will be representedby a large dependency graph, with only a small subgraph corresponding to theseannotations.
+Our method for computing alignments between graphs only considerssubgraphs with nodes belonging to the predicate-argument structure in question.
+Thisallows us to compare graphs in a computationally efficient manner as many irrelevantalignments are discarded, although admittedly the entire graph may provide usefulcontextual clues to the labeling problem.We are now ready to define the alignment domain M of a labeled dependencygraph.
+Let p be a node (i.e., word) in the graph corresponding to the FEE.
+If there areno mismatches between semantic and syntactic arguments, we expect all roles in thegraph to be instantiated by syntactic dependents of p. Although this is often the case, itdoes not always hold?for example, because of the way the dependency parser analyzesraising, control, or coordination structures.
+We therefore cannot simply define M asthe set of direct dependents of the predicate, but also have to consider complex pathsbetween p and role-bearing nodes.
+An example is given in Figure 1, where the role Agentis filled by a node that is not dominated by the FEE blink; instead, it is connected to blinkby the complex path (CONJ?1, SUBJ).
+For a given sentence, we build the set of all suchcomplex paths to any role-bearing node and also include all nodes connected to p byone of these paths.
+We thus define the subgraph M to contain:i. the predicate node pii.
+all direct dependents of p, except auxiliariesiii.
+all nodes on complex paths from p to any role-bearing nodeiv.
+single direct dependents of any preposition or conjunction node which isin (ii) or end-point of a complex path covered in (iii)In Figure 1 the nodes in the alignment domain are indicated by double frames.In an unlabeled dependency graph we similarly identify the alignment range as thesubgraph corresponding to the predicate?argument structure of a target predicate.
+Aswe do not have any frame semantic analysis for the unlabeled sentence, however, wecannot determine a set of complex paths.
+We could ignore complex paths altogether andthus introduce a substantial asymmetry into the comparison between a labeled and anunlabeled sentence, as unlabeled sentences would be assumed to be structurally simpler142Fu?rstenau and Lapata Semi-Supervised SRL via Structural Alignmentthan labeled ones.
+This assumption will often be wrong and moreover introduce a biastowards simpler structures for the new annotations.
+To avoid this, we reuse the set ofcomplex paths from the labeled sentence.
+Although this is not ideal either (it makesthe comparison asymmetrically dependent on the annotation of the labeled sentence)it allows us to compare labeled and unlabeled sentences on a more equal footing.
+Wetherefore define the alignment range N in exact analogy to the alignment domain M, theonly exception being that complex paths to role-bearing nodes are determined by thelabeled partner in the comparison.3.2 Scoring Graph AlignmentsWe conceptualize the similarity between subgraphs representing predicate?argumentstructures as an alignment problem.
+Specifically, we seek to find an optimal alignmentbetween the alignment domain M of a labeled graph and the alignment range N ofan unlabeled sentence.
+Alignments are scored using a similarity measure that takessyntactic and lexical information into account.We formalize the alignment between M and N as a partial injective function fromM to N, that is, a function ?
+: M ?
+N ?
+{} where ?
+(x) = ?(x?)
+=  implies x = x?.Here,  denotes a special empty value.
+We say that x ?
+M is aligned to x?
+?
+N by ?, iff?
+(x) = x?.
+Correspondingly, a node x ?
+M with ?
+(x) =  or a node x?
+?
+N that is not theimage of any x ?
+M is called unaligned.
+Figure 2 shows an example of an alignmentFigure 2The dotted arrows show aligned nodes in the graphs for the two sentences His back thuddedagainst the wall and The rest of his body thumped against the front of the cage (graph edges are alsoaligned to each other).
+The nodes in the alignment domain and alignment range are indicated bydouble frames.143Computational Linguistics Volume 38, Number 1between a labeled and an unlabeled dependency graph for the predicates thud andthump.Each alignment ?
+between M and N receives a score, the weighted sum of the lexicalsimilarity between nodes (lex) and syntactic similarity between edges (syn):score(?)
+:= 1C?????x?M?
+(x)=lex (x,?
+(x)) + ?
+??
+(x1,x2 )?E(M)(?(x1),?
+(x2 ))?E(N)syn(rx1x2 , r?(x1)?(x2))????
+(1)Here, E(M) and E(N) denote the sets of graph edges between the nodes of M and N,respectively, while rx1x2 is the label of the edge (x1, x2), that is, the grammatical relationbetween these two nodes.Equation (1) introduces a normalizing factor C whose purpose is to render similarityscores of different pairs of sentences comparable.
+Without normalization, it would beeasier to achieve high similarity to a complex predicate?argument structure than asimpler one, which is counter-intuitive.
+This can be seen from the fact that the self-similarity of a sentence (i.e., the similarity of a sentence to itself) depends on the numberof nodes in M. Assuming that the maximal value for lex and syn is 1 for identicalwords and grammatical relations, self-similarity is then |M|+ ?|E(M)| and constitutesan upper bound for the similarity between any two sentences.
+We could use this termto normalize the similarity score.
+However, this would only account for unaligned orbadly aligned nodes and edges in the labeled sentence while ignoring the unlabeledpartner.
+To obtain a symmetric normalization factor we therefore define:C :=?|M| ?
+|N|+ ?
+?|E(M)| ?
+|E(N)| (2)C is now symmetric in the two sentences and when introduced in equation (1) leads toself-similarities of 1:score(?self) =1?|M|2 + ?
+?E(M)2(|M| ?
+1 + ?
+?
+|E(M)| ?
+1) = 1 (3)Notice that our formulation uses the same score for finding whether there existsan alignment and for evaluating its quality.
+Consequently, our algorithm will attemptto construct an alignment even if there is none, that is, in cases where the similaritybetween labeled and unlabeled sentences is low.
+Our approach is to filter out erroneousalignments by considering only the k nearest neighbors of each seed.
+Alternatively, wecould first establish valid alignments and then score them; we leave this to future work.The employed score is the weighted combination of lexical and syntactic similarity.
+Inour experiments we use cosine similarity in a vector space model of co-occurrence statis-tics for lex and define syn as a binary function reflecting the identity of grammaticalrelations (see Section 4 for details).
+Other measures based on WordNet (e.g., Budanitskyand Hirst 2001) or finer grammatical distinctions are also possible.3.3 ILP FormulationWe define the similarity of two predicate?argument structures as the maximum scoreof any alignment ?
+between them.
+Intuitively, the alignment score corresponds to theamount of changes required to transform one graph into the other.
+High scores indicate144Fu?rstenau and Lapata Semi-Supervised SRL via Structural Alignmenthigh similarity and thus minimal changes.
+We do not need to formalize such changes,although it would be possible to describe them in terms of substitutions, deletions,and insertions.
+For our purposes, the alignment scores themselves can be used toindicate whether two graphs are substantially similar to warrant projection of the framesemantic annotations.
+We do this by finding an optimal alignment, that is, an alignmentwith the highest score as defined in Equation (1).To solve this optimization problem efficiently, we recast it as an integer linear pro-gram (ILP).
+The ILP modeling framework has been recently applied to a wide range ofnatural language processing tasks, demonstrating improvements over more traditionaloptimization methods.
+Examples include reluctant paraphrasing (Dras 1999), relationextraction (Roth and tau Yih 2004), semantic role labeling (Punyakanok et al 2004),concept-to-text generation (Marciniak and Strube 2005; Barzilay and Lapata 2006), de-pendency parsing (Riedel and Clarke 2006), sentence compression (Clarke and Lapata2008), and coreference resolution (Denis and Baldridge 2007).
+Importantly, the ILPapproach3 delivers a globally optimal solution by searching over the entire alignmentspace without employing heuristics or approximations (see de Marneffe et al [2007]and Haghighi, Ng, and Manning [2005]).
+Furthermore, an ILP-based formulation seemswell-suited to our problem because the domain of the optimization, namely, the set ofpartial injective functions from M to N, is discrete.
+We define arbitrary linear orders onthe sets M and N, writing M = {n1, .
+.
+.
+, nm} and N = {n?1, .
+.
+.
+, n?n} and then introducebinary indicator variables xij to represent an alignment ?
+:xij :={1 if ?
+(ni) = n?j0 else(4)Each alignment ?
+thus corresponds to a distinct configuration of xij values.
+In orderto ensure that the latter describe a partial injective function, we enforce the followingconstraints:1.
+?j :?1?i?m xij ?
+1 (Each node in N is aligned to at most one node in M.)2.
+?i :?1?j?n xij ?
+1 (Each node in M is aligned to at most one node in N.)We can now write Equation (1) in terms of the variables xij (which capture exactly thesame information as the function ?
+):score(x) = 1C????
+?1?i?m1?j?nlex(ni, n?j)xij + ?
+?
+?1?i,k?m1?j,l?nsyn(rnink , rn?jn?l)xijxkl????
+(5)Note that Equations (1) and (5) are summations of the same terms.4 However,Equation (5) is not linear in the variables xij as it contains products of the form xijxkl.3 It is outside the scope of this article to provide an introduction to ILP.
+We refer the interested reader toWinston and Venkataramanan (2003) and Vanderbei (2001) for comprehensive overviews.4 For convenience, we define rn1n2 =  if there is no relation between n1 and n2, and assume that syn is 0 ifeither of its arguments is .145Computational Linguistics Volume 38, Number 1This can be remedied through the introduction of another set of binary variables yijklsubject to additional constraints ensuring that yijkl = xijxkl:3.
+?i,j,k,l : yijkl ?
+xij4.
+?i,j,k,l : yijkl ?
+xkl5.
+?i,j,k,l : yijkl ?
+xij + xkl ?
+1We also want to make sure that the FEE of the labeled sentence is aligned to thetarget predicate of the unlabeled sentence.
+We express this with the following con-straint, assuming that the FEE and the target predicate are represented by n1 and n?1,respectively:6. x11 = 1We therefore have to solve an ILP in the mn + m2n2 variables xij and yijkl, subject tom + n + 3m2n2 + 1 constraints (see constraints (1)?
+(6)), with the objective function:score(x, y) = 1C????
+?1?i?m1?j?nlex(ni, n?j)xij + ?
+?
+?1?i,k?m1?j,l?nsyn(rnink , rn?jn?l)yijkl????
+(6)Exact optimization for the general ILP problem is NP-hard (Cormen, Leiserson, andRivest 1992).
+ILPs with a totally unimodular constraint matrix5 are solvable efficiently,using polynomial time algorithms.
+In this special case, it can be shown that the optimalsolution to the linear program is integral.
+Unfortunately, our ILP falls outside this classdue to the relatively complex structure of our constraints.
+This can be easily seen whenconsidering the three constraints x11 + x12 + ?
+?
+?+ x1m ?
+1, ?x11 + y1112 ?
+0 and ?x12 +y1112 ?
+0.
+The coefficients of the three variables x11, x12, and y1112 in these constraintsmake up the matrix?
+?1 1 0?1 0 10 ?1 1?
+?The determinant of this matrix is 2 and therefore the complete coefficient matrix of theILP has a quadratic submatrix with a determinant that is not 0 or ?1, which meansthat it is not totally unimodular.
+Indeed, it has been shown that the structural matchingproblem is NP-hard (Klau 2009).3.4 Solving the ILPThere are various techniques for finding the optimal solution of an ILP, such as ap-proximation with error bounds (Klau 2009) or application of the branch-and-bound5 A matrix A is totally unimodular if every square sub-matrix of A has its determinant equal to 0, +1, or ?1.146Fu?rstenau and Lapata Semi-Supervised SRL via Structural Alignmentalgorithm (Land and Doig 1960).
+The latter allows for solving an ILP exactly and signif-icantly faster than by naive enumeration.
+It does this by relaxing the integer constraintsand solving the resulting LP problem, known as the LP relaxation.
+If the solution ofthe LP relaxation is integral, then it is the optimal solution.
+Otherwise, the resultingsolution provides an upper bound on the solution for the ILP.
+The algorithm proceedsby creating two new sub-problems based on the non-integer solution for one variableat a time.
+These are solved and the process repeats until the optimal integer solutionis found.
+Our alignment problem has only binary variables and is thus an instance ofa ?pure?
+0?1 ILP.
+For such problems, implicit enumeration can be used to simplifyboth the braching and bounding components of the branch-and-bound process andto determine efficiently when a node is infeasible.
+This is achieved by systematicallyevaluating all possible solutions, without, however, explicitly solving a potentially largenumber of LPs derived from the relaxation.To obtain a solution for the ILP in Section 3.3, we could have used any solver thatimplements the standard branch-and-bound algorithm.
+To speed up computation time,we have instead modified the branch-and-bound algorithm so as to take into accountthe special structure of our graph alignment problem.
+Our own algorithm follows theprinciples of branch-and-bound but avoids explicit representation of the variables yijkl,performs early checks of the constraints on the variables xij on branching, and takesinto account some of the constraints on the variables yijkl for the estimation of lowerand therefore more efficient bounds.
+In the following, we first describe our modifiedalgorithm and then assess its runtime in comparison to a publicly available solver.Algorithm 2 shows how to find an optimal alignment ??
+with score s?
+in pseu-docode.
+?0 and ?1 denote partial solutions, while completions are built in ?.
+syn?
+is themaximum possible value of syn, that is, syn?
+= 1 for a binary measure.
+We initialize ?
+?with the trivial solution which aligns n1 to n?1 and leaves all other nodes unaligned.6This gives a score of lex(n1, n?1).
+To find better solutions we start with an initial partialalignment ?0, which contains only the mapping n1 ?
+n?1 and leaves the alignments ofall other n ?
+M unspecified.
+(Note that this is different from the complete alignment??
+which specifies those nodes as unaligned: n ?
+.)
+As in the general branch-and-bound algorithm, the space of all alignments is searched recursively by branching on thealignment decision for each remaining node.
+A branch is left as soon as an upper boundon the achievable score indicates that the current best solution cannot be improvedwithin this branch.Given a partial alignment ?0 (the initial or any subsequent one) defined on somesubset of M, we estimate a suitable bound by extending ?0 to a complete function ?
+onall nodes in M: Each of the remaining nodes is aligned to its partner in N maximizing lex.If no positive value can be found for lex, the node is defined as unaligned.
+We thendefine the bound s as the score of ?0 together with the lexical scores of the newly createdalignments and a hypothetical syntactic score which assumes that each of the newlyconsidered edges is aligned perfectly, that is, with the maximum value syn?
+attainableby syn.
+(This is a lower bound than the one a naive application of the branch-and-boundalgorithm would compute.
+)Of course, ?
+need not fulfill the constraints of the ILP and s need not be an attainablescore.
+It is, however, an upper bound for the score of any valid alignment.
+If it is not6 In the description of the algorithm, we use the more intuitive notation ni ?
+n?j to indicate that ni isaligned to n?j .
+Note, however, that this could be equivalently formulated in terms of the ILP variables(i.e., xij = 1), and our algorithm still broadly follows the branch-and-bound procedure for ILPs.147Computational Linguistics Volume 38, Number 1greater than the current best score s?, we leave the current branch.
+Otherwise, we checkif ?
+is a valid alignment with score s, that is, if it satisfies the constraints of the ILPand s is its score (which means that the assumptions of perfect syntactic scores werejustified).
+If this is the case, we have a new current optimum and do not need to followthe current branch any more either.
+If, however, the bound s is greater than the currentoptimum s?, but ?
+violates some constraints or does not achieve a score of s because itcontains imperfect syntactic alignments, we have to branch on the decision of how toextend ?0 by an additional alignment link.
+We consider the next node with unspecifiedalignment and recursively apply the algorithm to extensions of ?0.
+Each extension ?1aligns this node to a partner in N that has thus far been left unaligned.
+(This simple148Fu?rstenau and Lapata Semi-Supervised SRL via Structural Alignmentcheck of constraint (1), which extends the general branch-and-bound algorithm, avoidsrecursion into branches that cannot contain any valid solutions.)
+The partial score s1corresponding to ?1 is computed by taking into account the consequences of the newalignment to the lexical and syntactic scores.We found this algorithm to be very effective in solving the ILPs arising in ourexperiments.
+While its worst case performance is still exponential in the number ofaligned nodes and edges, it almost always finds the optimum within a relatively smallnumber of iterations of the outer loop (line 4 in Figure 2).
+This is also due to the fact thatthe alignment domain and range are typically not very large.
+In a realistic application ofour method, 70% of the ILPs were solvable with less than 100 iterations, 93% with lessthan 1,000 iterations, 98.6% with less than 10,000 iterations, and 99.95% with less than1,000,000 iterations.
+As the remaining 0.05% of the ILPs may still take an inordinateamount of time, we abort the search at this point.
+In this case, it is highly likely that thealignment domain and range are large and any resulting alignment would be overlyspecific and thus not very useful.
+Aborting at 1,000,000 iterations is also preferable to atime-out based on processing time, as it makes the result deterministic and independentof the specific implementation and hardware.
+All expansion sets in the experimentsdescribed in Sections 5 and 6 were computable within hours on modern hardware andunder moderate parallelization, which is trivial to implement over the instances of theunlabeled corpus.Because our branch-and-bound algorithm performs exact optimization, it could bereplaced by any other exact solution algorithm, without affecting our results.
+To assessits runtime performance further, we compared it to the publicly available lp solve7solver which can handle integer variables via the branch-and-bound algorithm.
+Wesampled 100 alignment problems for each problem size (measured in number of nodesin the alignment domain) and determined the average runtime of our algorithm andlp solve.
+(The latter was run with the option -time, which excludes CPU time spenton input parsing).
+Figure 3 shows how the average time required to solve an ILPvaries with the problem size.
+As can be seen, our algorithm is about one order ofmagnitude more efficient than the implementation of the general-purpose branch-and-bound algorithm.3.5 Annotation ProjectionGiven a labeled graph l, an unlabeled graph u, and an optimal alignment ?
+betweenthem, it is relatively straightforward to project frame and role information from one tothe other.
+As described in Section 3.1, frame names are associated with the nodes of theirFEEs and role names with the nodes of their role filler heads.
+By definition, all of thesenodes are in the alignment range M. It is therefore natural to label ?
+(x) ?
+N with therole carried by x for each role-bearing node x ?
+M. The only complicating factor is thatwe have allowed unaligned nodes, that is, nodes with ?
+(x) = .
+Although this is usefulfor ignoring irrelevant nodes in M, we must decide how to treat these when they arerole-bearing (note that FEEs are always aligned by constraint (6), so frame names canalways be projected).A possible solution would be to only project roles on nodes x with ?
+(x) = , sothat roles associated with unaligned nodes do not show up in the inferred annotation.Unfortunately, allowing such partial projections introduces a systematic bias in favor7 Version 5.5, available at http://lpsolve.sourceforge.net/.149Computational Linguistics Volume 38, Number 1Figure 3Average time required to solve an ILP as a function of the size of the alignment domain.of simpler structures.
+When these new instances are used as a training set for a rolelabeler, they will bias the classifier towards under-annotating roles and thus decreaseperformance.
+We therefore do not want to allow partial projections and demand that?
+(x) =  for all role-bearing nodes x.We could incorporate this additional constraint into the ILP by finding a (lower scor-ing) solution that satisfies it.
+However, there is no theoretical justification for favoring alower ranking alignment over the optimal one only because of projection requirements.If lexical and structural measures tell us that a certain alignment is best, we shouldnot dismiss this information, but rather take the contradiction between the optimalalignment and the frame semantic (non-)projectability to indicate that l is not suitablefor inferring a labeling of u.
+There are several possible reasons for this, ranging fromidiosyncratic annotations to parser or pre-processing errors.
+We therefore do not discardthe optimal alignment in favor of a lower scoring one, but rather dismiss the seed l as asource of information for inferring a labeling on u.
+This reflects our precision-orientedapproach: If u does not find a better partner among the other seeds, it will be discardedas unsuitable for the expansion set.4.
+Experimental Set-upIn this section, we describe the data and supervised semantic role labeler used in ourexperiments and explain how the free parameters of our method were instantiated.
+Wethen move on to present two experiments that evaluate our semi-supervised method.4.1 DataIn our experiments, we use various subsets of the English FrameNet corpus (version 1.3;Fillmore, Johnson, and Petruck 2003) as seed sets for our semi-supervised method andas test sets in our evaluation.
+We only consider sentences with verbal FEEs (60,666 intotal).
+Furthermore, we always assume that an oracle identifies the verbal predicate, sorecognition of the FEE is not part of our evaluation.
+Unlabeled sentences for expansion150Fu?rstenau and Lapata Semi-Supervised SRL via Structural AlignmentTable 1Features used by the frame classifier.
+Example values for the annotated graph in Figure 1 aregiven in parentheses.Feature Type Description and example valuetarget lemma atomic lemma of the target node (blink)frames set frames that can be evoked by the target verb({BODY MOVEMENT})voice binary voice of the target node (active)parent word set lemma of the parents of the target node ({and})parent POS set part of speech of the parents of the target node ({CC})rel to parent set grammatical relations between the target node and itsparents ({CONJ})parent has obj binary whether any parents have an outgoing ?object?relation (no)dsubcat atomic subcategorization frame, the multi-set of all outgoingrelations of the target node (DOBJ)child word set set lemma of the children of the target node ({eye})child dep set set outgoing relations of the target node ({DOBJ})child word dep set set pair (lemma, relation) for the children of the targetnode ({(eye, DOBJ)})were taken from the British National Corpus (BNC), excluding sentences with manualannotations in FrameNet.
+The BNC is considerably larger compared with FrameNet,approximately by a factor of 100.
+Dependency graphs were produced with RASP(Briscoe, Carroll, and Watson 2006).
+Frame semantic annotations for labeled sentenceswere merged with their dependency-based representations as described in Section 3.1.Sentences for which this was not possible (mismatch score greater than 0) were excludedfrom the seed set, but retained in the test sets to allow for unbiased evaluation.
+For unla-beled BNC sentences, we used an existing RASP-parsed version of the BNC (Andersenet al 2008).4.2 Supervised SRL SystemA natural way of evaluating the proposed semi-supervised method is by comparingtwo instantiations of a supervised SRL system, one that is trained solely on FrameNetannotations and one that also uses the additional training instances produced by ouralgorithm.
+We will henceforth use the term unexpanded to refer to the corpus (and sys-tem trained on it) that contains only human-annotated instances, and accordingly, theterm expanded to describe the corpus (and system) resulting from the application of ourmethod or any other semi-supervised approach that obtains training instances automat-ically.
+As our approach is based on dependency graphs, we employed a dependency-based SRL system for evaluation.8We thus implemented a supervised SRL system based on the features proposedby Johansson and Nugues (2007a).
+Many of these features have been found useful ina number of previous SRL systems, and can be traced back to the seminal work ofGildea and Jurafsky (2002).
+Our own implementation uses the features listed in Tables 1and 2 for frame labeling and role labeling, respectively.
+Atomic features are converted8 Semantic role labelers that take advantage of dependency information perform comparably to those thatrely on phrase structure trees (Johansson 2008).151Computational Linguistics Volume 38, Number 1Table 2Features used by the role classifiers.
+Example values for the Body part role of the annotatedgraph in Figure 1 are given in parentheses.Feature Type Description and example valuetarget lemma atomic lemma of the FEE (blink)target POS atomic part of speech of the FEE (VVD)roles set roles that can feature in the given frame ({Agent, Body part,Addressee, ...})voice binary voice of the FEE (active)parent word set lemma of the parents of the FEE ({and})parent POS set part of speech of the parents of the FEE ({CC})rel to parent set grammatical relation between the FEE and its parents ({CONJ})parent has obj binary whether any parents have an outgoing ?object?
+relation (no)dsubcat atomic subcategorization frame, multi-set of all outgoing relationsof the FEE (DOBJ)child dep set set outgoing relations of the FEE ({DOBJ})arg word atomic lemma of the argument (eye)arg POS atomic part of speech of the argument (NN1)position atomic position of the argument (before, on, or after) in the sentence,relative to the FEE (after)left word atomic lemma of the word to the left of the argument in the sentence (his)left POS atomic part of speech of the word to the left of the argument in the sentence(APP$)right word atomic lemma of the word to the right of the argument in the sentence (and)right POS atomic part of speech of the word to the right of the argument in thesentence (CC)path atomic path of grammatical relations between FEE and argument (DOBJ)function set relations between argument and its heads ({DOBJ})into binary features of the SVM by 1-of-k coding, and for set features each possible setelement is represented by its own binary feature.
+(Features pertaining to parent nodesare set features as we do not require our dependency graphs to be trees and a nodecan therefore have more than one parent.)
+We followed a classical pipeline architecture,first predicting a frame name for a given lexical unit, then identifying role-bearingdependency graph nodes, and finally labeling these nodes with specific roles.
+All threeclassification stages were implemented as support vector machines, using LIBLINEAR(Fan et al 2008).
+The frame classifier is trained on instances of all available predicates,while individual role classifiers are trained for each frame.
+The one-vs-one strategy(Friedman 1996) was employed for multi-classification.We evaluate the performance of the SRL system on a test set in terms of frame accu-racy and role labeling F1.
+The former is simply the relative number of correctly identifiedframe names.
+The latter is based on the familiar measure of labeled F1 (the harmonicmean of labeled precision and recall).
+When a frame is labeled incorrectly, however, weassume that its roles are also misclassified.
+This is in agreement with the notion of frame-specific roles.
+Moreover, it allows us to compare the performance of different classifiers,which would not be possible if we evaluated role labeling performance on changing testsets, such as the set of only those sentences with correct frame predictions.The misclassification penalty C for the SVM was optimized on a small training setconsisting of five annotated sentences per predicate randomly sampled from FrameNet.We varied C for the frame classification, role recognition, and role classification SVMs152Fu?rstenau and Lapata Semi-Supervised SRL via Structural Alignmentbetween 0.01 and 10.0 and measured F1 on a test set consisting of 10% of FrameNet (seeSection 5.1).
+For frame and role classification, we did not observe significant changesin F1 and therefore maintained the default of C = 1.0.
+For role recognition, we obtainedbest performance with C = 0.1 (F1 was 38.78% compared to 38.04% with the defaultC = 1), which we subsequently used for all our experiments.
+All other SVM parameterswere left at their default values.4.3 Lexical and Syntactic SimilarityOur definition of the lexical similarity measure, lex, uses a vector space model of wordco-occurrence which we created from a lemmatized version of the BNC.
+Specifically, wecreated a semantic space with a context window of five words on either side of the targetword and the most common 2,000 context words as vector dimensions.
+Their valueswere set to the ratio of the probability of the context word given the target word to theprobability of the context word overall.
+Previous work shows that this configuration isoptimal for measuring word similarity (Mitchell and Lapata 2010; Bullinaria and Levy2007).
+In our specific setting, lex is then simply the cosine of the angle between thevectors representing any two words.9For the syntactic measure syn we chose the simplest definition possible: syn(r, r?)
+is 1if r and r?
+denote the same grammatical relation (r = r?
+), and 0 otherwise.
+We also con-sidered more sophisticated definitions based on different degrees of similarity betweengrammatical relations, but were not able to find parameters performing consistentlybetter than this simple approach.A crucial parameter in the formulation of our similarity score (see Equation (1)) isthe relative weight ?
+of syntactic compared to lexical similarity.
+Intuitively, both typesof information should be taken into account, as favoring one over the other may yieldsentences with either similar structure or similar words, but entirely different meaning.This suggests that ?
+should be neither very small nor very large and will ultimately alsodepend on the specific measures used for lex and syn.We optimized ?
+on a development set using F1 score as the objective function.Specifically, we used a random sample of 20% of the FrameNet instances as seedcorpus and expanded it with instances from the BNC using different values for ?.
+Foreach seed sentence, the most similar neighbor was selected (i.e., k = 1).
+We evaluatedperformance of the role labeler enhanced with automatic annotations on a test setconsisting of another random 10% of the FrameNet instances.
+(These development andtest sets were not used in any of the subsequent experiments.)
+The parameter ?
+rangesbetween 0 (using only lexical information) and ?
+(using only syntactic information).We therefore performed a grid search on a logarithmic scale, varying log?
+between ?3and 3 with steps of size 0.2.
+We also computed performance in the extreme cases oflog?
+= ?
+?.Figure 4 shows the results of the tuning procedure.
+With the exception of ?
+= ??
+(i.e., ignoring syntactic information) all expansions of the seed corpus lead to betterrole labelers in terms of F1.
+Furthermore, extreme values of ?
+are clearly not as good asvalues that take both types of information into account.
+The optimal value accordingto this tuning experiment is log?
+= ?0.6.
+Finer tuning of the parameter will most9 Experiments with off-the-shelf WordNet-based similarity measures did not yield performance superior tothe cosine measure (see Fu?rstenau [2011] for details).153Computational Linguistics Volume 38, Number 1Figure 4Performance of our method on the development set for different values of the ?
+parameter.
+Thebaseline is the performance of a semantic role labeler trained on the seed set.likely not yield improvements, as the differences in F1 are already relatively small.We therefore set ?
+= e?0.6 ?
+0.55 for all further experiments.
+This means that lex isweighted approximately twice as strongly as syn.5.
+Experiment 1: Known VerbsIn this section, we describe a first set of experiments with the aim of automaticallycreating novel annotation instances for SRL training.
+We assume that a small numberof manually labeled instances are available and apply our method to obtain moreannotations for the FEEs attested in the seed corpus.
+The FEE of the labeled sentence andthe target verb of the unlabeled sentence are presumed identical.
+However, we waivethis restriction in Experiment 2, where we acquire annotations for unknown FEEs, thatis, predicates for which no manual annotations are available.5.1 MethodWe applied our expansion method to seed corpora of different sizes.
+A random sampleof 60% of the FrameNet instances was used as training set and 10% as test set (theremaining 30% were used as development set for tuning the ?
+parameter).
+The trainingset was reduced in size by randomly choosing between 1 and 10 annotated instancesper FEE.
+These reduced sets are our seed corpora.
+We first trained the supervised SRLsystem on each of these seed corpora.
+Next, we used our expansion method to add thek nearest neighbors of each seed instance to the training corpus, with k ranging from 1to 6, and retrained the SRL classifiers.We also compared our approach to self-training by selecting k sentences from theunlabeled corpus, labeling them with the baseline classifier trained on the unexpandedcorpus (instead of applying our projection method), and then adding these to thetraining corpus and retraining the classifier.
+Specifically, we employed three variants ofself-training.
+Firstly, unlabeled sentences were selected for each seed sentence randomly,the only constraint being that both sentences feature the same FEE.154Fu?rstenau and Lapata Semi-Supervised SRL via Structural AlignmentSecondly, new instances were chosen according to a sentence similarity measureshown to be highly competitive on a paraphrase recognition task (Achananuparp, Hu,and Shen 2008).
+We used the measure proposed in Malik, Subramaniam, and Kaushik(2007), which is a simpler variant of a sentence similarity measure originally describedin Mihalcea, Corley, and Strapparava (2006).
+Given two sentences or more generally textsegments Ti and Tj, their similarity is determined as follows:sim(Ti, Tj) =?w?TimaxSim(w, Tj) +?w?TjmaxSim(w, Ti)|Ti|+ |Tj|(7)where maxSim(w, Tj) is the maximum similarity score between the word w in Ti and anyword in Tj with the same part of speech (i.e., noun, verb, adjective).
+A large number ofmeasures have been proposed in the literature for identifying word-to-word similaritiesusing corpus-based information, a taxonomy such as WordNet (Fellbaum 1998) or acombination of both (see Budanitsky and Hirst [2001] for an overview).
+Here, we usecosine similarity and the vector space model defined in Section 4.3.Our third variant of self-training identified new instances according to our ownmeasure (see Section 4.3), which incorporates both lexical and syntactic similarity.
+Thedifferent self-training settings allow us to assess the extent to which the success ofour method depends simply on the increase of the training data, the definition of thesentence similarity measure, the alignment algorithm for annotation projection, or theircombination.5.2 ResultsOur results are summarized in Figure 5 (and documented exhaustively in the Ap-pendix).
+Here, we only consider role labeling performance, that is, we use gold-standardFigure 5Role labeling F1 obtained by expanding seed corpora of different sizes: The dotted lines showperformance of unexpanded classifiers trained on two to six seed instances per verb.
+Eachsolid line starts from such a baseline at k = 0 and for k > 0 shows the performance obtainedby adding the k nearest neighbors of each seed to the respective baseline corpus.155Computational Linguistics Volume 38, Number 1frames of the test set and evaluate the role recognition and classification stages of theclassifiers.
+(Frame labeling accuracy will be evaluated in the following section.)
+Thedotted lines show the performance of unexpanded classifiers trained on two to six seedinstances per verb.
+The solid lines show the performance of our expanded classifierswhen the k nearest neighbors (of each seed instance) are added to the training set.
+So, togive a concrete example, the unexpanded classifier trained on a corpus with two seedsper verb yields an F1 of 35.94%.
+When the single nearest neighbors are added, F1 in-creases to 36.63%, when the two nearest neighbors are added, F1 increases to 37.00%,and so on.As can be seen in Figure 5, most expansions lead to improved SRL performance.
+Allimprovements for 1 ?
+k ?
+5 are statistically significant (at p < 0.05 and p < 0.001) asdetermined by stratified shuffling (Noreen 1989; see the Appendix for details).
+The onlyexception is k = 5 for two seeds per FEE.
+We obtain largest improvements when k rangesbetween 2 and 4, with a decline in performance for higher values of k. This illustrates thetrade-off between acquiring many novel annotations and inevitably introducing noise.For progressively less similar neighbors, the positive effect of the former is out-weightedby the detrimental effect of the latter.It is also interesting to observe that automatically generated instances often havea positive effect on role labeling performance similar to, or even larger than, manuallylabeled instances.
+For example, the corpus with two seeds per FEE, expanded by two,three or four nearest neighbors, leads to better performance than the corpus with threemanually labeled seeds; and an expanded version of the five seeds/FEE corpus closes60% of the gap to the six seeds/FEE corpus.
+Generally, the positive effect of our expan-sion method is largest for corpora with only a few seed instances per FEE.
+The results inFigure 5 may seem low, especially with respect to the state of the art (see the discussionin Section 1).
+Bear in mind, however, that the semantic role labeler is trained on a smallfraction of the available annotated data.
+This fits well with its intended application tominimize annotation effort when creating resources for new languages or adapting tonew domains.Figure 6 shows the results of self-training.
+Dotted lines again denote the perfor-mance of unexpanded classifiers trained on seed corpora of different sizes (rangingfrom two to five seeds per verb).
+The solid lines show the performance of these clas-sifiers expanded with k neighbors.
+Figures 6(a)?6(c) correspond to different methodsfor selecting the k-best sentences to add to the seed corpus (i.e., randomly, accordingto the similarity function presented in Malik, Subramaniam, and Kaushik (2007), andour own similarity measure that takes both syntactic and semantic information intoaccount).
+In all cases we observe that self-training cannot improve upon the baselineclassifier.
+Randomly selecting new sentences yields the lowest F1 scores, followed byMalik, Subramaniam, and Kaushik and our own measure.
+Figure 6(d) compares thethree self-training methods in the five seeds per verb setting.
+These results indicate thatthe ability to improve labeling performance is not merely due to selecting sentencessimilar to the seeds.
+In other words, the graph alignment algorithm is worth the addedwork as the projection of annotations contributes to achieving better SRL results.To gain a better understanding of the quality of the annotations inferred by oursystem, we further analyzed a small sample.
+Specifically, we randomly selected 100 seedinstances from the FrameNet corpus, and used 59,566 instances as the unlabeled ex-pansion corpus, treating their gold standard annotations as unseen (the remaining1,000 instances were held out as a separate test set, as discussed subsequently).
+Seedand expansion corpora were thus proportionately similar to those used in our mainexperiments (where seed instances in the range of [2,092?16,595] were complemented156Fu?rstenau and Lapata Semi-Supervised SRL via Structural AlignmentFigure 6Role labeling F1 with self-training; dotted lines show the performance of unexpanded classifierstrained on two to five seed instances per verb.
+Each solid line starts from such a baseline at k = 0and for k > 0 shows the performance obtained by adding k sentences with the same FEE to therespective baseline corpus.with approximately 6 million unlabeled BNC sentences).
+For each of the 100 seeds,we projected annotations to their nearest neighbors according to our algorithm, andcompared their quality to the held-out gold standard.
+Figure 7 reports labeled F1 forthe sets of d-th neighbors.
+Unlike the neighbors used in our previous experiments, theseare mutually exclusive.
+In other words, the set for d = 1 includes only the first mostsimilar neighbors, for d = 2 the second most similar neighbors, and so on.
+As expected,we observe decreasing quality for more distant neighbors, falling from 44.24% for d = 1to 20.53% for d = 12.Next, we examined how the quality of the novel annotations impacts the semi-supervised learning task when these are used as additional training data.
+As in ourprevious experiments, we trained the system on the 100 seed sentences alone to obtainan ?unexpanded?
+baseline and on several ?expanded?
+versions containing the seedsand one of the d = 1, .
+.
+.
+, 12 sets.
+The resulting role labeling systems were evaluatedon the 1,000 held-out test sentences mentioned previously.
+As shown in Figure 7,performance increases for intermediate values of d and then progressively decreasesfor larger values.
+The performance of the expanded classifiers corresponds closely tothe quality of the projected annotations (or lack thereof).
+We observe substantial gains157Computational Linguistics Volume 38, Number 1for the sets d = 1, .
+.
+.
+, 6 compared to the baseline role labeler.
+The latter achieves an F1of 9.06% which increases to 12.82% for d = 1 neighbors, to 11.61% for d = 2 neighbors,and so on.
+In general, improvements in semantic role labeling occur when the projectedannotations maintain an F1 quality in the range of [40?30%].
+When F1 drops below 30%,improvements are relatively small and finally disappear.We also manually inspected the projected annotations in the set of first neighbors(i.e., d = 1).
+Of these, 33.3% matched the gold standard exactly, 55.5% received the rightframe but showed one or more role labeling errors, and 11.1% were labeled with anincorrect frame.
+We further analyzed sentences with incorrect roles and found thatfor 22.5% of them this was caused by parser errors, whereas another 42.5% could nothave received a correct annotation in the first place by any alignment, because there wasno node in the dependency graph whose yield exactly corresponded to the annotatedsubstring of the gold standard.
+This was again due to parser errors or to FrameNetspecific idiosyncrasies (e.g., the fact that roles may span more than one constituent).For 35.0% of these sentences, the incorrect roles were genuine failures of our projectionalgorithm.
+Some of these failures are due to subtle role distinctions (e.g., Partner1and Partners for the frame FORMING RELATIONSHIPS), whereas others require detailedlinguistic knowledge which the parser does not capture either by mistake or by design.For example, seed sentences without overtly realized subjects (such as imperatives) canlead to incomplete annotations, missing on the Agent role.In total, we found that parser errors contributed to 45.8% of the erroneous annota-tions.
+The remaining errors range from minor problems, which could be fixed by morecareful preprocessing or more linguistically aware features in the similarity function,to subtle distinctions in the FrameNet annotation, which are not easily addressed bycomputational methods.
+As parsing errors are the main source of projection errors, onewould expect improvements in semantic role labeling with more accurate parsers.
+Weleave a detailed comparison of dependency parsers and their influence on our methodto future work, however.
+Moreover, our results demonstrate that some mileage can beFigure 7Evaluation of annotations projected onto the d-th neighbors of 100 randomly chosen seedsentences.
+The quality of the novel annotations is evaluated directly against held-outgold-standard data, and indirectly when these are used as training data for an SRL system.In both cases, we measure labeled F1.158Fu?rstenau and Lapata Semi-Supervised SRL via Structural Alignmentgained from annotation projection in spite of parser noise.
+In fact, comparison withself-training indicates that annotation projection is a major contributor to performanceimprovements.6.
+Experiment 2: Unknown VerbsIn this section, we describe a second set of experiments, where our method is ap-plied to acquire novel instances for unknown FEEs, that is, predicates for which nomanually labeled instances are available.
+Unknown predicates present a major obstacleto existing supervised SRL systems.
+Labeling performance on such predicates is typi-cally poor due to the lack of specific training material for learning (Baker, Ellsworth,and Erk 2007).6.1 MethodTo simulate frame and role labeling for unknown FEEs, we divided the set of verbalFEEs in FrameNet into two sets, namely, ?known?
+and ?unknown.?
+All annotations ofverbs marked as ?unknown?
+made up the test set, and the annotations for the ?known?verbs were the seed corpus (in both cases excluding the 30% of FrameNet used asdevelopment set).
+To get a balanced division, we sorted all verbal predicates by theirnumber of annotated sentences and marked every fifth verb in the resulting list (i.e., 20%of the verbs) as ?unknown,?
+the rest as ?known.?
+We used our expansion algorithm toautomatically produce labeled instances for unknown verbs, selecting the most similarneighbor of each seed sentence (k = 1).
+Then we trained the SRL system on both theseeds and the new annotations and tested it on the held-out instances of the ?unknown?verbs.6.2 Frame CandidatesSo far we have made the simplifying assumption (see Experiment 1, Section 5) that theFEE of the labeled sentence and the target verb of the unlabeled sentence are identical.This assumption is not strictly necessary in our framework; however, it reduces com-putational effort and ensures precision that is higher than would be expected whencomparing arbitrary pairs of verbs.
+When acquiring novel instances for unseen FEEs, itis no longer possible to consider identical verbs.
+The vast majority of seeds, however,will be inappropriate for a given unlabeled sentence, because their predicates relate todifferent situations.
+So, in order to maintain high precision, and to make expansionscomputationally feasible, we must first identify the seeds that might be relevant for asentence featuring an unknown predicate.
+In the following, we propose two methodsfor determining frame candidates for an unknown verb, one using vector-based simi-larity and one that takes WordNet information into account.
+As we shall see, WordNet-based similarity yields significantly better results, but its application is restricted tolanguages or domains with similar resources.6.2.1 Vector-based Method.
+To associate unknown FEEs with known frames, Pennacchiottiet al (2008) make use of a simple co-occurrence-based semantic space similar to the onewe used to define the lexical measure lex.
+They represent each FEE v by a vector v and159Computational Linguistics Volume 38, Number 1then compute a vector representation f for a frame f as the weighted centroid of thevectors of all words evoking it:f =?v?fwvfv (8)The weight wvf is operationalized as the relative frequency of v among the FEEs evok-ing f , counted over the corpus used in building the vector space.
+The (cosine) similaritybetween the unknown target v0 and each frame vector f produces an ordering of frames,the n-best of which are considered frame candidates.simV(v0, f ) = cos(v0,f)(9)6.2.2 WordNet-based Method.
+In addition to the vector-based approach, Pennacchiottiet al (2008) propose a method that is based on WordNet (Fellbaum 1998) and treatsnouns, verbs, and adjectives differently.
+Given a frame and an unknown verb v0, theycount the number of FEEs that are co-hyponyms of v0 in WordNet.
+If the number ofco-hyponyms exceeds a threshold ?,10 then the frame is considered a candidate for v0.In our experiments, we found this method to perform poorly.
+This suggests thatthe improvements reported in Pennacchiotti et al (2008) are due to their more refinedtreatment of nouns, which are not considered in our set-up.
+We thus follow the basicidea of measuring relatedness between an unknown verb v0 and the set of lexicalunits of a frame, and propose a measure based on counts of synonyms, hypernyms,hyponyms, and co-hyponyms in WordNet.
+We define:simW (v0, f ) =?v?Fr(v0, v) (10)where r(v, v?)
+is 1 if v and v?
+are synonyms, 12 if one is a hypernym of the other,14 ifthey are co-hyponyms, and 0 otherwise.
+These numbers were chosen heuristically torepresent different degrees of relatedness in WordNet.
+Relations more distant than co-hyponymy did not improve performance, as the verb hierarchy in WordNet is shallow.It therefore seems unlikely that much could be gained by refining the measure r, forexample, by incorporating traditional WordNet similarity measures (e.g., Budanitskyand Hirst 2001).6.2.3 Method Comparison.
+To evaluate which of the methods just described performs best,we used a leave-one-out procedure over the FrameNet predicates marked as ?known?in our experimental set-up.
+Specifically, we set aside one predicate at a time and useall remaining predicates to predict its frame candidates.
+The resulting candidates arethen compared to the true frames evoked by the predicate.
+(We do not consider ?un-known?
+predicates here as these are reserved for evaluating the expansion method as awhole.)
+For the vector-based method we also explore an unweighted variant, setting allwvf = 1.Evaluation results are summarized in Figure 8, which shows the proportion ofpredicates for which at least one frame candidate is among the true evokable frames10 Set to ?
+= 2 according to personal communication.160Fu?rstenau and Lapata Semi-Supervised SRL via Structural AlignmentFigure 8Frame labeling accuracy out of n frame candidates; open circles indicate vector-based similarity;black circles indicate WordNet-based similarity.
+(when considering up to 10 best candidates).11 As can be seen, performance increasesby a large margin when unweighted centroids are considered instead of weighted ones.Apparently, the stabilizing effect of the centroid computation, which allows commonmeaning aspects of the predicates to reinforce each other and reduces the effect of spuri-ous word senses, is more pronounced when all predicates are weighted equally.
+Figure 8also shows that a WordNet-based approach that takes into account various kinds ofsemantic relations is superior to vector-based methods and to Pennachiotti et al?s (2008)original proposal based only on co-hyponyms.
+All subsequent experiments will identifyframe candidates using our WordNet-based definition (Equation (10)).6.3 ResultsEvaluation results of our approach on unknown verbs are summarized in Figure 9.Frame labeling accuracy is shown in Figure 9(a) and role labeling performance inFigure 9(b).As far as frame labeling accuracy is concerned, we compare a semantic role labelertrained on additional annotations produced by our method against a baseline classifiertrained on known verbs only.
+Both expanded and unexpanded classifiers choose framesfrom the same sets of candidates, which is also the set of frames that the expansionalgorithm is considering.
+We could have let the unexpanded classifier select among theentire set of FrameNet frames (more than 500 in total).
+This would perform poorly,however, and our evaluation would conflate the effect of additional training materialwith the effect of restricting the set of possible frame predictions to likely candidates.11 Note that although our evaluation is similar to Pennacchiotti et al (2008) the numbers are not strictlycomparable due to differences in the test sets, as well as the fact that they consider FEEs across parts ofspeech (not only verbs) and omit infrequent predicates.161Computational Linguistics Volume 38, Number 1Figure 9Frame labeling accuracy (a) and role labeling performance (b); comparison between unexpandedand expanded classifiers and random baseline; frame candidates selected based on WordNet.We also show the accuracy of a simple baseline labeler, which chooses one of the kcandidate frames at random.As illustrated in Figure 9(a), both expanded and unexpanded classifiers outperformthe random baseline by a wide margin.
+This indicates that the SRL system is indeed ableto generalize to unknown predicates, even without specific training data.
+The expandedclassifier is in turn consistently better than the unexpanded one for all numbers offrame candidates (x axis).
+The case where only one frame candidate (k = 1) is considereddeserves a special mention.
+Here, a predicate is assigned the frame most similar to it,irrespectively of its sentential context.
+In other words, all instances of the predicateare assigned the same frame, without any attempt at disambiguation.
+In this case,both expanded and unexpanded classifiers obtain the same performance.
+Althoughthe unexpanded classifier does not improve over and above this type-based framelabeling approach, however, the expanded classifier yields significantly better resultsfor two candidates (p < 0.01 with McNemar?s test).
+This means that the additional162Fu?rstenau and Lapata Semi-Supervised SRL via Structural Alignmenttraining material enables the classifier to successfully favor lower scoring candidatesover higher-scoring ones based on sentential context.Figure 9(b) shows our results for the role labeling task.
+We again compare ex-panded and unexpanded classifiers.
+Note that there is no obvious random baselinefor the complex task of predicting role spans and their labels, however.
+Again, weobserve that the expanded classifier outperforms the unexpanded one, save the arti-ficial case of one candidate where it yields slightly lower results.
+In this configuration,our expansion framework cannot account for FEEs that are polysemous by selectingamong different frames, and as a result role labeling performance is compromised.For two candidates the expanded classifier yields significantly better results than thistoken-based approach (p < 0.05 with stratified shuffling).
+For three, four, and five can-didates, performance is also numerically better, but the results do not reach statisticalsignificance.
+This shows that the expanded classifier is not only able to correctly selectlower scoring frame candidates for unknown verbs, but also to accurately label theirroles.
+The overall scale of our F1 scores might seem low.
+This is due to both thedifficulty of the task of predicting fine-grained sense distinctions for verbs withoutspecific training data, and the comprehensive evaluation measure, which takes intoaccount all three stages of the SRL system: frame labeling, role recognition, and roleclassification.Incidentally, we should point out that similar tendencies are observed when usingvector-based similarity for identifying the frame candidates.
+Although overall classi-fier performance is worse, results are qualitatively similar: The expanded classifiersoutperform the unexpanded ones, and obtain best frame accuracy and labeled F1with two candidates.
+Performance also significantly improves compared to selecting aframe randomly or defaulting to the first candidate (we summarize these results in theAppendix).7.
+ConclusionsWe have presented a novel semi-supervised approach for reducing the annotation effortinvolved in creating resources for semantic role labeling.
+Our method automaticallyproduces training instances from an unlabeled corpus.
+The key idea is to project an-notations from labeled sentences onto similar unlabeled ones.
+We formalize the projec-tion task as a graph alignment problem.
+Specifically, we optimize alignments betweendependency graphs under an objective function that takes both lexical and structuralsimilarity into account.
+The optimization problem is solved exactly by an integer linearprogram.Experimental results show that the additional training instances produced by ourmethod significantly improve role labeling performance of a supervised SRL system onpredicates for which only a few or no manually labeled training instances are available.In the latter case, we first determine suitable frame candidates, improving over similarmethods proposed in the literature.
+Comparison with a self-training approach showsthat the improvements attained with our method are not merely a side effect of addi-tional training data.
+Rather, by identifying sentences that are structurally and lexicallysimilar to the labeled seeds we are able to acquire qualitatively novel annotations.Our experiments make use of relatively simple similarity measures, which could beimproved in future work.
+Incorporating a notion of selectional preferences would allowfor finer-grained distinctions in computing argument similarities.
+Analogously, ourdefinition of syntactic similarity could be refined by considering grammar formalisms163Computational Linguistics Volume 38, Number 1with richer syntactic categories such as Combinatory Categorial Grammar (Steedman2000).Possible extensions to the work presented in this article are many and varied.For example, we could combine our approach with cross-lingual annotation projection(Johansson and Nugues 2006; Pado?
+and Lapata 2009).
+For languages without any rolesemantic resources, initial annotations could be obtained by cross-lingual projection andthen extended with our semi-supervised method.
+Another application of our frame-work would be in domain adaptation, where a supervised model is trained on a seedcorpus, and then unlabeled data from a target domain is used to select new instancesand thus train a new semantic role labeler for the given domain.
+As our algorithmproduces novel annotated sentences, it could also be used to reduce annotation effortby offering automatically labeled sentences to humans to inspect and correct.
+Theexperiments presented here are limited to verbal categories and focus solely on English.In the future, we would like to examine whether our approach generalizes to othersyntactic categories such as nouns, adjectives, and prepositions.
+An obvious extensionalso involves experiments with other languages.
+Experiments on the SALSA corpus(Burchardt et al 2006) show that similar improvements can be obtained for German(Fu?rstenau 2011).Finally, the general formulation of our expansion framework allows its applicationto other tasks.
+Deschacht and Moens (2009) adapt our approach to augment subsetsof the PropBank corpus and observe improvements over a supervised system for asmall seed corpus.
+They also show that defining the lexical similarity measure in termsof Jensen?Shannon divergence instead of cosine similarity can additionally improveperformance.
+Another possibility would be to employ our framework for the acquisitionof paraphrases, for example, by extending the multiple-sequence alignment approachof Barzilay and Lee (2003) with our notion of graph alignments.
+Finally, it would beinteresting to investigate how to reduce the dependency on full syntactic analyses, forexample, by employing shallow parsers or chunkers.Appendix: Detailed Experimental ResultsIn this appendix, we give complete results for the expansion experiments discussed inSections 5 and 6.
+Asterisks in the tables indicate levels of significance.
+For simplicity, weonly present two levels of significance, p < 0.05 with a single asterisk (*) and p < 0.001with two asterisks (**).
+Significance tests for exact match and frame labeling accuracywere performed using McNemar?s test.
+We used stratified shuffling Noreen (1989) toexamine whether differences in labeled F1 were significant.12Experiments on Known Predicates.
+The following table shows the performance of ex-panded classifiers when [1?6] automatically generated nearest neighbors (NN) areadded to seed corpora containing [1?10] manually labeled sentences per verb.
+We reportprecision (Prec), recall (Rec), their harmonic mean (F1), and exact match (ExMatch; theproportion of sentences that receive entirely correct frame and role annotations).
+Someof these results were visualized in Figure 5.12 We used the sigf tool (Pado?
+2006).164Fu?rstenau and Lapata Semi-Supervised SRL via Structural AlignmentTraining set Size Prec (%) Rec (%) F1 (%) ExMatch (%)1 seed/verb 2, 092 40.74 23.69 29.96 6.38+ 1-NN 3, 297 40.52 24.23 30.33 6.81 *+ 2-NN 4, 481 40.29 24.99 30.85 * 6.97 *+ 3-NN 5, 649 39.52 25.02 30.64 * 7.35 **+ 4-NN 6, 803 39.52 25.39 30.92 * 7.30 **+ 5-NN 7, 947 39.04 25.34 30.73 * 7.12 *+ 6-NN 9, 076 38.40 25.16 30.40 6.892 seeds/verb 4, 105 45.22 29.81 35.94 9.40+ 1-NN 6, 500 45.09 30.84 36.63 * 10.19 **+ 2-NN 8, 850 44.82 31.50 37.00 ** 10.32 **+ 3-NN 11, 157 44.65 31.85 37.18 ** 10.32 **+ 4-NN 13, 423 43.99 31.94 37.01 ** 10.15 *+ 5-NN 15, 652 42.64 31.23 36.05 9.73+ 6-NN 17, 846 42.57 31.36 36.11 9.633 seeds/verb 6, 021 45.03 31.29 36.92 9.81+ 1-NN 9, 492 44.78 32.45 37.63 * 10.35 *+ 2-NN 12, 874 44.15 32.69 37.57 * 10.37 *+ 3-NN 16, 179 43.90 33.00 37.68 * 10.68 *+ 4-NN 19, 424 43.60 33.36 37.80 * 10.35+ 5-NN 22, 609 43.15 33.26 37.56 * 10.50 *+ 6-NN 25, 734 42.72 33.17 37.34 10.45 *4 seeds/verb 7, 823 44.42 32.21 37.35 9.48+ 1-NN 12, 321 44.45 33.31 38.09 * 10.20 **+ 2-NN 16, 688 44.26 34.13 38.54 ** 10.40 **+ 3-NN 20, 944 43.71 34.20 38.37 ** 10.72 **+ 4-NN 25, 098 43.37 34.35 38.34 ** 10.57 **+ 5-NN 29, 166 43.25 34.45 38.35 * 10.67 **+ 6-NN 33, 142 42.48 34.24 37.92 10.40 *5 seeds/verb 9, 515 45.45 33.81 38.78 10.35+ 1-NN 15, 026 45.47 34.90 39.49 * 10.95 *+ 2-NN 20, 363 45.03 35.39 39.63 * 11.42 **+ 3-NN 25, 533 44.56 35.51 39.53 * 11.56 **+ 4-NN 30, 576 44.44 35.78 39.64 * 11.70 **+ 5-NN 35, 494 44.22 35.94 39.65 * 11.72 **+ 6-NN 40, 286 43.74 35.83 39.39 * 11.49 **6 seeds/verb 11, 105 46.50 35.44 40.22 10.95+ 1-NN 17, 553 46.05 36.11 40.48 11.56 *+ 2-NN 23, 779 45.71 36.67 40.70 12.07 **+ 3-NN 29, 787 45.16 36.83 40.57 11.92 **+ 4-NN 35, 623 44.82 36.92 40.49 11.80 *+ 5-NN 41, 310 44.60 36.91 40.40 12.13 **+ 6-NN 46, 851 44.07 36.86 40.14 12.02 **8 seeds/verb 13, 999 47.60 37.29 41.82 12.25+ 1-NN 22, 115 47.08 37.71 41.88 12.48+ 2-NN 29, 907 46.45 38.01 41.81 12.64+ 3-NN 37, 400 46.01 38.11 41.69 12.69+ 4-NN 44, 656 45.55 38.12 41.51 12.78+ 5-NN 51, 705 45.53 38.38 41.65 13.22 *+ 6-NN 58, 562 45.00 38.24 41.34 13.34 **10 seeds/verb 16, 595 48.97 39.02 43.43 13.73+ 1-NN 26, 180 48.24 39.55 43.47 14.01+ 2-NN 35, 336 47.11 39.32 42.86 13.80+ 3-NN 44, 113 46.69 39.45 42.77 13.85+ 4-NN 52, 602 46.18 39.31 42.47 13.63+ 5-NN 60, 827 46.22 39.76 42.75 13.68+ 6-NN 68, 791 45.69 39.58 42.42 13.95165Computational Linguistics Volume 38, Number 1Experiments on Unknown Predicates.
+In the following, we show the performance of un-expanded and expanded classifiers when selecting among [1?5] frame candidates gen-erated by the WordNet-based method.
+We report frame labeling accuracy, role labelingperformance, and exact match scores.
+Asterisks indicate that the expanded classifier issignificantly better than an unexpanded classifier choosing among the same numberof candidates.
+For frame labeling accuracy, we additionally provide the results of therandom baseline and an upper bound, which always chooses the correct frame if it isamong the candidates.
+Some of these results were shown in Figure 9.Frame labeling accuracy (%)Candidates Random Unexpanded Expanded Upper bound1 45.50 45.50 45.50 45.502 29.61 41.24 46.89 ** 59.233 22.20 36.02 44.82 ** 66.604 17.31 28.75 44.75 ** 69.235 14.45 26.56 43.58 ** 72.25Unexpanded (%) Expanded (%)Candidates Prec Rec F1 ExMatch Prec Rec F1 ExMatch1 24.77 18.94 21.47 6.54 23.61 18.72 20.88 6.562 22.52 17.63 19.78 5.87 24.60 20.05 22.09 ** 7.02 **3 19.52 15.20 17.09 5.04 24.23 19.79 21.79 ** 7.24 **4 16.18 12.31 13.98 4.02 24.59 20.09 22.11 ** 7.26 **5 14.78 11.27 12.78 3.77 24.12 19.70 21.69 ** 7.44 **For two candidates, the expanded classifier also performs significantly better than thebest unexpanded classifier (i.e., the one given only one candidate) in terms of framelabeling accuracy, F1, and exact match (p < 0.05).
+In terms of exact match, it alsoperforms significantly better for three candidates (p < 0.05), four candidates (p < 0.05),and five candidates (p < 0.001).Vector-based frame candidates.
+The following graphs show the performance of the un-expanded and expanded classifiers when frame candidates are selected by the vector-based method.
+The expanded classifiers significantly outperform the unexpanded onesin terms of frame labeling accuracy and role labeling F1 for [2?5] candidates (p < 0.001).For two candidates, frame labeling accuracy and role labeling F1 also significantlyimprove compared with the type-based approach of always choosing the first candidate(p < 0.001).
+For three candidates performance is significantly better only in terms offrame labeling accuracy (p < 0.05) but not F1.166Fu?rstenau and Lapata Semi-Supervised SRL via Structural Alignmenta.101520253035401 2 3 4 5Accuracyframe candidatesunexpanded classifier expanded classifierrandom baselineb.101112131415161718191 2 3 4 5F1frame candidatesunexpanded classifier expanded classifier AcknowledgmentsWe are grateful to the anonymous referees,whose feedback helped to substantiallyimprove this article.
+Special thanks are dueto Richard Johansson for his help withthe re-implementation of his semantic rolelabeler and Manfred Pinkal for insightfulcomments and suggestions.
+We acknowledgethe support of EPSRC (Lapata; grantGR/T04540/01) and DFG (Fu?rstenau;IRTG 715 and project PI 154/9-3).ReferencesAbend, Omri, Roi Reichart, and AriRappoport.
+2009.
+Unsupervised argumentidentification for semantic role labeling.In Proceedings of the Joint Conference of the47th Annual Meeting of the ACL and the4th International Joint Conference on NaturalLanguage Processing of the AFNLP,pages 28?36, Singapore.Achananuparp, Palakorn, Xiaohua Hu, andXiajiong Shen.
+2008.
+The evaluation of167Computational Linguistics Volume 38, Number 1sentence similarity measures.In Proceedings of the 10th InternationalConference on Data Warehousing andKnowledge Discovery, pages 305?316,Turin.Andersen, ?istein E., Julien Nioche,Ted Briscoe, and John Carroll.
+2008.The BNC parsed with RASP4UIMA.In Proceedings of LREC, pages 865?869,Marrakech.Baker, Collin F., Michael Ellsworth, andKatrin Erk.
+2007.
+SemEval-2007 Task 19:Frame Semantic structure extraction.In Proceedings of the 4th InternationalWorkshop on Semantic Evaluations,pages 99?104, Prague.Barzilay, Regina and Mirella Lapata.
+2006.Aggregation via set partitioning fornatural language generation.
+In Proceedingsof the Human Language TechnologyConference of the NAACL, pages 359?366,New York, NY.Barzilay, Regina and Lillian Lee.
+2003.Learning to paraphrase: An unsupervisedapproach using multiple-sequencealignment.
+In Proceedings of the 2003 HumanLanguage Technology Conference of the NorthAmerican Chapter of the Association forComputational Linguistics, pages 16?23,Edmonton.Briscoe, Ted, John Carroll, and RebeccaWatson.
+2006.
+The second releaseof the RASP system.
+In Proceedingsof the COLING/ACL 2006 InteractivePresentation Sessions, pages 77?80,Sydney.Budanitsky, Alexander and Graeme Hirst.2001.
+Semantic distance in WordNet:An experimental, application-orientedevaluation of five measures.
+In Proceedingsof the ACL Workshop on WordNet andother Lexical Resources, pages 29?34,Pittsburgh, PA.Bullinaria, John A. and Joseph P. Levy.2007.
+Extracting semantic representationsfrom word co-occurrence statistics:A computational study.
+BehaviorResearch Methods, 39:510?526.Burchardt, Aljoscha, Katrin Erk, andAnette Frank.
+2005.
+A WordNet detourto FrameNet.
+In Proceedings of the GLDVGermaNet II Workshop, pages 408?421,Bonn.Burchardt, Aljoscha, Katrin Erk, AnetteFrank, Andrea Kowalski, Sebastian Pado?,and Manfred Pinkal.
+2006.
+The SALSAcorpus: A German corpus resource forlexical semantics.
+In Proceedings of LREC,pages 969?974, Genoa.Chang, Ming-Wei, Dan Goldwasser,Dan Roth, and Vivek Srikumar.
+2010.Discriminative learning over constrainedlatent representations.
+In Human LanguageTechnologies: The 2010 Annual Conferenceof the North American Chapter of theAssociation for Computational Linguistics,pages 429?437, Los Angeles, CA.Clarke, James and Mirella Lapata.
+2008.Global inference for sentence compression:An integer linear programming approach.Journal of Artificial Intelligence Research,31:273?381.Cormen, Thomas H., Charles E. Leiserson,and Ronald L. Rivest.
+1992.
+Introductionto Algorithms.
+The MIT Press,Cambridge, MA.Das, Dipanjan, Nathan Schneider,Desai Chen, and Noah A. Smith.
+2010.Probabilistic Frame-Semantic parsing.In Human Language Technologies:The 2010 Annual Conference of the NorthAmerican Chapter of the Association forComputational Linguistics, pages 948?956,Los Angeles, CA.Das, Dipanjan and Noah A. Smith.
+2009.Paraphrase identification as probabilisticquasi-synchronous recognition.
+InProceedings of the Joint Conference of the47th Annual Meeting of the ACL and the4th International Joint Conference onNatural Language Processing of the AFNLP,pages 468?476, Singapore.de Marneffe, Marie-Catherine, TrondGrenager, Bill MacCartney, Daniel Cer,Daniel Ramage, Chloe?
+Kiddon, andChristopher D. Manning.
+2007.
+Aligningsemantic graphs for textual inferenceand machine reading.
+In AAAI SpringSymposium at Stanford.de Salvo Braz, Rodrigo, Roxana Girju,Vasin Punyakanok, Dan Roth, and MarkSammons.
+2005.
+An inference model forsemantic entailment in natural language.In Proceedings of the 20th National Conferenceon Artificial Intelligence, pages 1043?1049,Pittsburgh, PA.Denis, Pascal and Jason Baldridge.
+2007.Joint determination of anaphoricity andcoreference resolution using integerprogramming.
+In Human LanguageTechnologies 2007: The Conference of theNorth American Chapter of the Associationfor Computational Linguistics; Proceedingsof the Main Conference, pages 236?243,Rochester, NY.Deschacht, Koen and Marie-Francine Moens.2009.
+Semi-supervised semantic rolelabeling using the Latent Words Language168Fu?rstenau and Lapata Semi-Supervised SRL via Structural AlignmentModel.
+In Proceedings of the 2009 Conferenceon Empirical Methods in Natural LanguageProcessing, pages 21?29, Singapore.Dras, Mark.
+1999.
+Tree Adjoining Grammarand the Reluctant Paraphrasing of Text.Ph.D.
+thesis, Macquarie University,Sydney.Fan, Rong-En, Kai-Wei Chang, Cho-JuiHsieh, Xiang-Rui Wang, and Chih-Jen Lin.2008.
+LIBLINEAR: A library for large linearclassification.
+Journal of Machine LearningResearch, 9:1871?1874.Fellbaum, Christiane, editor.
+1998.
+WordNet:An Electronic Database.
+MIT Press,Cambridge, MA.Fillmore, Charles J.
+1968.
+The case for case.In Emmon Bach and Robert T. Harms,editors, Universals in Linguistic Theory.Holt, Rinehart & Winston, New York,NY, pages 1?88.Fillmore, Charles J., Christopher R. Johnson,and Miriam R. L. Petruck.
+2003.Background to FrameNet.
+InternationalJournal of Lexicography, 16:235?250.Friedman, Jerome H. 1996.
+Anotherapproach to polychotomous classification.Technical report, Department of Statistics,Stanford University.Fung, Pascale and Benfeng Chen.
+2004.BiFrameNet: Bilingual Frame Semanticsresource construction by cross-lingualinduction.
+In Proceedings of COLING 2004,pages 931?937, Geneva.Fu?rstenau, Hagen.
+2008.
+Enriching framesemantic resources with dependencygraphs.
+In Proceedings of LREC,pages 1478?1484, Marrakech.Fu?rstenau, Hagen.
+2011.
+Semi-supervisedSemantic Role Labeling via GraphAlignment, volume 32 of Saarbru?ckenDissertations in Computational Linguisticsand Language Technology.
+German ResearchCenter for Artificial Intelligence andSaarland University, Saarbru?cken,Germany.Gildea, Daniel and Dan Jurafsky.
+2002.Automatic labeling of semanticroles.
+Computational Linguistics,28(3):245?288.Gordon, Andrew and Reid Swanson.
+2007.Generalizing semantic role annotationsacross syntactically similar verbs.In Proceedings of the 45th Annual Meetingof the Association of ComputationalLinguistics, pages 192?199, Prague.Grenager, Trond and Christopher D.Manning.
+2006.
+Unsupervised discovery ofa statistical verb lexicon.
+In Proceedings ofthe 2006 Conference on Empirical Methods inNatural Language Processing, pages 1?8,Sydney.Haghighi, Aria D., Andrew Y. Ng, andChristopher D. Manning.
+2005.
+Robusttextual inference via graph matching.In Proceedings of Human LanguageTechnology Conference and Conference onEmpirical Methods in Natural LanguageProcessing, pages 387?394, Vancouver.Johansson, Richard.
+2008.
+Dependency-basedSemantic Analysis of Natural-language Text.Ph.D.
+thesis, Department of ComputerScience, Lund University, Sweden.Johansson, Richard and Pierre Nugues.2006.
+A FrameNet-based semantic rolelabeler for Swedish.
+In Proceedings of theCOLING/ACL 2006 Main Conference PosterSessions, pages 436?443, Sydney.Johansson, Richard and Pierre Nugues.2007a.
+Syntactic representationsconsidered for frame-semantic analysis.In Proceedings of the Sixth InternationalWorkshop on Treebanks and LinguisticTheories (TLT 2007), Bergen.Johansson, Richard and Pierre Nugues.2007b.
+Using WordNet to extendFrameNet coverage.
+In Proceedings of theNODALIDA-2007 Workshop FRAME2007: Building Frame Semantics Resourcesfor Scandinavian and Baltic Languages,pages 27?30, Tartu.Klau, Gunnar W. 2009.
+A new graph-basedmethod for pairwise global networkalignment.
+BMC Bioinformatics,10 (Suppl 1):S59.Land, Ailsa H. and Alison G. Doig.
+1960.An automatic method for solving discreteprogramming problems.
+Econometrica,28(3):497?520.Lang, Joel and Mirella Lapata.
+2010.Unsupervised induction of semanticroles.
+In Human Language Technologies:The 2010 Annual Conference of the NorthAmerican Chapter of the Association forComputational Linguistics, pages 939?947,Los Angeles, CA.Levin, Beth.
+1993.
+English Verb Classes andAlternations: A Preliminary Investigation.University of Chicago Press.Malik, Rahul, L. Venkata Subramaniam,and Saroj Kaushik.
+2007.
+Automaticallyselecting answer templates to respondto customer emails.
+In Proceedings of the20th International Joint Conference onArtificial Intelligence, pages 1659?1664,Hyderabad.Marciniak, Tomasz and Michael Strube.2005.
+Beyond the pipeline: Discreteoptimization in NLP.
+In Proceedings of169Computational Linguistics Volume 38, Number 1the 9th Conference on Computational NaturalLanguage Learning (CoNLL-2005),pages 136?143, Ann Arbor, MI.Matsubayashi, Yuichiroh, Naoaki Okazaki,and Jun?ichi Tsujii.
+2009.
+A comparativestudy on generalization of semanticroles in FrameNet.
+In Proceedings ofthe Joint Conference of the 47th AnnualMeeting of the ACL and the 4th InternationalJoint Conference on Natural LanguageProcessing of the AFNLP, pages 19?27,Singapore.Matusov, Evgeny, Richard Zens, andHermann Ney.
+2004.
+Symmetric wordalignments for statistical matchingtranslation.
+In Proceedings of COLING2004, pages 219?225, Geneva.Melli, Gabor, Yang Wang, Yudong Liu,Mehdi M. Kashani, Zhongmin Shi,Baohua Gu, Anoop Sarkar, and FredPopowich.
+2005.
+Description of SQUASH,the SFU question answering summaryhandler for the DUC-2005 summarizationtask.
+In Proceedings of the HLT-EMNLPDocument Understanding Workshop,Vancouver.Mihalcea, Rada, Courtney Corley, andCarlo Strapparava.
+2006.
+Corpus-basedand knowledge-based measures oftext semantic similarity.
+In Proceedingsof the 21st National Conference onArtificial Intelligence, pages 775?780,Boston, MA.Mitchell, Jeff and Mirella Lapata.
+2010.Composition in distributional modelsof semantics.
+Cognitive Science,(34):1388?1429.Noreen, Eric.
+1989.
+Computer-intensiveMethods for Testing Hypotheses: AnIntroduction.
+New York, Wiley.Pado?, Sebastian, 2006.
+User?s guide tosigf: Significance testing by approximaterandomization.
+Available at:www.nlpado.de/?sebastian/software/sigf.shtml.Pado?, Sebastian and Mirella Lapata.2009.
+Cross-lingual annotationprojection for semantic roles.
+Journalof Artificial Intelligence Research,36:307?340.Palmer, Martha, Daniel Gildea, and PaulKingsbury.
+2005.
+The proposition bank:An annotated corpus of semantic roles.Computational Linguistics, 31(1):71?106.Pennacchiotti, Marco, Diego De Cao, RobertoBasili, Danilo Croce, and Michael Roth.2008.
+Automatic induction of FrameNetlexical units.
+In Proceedings of the 2008Conference on Empirical Methods in NaturalLanguage Processing, pages 457?465,Honolulu, HI.Pradhan, Sameer S., Wayne Ward, andJames H. Martin.
+2008.
+Towards robustsemantic role labeling.
+ComputationalLinguistics, 34(2):289?310.Punyakanok, Vasin, Dan Roth, Wen-tau Yih,and Dav Zimak.
+2004.
+Semantic rolelabeling via integer linear programminginference.
+In Proceedings of COLING 2004,pages 1346?1352, Geneva.Qiu, Long, Min-Yen Kan, and Tat-SengChua.
+2006.
+Paraphrase recognition viadissimilarity significance classification.In Proceedings of the 2006 Conference onEmpirical Methods in Natural LanguageProcessing, pages 18?26, Sydney.Riedel, Sebastian and James Clarke.2006.
+Incremental integer linearprogramming for non-projectivedependency parsing.
+In Proceedingsof the 2006 Conference on EmpiricalMethods in Natural Language Processing,pages 129?137, Sydney.Roth, Dan and Wen tau Yih.
+2004.
+A linearprogramming formulation for globalinference in natural language tasks.In Proceedings of the 8th Conference onComputational Natural Language Learning,pages 1?8, Boston, MA.Shen, Dan and Mirella Lapata.
+2007.
+Usingsemantic roles to improve questionanswering.
+In Proceedings of the 2007Joint Conference on Empirical Methodsin Natural Language Processing andComputational Natural Language Learning(EMNLP-CoNLL), pages 12?21, Prague.Steedman, Mark.
+2000.
+The Syntactic Process.The MIT Press, Cambridge, MA.Surdeanu, Mihai, Sanda Harabagiu,John Williams, and Paul Aarseth.
+2003.Using predicate?argument structures forinformation extraction.
+In Proceedings of the41st Annual Meeting of the Association forComputational Linguistics, pages 8?15,Sapporo.Swier, Robert S. and Suzanne Stevenson.2004.
+Unsupervised semantic rolelabelling.
+In Proceedings of the 2004Conference on Empirical Methods in NaturalLanguage Processing, pages 95?102,Bacelona.Taskar, Ben, Simon Lacoste-Julien, andDan Klein.
+2005.
+A discriminativematching approach to word alignment.In Proceedings of Human LanguageTechnology Conference and Conference onEmpirical Methods in Natural LanguageProcessing, pages 73?80, Vancouver.170Fu?rstenau and Lapata Semi-Supervised SRL via Structural AlignmentVanderbei, Robert J.
+2001.
+LinearProgramming: Foundations and Extensions.Berlin, Springer.Wan, Stephen, Mark Dras, Robert Dale,and Ce?cile Paris.
+2006.
+Usingdependency-based features to takethe ?para-farce?
+out of paraphrase.In Proceedings of the 2006 AustralasianLanguage Technology Workshop,pages 131?138, Sydney.Winston, Wayne L. and MunirpallamVenkataramanan.
+2003.
+Introduction toMathematical Programming: Applicationsand Algorithms (4th edition).
+Pacific Grove,CA, Duxbury Press.Wu, Dekai and Pascale Fung.
+2009.
+Semanticroles for SMT: A hybrid two-pass model.In Proceedings of HLT-NAACL, CompanionVolume: Short Papers, pages 13?16,Boulder, CO.171

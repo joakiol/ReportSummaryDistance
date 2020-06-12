@@ -1,0 +1,437 @@
+2012 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, pages 498?507,Montre?al, Canada, June 3-8, 2012. c?2012 Association for Computational LinguisticsVine Pruning for Efficient Multi-Pass Dependency ParsingAlexander M. Rush?MIT CSAILCambridge, MA 02139, USAsrush@csail.mit.eduSlav PetrovGoogleNew York, NY 10027, USAslav@google.comAbstractCoarse-to-fine inference has been shown to bea robust approximate method for improvingthe efficiency of structured prediction modelswhile preserving their accuracy.
+We proposea multi-pass coarse-to-fine architecture for de-pendency parsing using linear-time vine prun-ing and structured prediction cascades.
+Ourfirst-, second-, and third-order models achieveaccuracies comparable to those of their un-pruned counterparts, while exploring only afraction of the search space.
+We observespeed-ups of up to two orders of magnitudecompared to exhaustive search.
+Our prunedthird-order model is twice as fast as an un-pruned first-order model and also comparesfavorably to a state-of-the-art transition-basedparser for multiple languages.1 IntroductionCoarse-to-fine inference has been extensively usedto speed up structured prediction models.
+The gen-eral idea is simple: use a coarse model where in-ference is cheap to prune the search space for morecomplex models.
+In this work, we present a multi-pass coarse-to-fine architecture for graph-based de-pendency parsing.
+We start with a linear-time vinepruning pass and build up to higher-order models,achieving speed-ups of two orders of magnitudewhile maintaining state-of-the-art accuracies.In constituency parsing, exhaustive inference forall but the simplest grammars tends to be pro-hibitively slow.
+Consequently, most high-accuracyconstituency parsers routinely employ a coarsegrammar to prune dynamic programming chart cells?
+Research conducted at Google.of the final grammar of interest (Charniak et al,2006; Carreras et al, 2008; Petrov, 2009).
+Whilethere are no strong theoretical guarantees for theseapproaches,1 in practice one can obtain significantspeed improvements with minimal loss in accuracy.This benefit comes primarily from reducing the largegrammar constant |G| that can dominate the runtimeof the cubic-time CKY inference algorithm.
+De-pendency parsers on the other hand do not have amultiplicative grammar factor |G|, and until recentlywere considered efficient enough for exhaustive in-ference.
+However, the increased model complex-ity of a third-order parser forced Koo and Collins(2010) to prune with a first-order model in order tomake inference practical.
+While fairly effective, allthese approaches are limited by the fact that infer-ence in the coarse model remains cubic in the sen-tence length.
+The desire to parse vast amounts oftext necessitates more efficient dependency parsingalgorithms.We thus propose a multi-pass coarse-to-fine ap-proach where the initial pass is a linear-time sweep,which tries to resolve local ambiguities, but leavesarcs beyond a fixed length b unspecified (Section3).
+The dynamic program is a form of vine parsing(Eisner and Smith, 2005), which we use to computeparse max-marginals, rather than for finding the 1-best parse tree.
+To reduce pruning errors, the param-eters of the vine parser (and all subsequent pruningmodels) are trained using the structured predictioncascades of Weiss and Taskar (2010) to optimizefor pruning efficiency, and not for 1-best prediction(Section 4).
+Despite a limited scope of b = 3, the1This is in contrast to optimality preserving methods such asA* search, which typically do not provide sufficient speed-ups(Pauls and Klein, 2009).498vine pruning pass is able to preserve >98% of thecorrect arcs, while ruling out ?86% of all possiblearcs.
+Subsequent i-th order passes introduce largerscope features, while further constraining the searchspace.
+In Section 5 we present experiments in multi-ple languages.
+Our coarse-to-fine first-, second-, andthird-order parsers preserve the accuracy of the un-pruned models, but are faster by up to two orders ofmagnitude.
+Our pruned third-order model is fasterthan an unpruned first-order model, and comparesfavorably in speed to the state-of-the-art transition-based parser of Zhang and Nivre (2011).It is worth noting the relationship to greedytransition-based dependency parsers that are alsolinear-time (Nivre et al, 2004) or quadratic-time(Yamada and Matsumoto, 2003).
+It is their successthat motivates building explicitly trained, linear-timepruning models.
+However, while a greedy solu-tion for arc-standard transition-based parsers can becomputed in linear-time, Kuhlmann et al (2011)recently showed that computing exact solutions or(max-)marginals has time complexity O(n4), mak-ing these models inappropriate for coarse-to-finestyle pruning.
+As an alternative, Roark and Holling-shead (2008) and Bergsma and Cherry (2010)present approaches where individual classifiers areused to prune chart cells.
+Such approaches have thedrawback that pruning decisions are made locallyand therefore can rule out all valid structures, despiteexplicitly evaluating O(n2) chart cells.
+In contrast,we make pruning decisions based on global parsemax-marginals using a vine pruning pass, which islinear in the sentence length, but nonetheless guar-antees to preserve a valid parse structure.2 Motivation & OverviewThe goal of this work is fast, high-order, graph-based dependency parsing.
+Previous work on con-stituency parsing demonstrates that performing sev-eral passes with increasingly more complex mod-els results in faster inference (Charniak et al, 2006;Petrov and Klein, 2007).
+The same technique ap-plies to dependency parsing with a cascade of mod-els of increasing order; however, this strategy islimited by the speed of the simplest model.
+Thealgorithm for first-order dependency parsing (Eis-ner, 2000) already requires O(n3) time, which Lee1 2 3 4 5 6 7 8 9modifier index0123456789headindex(a)dependency lengthfrequency1 2 3 4 5 60.00.10.20.30.40.5 ADJNOUNVERB(b)Figure 1: (a) Heat map indicating how likely a par-ticular head position is for each modifier position.Greener/darker is likelier.
+(b) Arc length frequency forthree common modifier tags.
+Both charts are computedfrom all sentences in Section 22 of the PTB.
+(2002) shows is a practical lower bound for parsingof context-free grammars.
+This bound implies thatit is unlikely that there can be an exhaustive pars-ing algorithm that is asymptotically faster than thestandard approach.We thus need to leverage domain knowledge toobtain faster parsing algorithms.
+It is well-knownthat natural language is fairly linear, and most head-modifier dependencies tend to be short.
+This prop-erty is exploited by transition-based dependencyparsers (Yamada and Matsumoto, 2003; Nivre etal., 2004) and empirically demonstrated in Figure 1.The heat map on the left shows that most of theprobability mass of modifiers is concentrated amongnearby words, corresponding to a diagonal band inthe matrix representation.
+On the right we show thefrequency of arc lengths for different modifier part-of-speech tags.
+As one can expect, almost all arcsinvolving adjectives (ADJ) are very short (length 3or less), but even arcs involving verbs and nouns areoften short.
+This structure suggests that it may bepossible to disambiguate most dependencies by con-sidering only the ?banded?
+portion of the sentence.We exploit this linear structure by employing avariant of vine parsing (Eisner and Smith, 2005).2Vine parsing is a dependency parsing algorithm thatconsiders only close words as modifiers.
+Because ofthis assumption it runs in linear time.
+Of course, anyparse tree with hard limits on dependency lengthswill contain major parse errors.
+We therefore use the2The term vine parsing is a slight misnomer, since the un-derlying vine models are as expressive as finite-state automata.However, this allows them to circumvent the cubic-time bound.499As McGwire neared , fans went wild* As McGwire neared , fans went wild* As McGwire neared , fans went wild*modifiersheadsAs McGwireneared, fans went wild*AsMcGwireneared,fanswentwildmodifiersheadsAs McGwireneared, fans went wild*AsMcGwireneared,fanswentwildmodifiersheadsAs McGwireneared, fans went wild*AsMcGwireneared,fanswentwildFigure 2: Multi-pass pruning with a vine, first-order, and second-order model shown as dependencies and filteredindex sets after each pass.
+Darker cells have higher max-marginal values, while empty cells represent pruned arcs.vine parser only for pruning and augment it to allowarcs to remain unspecified (by including so calledouter arcs).
+The vine parser can thereby eliminatea possibly quadratic number of arcs, while havingthe flexibility to defer some decisions and preserveambiguity to be resolved by later passes.
+In Figure 2for example, the vine pass correctly determined thehead-word of McGwire as neared, limited the head-word candidates for fans to neared and went, anddecided that the head-word for went falls outside theband by proposing an outer arc.
+A subsequent first-order pass needs to score only a small fraction of allpossible arcs and can be used to further restrict thesearch space for the following higher-order passes.3 Graph-Based Dependency ParsingGraph-based dependency parsing models factor allvalid parse trees for a given sentence into smallerunits, which can be scored independently.
+For in-stance, in a first-order factorization, the units are justdependency arcs.
+We represent these units by an in-dex set I and use binary vectors Y ?
+{0, 1}|I| tospecify a parse tree y ?
+Y such that y(i) = 1 iff theindex i exists in the tree.
+The index sets of higher-order models can be constructed out of the index setsof lower-order models, thus forming a hierarchy thatwe will exploit in our coarse-to-fine cascade.The inference problem is to find the 1-best parsetree arg maxy?Y y ?
+w, where w ?
+R|I| is a weightvector that assigns a score to each index i (we dis-cuss how w is learned in Section 4).
+A general-ization of the 1-best inference problem is to findthe max-marginal score for each index i. Max-marginals are given by the function M : I ?
+Y de-fined as M(i;Y, w) = arg maxy?Y:y(i)=1 y ?w.
+Forfirst-order parsing, this corresponds to the best parseutilizing a given dependency arc.
+Clearly there areexponentially many possible parse tree structures,but fortunately there exist well-known dynamic pro-gramming algorithms for searching over all possiblestructures.
+We review these below, starting with thefirst-order factorization for ease of exposition.Throughout the paper we make use of some ba-sic mathematical notation.
+We write [c] for the enu-meration {1, .
+.
+.
+, c} and [c]a for {a, .
+.
+.
+, c}.
+We use1[c] for the indicator function, equal to 1 if con-dition c is true and 0 otherwise.
+Finally we use[c]+ = max{0, c} for the positive part of c.3.1 First-Order ParsingThe simplest way to index a dependency parse struc-ture is by the individual arcs of the parse tree.
+Thismodel is known as first-order or arc-factored.
+For asentence of length n the index set is:I1 = {(h,m) : h ?
+[n]0,m ?
+[n]}Each dependency tree has y(h,m) = 1 iff it includesan arc from head h to modifier m. We follow com-mon practice and use position 0 as the pseudo-root(?)
+of the sentence.
+The full set I1 has cardinality|I1| = O(n2).500(a)h m?Ih r+Cmr + 1C(b)h e?Ch m+Im eCFigure 3: Parsing rules for first-order dependency pars-ing.
+The complete items C are represented by trianglesand the incomplete items I are represented by trapezoids.Symmetric left-facing versions are also included.The first-order bilexical parsing algorithm of Eis-ner (2000) can be used to find the best parse treeand max-marginals.
+The algorithm defines a dy-namic program over two types of items: incom-plete items I(h,m) that denote the span betweena modifier m and its head h, and complete itemsC(h, e) that contain a full subtree spanning from thehead h and to the word e on one side.
+The algo-rithm builds larger items by applying the composi-tion rules shown in Figure 3.
+Rule 3(a) builds anincomplete item I(h,m) by attaching m as a modi-fier to h. This rule has the effect that y(h,m) = 1 inthe final parse.
+Rule 3(b) completes item I(h,m) byattaching item C(m, e).
+The existence of I(h,m)implies that m modifies h, so this rule enforces thatthe constituents of m are also constituents of h.We can find the best derivation for each itemby adapting the standard CKY parsing algorithmto these rules.
+Since both rule types contain threevariables that can range over the entire sentence(h,m, e ?
+[n]0), the bottom-up, inside dynamic pro-gramming algorithm requires O(n3) time.
+Further-more, we can find max-marginals with an additionaltop-down outside pass also requiring cubic time.
+Tospeed up search, we need to filter indices from I1and reduce possible applications of Rule 3(a).3.2 Higher-Order ParsingHigher-order models generalize the index set by us-ing siblings s (modifiers that previously attached toa head word) and grandparents g (head words abovethe current head word).
+For compactness, we use g1for the head word and sk+1 for the modifier and pa-rameterize the index set to capture arbitrary higher-(c) V?0 e?
+C0 e?
+1+ee?
+1C(d)0 e?V?0 m+V?emI(e)0 e?V?0 eV?
+(f)0 e?V?0 m+V?emI(g)0 e?C0 e?
+1+V?e?
+1 eCFigure 4: Additional rules for vine parsing.
+Vine left(V?)
+items are pictured as right-facing triangles and vineright (V?)
+items are marked trapezoids.
+Each new itemis anchored at the root and grows to the right.order decisions in both directions:Ik,l = {(g, s) : g ?
+[n]l+10 , s ?
+[n]k+1}where k + 1 is the sibling order, l + 1 is the par-ent order, and k + l + 1 is the model order.
+Thecanonical second-order model uses I1,0, which hasa cardinality of O(n3).
+Although there are severalpossibilities for higher-order models, we use I1,1 asour third-order model.
+Generally, the parsing indexset has cardinality |Ik,l| = O(n2+k+l).
+Inferencein higher-order models uses variants of the dynamicprogram for first-order parsing, and we refer to pre-vious work for the full set of rules.
+For second-ordermodels with index set I1,0, parsing can be done inO(n3) time (McDonald and Pereira, 2006) and forthird-order models in O(n4) time (Koo and Collins,2010).
+Even though second-order parsing has thesame asymptotic time complexity as first-order pars-ing, inference is significantly slower due to the costof scoring the larger index set.We aim to prune the index set, by mapping eachhigher-order index down to a set of small set indices501that can be pruned using a coarse pruning model.For example, to use a first-order model for pruning,we would map the higher-order index to the individ-ual indices for its arc, grandparents, and siblings:pk,l?1(g, s) = {(g1, sj) : j ?
+[k + 1]}?
+{(gj+1, gj) : j ?
+[l]}The first-order pruning model can then be usedto score these indices, and to produce a filtered in-dex set F (I1) by removing low-scoring indices (seeSection 4).
+We retain only the higher-order indicesthat are supported by the filtered index set:{(g, s) ?
+Ik,l : pk,l?1(g, s) ?
+F (I1)}3.3 Vine ParsingTo further reduce the cost of parsing and producefaster pruning models, we need a model with lessstructure than the first-order model.
+A naturalchoice, following Section 2, is to only consider?short?
+arcs:S = {(h,m) ?
+I1 : |h?m| ?
+b}where b is a small constant.
+This constraint reducesthe size of the set to |S| = O(nb).Clearly, this index set is severely limited; it is nec-essary to have some long arcs for even short sen-tences.
+We therefore augment the index set to in-clude outer arcs:I0 = S ?
+{(d,m) : d ?
+{?,?
+},m ?
+[n]}?
+{(h, d) : h ?
+[n]0, d ?
+{?,?
+}}The first set lets modifiers choose an outer head-word and the second set lets head words accept outermodifiers, and both sets distinguish the direction ofthe arc.
+Figure 5 shows a right outer arc.
+The size ofI0 is linear in the sentence length.
+To parse the in-dex set I0, we can modify the parse rules in Figure 3to enforce additional length constraints (|h?
+e| ?
+bfor I(h, e) and |h?m| ?
+b for C(h,m)).
+This way,only indices in S are explored.
+Unfortunately, this isnot sufficient since the constraints also prevent thealgorithm from producing a full derivation, since noitem can expand beyond length b.Eisner and Smith (2005) therefore introduce vineparsing, which includes two new items, vine left,As McGwire neared , fans went wild*Figure 5: An outer arc (1,?)
+from the word ?As?
+to pos-sible right modifiers.V?
+(e), and vine right, V?(e).
+Unlike the previousitems, these new items are left-anchored at the rootand grow only towards the right.
+The items V?
+(e)and V?
+(e) encode the fact that a word e has nottaken a close (within b) head word to its left or right.We incorporate these items by adding the five newparsing rules shown in Figure 4.The major addition is Rule 4(e) which converts avine left item V?
+(e) to a vine right item V?(e).
+Thisimplies that word e has no close head to either side,and the parse has outer head arcs, y(?, e) = 1 ory(?, e) = 1.
+The other rules are structural and dic-tate creation and extension of vine items.
+Rules 4(c)and 4(d) create vine left items from items that can-not find a head word to their left.
+Rules 4(f) and4(g) extend and finish vine right items.
+Rules 4(d)and 4(f) each leave a head word incomplete, so theymay set y(e,?)
+= 1 or y(m,?)
+= 1 respec-tively.
+Note that for all the new parse rules, e ?
+[n]0and m ?
+{e ?
+b .
+.
+.
+n}, so parsing time of this socalled vine parsing algorithm is linear in the sen-tence length O(nb2).Alone, vine parsing is a poor model of syntax - itdoes not even score most dependency pairs.
+How-ever, it can act as a pruning model for other parsers.We prune a first-order model by mapping first-orderindices to indices in I0.p1?0(h,m) =???
+{(h,m)} if |h?m| ?
+b{(?,m), (h,?)}
+if h < m{(?,m), (h,?)}
+if h > mThe remaining first-order indices are then given by:{(h,m) ?
+I1 : p1?0(h,m) ?
+F (I0)}Figure 2 depicts a coarse-to-fine cascade, incor-porating vine and first-order pruning passes and fin-ishing with a higher-order parse model.5024 Training MethodsOur coarse-to-fine parsing architecture consists ofmultiple pruning passes followed by a final passof 1-best parsing.
+The training objective for thepruning models comes from the prediction cascadeframework of Weiss and Taskar (2010), which ex-plicitly trades off pruning efficiency versus accuracy.The models used in the final pass on the other handare trained for 1-best prediction.4.1 Max-Marginal FilteringAt each pass of coarse-to-fine pruning, we apply anindex filter function F to trim the index set:F (I) = {i ?
+I : f(i) = 1}Several types of filters have been proposed in theliterature, with most work in coarse-to-fine pars-ing focusing on predicates that threshold the poste-rior probabilities.
+In structured prediction cascades,we use a non-probabilistic filter, based on the max-marginal value of the index:f(i;Y, w) = 1[ M(i;Y, w) ?
+w < t?
+(Y, w) ]where t?
+(Y, w) is a sentence-specific thresholdvalue.
+To counteract the fact that the max-marginalsare not normalized, the threshold t?
+(Y, w) is set asa convex combination of the 1-best parse score andthe average max-marginal value:t?
+(Y, w) = ?maxy?Y(y ?
+w)+ (1?
+?)
+1|I|?i?IM(i;Y, w) ?
+wwhere the model-specific parameter 0 ?
+?
+?
+1 isthe tradeoff between ?
+= 1, pruning all indices i notin the best parse, and ?
+= 0, pruning all indices withmax-marginal value below the mean.The threshold function has the important propertythat for any parse y, if y ?w ?
+t?
+(Y, w) then y(i) =1 implies f(i) = 0, i.e.
+if the parse score is abovethe threshold, then none of its indices will be pruned.4.2 Filter Loss TrainingThe aim of our pruning models is to filter as manyindices as possible without losing the gold parse.
+Instructured prediction cascades, we incorporate thispruning goal into our training objective.Let y be the gold output for a sentence.
+We definefilter loss to be an indicator of whether any i withy(i) = 1 is filtered:?
+(y,Y, w) = 1[?i ?
+y,M(i;Y, w) ?w < t?
+(Y, w)]During training we minimize the expected filter lossusing a standard structured SVM setup (Tsochan-taridis et al, 2006).
+First we form a convex, con-tinuous upper-bound of our loss function:?
+(y,Y, w) ?
+1[y ?
+w < t?
+(Y, w)]?
+[1?
+y ?
+w + t?
+(Y, w)]+where the first inequality comes from the proper-ties of max-marginals and the second is the standardhinge-loss upper-bound on an indicator.Now assume that we have a corpus of P train-ing sentences.
+Let the sequence (y(1), .
+.
+.
+, y(P )) bethe gold parses for each sentences and the sequence(Y(1), .
+.
+.
+,Y(P )) be the set of possible output struc-tures.
+We can form the regularized risk minimiza-tion for this upper bound of filter loss:minw?
+?w?2 + 1PP?p=1[1?
+y(p) ?
+w + t?
+(Y(p), w)]+This objective is convex and non-differentiable, dueto the max inside t. We optimize using stochasticsubgradient descent (Shalev-Shwartz et al, 2007).The stochastic subgradient at example p, H(w, p) is0 if y(p) ?
+1 ?
+t?
+(Y, w) otherwise,H(w, p) =2?wP?
+y(p) + ?
+arg maxy?Y(p)y ?
+w+ (1?
+?)
+1|I(p)|?i?I(p)M(i;Y(p), w)Each step of the algorithm has an update of the form:wk = wk?1 ?
+?kH(w, p)where ?
+is an appropriate update rate for subgradi-ent convergence.
+If ?
+= 1 the objective is identicalto structured SVM with 0/1 hinge loss.
+For othervalues of ?, the subgradient includes a term fromthe features of all max-marginal structures at eachindex.
+These feature counts can be computed usingdynamic programming.503First-order Second-order Third-orderSetup Speed PE Oracle UAS Speed PE Oracle UAS Speed PE Oracle UASNOPRUNE 1.00 0.00 100 91.4 0.32 0.00 100 92.7 0.01 0.00 100 93.3LENGTHDICTIONARY 1.94 43.9 99.9 91.5 0.76 43.9 99.9 92.8 0.05 43.9 99.9 93.3LOCALSHORT 3.08 76.6 99.1 91.4 1.71 76.4 99.1 92.6 0.31 77.5 99.0 93.1LOCAL 4.59 89.9 98.8 91.5 2.88 83.2 99.5 92.6 1.41 89.5 98.8 93.1FIRSTONLY 3.10 95.5 95.9 91.5 2.83 92.5 98.4 92.6 1.61 92.2 98.5 93.1FIRSTANDSECOND - - 1.80 97.6 97.7 93.1VINEPOSTERIOR 3.92 94.6 96.5 91.5 3.66 93.2 97.7 92.6 1.67 96.5 97.9 93.1VINECASCADE 5.24 95.0 95.7 91.5 3.99 91.8 98.7 92.6 2.22 97.8 97.4 93.1k=8 k=16 k=64ZHANGNIVRE 4.32 - - 92.4 2.39 - - 92.5 0.64 - - 92.7Table 1: Results comparing pruning methods on PTB Section 22.
+Oracle is the max achievable UAS after pruning.Pruning efficiency (PE) is the percentage of non-gold first-order dependency arcs pruned.
+Speed is parsing time relativeto the unpruned first-order model (around 2000 tokens/sec).
+UAS is the unlabeled attachment score of the final parses.4.3 1-Best TrainingFor the final pass, we want to train the model for 1-best output.
+Several different learning methods areavailable for structured prediction models includingstructured perceptron (Collins, 2002), max-marginmodels (Taskar et al, 2003), and log-linear mod-els (Lafferty et al, 2001).
+In this work, we use themargin infused relaxed algorithm (MIRA) (Cram-mer and Singer, 2003; Crammer et al, 2006) witha hamming-loss margin.
+MIRA is an online algo-rithm with similar benefits as structured perceptronin terms of simplicity and fast training time.
+In prac-tice, we found that MIRA with hamming-loss mar-gin gives a performance improvement over struc-tured perceptron and structured SVM.5 Parsing ExperimentsTo empirically demonstrate the effectiveness of ourapproach, we compare our vine pruning cascadewith a wide range of common pruning methods onthe Penn WSJ Treebank (PTB) (Marcus et al, 1993).We then also show that vine pruning is effectiveacross a variety of different languages.For English, we convert the PTB constituencytrees to dependencies using the Stanford dependencyframework (De Marneffe et al, 2006).
+We thentrain on the standard PTB split with sections 2-21as training, section 22 as validation, and section 23as test.
+Results are similar using the Yamada andMatsumoto (2003) conversion.
+We additionally se-lected six languages from the CoNLL-X shared task(Buchholz and Marsi, 2006) that cover a numberof different language families: Bulgarian, Chinese,Japanese, German, Portuguese, and Swedish.
+Weuse the standard CoNLL-X training/test split andtune parameters with cross-validation.All experiments use unlabeled dependencies fortraining and test.
+Accuracy is reported as unlabeledattachment score (UAS), the percentage of tokenswith the correct head word.
+For English, UAS ig-nores punctuation tokens and the test set uses pre-dicted POS tags.
+For the other languages we fol-low the CoNLL-X setup and include punctuation inUAS and use gold POS tags on the set set.
+Speed-ups are given in terms of time relative to a highlyoptimized C++ implementation.
+Our unpruned first-order baseline can process roughly two thousand to-kens a second and is comparable in speed to thegreedy shift-reduce parser of Nivre et al (2004).5.1 ModelsOur parsers perform multiple passes over each sen-tence.
+In each pass we first construct a (pruned) hy-pergraph (Klein and Manning, 2005) and then per-form feature computation and inference.
+We choosethe highest ?
+that produces a pruning error of nomore than 0.2 on the validation set (typically ?
+?0.6) to filter indices for subsequent rounds (similarto Weiss and Taskar (2010)).
+We compare a varietyof pruning models:LENGTHDICTIONARY a deterministic prun-ing method that eliminates all arcs longerthan the maximum length observed for each504head-modifier POS pair.LOCAL an unstructured arc classifier that choosesindices from I1 directly without enforcingparse constraints.
+Similar to the quadratic-timefilter from Bergsma and Cherry (2010).LOCALSHORT an unstructured arc classifier thatchooses indices from I0 directly without en-forcing parse constraints.
+Similar to the linear-time filter from Bergsma and Cherry (2010).FIRSTONLY a structured first-order model trainedwith filter loss for pruning.FIRSTANDSECOND a structured cascade withfirst- and second-order pruning models.VINECASCADE the full cascade with vine, first-and second-order pruning models.VINEPOSTERIOR the vine parsing cascade trainedas a CRF with L-BFGS (Nocedal and Wright,1999) and using posterior probabilities for fil-tering instead of max-marginals.ZHANGNIVRE an unlabeled reimplementation ofthe linear-time, k-best, transition-based parserof Zhang and Nivre (2011).
+This parser usescomposite features up to third-order with agreedy decoding algorithm.
+The reimplemen-tation is about twice as fast as their reportedspeed, but scores slightly lower.We found LENGTHDICTIONARY pruning to givesignificant speed-ups in all settings and therefore al-ways use it as an initial pass.
+The maximum numberof passes in a cascade is five: dictionary, vine, first-,and second-order pruning, and a final third-order 1-best pass.3 We tune the pruning thresholds for eachround and each cascade separately.
+This is becausewe might be willing to do a more aggressive vinepruning pass if the final model is a first-order model,since these two models tend to often agree.5.2 FeaturesFor the non-pruning models, we use a standard setof features proposed in the discriminative graph-based dependency parsing literature (McDonald etal., 2005; Carreras, 2007; Koo and Collins, 2010).3For the first-order parser, we found it beneficial to employ areduced feature first-order pruner before the final model, i.e.
+thecascade has four rounds: dictionary, vine, first-order pruning,and first-order 1-best.sentence length10 20 30 40 50No Prune [2.8]Length [1.9]Cascade [1.4]meantimefirst-ordersentence length10 20 30 40 50No Prune [2.8]Length [2.0]Cascade [1.8]meantimesecond-ordersentence length10 20 30 40 50No Prune [3.8]Length [2.4]Cascade [1.9]meantimethird-ordersentence length10 20 30 40 50Length [1.9]Local [1.8]Cascade [1.4]meantimepruning methodsFigure 6: Mean parsing speed by sentence length forfirst-, second-, and third-order parsers as well as differ-ent pruning methods for first-order parsing.
+[b] indicatesthe empirical complexity obtained from fitting axb.Included are lexical features, part-of-speech fea-tures, features on in-between tokens, as well as fea-ture conjunctions, surrounding part-of-speech tags,and back-off features.
+In addition, we replicate eachpart-of-speech (POS) feature with an additional fea-ture using coarse POS representations (Petrov et al,2012).
+Our baseline parsing models replicate and,for some experiments, surpass previous best results.The first- and second-order pruning models havethe same structure, but for efficiency use only thebasic features from McDonald et al (2005).
+As fea-ture computation is quite costly, future work mayinvestigate whether this set can be reduced further.VINEPRUNE and LOCALSHORT use the same fea-ture sets for short arcs.
+Outer arcs have features ofthe unary head or modifier token, as well as featuresfor the POS tag bordering the cutoff and the direc-tion of the arc.5.3 ResultsA comparison between the pruning methods isshown in Table 1.
+The table gives relative speed-ups, compared to the unpruned first-order baseline,as well as accuracy, pruning efficiency, and ora-cle scores.
+Note particularly that the third-ordercascade is twice as fast as an unpruned first-ordermodel and >200 times faster than the unprunedthird-order baseline.
+The comparison with poste-5051-Best ModelRound First Second ThirdVine 37% 27% 16%First 63% 30% 17%Second - 43% 18%Third - - 49%Table 2: Relative speed of pruning models in a multi-passcascade.
+Note that the 1-best models use richer featuresthan the corresponding pruning models.rior pruning is less pronounced.
+Filter loss train-ing is faster than VINEPOSTERIOR for first- andthird-order parsing, but the two models have similarsecond-order speeds.
+It is also noteworthy that ora-cle scores are consistently high even after multiplepruning rounds: the oracle score of our third-ordermodel for example is 97.4%.Vine pruning is particularly effective.
+The vinepass is faster than both LOCAL and FIRSTONLYand prunes more effectively than LOCALSHORT.Vine pruning benefits from having a fast, linear-timemodel, but still maintaining enough structure forpruning.
+While our pruning approach does not pro-vide any asymptotic guarantees, Figure 6 shows thatin practice our multi-pass parser scales well evenfor long sentences: Our first-order cascade scalesalmost linearly with the sentence length, while thethird-order cascade scales better than quadratic.
+Ta-ble 2 shows that the final pass dominates the compu-tational cost, while each of the pruning passes takesup roughly the same amount of time.Our second- and third-order cascades also signif-icantly outperform ZHANGNIVRE.
+The transition-based model with k = 8 is very efficient and effec-tive, but increasing the k-best list size scales muchworse than employing multi-pass pruning.
+We alsonote that while direct speed comparison are difficult,our parser is significantly faster than the publishedresults for other high accuracy parsers, e.g.
+Huangand Sagae (2010) and Koo et al (2010).Table 3 shows our results across a subset of theCoNLL-X datasets, focusing on languages that dif-fer greatly in structure.
+The unpruned models per-form well across datasets, scoring comparably to thetop results from the CoNLL-X competition.
+We seespeed increases for our cascades with almost no lossin accuracy across all languages, even for languageswith fairly free word order like German.
+This isFirst-order Second-order Third-orderSetup Speed UAS Speed UAS Speed UASBG B 1.90 90.7 0.67 92.0 0.05 92.1V 6.17 90.5 5.30 91.6 1.99 91.9DE B 1.40 89.2 0.48 90.3 0.02 90.8V 4.72 89.0 3.54 90.1 1.44 90.8JA B 1.77 92.0 0.58 92.1 0.04 92.4V 8.14 91.7 8.64 92.0 4.30 92.3PT B 0.89 90.1 0.28 91.2 0.01 91.7V 3.98 90.0 3.45 90.9 1.45 91.5SW B 1.37 88.5 0.45 89.7 0.01 90.4V 6.35 88.3 6.25 89.4 2.66 90.1ZH B 7.32 89.5 3.30 90.5 0.67 90.8V 7.45 89.3 6.71 90.3 3.90 90.9EN B 1.0 91.2 0.33 92.4 0.01 93.0V 5.24 91.0 3.92 92.2 2.23 92.7Table 3: Speed and accuracy results for the vine prun-ing cascade across various languages.
+B is the un-pruned baseline model, and V is the vine pruning cas-cade.
+The first section of the table gives results forthe CoNLL-X test datasets for Bulgarian (BG), German(DE), Japanese (JA), Portuguese (PT), Swedish (SW),and Chinese (ZH).
+The second section gives the resultfor the English (EN) test set, PTB Section 23.encouraging and suggests that the outer arcs of thevine-pruning model are able to cope with languagesthat are not as linear as English.6 ConclusionWe presented a multi-pass architecture for depen-dency parsing that leverages vine parsing and struc-tured prediction cascades.
+The resulting 200-foldspeed-up leads to a third-order model that is twiceas fast as an unpruned first-order model for a vari-ety of languages, and that also compares favorablyto a state-of-the-art transition-based parser.
+Possiblefuture work includes experiments using cascades toexplore much higher-order models.AcknowledgmentsWe would like to thank the members of the GoogleNLP Parsing Team for comments, suggestions, bug-fixes and help in general: Ryan McDonald, HaoZhang, Michael Ringgaard, Terry Koo, Keith Hall,Kuzman Ganchev and Yoav Goldberg.
+We wouldalso like to thank Andre Martins for showing thatMIRA with hamming-loss margin performs betterthan other 1-best training algorithms.506ReferencesS.
+Bergsma and C. Cherry.
+2010.
+Fast and accurate arcfiltering for dependency parsing.
+In Proc.
+of COLING,pages 53?61.S.
+Buchholz and E. Marsi.
+2006.
+CoNLL-X shared taskon multilingual dependency parsing.
+In CoNLL.X.
+Carreras, M. Collins, and T. Koo.
+2008.
+Tag, dynamicprogramming, and the perceptron for efficient, feature-rich parsing.
+In Proc.
+of CoNLL, pages 9?16.X.
+Carreras.
+2007.
+Experiments with a higher-orderprojective dependency parser.
+In Proc.
+of CoNLLShared Task Session of EMNLP-CoNLL, volume 7,pages 957?961.E.
+Charniak, M. Johnson, M. Elsner, J. Austerweil,D.
+Ellis, I. Haxton, C. Hill, R. Shrivaths, J. Moore,M.
+Pozar, et al 2006.
+Multilevel coarse-to-fine PCFGparsing.
+In Proc.
+of NAACL/HLT, pages 168?175.M.
+Collins.
+2002.
+Discriminative training methods forhidden markov models: Theory and experiments withperceptron algorithms.
+In Proc.
+of EMNLP, pages 1?8.K.
+Crammer and Y.
+Singer.
+2003.
+Ultraconservative on-line algorithms for multiclass problems.
+The Journalof Machine Learning Research, 3:951?991.K.
+Crammer, O. Dekel, J. Keshet, S. Shalev-Shwartz,and Y.
+Singer.
+2006.
+Online passive-aggressive algo-rithms.
+The Journal of Machine Learning Research,7:551?585.M.C.
+De Marneffe, B. MacCartney, and C.D.
+Manning.2006.
+Generating typed dependency parses fromphrase structure parses.
+In Proc.
+of LREC, volume 6,pages 449?454.J.
+Eisner and N.A.
+Smith.
+2005.
+Parsing with soft andhard constraints on dependency length.
+In Proc.
+ofIWPT, pages 30?41.J.
+Eisner.
+2000.
+Bilexical grammars and their cubic-time parsing algorithms.
+Advances in Probabilisticand Other Parsing Technologies, pages 29?62.L.
+Huang and K. Sagae.
+2010.
+Dynamic programmingfor linear-time incremental parsing.
+In Proc.
+of ACL,pages 1077?1086.D.
+Klein and C.D.
+Manning.
+2005.
+Parsing and hy-pergraphs.
+New developments in parsing technology,pages 351?372.T.
+Koo and M. Collins.
+2010.
+Efficient third-order de-pendency parsers.
+In Proc.
+of ACL, pages 1?11.T.
+Koo, A.M.
+Rush, M. Collins, T. Jaakkola, and D. Son-tag.
+2010.
+Dual decomposition for parsing with non-projective head automata.
+In Proc.
+of EMNLP, pages1288?1298.M.
+Kuhlmann, C.
+Go?mez-Rodr?
+?guez, and G. Satta.
+2011.Dynamic programming algorithms for transition-based dependency parsers.
+In Proc.
+of ACL/HLT,pages 673?682.J.
+Lafferty, A. McCallum, and F.C.N.
+Pereira.
+2001.Conditional random fields: Probabilistic models forsegmenting and labeling sequence data.
+In Proc.
+ofICML, pages 282?289.L.
+Lee.
+2002.
+Fast context-free grammar parsing re-quires fast boolean matrix multiplication.
+Journal ofthe ACM, 49(1):1?15.M.P.
+Marcus, M.A.
+Marcinkiewicz, and B. Santorini.1993.
+Building a large annotated corpus of en-glish: The penn treebank.
+Computational linguistics,19(2):313?330.R.
+McDonald and F. Pereira.
+2006.
+Online learning ofapproximate dependency parsing algorithms.
+In Proc.of EACL, volume 6, pages 81?88.R.
+McDonald, K. Crammer, and F. Pereira.
+2005.
+Onlinelarge-margin training of dependency parsers.
+In Proc.of ACL, pages 91?98.J.
+Nivre, J.
+Hall, and J. Nilsson.
+2004.
+Memory-baseddependency parsing.
+In Proc.
+of CoNLL, pages 49?56.J.
+Nocedal and S. J. Wright.
+1999.
+Numerical Optimiza-tion.
+Springer.A.
+Pauls and D. Klein.
+2009.
+Hierarchical search forparsing.
+In Proc.
+of NAACL/HLT, pages 557?565.S.
+Petrov and D. Klein.
+2007.
+Improved inference forunlexicalized parsing.
+In Proc.
+of NAACL/HLT, pages404?411.S.
+Petrov, D. Das, and R. McDonald.
+2012.
+A universalpart-of-speech tagset.
+In LREC.S.
+Petrov.
+2009.
+Coarse-to-Fine Natural LanguageProcessing.
+Ph.D. thesis, University of California atBekeley, Berkeley, CA, USA.B.
+Roark and K. Hollingshead.
+2008.
+Classifying chartcells for quadratic complexity context-free inference.In Proc.
+of COLING, pages 745?751.S.
+Shalev-Shwartz, Y.
+Singer, and N. Srebro.
+2007.
+Pe-gasos: Primal estimated sub-gradient solver for svm.In Proc.
+of ICML, pages 807?814.B.
+Taskar, C. Guestrin, and D. Koller.
+2003.
+Max-marginmarkov networks.
+Advances in neural informationprocessing systems, 16:25?32.I.
+Tsochantaridis, T. Joachims, T. Hofmann, and Y. Al-tun.
+2006.
+Large margin methods for structured andinterdependent output variables.
+Journal of MachineLearning Research, 6(2):1453.D.
+Weiss and B. Taskar.
+2010.
+Structured prediction cas-cades.
+In Proc.
+of AISTATS, volume 1284, pages 916?923.H.
+Yamada and Y. Matsumoto.
+2003.
+Statistical depen-dency analysis with support vector machines.
+In Proc.of IWPT, volume 3, pages 195?206.Y.
+Zhang and J. Nivre.
+2011.
+Transition-based depen-dency parsing with rich non-local features.
+In Proc.
+ofACL, pages 188?193.507

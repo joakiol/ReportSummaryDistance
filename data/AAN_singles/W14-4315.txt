@@ -1,0 +1,106 @@
+Proceedings of the SIGDIAL 2014 Conference, pages 108?112,Philadelphia, U.S.A., 18-20 June 2014.c?2014 Association for Computational LinguisticsFree on-line speech recogniser based on Kaldi ASR toolkit producingword posterior latticesOnd?rej Pl?atek and Filip Jur?c??
+?cekCharles University in PragueFaculty of Mathematics and PhysicsInstitute of Formal and Applied Linguistics{oplatek, jurcicek}@ufal.mff.cuni.czAbstractThis paper presents an extension ofthe Kaldi automatic speech recognitiontoolkit to support on-line recognition.The resulting recogniser supports acous-tic models trained using state-of-the-art acoustic modelling techniques.
+Asthe recogniser produces word posterior lat-tices, it is particularly useful in statisti-cal dialogue systems, which try to ex-ploit uncertainty in the recogniser?s out-put.
+Our experiments show that the on-line recogniser performs significantly bet-ter in terms of latency when compared toa cloud-based recogniser.1 IntroductionThere are many choices of speech recognisers, butwe find no alternative with both a permissive li-cense and on-line recognition suitable for a spo-ken dialogue system.
+The Google speech recog-nition service1provides state-of-the-art quality formany tasks (Morbini et al., 2013) and may be usedfor free; however, the licensing conditions are notclear, adaptation of acoustic and language modelsto a task at hand is not possible and the service isnot officially supported.Another option is Nuance cloud based recogni-tion2; however, again adjustments to the systemare not possible.
+Moreover, it is a paid service.When considering local ASR systems, wefound no viable alternatives either.
+The HTKtoolkit does not provide on-line large vocabularydecoders suitable for real-time decoding.
+Open-Julius can be used with custom-built acoustic and1The API is available at https://www.google.com/speech-api/v1/recognize, and its use describedin a blog post at http://mikepultz.com/2013/07/google-speech-api-full-duplex-php-version/.2http://www.nuancemobiledeveloper.com/language models and for on-line decoding (Aki-nobu, 2014).
+However, OpenJulius suffers fromsoftware instability when producing lattices andconfusion networks; therefore, it is not suitablefor practical use.
+The RWTH decoder is not a freesoftware and a license must be purchased for com-mercial applications (Rybach et al., 2011).As a result, we implemented a lightweightmodification of the LatticeFasterDecoder fromthe Kaldi toolkit and created an on-line recogniserwith an interface that is suitable for statistical dia-logue systems.
+The Kaldi toolkit as well as the on-line recogniser is distributed under the Apache2.0 license3.
+Our on-line recogniser may useacoustic models trained using the state-of-the-arttechniques, such as Linear Discriminant Analysis(LDA), Maximum Likelihood Linear Transform(MLLT), Boosted Maximum Mutual Information(BMMI), Minimum Phone Error (MPE).
+It pro-duces word posterior lattices which can be easilyconverted into high quality n-best lists.
+The recog-niser?s speed and latency can be effectively con-trolled off-line by optimising a language modeland during decoding by beam thresholds.In the next section, the Kaldi recognitiontoolkit is briefly described.
+Section 3 describesthe implementation of the OnlineLatgenRecog-niser.
+Section 4 evaluates the accuracy and speedof the recogniser.
+Finally, Section 5 concludes thiswork.2 The Kaldi toolkitThe Kaldi toolkit4is a speech recognition toolkitdistributed under a free license (Povey et al.,2011).
+The toolkit is based on Finite State Trans-ducers, implements state-of-the-art acoustic mod-elling techniques, is computationally efficient, andis already widely adapted among research groups.3http://www.apache.org/licenses/LICENSE-2.04http://sourceforge.net/projects/kaldi108Its only major drawback was the lack of on-linerecognition support.
+Therefore, it could not beused directly in applications such as spoken dia-logue systems.
+Kaldi includes an on-line recogni-tion application; however, hard-wired timeout ex-ceptions, audio source fixed to a sound card, and aspecialised 1-best decoder limit its use to demon-stration of Kaldi recognition capabilities only.3 OnlineLatgenRecogniserThe standard Kaldi interface between the compo-nents of the toolkit is based on a batch process-ing paradigm, where the components assume thatthe whole audio signal is available when recog-nition starts.
+However, when performing on-linerecognition, one would like to take advantage ofthe fact that the signal appears in small chunks andcan be processed incrementally.
+When properlyimplemented, this significantly reduces recogniseroutput latency.3.1 C++ implementationTo achieve this, we implemented Kaldi?s Decod-ableInterface supporting incremental speech pre-processing, which includes speech parameterisa-tion, feature transformations, and likelihood esti-mation.
+In addition, we subclassed LatticeFaster-Decoder and split the original batch processing in-terface.The newly implemented OnlineLatgenRecog-niser makes use of our incremental speech pre-processing and modified LatticeFasterDecoder.
+Itimplements the following interface:?
+AudioIn ?
+queueing new audio for pre-processing,?
+Decode ?
+decoding a fixed number of audioframes,?
+PruneFinal ?
+preparing internal data struc-tures for lattice extraction,?
+GetLattice ?
+extracting a word posterior lat-tice and returning log likelihood of processedaudio,?
+Reset ?
+preparing the recogniser for a new ut-terance,The C++ example in Listing 1 shows a typi-cal use of the OnlineLatgenRecogniser interface.When audio data becomes available, it is queuedinto the recogniser?s buffer (line 11) and imme-diately decoded (lines 12-14).
+If the audio datais supplied in small enough chunks, the decod-ing of queued data is finished before new data ar-rives.
+When the recognition is finished, the recog-niser prepares for lattice extraction (line 16).
+Line20 shows how to obtain word posterior lattice asan OpenFST object.
+The getAudio() function rep-resents a separate process supplying speech data.Please note that the recogniser?s latency is mainlydetermined by the time spent in the GetLatticefunction.Please note that we do not present here the func-tions controlling the input stream of audio chunkspassed to the decoder and processing the outputbecause these differ according to use case.
+Anexample of a nontrivial use case is in a dialoguesystem through a thin Python wrapper (see Sec-tion 3.2).1 OnlineLatgenRecogniser rec;2 rec.Setup(...);34 size_t decoded_now = 0;5 size_t max_decoded = 10;6 char*audio_array = NULL;78 while (recognitionOn())9 {10 size_t audio_len = getAudio(audio_array);11 rec.AudioIn(audio_array, audio_len);12 do {13 decoded_now = rec.Decode(max_decoded);14 } while(decoded_now > 0);15 }16 rec.PruneFinal();1718 double tot_lik;19 fst::VectorFst<fst::LogArc> word_post_lat;20 rec.GetLattice(&word_post_lat, &tot_lik);2122 rec.Reset();Listing 1: Example of the decoder APIThe source code of the OnlineLatgenRecog-niser is available in Kaldi repository5.3.2 Python extensionIn addition, we developed a Python extension ex-porting the OnlineLatgenRecogniser C++ inter-face.
+This can be used as an example of bringingKaldi?s on-line speech recognition functionality tohigher-level programming languages.
+This Pythonextension is used in the Alex Dialogue SystemsFramework (ADSF, 2014), an open-source lan-guage and domain independent framework fordeveloping spoken dialogue systems.
+The On-lineLatgenRecogniser is deployed in an appli-cation which provides information about public5https://sourceforge.net/p/kaldi/code/HEAD/tree/sandbox/oplatek2/src/dec-wrap/109transport and weather in the Czech republic and isavailable on a public toll-free telephone number.4 Evaluation4.1 Acoustic and language model trainingThe OnlineLatgenRecogniser is evaluated ona corpus of audio data from the Public TransportInformation (PTI) domain.
+In PTI, users can inter-act in Czech with a telephone-based dialogue sys-tem to find public transport connections (UFAL-DSG, 2014).
+The PTI corpus consist of approx-imately 12k user utterances with a length vary-ing between 0.4 s and 18 s with median around3 s. The data were divided into training, develop-ment, and test data where the corresponding datasizes were 9496, 1188, 1188 respectively.
+Forevaluation, a domain specific the class-based lan-guage model with a vocabulary size of approxi-mately 52k and 559k n-grams was estimated fromthe training data.
+Named entities e.g., cities or busstops, in class-based language model are expandedbefore building a decoding graph.Since the PTI acoustic data amounts to less then5 hours, the acoustic training data was extendedby an additional 15 hours of telephone out-of-domain data from the VYSTADIAL 2013 - Czechcorpus (Korvas et al., 2014).
+The acoustic mod-els were obtained by BMMI discriminative train-ing with LDA and MLLT feature transformations.The scripts used to train the acoustic models arepublicly available in ASDF (2014) as well as inKaldi6and a detailed description of the trainingprocedure is given in Korvas et al.
+(2014).4.2 ExperimentsWe focus on evaluating the speed of the On-lineLatgenRecogniser and its relationship with theaccuracy of the decoder, namely:?
+Real Time Factor (RTF) of decoding ?
+the ra-tio of the recognition time to the duration ofthe audio input,?
+Latency ?
+the delay between utterance endand the availability of the recognition results,?
+Word Error Rate (WER).Accuracy and speed of the OnlineLatgenRecog-niser are controlled by the max-active-states,6http://sourceforge.net/p/kaldi/code/HEAD/tree/trunk/egs/vystadial_en/beam, and lattice-beam parameters (Povey et al.,2011).
+Max-active-states limits the maximumnumber of active tokens during decoding.
+Beam isused during graph search to prune ASR hypothe-ses at the state level.
+Lattice-beam is used whenproducing word level lattices after the decoding isfinished.
+It is crucial to tune these parameters op-timally to obtain good results.In general, one aims for a setting RTF smallerthan 1.0.
+However, in practice, it is useful ifthe RTF is even smaller because other processesrunning on the machine can influence the amountof available computational resources.
+Therefore,we target the RTF of 0.6 in our setup.We used grid search on the development set toidentify optimal parameters.
+Figure 1 (a) showsthe impact of the beam on the WER and RTFmeasures.
+In this case, we set max-active-statesto 2000 in order to limit the worst case RTF to0.6.
+Observing Figure 1 (a), we set beam to 13as this setting balances the WER, 95th RTF per-centile, and the average RTF.
+Figure 1 (b) showsthe impact of the lattice-beam on WER and la-tency when beam is fixed to 13.
+We set lattice-beam to 5 based on Figure 1 (b) to obtain the 95thlatency percentile of 200 ms, which is consid-ered natural in a dialogue (Skantze and Schlangen,2009).
+Lattice-beam does not affect WER, butlarger lattice-beam improves the oracle WER ofgenerated lattices (Povey et al., 2012).Figure 2 shows the percentile graph of the RTFand latency measures over the development set.For example, the 95th percentile is the value ofa measure such that 95% of the data has the mea-sure below that value.
+One can see from Fig-ure 2 that 95% of development utterances is de-coded with RTF under 0.6 and latency under 200ms.
+The extreme values are typically caused bydecoding long noisy utterances where uncertaintyin decoding slows down the recogniser.
+Using thissetting, OnlineLatgenRecogniser decodes the ut-terances with a WER of about 21%.Please note that OnlineLatgenRecogniser onlyextends the batch Kaldi decoder for incrementalspeech processing interface.
+It uses the same codeas the batch Kaldi decoder to compute speechparametrisation, frame likelihoods, and state-levellattices.
+Therefore, the accuracy of OnlineLatgen-Recogniser is equal to that of the batch Kaldi de-coder given the same parameters.1108 9 10 11 12 13 14 15 16beam0.00.20.40.60.81.0RTF19202122232425WERa95th RTF percentileAverage RTFDesired 0.6 RTFWER1 2 3 4 5 6 7 8 9 10lattice-beam02004006008001000Latency[ms]19202122232425WERb95th latency percentileDesired latency 200 msWERFigure 1: The left graph (a) shows that WER decreases with increasing beam and the average RTFlinearly grows with the beam.
+Setting the maximum number of active states to 2000 stops the growth ofthe 95th RTF percentile at 0.6, indicating that even in the worst case, we can guarantee an RTF around0.6.
+The right graph (b) shows how latency grows in response to increasing lattice-beam.0 20 40 60 80 100percentile0.00.51.01.52.0RTFaRTFDesired 0.6 RTFCritical 1.0 RTF95th percentile0 20 40 60 80 100percentile0100200300400500600700800Latency[ms]bLatencyDesired latency 200 ms95th percentileFigure 2: The percentile graphs show RTF and Latency scores for development data for max-active-sates=2000, beam=13, lattice-beam=5.
+Note that 95 % of utterances were decoded with the latencylower that 200ms.In addition, we have also experimented withGoogle ASR service on the same domain.The Google ASR service decodes 95% of test ut-terances with latency under 1900 ms and WER isabout 48%.
+The high latency is presumably causedby the batch processing of audio data and net-work latency, and the high WER is likely causedby a mismatch between Google?s acoustic and lan-guage models and the test data.5 ConclusionThis work presented the OnlineLatgenRecogniser,an extension of the Kaldi automatic speech recog-nition toolkit.
+The OnlineLatgenRecogniser is dis-tributed under the Apache 2.0 license, and there-fore it is freely available for both research andcommercial applications.
+The recogniser and itsPython extension is stable and intensively usedin a publicly available spoken dialogue system(UFAL-DSG, 2014).
+Thanks to the use of a stan-dard Kaldi lattice decoder, the recogniser produceshigh quality word posterior lattices.
+The trainingscripts for the acoustic model and the OnlineLat-genRecogniser code are currently being integratedin the Kaldi toolkit.
+Future planned improvementsinclude implementing more sophisticated speechparameterisation interface and feature transforma-tions.AcknowledgmentsWe would also like to thank Daniel Povey and Ond?rej Dus?ekfor their useful comments and discussions.
+We also thank theanonymous reviewers for their helpful comments and sugges-tions.This research was funded by the Ministry of Education,Youth and Sports of the Czech Republic under the grantagreement LK11221, by the core research funding of CharlesUniversity in Prague.
+The language resources presented inthis work are stored and distributed by the LINDAT/CLARINproject of the Ministry of Education, Youth and Sports of theCzech Republic (project LM2010013).111ReferencesADSF.
+2014.
+The Alex Dialogue Systems Framework.https://github.com/UFAL-DSG/alex.Lee Akinobu.
+2014.
+Open-Source Large Vocabulary CSREngine Julius.
+http://julius.sourceforge.jp/en_index.php.Mat?ej Korvas, Ond?rej Pl?atek, Ond?rej Du?sek, Luk?a?s?Zilka, andFilip Jur?c???cek.
+2014.
+Free English and Czech telephonespeech corpus shared under the CC-BY-SA 3.0 license.In Proceedings of the Eigth International Conference onLanguage Resources and Evaluation (LREC 2014).Fabrizio Morbini, Kartik Audhkhasi, Kenji Sagae, Ron Ar-stein, Doan Can, Panayiotis G. Georgiou, Shrikanth S.Narayanan, Anton Leuski, and David Traum.
+2013.Which ASR should I choose for my dialogue system?
+InProc.
+SIGDIAL, August.Daniel Povey, Arnab Ghoshal, Gilles Boulianne, Lukas Bur-get, Ondrej Glembek, Nagendra Goel, Mirko Hannemann,Petr Motlicek, Yanmin Qian, Petr Schwarz, et al.
+2011.The kaldi speech recognition toolkit.
+In Proc.
+ASRU,pages 1?4.Daniel Povey, Mirko Hannemann, Gilles Boulianne, LukasBurget, Arnab Ghoshal, Milos Janda, Martin Karafi?at,Stefan Kombrink, Petr Motlicek, Yanmin Qian, et al.2012.
+Generating exact lattices in the WFST framework.In Acoustics, Speech and Signal Processing (ICASSP),2012 IEEE International Conference on, pages 4213?4216.
+IEEE.David Rybach, Stefan Hahn, Patrick Lehnen, David Nolden,Martin Sundermeyer, Zoltan T?uske, Siemon Wiesler,Ralf Schl?uter, and Hermann Ney.
+2011.
+RASR-TheRWTH Aachen University Open Source Speech Recogni-tion Toolkit.
+In Proc.
+IEEE Automatic Speech Recognitionand Understanding Workshop.Gabriel Skantze and David Schlangen.
+2009.
+Incrementaldialogue processing in a micro-domain.
+In Proceedings ofthe 12th Conference of the European Chapter of the As-sociation for Computational Linguistics, pages 745?753.Association for Computational Linguistics.UFAL-DSG.
+2014.
+The Alex Dialogue Systems Framework- Public Transport Information.
+https://github.com/UFAL-DSG/alex.112

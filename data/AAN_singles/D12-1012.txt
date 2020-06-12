@@ -1,0 +1,296 @@
+Proceedings of the 2012 Joint Conference on Empirical Methods in Natural Language Processing and Computational NaturalLanguage Learning, pages 128?138, Jeju Island, Korea, 12?14 July 2012. c?2012 Association for Computational LinguisticsTowards Efficient Named-Entity Rule Induction for CustomizabilityAjay Nagesh1,21IITB-Monash Research Academyajaynagesh@cse.iitb.ac.inGanesh Ramakrishnan2IIT Bombayganesh@cse.iitb.ac.inLaura ChiticariuIBM Research - Almadenchiti@us.ibm.comRajasekar KrishnamurthyIBM Research - Almadenrajase@us.ibm.comAnkush DharkarSASTRA Universityankushdharkar@cse.sastra.eduPushpak BhattacharyyaIIT Bombaypb@cse.iitb.ac.inAbstractGeneric rule-based systems for InformationExtraction (IE) have been shown to workreasonably well out-of-the-box, and achievestate-of-the-art accuracy with further domaincustomization.
+However, it is generally rec-ognized that manually building and customiz-ing rules is a complex and labor intensive pro-cess.
+In this paper, we discuss an approachthat facilitates the process of building cus-tomizable rules for Named-Entity Recognition(NER) tasks via rule induction, in the Annota-tion Query Language (AQL).
+Given a set ofbasic features and an annotated document col-lection, our goal is to generate an initial setof rules with reasonable accuracy, that are in-terpretable and thus can be easily refined bya human developer.
+We present an efficientrule induction process, modeled on a four-stage manual rule development process andpresent initial promising results with our sys-tem.
+We also propose a simple notion of ex-tractor complexity as a first step to quantifythe interpretability of an extractor, and studythe effect of induction bias and customizationof basic features on the accuracy and complex-ity of induced rules.
+We demonstrate throughexperiments that the induced rules have goodaccuracy and low complexity according to ourcomplexity measure.1 IntroductionNamed-entity recognition (NER) is the task of iden-tifying mentions of rigid designators from text be-longing to named-entity types such as persons, orga-nizations and locations (Nadeau and Sekine, 2007).Generic NER rules have been shown to work reason-ably well-out-of-the-box, and with further domaincustomization (Chiticariu et al2010b), achievequality surpassing state-of-the-art results.
+Table 1System Dataset F?=1Generic CustomizedGATE ACE2002 57.8 82.2ACE 2005 57.32 88.95SystemT CoNLL 2003 64.15 91.77Enron 76.53 85.29Table 1: Quality of generic vs. customized rules.summarizes the quality of NER rules out-of-the-boxand after domain customization in the GATE (Cun-ningham et al2011) and SystemT (Chiticariu etal., 2010a) systems, as reported in (Maynard et al2003) and (Chiticariu et al2010b) respectively.Rule-based systems are widely used in enterprisesettings due to their explainability.
+Rules are trans-parent, which leads to better explainability of errors.One can easily identify the cause of a false positiveor negative, and refine the rules without affectingother correct results identified by the system.
+Fur-thermore, rules are typically easier to understand byan IE developer and can be customized for a newdomain without requiring additional labeled data.Typically, a rule-based NER system consists of acombination of four categories of rules (Chiticariu etal., 2010b): (1) Basic Feature (BF) rules to identifycomponents of an entity such as first name and lastname.
+(2) Candidate definition (CD) rules to iden-tify complete occurrences of an entity by combiningthe output of multiple BF rules, e.g., first name fol-lowed by last name is a person candidate.
+(3) Candi-date refinement (CR) rules to refine candidates gen-erated by CD rules.
+E.g., discard candidate personscontained within organizations.
+(4) Consolidationrules (CO) to resolve overlapping candidates gener-ated by multiple CD and CR rules.A well-known drawback that influences theadoptability of rule-based NER systems is the man-128ual effort required to build the rules.
+A common ap-proach to address this problem is to build a genericNER extractor and then customize it for specific do-mains.
+While this approach partially alleviates theproblem, substantial manual effort (in the order ofseveral person weeks) is still required for the twostages as reported in (Maynard et al2003; Chiti-cariu et al2010b).
+In this paper, we present initialwork towards facilitating the process of building ageneric NER extractor using induction techniques.Specifically, given as input an annotated docu-ment corpus, a set of BF rules, and a default COrule for each entity type, our goal is to generate aset of CD and CR rules such that the resulting ex-tractor constitutes a good starting point for furtherrefinement by a developer.
+Since the generic NERextractor has to be manually customized, a majorchallenge is to ensure that the generated rules havegood accuracy, and, at the same time, that they arenot too complex, and consequently interpretable.The main contributions in this paper are1.
+An efficient system for NER rule induction, us-ing a highly expressive rule language (AQL) asthe target language.
+The first phase of rule in-duction uses a combination of clustering andrelative least general generalization (RLGG)techniques to learn CD rules.
+The second phaseidentifies CR rules using a propositional rulelearner like JRIP to learn accurate composi-tions of CD rules.2.
+Usage of induction biases to enhance the inter-pretability of rules.
+These biases capture theexpertise gleaned from manual rule develop-ment and constrain the search space in our in-duction system.3.
+Definition of an initial notion of extractor com-plexity to quantify the interpretability of an ex-tractor and to guide the process of adding in-duction biases to favor learning less complexextractors.
+This is to ensure that the rules areeasily customizable by the developer.4.
+Scalable induction process through usage ofSystemT, a state-of-the-art IE system whichserves as a highly efficient theorem prover forAQL, and performance optimizations such asclustering of examples and parallelizing vari-ous modules (E.g.
+: propositional rule learning).Roadmap We first describe preliminaries on Sys-temT and AQL (Section 3) and define the target lan-guage for our induction algorithm and the notion ofrule complexity (Section 4).
+We then present ourapproach for inducing CD and CR rules, and dis-cuss induction biases that would favor interpretabil-ity (Section 5), and discuss the results of an empir-ical evaluation (Section 6).
+We conclude with av-enues for improvement in the future (Section 7).2 Related WorkExisting approaches to rule induction for IE focuson rule-based systems based on the cascading gram-mar formalism exemplified by the Common Pat-tern Specification Language (CPSL) (Appelt andOnyshkevych, 1998), where rules are specified asa sequence of basic features that describe an en-tity, with limited predicates in the context of anentity mention.
+Patel et al2009) and Soderland(1999) elaborate on top-down techniques for induc-tion of IE rules, whereas (Califf and Mooney, 1997;Califf and Mooney, 1999) discuss a bottom-up IErule induction system that uses the relative least gen-eral generalization (RLGG) of examples1.
+However,in all these systems, the expressivity of the rule-representation language is restricted to that of cap-turing sequence information.
+As discussed in Sec-tion 3, contextual clues and higher level rule inter-actions such as filtering and join are very difficult,if not impossible to express in such representationswithout resorting to custom code.
+Learning higherlevel interactions between rules has received littleattention.
+Our technique for learning higher level in-teractions is similar to the induction of ripple downrules (Gaines and Compton, 1995), which, to thebest of our knowledge, has not been previously ap-plied to IE.
+A framework for refining AQL extractorsbased on an annotated document corpus describedin (Liu et al2010).
+We present complementarytechniques for inducing an initial extractor that canbe automatically refined in this framework.3 PreliminariesSystemT is a declarative IE system based on an al-gebraic framework.
+In SystemT, developers writerules in AQL.
+To represent annotations in a docu-1Our work also makes use of RLGGs but computes thesegeneralizations for clusters of examples, instead of pairs.129Figure 1: Example Person extractor in AQLment, AQL uses a simple relational data model withthree types: a span is a region of text within a docu-ment identified by its ?begin?
+and ?end?
+positions; atuple is a fixed-size list of spans; a relation, or view,is a multi-set of tuples, where every tuple in the viewmust be of the same size.Figure 1 shows a portion of a Person extractorwritten in AQL.
+The basic building block of AQLis a view.
+A view is a logical description of a set oftuples in terms of (i) the document text (denoted as aspecial view called Document), and (ii) the contentsof other views, as specified in the from clauses ofeach statement.
+Figure 1 also illustrates five of thebasic constructs that can be used to define a view,and which we explain next.
+The complete specifica-tion can be found in the AQL manual (IBM, 2012).In the paper, we will use ?rules?
+and ?views?
+inter-changeably.The extract statement specifies basic character-level extraction primitives such as regular expressionand dictionary matching over text, creating a tuplefor each match.
+As an example, rule R1 uses the ex-tract statement to identify matches (Caps spans) of aregular expression for capitalized words.The select statement is similar to the SQL selectstatement but it contains an additional consolidateon clause (explained further), along with an exten-sive collection of text-specific predicates.
+Rule R5illustrates a complex example: it selects First spansimmediately followed within zero tokens by a Lastspan, where the latter is also a Caps span.
+Thetwo conditions are specified using two join predi-cates: FollowsTok and Equals respectively.
+For eachtriplet of First, Last and Caps spans satisfying the twopredicates, the CombineSpans built-in scalar func-tion in the select clause constructs larger PersonFirst-Last spans that begin at the begin position of the Firstspan, and end at the end position of the Last (alsoCaps) span.The union all statement merges the outputs of twoor more statements.
+For example, rule R6 unionsperson candidates identified by rules R4 and R5.The minus statement subtracts the output of onestatement from the output of another.
+For example,rule R8 defines a view PersonAll by filtering out Per-sonInvalid tuples from the set of PersonCandidate tu-ples.
+Notice that rule R7 used to define the view Per-sonInvalid illustrates another join predicate of AQLcalled Overlaps, which returns true if its two argu-ment spans overlap in the input text.
+Therefore, ata high level, rule R8 removes person candidates thatoverlap with an Organization span.
+(The Organizationextractor is not depicted in the figure.
+)The consolidate clause of a select statement re-moves selected overlapping spans from the indicatedcolumn of the input tuples, according to the spec-ified policy (for instance, ?ContainedWithin?).
+Forexample, rule R9 retains PersonAll spans that are notcontained in other PersonAll spans.Internally, SystemT compiles an AQL extractorinto an executable plan in the form of a graph ofoperators.
+The formal definition of these operatorstakes the form of an algebra (Reiss et al2008), sim-ilar to relational algebra, but with extensions for textprocessing.
+The decoupling between AQL and theoperator algebra allows for greater rule expressiv-ity because the rule language is not constrained bythe need to compile to a finite state transducer, as ingrammar systems based on the CPSL standard.
+Infact, join predicates such as Overlaps, as well as fil-ter operations (minus) are extremely difficult to ex-130press in CPSL systems such as GATE without anescape to custom code (Chiticariu et al2010b).
+Inaddition, the decoupling between the AQL specifi-cation of ?what?
+to extract from ?how?
+to extractit, allows greater flexibility in choosing an efficientexecution strategy among the many possible opera-tor graphs that may exist for the same AQL extrac-tor.
+Therefore, extractors written in AQL achieveorders of magnitude higher throughput (Chiticariuet al2010a).4 Induction Target LanguageOur goal is to automatically generate NER extrac-tors with good quality, and at the same time, man-ageable complexity, so that the extractors can be fur-ther refined and customized by the developer.
+To thisend, we focus on inducing extractors using the sub-set of AQL constructs described in Section 3.
+Wenote that we have chosen a small subset of AQL con-structs that are sufficient to implement several com-mon operations required for NER.
+However, AQL isa much more expressive language, and incorporatingadditional constructs is subject to our future work.In this section we describe the building blocks ofour target language, and propose a simple definitionfor measuring the complexity of an extractor.Target Language.
+The components of the targetlanguage are as follows, and summarized in Table 2.Basic features (BF): BF views are specified using theextract statement, such as rulesR1 toR3 in Figure 1.In this paper, we assume as input a set of basic fea-tures, consisting of dictionaries and regular expres-sions.Candidate definition (CD): CD views are expressedusing the select statement to combine BF views withjoin predicates (e.g., Equals, FollowsTok or Over-laps), and the CombineSpans scalar function to con-struct larger candidate spans from input spans.
+RulesR4 and R5 in Figure 1 are example CD rules.
+Ingeneral, a CD view is defined as: ?Select all spansconstructed from view1, view2, .
+.
+., viewn, such that alljoin predicates are satisfied?.Candidate refinement (CR): CR views are used todiscard spans output by the CD views that may beincorrect.
+In general, a CR view is defined as: ?Fromthe list of spans of viewvalid subtract all those spans thatbelong to viewinvalid?.
+viewvalid is obtained by join-ing all the positive CD clues on the Equals predicateand viewinvalid is obtained by joining all the nega-tive overlapping clues with the Overlaps predicateand subsequently ?union?ing all the negative clues.
+(e.g., similar in spirit to rules R6, R7 and R8 in Fig-ure 1, except that the subtraction is done from a sin-gle view and not the union of multiple views).Consolidation (CO): Finally, a select statement witha fixed consolidate clause is used for each entity typeto remove overlapping spans from CR views.
+Anexample CO view is defined by rule R9 in Figure 1.Extractor Complexity.
+Since our goal is to gener-ate extractors with manageable complexity, we mustintroduce a quantitative measure of extractor com-plexity, in order to (1) judge the complexity of theextractors generated by our system, and (2) reducethe search space considered by the induction system.To this end, we define a simple complexity scorethat is a function of the number of rules, and thenumber of input views to each rule of the extrac-tor.
+In particular, we define the length of rule R,denoted as L(R), as the number of input views inthe from clause(s) of the view.
+For example, in Fig-ure 1, we have L(R4) = 2 and L(R5) = 3, sinceR4 and R5 have two, and respectively three viewsin the from clause.
+Furthermore, L(R8) = 2 sinceeach of the two inner statements of R8 has one fromclause with a single input view.
+The complexity ofBF rules (e.g., R1 to R3) and CO rules (e.g., R9) isalways 1, since these types of rules have a single in-put view.
+We define the complexity of extractor E,denoted as C(E) as the sum of lengths of all rules ofE.
+For example, the complexity of the Person extrac-tor from Figure 1 is 15, plus the length of all rulesinvolved in defining Organization, which are omittedfrom the figure.Our simple notion of rule length is motivatedby existing literature in the area of database sys-tems (Abiteboul et al1995), where the size of aconjunctive query is determined only by the numberof atoms in the body of the query (e.g., items in theFROM clause), and it is independent on the numberof join variables (i.e., items in the WHERE clause),or the size of the head of the query (e.g., items in theSELECT clause).
+As such, our notion of complexityis rather coarse, and we shall discuss its shortcom-ings in detail in Section 6.2.
+However, we shall showthat the complexity score significantly reduces thesearch space of our induction techniques leading to131Phase name AQL statements Prescription Rule TypeBasic Features extract Off-the-shelf, Learning using priorwork (Riloff, 1993; Li et al2008)Basic Features DefinitionPhase 1 (Clustering andRLGG)select Bottom-up learning (LGG), Top-down refine-mentDevelopment of CandidateRulesPhase 2 (Propositional RuleLearning)select, unionall, minusRIPPER, Lightweight Rule Induction Candidate Rules FilteringConsolidation consolidate,union allManually identified consolidation rules, basedon domain knowledgeConsolidation rulesTable 2: Phases in induction, the language constructs invoked in each phase, the prescriptions for inducing rules in thephase and the corresponding type of rule in manual rule development.simpler and smaller extractors, and therefore consti-tutes a good basis for more comprehensive measuresof interpretability in the future.5 Induction of RulesSince the goal is to generate rules that can be cus-tomized by humans, the overall structure of the in-duced rules must be similar in spirit to what a devel-oper following best practices would write.
+Hence,the induction process is divided into multiple phases.Figure 2 shows the correspondence between thephases of induction and the types of rules.
+In Ta-ble 2, we summarize the phases of our induction al-gorithm, along with the subset of AQL constructsthat comprise the language of the rules learnt in thatphase, the possible methods prescribed for inducingthe rules and their correspondence with the stages inthe manual rule development.Our induction system generates rules for two ofthe four categories, namely CD and CR rules ashighlighted in Figure 2.
+We assume that we aregiven the BFs in the form of dictionaries and reg-ular expressions.
+Prior work on learning dictionar-ies (Riloff, 1993) and regular expressions (Li et al2008) could be leveraged to semi-automate the pro-cess of defining the basic features.We represent each example, in conjunction withrelevant background knowledge in the form firstorder horn clauses.
+This background knowledgewill serve as input to our induction system.
+Thefirst phase of induction uses a combination ofclustering and relative least general generalization(RLGG) (Nienhuys-Cheng andWolf, 1997; Muggle-ton and Feng, 1992) techniques.
+At the end of thisphase, we have a number of CD rules.
+In the sec-ond phase, we begin by forming a structure calledthe span-view table.
+Broadly speaking, this is anattribute-value table formed by all the views inducedin the first phase along with the textual spans gener-ated by them.
+The attribute-value table is used asinput to a propositional rule learner such as JRIPto learn accurate compositions of a useful (as deter-mined by the learning algorithm) subset of the CDrules.
+This forms the second phase of our system.The rules learnt from this phase are the CR rules.At various phases, several induction biases are intro-duced to enhance the interpretability of rules.
+Thesebiases capture the expertise gleaned from manualrule development and constrain the search space inour induction system.The hypothesis language of our induction sys-tem is Annotation Query Language (AQL) and weuse SystemT as the theorem prover.
+SystemT pro-vides a very fast rule execution engine and is cru-cial in our induction system as we test multiple hy-potheses in the search for the more promising ones.AQL provides a very expressive rule representationlanguage that is proven to be capable of encodingall the paradigms that any rule-based representa-tion can encode.
+The dual advantages of rich rule-representation and execution efficiency are the mainmotivation behind our choice.We discuss our induction procedure in detail next.5.1 Basic Features and Background KnowledgeWe assume that we are provided with a set of dictio-naries and regular expressions for defining all ourbasic create view statements.
+R1, R2 and R3 inFigure 1 are such basic view definitions.
+The ba-sic views are compiled and executed in SystemTover the training document collection and the re-sulting spans are represented by equivalent predi-cates in first order logic.
+Essentially, each train-ing example is represented as a definite clause,132Figure 2: Correspondence between Manual Rule devel-opment and Rule Induction.that includes in its body, the basic view-types en-coded as background knowledge predicates.
+To es-tablish relationships between different backgroundknowledge predicates for each training example, wedefine some additional ?glue predicates?
+such ascontains and before.5.2 Induction of Candidate Definition RulesClustering Module.
+We obtain non-overlappingclusters of examples within each type, by comput-ing similarities between their representations as def-inite clauses.
+We present the intuition behind thisapproach in Figure 3 which illustrates the processof taking two examples and finding their generaliza-tion.
+It is worthwhile to look at generalizations ofinstances that are similar.
+For instance, two tokenperson names such as Mark Waugh and Mark Twainare part of a single cluster.
+However, we would notbe able to generalize a two-token name (e.g., MarkWaugh) with another name consisting of initials fol-lowed by a token (e.g., M. Waugh).
+Using a wrap-per around the hierarchical agglomerative cluster-ing implemented in LingPipe2, we cluster examplesand look at generalizations only within each cluster.Clustering also helps improve efficiency by reduc-ing the computational overhead, since otherwise, wewould have to consider generalizations of all pairs ofexamples (Muggleton and Feng, 1992).RLGG computation.
+We compute our CDrules as the relative least general generalization(RLGG) (Nienhuys-Cheng and Wolf, 1997; Mug-gleton and Feng, 1992) of examples in each clus-ter.
+Given a set of clauses in first order logic,their RLGG is the least generalized clause in the2http://alias-i.com/lingpipe/demos/tutorial/cluster/read-me.htmlFigure 3: Relative Least General Generalizationsubsumption lattice of the clauses relative to thebackground knowledge (Nienhuys-Cheng and Wolf,1997).
+RLGG is associative, and we use this factto compute RLGGs of sets of examples in a clus-ter.
+The RLGG of two bottom clauses as computedin our system and its translation to an AQL view isillustrated in Figure 3.
+We filter out noisy RLGGsand convert the selected RLGGs into the equivalentAQL views.
+Each such AQL view is treated as aCD rule.
+We next discuss the process of filtering-out noisy RLGGs.
+We interchangeably refer to theRLGGs and the clusters they represent .Iterative Clustering and RLGG filtering.
+Sinceclustering is sub-optimal, we expected some clustersin a single run of clustering to have poor RLGGs, ei-ther in terms of complexity or precision.
+We there-fore use an iterative clustering approach, based onthe separate-and-conquer (Fu?rnkranz, 1999) strat-egy.
+In each iteration, we pick the clusters with thebest RLGGs and remove all examples covered bythose RLGGs.
+The best RLGGs must have preci-sion and number of examples covered above a pre-specified threshold.5.3 Induction of Candidate Refinement RulesSpan-View Table.
+The CD views from phase 1along with the textual spans they generate, yield thespan-view table.
+The rows of the table correspondto the set of spans returned by all the CD views.
+Thecolumns correspond to the set of CD view names.Each span either belongs to one of the named en-tity types (PER, ORG or LOC) or is none of them(NONE); the type information constitutes its classlabel (see Figure 4 for an illustrated example).
+Thecells in the table correspond to either a match (M) ora no-match (N) or partial/overlapping match (O) ofa span generated by a CD view.
+This attribute-valuetable is used as input to a propositional rule learner133Figure 4: Span-View Tablelike JRIP to learn compositions of CD views.Propositional Rule Learning.
+Based on our studyof different propositional rule learners, we decidedto use RIPPER (Fu?rnkranz and Widmer, 1994) im-plemented as the JRIP classifier in weka (Witten etal., 2011).
+Some considerations that favor JRIP are(i) absence of rule ordering, (ii) ease of conversionto AQL and (iii) amenability to add induction biasesin the implementation.A number of syntactic biases were introduced inJRIP to aid in the interpretability of the inducedrules.
+We observed in our manually developed rulesthat CR rules for a type involve interaction betweenCDs for the same type and negations (not-overlaps,not matches) of CDs of the other types.
+This biaswas incorporated by constraining a JRIP rule to con-tain only positive features (CDs) of the same type(say PER) and negative features (CDs) of only othertypes (ORG and LOC, in this case).The output of the JRIP algorithm is a set ofrules, one set for each of PER, ORG and LOC.Here is an example rule: PER-CR-Rule ?
+(PerCD= m) AND (LocCD != o) which is read as : ?If aspan matches PerCD and does not overlap with LocCD,then that span denotes a PER named entity?.
+HerePerCD is {[FirstName ?
+CapsPerson][LastName?
+CapsPerson]} 3 and LocCD is {[CapsPlace ?CitiesDict]}.
+This rule filters out wrong personannotations like ?Prince William?
+in Prince WilliamSound.
+(This is the name of a location but has over-lapped with a person named entity.)
+In AQL, thiseffect can be achieved most elegantly by the minus(filter) construct.
+Such an AQL rule will filter allthose occurrences of Prince William from the list of3Two consecutive spans where the 1st is FirstName andCapsPerson and the 2nd is LastName and CapsPerson.persons that overlap with a city name.Steps such as clustering, computation of RLGGs,JRIP, and theorem proving using SystemT were par-allelized.
+Once the CR views for each type ofnamed entity are learnt, many forms of consolida-tions (COs) are possible, both within and acrosstypes.
+A simple consolidation policy that we haveincorporated in the system is as follows: union allthe rules of a particular type, then perform a con-tained within consolidation, resulting in the final setof consolidated views for each named entity type.6 ExperimentsWe evaluate our system on CoNLL03 (TjongKim Sang and De Meulder, 2003), a collectionof Reuters news stories.
+We used the CoNLL03training set for induction and report results on theCoNLL03 test collection.The basic features (BFs) form the primary input toour induction system.
+We experimented with threesets of BFs:Initial set(E1): The goal in this setup is to inducean initial set of rules based on a small set of reason-able BFs.
+We use a conservative initial set consistingof 15 BFs (5 regular expressions and 10 dictionar-ies).Enhanced set (E2): Based on the results of E1,we identify a set of additional domain independentBFs4.
+Five views were added to the existing set inE1 (1 regular expression and 4 dictionaries).
+Thegoal is to observe whether our approach yields rea-sonable accuracies compared to generic rules devel-oped manually.Domain customized set (E3): Based on theknowledge of the domain of the training dataset(CoNLL03), we introduced a set of features specificto this dataset.
+These included sports-related person,organization and location dictionaries5.
+These viewswere added to the existing set in E2.
+The intendedgoal is to observe what are the best possible accura-cies that could be achieved with BFs customized toa particular domain.The set of parameters for iterative clustering onwhich the accuracies reported are : the precisionthreshold for the RLGGs of the clusters was 70%4E.g., the feature preposition dictionary was added in E2 tohelp identify organization names such as Bank of England.5Half of the documents in CoNLL03 are sports-related.134Train TestType P R F P R F C(E)E1 (Initial set)PER 88.5 41.4 56.4 92.5 39.4 55.3 144ORG 89.1 7.3 13.4 85.9 5.2 9.7 22LOC 91.6 54.5 68.3 87.3 55.3 67.8 105Overall 90.2 35.3 50.7 89.2 33.3 48.5 234E2 (Enhanced set)PER 84.7 52.9 65.1 87.5 49.9 63.5 233ORG 88.2 7.8 14.3 85.8 5.9 11.0 99LOC 92.1 58.6 71.7 88.6 59.1 70.9 257Overall 88.6 40.7 55.8 88.0 38.2 53.3 457E3 (Domain customized set)PER 89.9 57.3 70.0 91.7 56.0 69.5 430ORG 86.9 50.9 64.2 86.9 47.5 61.4 348LOC 90.8 67.0 77.1 84.3 67.3 74.8 356Overall 89.4 58.7 70.9 87.3 57.0 68.9 844Table 3: Results on CoNLL03 dataset with different basicfeature setsand the number of examples covered by each RLGGwas 5.
+We selected the top 5 clusters from each iter-ation whose RLGGs crossed this threshold.
+If therewere no such clusters then we would lower the preci-sion threshold to 35% (half of the threshold).
+Whenno new clusters were formed, we ended the itera-tions.6.1 Experiments and ResultsEffect of Augmenting Basic Features.
+Table 3shows the accuracy and complexity of rules inducedwith the three basic feature sets E1, E2 and E3,respectively 6.
+The overall F-measure on the testdataset is 48.5% with E1, it increases to around53.3% with E2 and is highest at 68.9% with E3.As we increase the number of BFs, the accuraciesof the induced extractors increases, at the cost ofan increase in complexity.
+In particular, the re-call increases significantly across the board, and ismore prominent between E2 and E3, where the ad-ditional domain specific features result in recall in-crease from 5.9% to 47.5% for ORG.
+The precisionincreases slightly for PER, but decreases slightly forLOC and ORG with the addition of domain specificfeatures.Comparison with manually developed rules.
+Wecompared the induced extractors with the manuallydeveloped extractors of (Chiticariu et al2010b),heretofore referred to as manual extractors.
+(For adetailed analysis, we obtained the extractors from6These are the results for the configuration with bias.the authors).
+Table 4 shows the accuracy and com-plexity of the induced rules with E2 and E3 and themanual extractors for the generic domain and, re-spectively, customized for the CoNLL03 domain.
+(In the table, ignore the column Induced (withoutbias), which is discussed later).
+Our techniquecompares reasonably with the manually constructedgeneric extractor for two of the three entity types;and on precision for all entity types, especially sinceour system generated the rules in 1 hour, whereas thedevelopment of manual rules took much longer 7.Additional work is required to match the manualcustomized extractor?s performance, primarily dueto shortcomings in our current target language.
+Re-call that our framework is limited to a small subsetof AQL constructs for expressing CD and CR rules,and there is a single consolidation rule.
+In particu-lar, advanced constructs such as dynamic dictionar-ies are not supported, and the set of predicates to theFilter construct supported in our system is restrictedto predicates over other concepts, which is only asubset of those used in (Chiticariu et al2010b).The manual extractors also contain a larger numberof rules covering many different cases, improvingthe accuracy, but also leading to a higher complex-ity score.
+To better analyze the complexity, we alsocomputed the average rule length for each extrac-tor by dividing the complexity score by the numberof AQL views of the extractor.
+The average rulelength is 1.78 and 1.87 for the induced extractorswith E2 and E3, respectively, and 1.9 and 2.1 for thegeneric and customized extractors of (Chiticariu etal., 2010b), respectively.
+The average rule length in-creases from the generic extractor to the customizedextractor in both cases.
+On average, however, an in-dividual induced rule is slightly smaller than a man-ually developed rule.Effect of Bias.
+The goal of this experiment is todemonstrate the importance of biases in the induc-tion process.
+The biases added to the system arebroadly of two types: (i) Partition of basic featuresbased on types (ii) Restriction on the type of CDviews that can appear in a CR view.
+8 Without7 (Chiticariu et al2010b) mentions that customization for 3domains required 8 person weeks.
+It is reasonable to infer thatdeveloping the generic rules took comparable effort.8For e.g., person CR view can contain only person CD viewsas positive clues and CD views of other types as negative clues.135(i) many semantically similar basic features (espe-cially, regular expressions) would match a given to-ken, leading to an increase in the length of a CDa rule.
+For example, in the CD rule [FirstName-Dict][CapsPerson ?
+CapsOrg]} (?A FirstNameDictspan followed by a CapsPerson span that is also a Cap-sOrg span?
+), CapsPerson and CapsOrg are two verysimilar regular expressions identifying capitalizedphrases that look like person, and respectively, orga-nization names, with small variations (e.g., the for-mer may allow special characters such as ?-?).
+In-cluding both BFs in a CD rule leads to a larger rulethat is unintuitive for a developer.
+The former biasexcludes such CD rules from consideration.The latter type of bias prevents CD rules of onetype to appear as positive clues for a CR rule ofa different type.
+For instance, without this bias,one of the CR rules obtained was Per ?
+(OrgCD= m) AND (LocCD != o) (?If a span matches OrgCDand does not overlap with LocCD, then that spandenotes a PER named entity?.
+Here OrgCD was{[CapsOrg][CapsOrg]} and LocCD was {[CapsLoc?
+CitiesDict]}.
+The inclusion of an OrganizationCD rule as a positive clue for a Person CR rule isunintuitive for a developer.Table 4, shows the effect (for E2 and E3) on thetest dataset of disabling and enabling bias duringthe induction of CR rules using JRIP.
+Adding biasimproves the precision of the induced rules.
+With-out bias, however, the system is less constrained inits search for high recall rules, leading to slightlyhigher overall F measure.
+This comes at the costof an increase in extractor complexity and averagerule length.
+For example, for E2, the average rulelength decreases from 2.17 to 1.78 after adding thebias.
+Overall, our results show that biases lead toless complex extractors with only a very minor ef-fect on accuracy, thus biases are important factorscontributing to inducing rules that are understand-able and may be refined by humans.Comparison with other induction systems.
+Wealso experimented with two other induction systems,Aleph9 and ALP10, a package that implements oneof the reportedly good information extraction algo-rithms (Ciravegna, 2001).
+While induction in Aleph9A system for inductive logic programming.
+Seehttp://www.cs.ox.ac.uk/activities/machlearn/Aleph/aleph.html10http://code.google.com/p/alpie/was performed with the same target language as inour approach, the target language of ALP is JAPE,which has been shown (Chiticariu et al2010b) tolack in some of the constructs (such as minus) thatAQL provides and which form a part of our tar-get language (especially the rule refinement phase).However, despite experimenting with all possibleparameter configurations for each of these (in eachof E1, E2 and E3 settings), the accuracies obtainedwere substantially (30-50%) worse and the extrac-tor complexity was much (around 60%) higher whencompared to our system (with or without bias).
+Ad-ditionally, Aleph takes close to three days for induc-tion, whereas both ALP and our system require lessthan an hour.6.2 DiscussionWeak and Strong CDs reflected in CRs.
+Inour experiments, we found that varying the pre-cision and complexity thresholds while inducingthe CDs (c.f Section 5) affected the F1 of the fi-nal extractor only minimally.
+But reducing theprecision threshold generally improved the preci-sion of the final extractor, which seemed counter-intuitive at first.
+We found that CR rules learnedby JRIP consist of a strong CD rule (high preci-sion, typically involving a dictionary) and a weakCD rule (low precision, typically involving onlyregular expressions).
+The strong CD rule alwayscorresponded to a positive clue (match) and theweak CD rule corresponded to the negative clue(overlaps or not-matches).
+This is illustrated inthe following CR rule: PER ?
+(PerCD = m) AND(OrgCD != o) where (PerCD is {[CapsPersonR][CapsPersonR ?
+LastNameDict]} and (OrgCD is{[CapsOrgR][CapsOrgR][CapsOrgR]}.
+This isposited to be the way the CR rule learner operates?
+it tries to learn conjunctions of weak and strongclues so as to filter one from the other.
+Therefore,setting a precision threshold too high limited thenumber of such weak clues and the ability of the CRrule learner to find such rules.Interpretability.
+Measuring interpretability of rulesis a difficult problem.
+In this work, we have takena first step towards measuring interpretability usinga coarse grain measure in the form of a simple no-tion of complexity score.
+The complexity is veryhelpful in comparing alternative rule sets based on136Chiticariu et al010b Induced (With Bias) Induced (Without Bias)P R F C(E) P R F C(E) P R F C(E)Generic (E2) PER 82.2 60.3 69.5 945 87.5 49.9 63.5 233 85.8 53.7 66.0 476ORG 75.7 17.5 28.5 1015 85.8 5.9 11.0 99 74.1 15.7 25.9 327LOC 72.2 86.1 78.6 921 88.6 59.1 70.9 257 85.9 61.5 71.7 303Overall 75.9 54.6 63.5 1015 88.0 38.2 53.3 457 84.2 43.5 57.4 907Customised (E3) PER 96.3 92.2 94.2 2154 91.7 56.0 69.5 430 90.7 60.3 72.4 359ORG 91.1 85.1 88.0 2154 86.9 47.5 61.4 348 90.4 46.8 61.7 397LOC 93.3 91.7 92.5 2154 84.3 67.3 74.8 356 83.9 69.1 75.8 486Overall 93.5 89.6 91.5 2160 87.3 57.0 68.9 844 87.8 58.7 70.4 901Table 4: Comparison of induced rules (with and without bias) and manually developed rules.
+(CoNLL03 test dataset)the number of rules, and the size of each rule, butexhibits a number of shortcomings described next.First, it disregards other components of a rule be-sides its from clause, for example, the number ofitems in the select clause, or the where clause.
+Sec-ond, rule developers use semantically meaningfulview names such as those shown in Figure 1 to helpthem recall the semantics of a rule at a high-level, anaspect that is not captured by the complexity mea-sure.
+Automatic generation of meaningful namesfor induced views is an interesting direction for fu-ture work.
+Finally, the overall structure of an extrac-tors is not considered.
+In simple terms, an extrac-tor consisting of 5 rules of size 1 is indistinguish-able from an extractor consisting of a single ruleof size 5, and it is arguable which of these extrac-tors is more interpretable.
+More generally, the ex-tent of this shortcoming is best explained using anexample.
+When informally examining the rules in-duced by our system, we found that CD rules aresimilar in spirit to those written by rule develop-ers.
+On the other hand, the induced CR rules aretoo fine-grained.
+In general, rule developers groupCD rules with similar semantics, then write refine-ment rules at the higher level of the group, as op-posed to the lower level of individual CD views.
+Forexample, one may write multiple CD rules for can-didate person names of the form ?First?
+?Last?, andmultiple CD rules of the form ?Last?, ?First?.
+Onewould then union together the candidates from eachof the two groups into two different views, e.g., Per-FirstLast and PerLastCommaFirst, and write filterrules at the higher level of these two views, e.g.,?Remove PerLastCommaFirst spans that overlap with aPerFirstLast span?.
+In contrast, our induction algo-rithm considers CR rules consisting of combinationsof CD rules directly, leading to many semanticallysimilar CR rules, each operating over small parts ofa larger semantic group (see rule in Section 6.1).This results in repetition, and qualitatively less in-terpretable rules, since humans prefer higher levelsof abstraction and generalization.
+This nuance is notcaptured by the complexity score which may deeman extractor consisting of many rules, where manyof the rules operate at higher levels of groups of can-didates to be more complex than a smaller extrac-tor with many fine-grained rules.
+Indeed, as shownbefore, the complexity of the induced extractors ismuch smaller compared to that of manual extrac-tors, although the latter follow the semantic group-ing principle and are considered more interpretable.7 ConclusionWe presented a system for efficiently inducingnamed entity annotation rules in the AQL language.The design of our approach is aimed at producingaccurate rules that can be understood and refinedby humans, by placing special emphasis on lowcomplexity and efficient computation of the inducedrules, while mimicking a four stage approach usedfor manually constructing rules.
+The induced ruleshave good accuracy and low complexity accordingto our complexity measure.
+While our complexitymeasure informs the biases in our system and leadsto simpler, smaller extractors, it captures extrac-tor interpretability only to a certain extent.
+There-fore, we believe more work is required to devise amore comprehensive quantitative measure for inter-pretability, and refine our techniques in order to in-crease the interpretability of induced rules.
+Otherinteresting directions for future work are introduc-ing more constructs in our framework, and applyingour techniques to other languages.137ReferencesS.
+Abiteboul, R. Hull, and V. Vianu.
+1995.
+Foundationsof Databases.
+Addison Wesley Publishing Co.Douglas E. Appelt and Boyan Onyshkevych.
+1998.
+Thecommon pattern specification language.
+In TIPSTERworkshop.Mary Elaine Califf and Raymond J. Mooney.
+1997.
+Ap-plying ilp-based techniques to natural language infor-mation extraction: An experiment in relational learn-ing.
+In IJCAI Workshop on Frontiers of InductiveLogic Programming.Mary Elaine Califf and Raymond J. Mooney.
+1999.
+Re-lational learning of pattern-match rules for informationextraction.
+In AAAI.Laura Chiticariu, Rajasekar Krishnamurthy, Yunyao Li,Sriram Raghavan, Frederick R. Reiss, and Shivaku-mar Vaithyanathan.
+2010a.
+Systemt: an algebraic ap-proach to declarative information extraction.
+In ACL.Laura Chiticariu, Rajasekar Krishnamurthy, YunyaoLi, Frederick Reiss, and Shivakumar Vaithyanathan.2010b.
+Domain adaptation of rule-based annotatorsfor named-entity recognition tasks.
+In EMNLP.Fabio Ciravegna.
+2001.
+(lp)2, an adaptive algorithm forinformation extraction from web-related texts.
+In InProceedings of the IJCAI-2001 Workshop on AdaptiveText Extraction and Mining.Hamish Cunningham, Diana Maynard, KalinaBontcheva, Valentin Tablan, Niraj Aswani, IanRoberts, Genevieve Gorrell, Adam Funk, An-gus Roberts, Danica Damljanovic, Thomas Heitz,Mark A. Greenwood, Horacio Saggion, JohannPetrak, Yaoyong Li, and Wim Peters.
+2011.
+TextProcessing with GATE (Version 6).J.
+Fu?rnkranz and G. Widmer.
+1994.
+Incremental reducederror pruning.
+pages 70?77.Johannes Fu?rnkranz.
+1999.
+Separate-and-conquer rulelearning.
+Artif.
+Intell.
+Rev., 13(1):3?54, February.B.
+R. Gaines and P. Compton.
+1995.
+Induction of ripple-down rules applied to modeling large databases.
+J. In-tell.
+Inf.
+Syst., 5:211?228, November.IBM, 2012.
+IBM InfoSphere BigInsights - An-notation Query Language (AQL) reference.http://publib.boulder.ibm.com/infocenter/bigins/v1r3/topic/com.ibm.swg.im.infosphere.biginsights.doc/doc/biginsights_aqlref_con_aql-overview.html.Yunyao Li, Rajasekar Krishnamurthy, Sriram Raghavan,Shivakumar Vaithyanathan, and H. V. Jagadish.
+2008.Regular expression learning for information extrac-tion.
+In EMNLP.Bin Liu, Laura Chiticariu, Vivian Chu, H. V. Jagadish,and Frederick R. Reiss.
+2010.
+Automatic rule refine-ment for information extraction.
+Proc.
+VLDB Endow.,3:588?597.Diana Maynard, Kalina Bontcheva, and Hamish Cun-ningham.
+2003.
+Towards a semantic extraction ofnamed entities.
+In In Recent Advances in Natural Lan-guage Processing.Stephen Muggleton and C. Feng.
+1992.
+Efficient induc-tion in logic programs.
+In ILP.D.
+Nadeau and S. Sekine.
+2007.
+A survey of namedentity recognition and classification.
+Linguisticae In-vestigationes, 30:3?26.Shan-Hwei Nienhuys-Cheng and Ronald de Wolf.
+1997.Foundations of Inductive Logic Programming.Anup Patel, Ganesh Ramakrishnan, and Pushpak Bhat-tacharyya.
+2009.
+Incorporating linguistic expertiseusing ilp for named entity recognition in data hungryindian languages.
+In ILP.Frederick Reiss, Sriram Raghavan, Rajasekar Krishna-murthy, Huaiyu Zhu, and Shivakumar Vaithyanathan.2008.
+An algebraic approach to rule-based informa-tion extraction.
+In ICDE.Ellen Riloff.
+1993.
+Automatically constructing a dictio-nary for information extraction tasks.
+In AAAI.Stephen Soderland.
+1999.
+Learning information extrac-tion rules for semi-structured and free text.
+Mach.Learn., 34:233?272.Erik F. Tjong Kim Sang and Fien De Meulder.
+2003.Introduction to the conll-2003 shared task: language-independent named entity recognition.
+In HLT-NAACL.Ian H.Witten, Eibe Frank, andMark A.
+Hall.
+2011.
+DataMining: Practical Machine Learning Tools and Tech-niques.
+Morgan Kaufmann, Amsterdam, 3rd edition.138

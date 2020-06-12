@@ -1,0 +1,636 @@
+Proceedings of the 2009 Conference on Empirical Methods in Natural Language Processing, pages 40?51,Singapore, 6-7 August 2009.c?2009 ACL and AFNLPFirst- and Second-Order Expectation Semiringswith Applications to Minimum-Risk Training on Translation Forests?Zhifei Li and Jason EisnerDepartment of Computer Science and Center for Language and Speech ProcessingJohns Hopkins University, Baltimore, MD 21218, USAzhifei.work@gmail.com, jason@cs.jhu.eduAbstractMany statistical translation models can beregarded as weighted logical deduction.Under this paradigm, we use weights fromthe expectation semiring (Eisner, 2002), tocompute first-order statistics (e.g., the ex-pected hypothesis length or feature counts)over packed forests of translations (lat-tices or hypergraphs).
+We then introducea novel second-order expectation semir-ing, which computes second-order statis-tics (e.g., the variance of the hypothe-sis length or the gradient of entropy).This second-order semiring is essential formany interesting training paradigms suchas minimum risk, deterministic anneal-ing, active learning, and semi-supervisedlearning, where gradient descent optimiza-tion requires computing the gradient of en-tropy or risk.
+We use these semirings in anopen-source machine translation toolkit,Joshua, enabling minimum-risk trainingfor a benefit of up to 1.0 BLEU point.1 IntroductionA hypergraph or ?packed forest?
+(Gallo et al,1993; Klein and Manning, 2004; Huang and Chi-ang, 2005) is a compact data structure that usesstructure-sharing to represent exponentially manytrees in polynomial space.
+A weighted hypergraphalso defines a probability or other weight for eachtree, and can be used to represent the hypothesisspace considered (for a given input) by a mono-lingual parser or a tree-based translation system,e.g., tree to string (Quirk et al, 2005; Liu et al,2006), string to tree (Galley et al, 2006), tree totree (Eisner, 2003), or string to string with latenttree structures (Chiang, 2007).
+?This research was partially supported by the DefenseAdvanced Research Projects Agency?s GALE program viaContract No HR0011-06-2-0001.
+We are grateful to SanjeevKhudanpur for early guidance and regular discussions.Given a hypergraph, we are often interested incomputing some quantities over it using dynamicprogramming algorithms.
+For example, we maywant to run the Viterbi algorithm to find the mostprobable derivation tree in the hypergraph, or the kmost probable trees.
+Semiring-weighted logic pro-gramming is a general framework to specify thesealgorithms (Pereira and Warren, 1983; Shieber etal., 1994; Goodman, 1999; Eisner et al, 2005;Lopez, 2009).
+Goodman (1999) describes manyuseful semirings (e.g., Viterbi, inside, and Viterbi-n-best).
+While most of these semirings are used in?testing?
+(i.e., decoding), we are mainly interestedin the semirings that are useful for ?training?
+(i.e.,parameter estimation).
+The expectation semiring(Eisner, 2002), originally proposed for finite-statemachines, is one such ?training?
+semiring, and canbe used to compute feature expectations for the E-step of the EM algorithm, or gradients of the like-lihood function for gradient descent.In this paper, we apply the expectation semir-ing (Eisner, 2002) to a hypergraph (or packed for-est) rather than just a lattice.
+We then proposea novel second-order expectation semiring, nick-named the ?variance semiring.
+?The original first-order expectation semiring al-lows us to efficiently compute a vector of first-order statistics (expectations; first derivatives) onthe set of paths in a lattice or the set of trees in ahypergraph.
+The second-order expectation semir-ing additionally computes a matrix of second-order statistics (expectations of products; secondderivatives (Hessian); derivatives of expectations).We present details on how to compute many in-teresting quantities over the hypergraph using theexpectation and variance semirings.
+These quan-tities include expected hypothesis length, featureexpectation, entropy, cross-entropy, Kullback-Leibler divergence, Bayes risk, variance of hy-pothesis length, gradient of entropy and Bayesrisk, covariance and Hessian matrix, and so on.The variance semiring is essential for many in-teresting training paradigms such as deterministic40annealing (Rose, 1998), minimum risk (Smith andEisner, 2006), active and semi-supervised learning(Grandvalet and Bengio, 2004; Jiao et al, 2006).In these settings, we must compute the gradient ofentropy or risk.
+The semirings can also be used forsecond-order gradient optimization algorithms.We implement the expectation and variancesemirings in Joshua (Li et al, 2009a), and demon-strate their practical benefit by using minimum-risk training to improve Hiero (Chiang, 2007).2 Semiring Parsing on HypergraphsWe use a specific tree-based system called Hiero(Chiang, 2007) as an example, although the dis-cussion is general for any systems that use a hy-pergraph to represent the hypothesis space.2.1 Hierarchical Machine TranslationIn Hiero, a synchronous context-free grammar(SCFG) is extracted from automatically word-aligned corpora.
+An illustrative grammar rule forChinese-to-English translation isX ?
+?X0{ X1, X1of X0?
+,where the Chinese word { means of, and thealignment, encoded via subscripts on the nonter-minals, causes the two phrases around { to bereordered around of in the translation.
+Givena source sentence, Hiero uses a CKY parser togenerate a hypergraph, encoding many derivationtrees along with the translation strings.2.2 HypergraphsFormally, a hypergraph is a pair ?V,E?, where Vis a set of nodes (vertices) and E is a set of hy-peredges, with each hyperedge connecting a set ofantecedent nodes to a single consequent node.1Inparsing parlance, a node corresponds to an itemin the chart (which specifies aligned spans of in-put and output together with a nonterminal label).The root node corresponds to the goal item.
+Ahyperedge represents an SCFG rule that has been?instantiated?
+at a particular position, so that thenonterminals on the right and left sides have beenreplaced by particular antecedent and consequentitems; this corresponds to storage of backpointersin the chart.We write T (e) to denote the set of antecedentnodes of a hyperedge e. We write I(v) for the1Strictly speaking, making each hyperedge designate asingle consequent defines a B-hypergraph (Gallo et al, 1993).X 0,2 the mat NA X 3,4 a cat NAX 0,4 a cat the matX 0,4 the mat a catgoal item?0?1?2?3on the mat                of              a catX?
+?X0 ?X1,X1 onX0?X?
+?X0 ?X1,X1 of X0?X?
+?X0 ?X1,X0 ?s X1?X?
+?X0 ?X1,X0 X1?X????
+?, the mat?S??X0,X0?
+S??X0,X0?X??
+?, a cat?Figure 1: A toy hypergraph in Hiero.
+When generating thehypergraph, a trigram language model is integrated.
+Rect-angles represent items, where each item is identified by thenon-terminal symbol, source span, and left- and right-sidelanguage model states.
+An item has one or more incominghyperedges.
+A hyperedge consists of a rule, and a pointer toan antecedent item for each non-terminal symbol in the rule.set of incoming hyperedges of node v (i.e., hyper-edges of which v is the consequent), which repre-sent different ways of deriving v. Figure 1 showsa simple Hiero-style hypergraph.
+The hypergraphencodes four different derivation trees that sharesome of the same items.
+By exploiting this shar-ing, a hypergraph can compactly represent expo-nentially many trees.We observe that any finite-state automaton canalso be encoded as a hypergraph (in which everyhyperedge is an ordinary edge that connects a sin-gle antecedent to a consequent).
+Thus, the meth-ods of this paper apply directly to the simpler caseof hypothesis lattices as well.2.3 Semiring ParsingWe assume a hypergraph HG, which compactlyencodes many derivation trees d ?
+D. Given HG,we wish to extract the best derivations?or otheraggregate properties of the forest of derivations.Semiring parsing (Goodman, 1999) is a generalframework to describe such algorithms.
+To definea particular algorithm, we choose a semiring Kand specify a ?weight?
+ke?
+K for each hyper-edge e. The desired aggregate result then emergesas the total weight of all derivations in the hyper-graph.
+For example, to simply count derivations,one can assign every hyperedge weight 1 in thesemiring of ordinary integers; then each deriva-tion also has weight 1, and their total weight is thenumber of derivations.We write K = ?K,?,?, 0, 1?
+for a semiringwith elements K, additive operation ?, multi-41plicative operation?, additive identity 0, and mul-tiplicative identity 1.
+The ?
+operation is used toobtain the weight of each derivation d by multi-plying the weights of its component hyperedges e,that is, kd=?e?dke.
+The ?
+operation is usedto sum over all derivations d in the hypergraphto obtain the total weight of the hypergraph HG,which is?d?D?e?dke.2Figure 2 shows how tocompute the total weight of an acyclic hypergraphHG.3In general, the total weight is a sum overexponentially many derivations d. But Figure 2sums over these derivations in time only linear onthe size of the hypergraph.
+Its correctness relieson axiomatic properties of the semiring: namely,?
+is associative and commutative with identity 0,?
+is associative with two-sided identity 1, and?
+distributes over ?
+from both sides.
+The dis-tributive property is what makes Figure 2 work.The other properties are necessary to ensure that?d?D?e?dkeis well-defined.4The algorithm in Figure 2 is general and can beapplied with any semiring (e.g., Viterbi).
+Below,we present our novel semirings.3 Finding Expectations on HypergraphsWe now introduce the computational problems ofthis paper and the semirings we use to solve them.3.1 Problem DefinitionsWe are given a function p : D ?
+R?0, whichdecomposes multiplicatively over component hy-peredges e of a derivation d ?
+D: that is, p(d)def=?e?dpe.
+In practice, p(d) will specify a probabil-ity distribution over the derivations in the hyper-2Eisner (2002) uses closed semirings that are alsoequipped with a Kleene closure operator?.
+For example, inthe real semiring ?R,+,?, 0, 1?, we define p?= (1 ?
+p)?1(= 1 + p + p2+ .
+.
+.)
+for |p| < 1 and is undefined other-wise.
+The closure operator enables exact summation over theinfinitely many paths in a cyclic FSM, or trees in a hyper-graph with non-branching cycles, without the need to iteratearound cycles to numerical convergence.
+For completeness,we specify the closure operator for our semirings, satisfyingthe axioms k?= 1 ?
+k ?
+k?= 1 ?
+k??
+k, but we do notuse it in our experiments since our hypergraphs are acyclic.3We assume that HG has already been built by deductiveinference (Shieber et al, 1994).
+But in practice, the nodes?
+in-side weights ?
+(v) are usually accumulated as the hypergraphis being built, so that pruning heuristics can consult them.4Actually, the notation?e?dkeassumes that ?
+is com-mutative as well, as does the notation ?for u ?
+T (e)?
+in ouralgorithms; neither specifies a loop order.
+One could how-ever use a non-commutative semiring by ordering each hyper-edge?s antecedents and specifying that a derivation?s weightis the product of the weights of its hyperedges when visited inprefix order.
+Tables 1?2 will not assume any commutativity.INSIDE(HG,K)1 forvin topological order on HG  each node2  find ?(v)??e?I(v)(ke?
+(?u?T (e)?
+(u)))3 ?(v)?
+04 fore?
+I(v)  each incoming hyperedge5 k ?
+ke hyperedge weight6 foru?
+T (e)  each antecedent node7 k ?
+k ?
+?
+(u)8 ?(v)?
+?(v)?
+k9 return ?
+(root)Figure 2: Inside algorithm for an acyclic hypergraph HG,which provides hyperedge weights ke?
+K. This computesall ?inside weights?
+?
+(v) ?
+K, and returns ?
+(root), which istotal weight of the hypergraph, i.e.,?d?D?e?dke.OUTSIDE(HG,K)1 forvin HG2 ?(v)?
+03 ?(root)?
+14 forvin reverse topological order on HG5 fore?
+I(v)  each incoming hyperedge6 foru?
+T (e)  each antecedent node7 ?(u)?
+?(u)?
+(?(v)?
+ke?8?w?T (e),w 6=u?
+(w))Figure 3: Computes the ?outside weights?
+?(v).
+Can only berun after INSIDE(HG) of Figure 2 has already computed theinside weights ?(v).graph.
+It is often convenient to permit this prob-ability distribution to be unnormalized, i.e., onemay have to divide it through by some Z to get aproper distribution that sums to 1.We are also given two functions of interest r, s :D ?
+R, each of which decomposes additivelyover its component hyperedges e: that is, r(d)def=?e?dre, and s(d)def=?e?dse.We are now interested in computing the follow-ing quantities on the hypergraph HG:Zdef=?d?Dp(d) (1)rdef=?d?Dp(d)r(d) (2)sdef=?d?Dp(d)s(d) (3)tdef=?d?Dp(d)r(d)s(d) (4)Note that r/Z, s/Z, and t/Z are expectations un-der p of r(d), s(d), and r(d)s(d), respectively.More formally, the probabilistic interpretationis that D is a discrete sample space (consisting42INSIDE-OUTSIDE(HG,K,X )1  Run inside and outside on HG with only keweights2?k ?
+INSIDE(HG,K)  see Figure 23 OUTSIDE(HG,K)  see Figure 34  Do a single linear combination to get x?5 x??
+06 forvin HG  each node7 fore?
+I(v)  each incoming hyperedge8 ke?
+?
+(v)9 foru?
+T (e)  each antecedent node10 ke?
+ke?
+(u)11 x??
+x?+ (kexe)12 return ?
+?k, x?
+?Figure 4: If every hyperedge specifies a weight ?ke, xe?
+insome expectation semiring EK,X, then this inside-outside al-gorithm is a more efficient alternative to Figure 2 for comput-ing the total weight ?
+?k, x??
+of the hypergraph, especially if thexeare vectors.
+First, at lines 2?3, the inside and outside al-gorithms are run using only the keweights, obtaining only?k(without x?)
+but also obtaining all inside and outside weights?, ?
+?
+K as a side effect.
+Then the second component x?
+ofthe total weight is accumulated in lines 5?11 as a linear com-bination of all the xevalues, namely x?
+=?ekexe, wherekeis computed at lines 8?10 using ?
+and ?
+weights.
+The lin-ear coefficient keis the ?exclusive weight?
+for hyperedge e,meaning that the product kekeis the total weight in K of allderivations d ?
+D that include e.of all derivations in the hypergraph), p is a mea-sure over this space, and r, s : D ?
+R are ran-dom variables.
+Then r/Z and s/Z give the expec-tations of these random variables, and t/Z givesthe expectation of their product t = rs, so thatt/Z ?
+(r/Z)(s/Z) gives their covariance.Example 1: r(d) is the length of the translationcorresponding to derivation d (arranged by settingreto the number of target-side terminal words inthe SCFG rule associated with e).
+Then r/Z isthe expected hypothesis length.
+Example 2: r(d)evaluates the loss of d compared to a referencetranslation, using some additively decomposableloss function.
+Then r/Z is the risk (expected loss),which is useful in minimum-risk training.
+Exam-ple 3: r(d) is the number of times that a certainfeature fires on d. Then r/Z is the expected fea-ture count, which is useful in maximum-likelihoodtraining.
+We will generalize later in Section 4 toallow r(d) to be a vector of features.
+Example 4:Suppose r(d) and s(d) are identical and both com-pute hypothesis length.
+Then the second-orderstatistic t/Z is the second moment of the lengthdistribution, so the variance of hypothesis lengthcan be found as t/Z ?
+(r/Z)2.3.2 Computing the QuantitiesWe will use the semiring parsing framework tocompute the quantities (1)?(4).
+Although each is asum over exponentially many derivations, we willcompute it in O(|HG|) time using Figure 2.In the simplest case, let K = ?R,+,?, 0, 1?,and define ke= pefor each hyperedge e. Thenthe algorithm of Figure 2 reduces to the classicalinside algorithm (Baker, 1979) and computes Z.Next suppose K is the expectation semiring(Eisner, 2002), shown in Table 1.
+Define ke=?pe, pere?.
+Then Figure 2 will return ?Z, r?.Finally, suppose K is our novel second-orderexpectation semiring, which we introduce in Ta-ble 2.
+Define ke= ?pe, pere, pese, perese?.Then the algorithm of Figure 2 returns ?Z, r, s, t?.Note that, to compute t, one cannot simply con-struct a first-order expectation semiring by defin-ing t(d)def= r(d)s(d) because t(d), unlike r(d)and s(d), is not additively decomposable over thehyperedges in d.5Also, when r(d) and s(d) areidentical, the second-order expectation semiringallows us to compute variance as t/Z ?
+(r/Z)2,which is why we may call our second-order ex-pectation semiring the variance semiring.3.3 Correctness of the AlgorithmsTo prove our claim about the first-order expecta-tion semiring, we first observe that the definitionsin Table 1 satisfy the semiring axioms.
+Thereader can easily check these axioms (as wellas the closure axioms in footnote 2).
+With avalid semiring, we then simply observe that Fig-ure 2 returns the total weight?d?D?e?dke=?d?D?p(d), p(d)r(d)?
+= ?Z, r?.
+It is easy toverify the second equality from the definitionsof ?, Z, and r. The first equality requiresproving that?e?dke= ?p(d), p(d)r(d)?from the definitions of ?, ke, p(d), and r(d).The main intuition is that ?
+can be used tobuild up ?p(d), p(d)r(d)?
+inductively from theke: if d decomposes into two disjoint sub-derivations d1, d2, then ?p(d), p(d)r(d)?
+=?p(d1)p(d2), p(d1)p(d2)(r(d1) + r(d2))?
+=?p(d1), p(d1)r(d1)?
+?
+?p(d2), p(d2)r(d2)?.
+Thebase cases are where d is a single hyperedge e, inwhich case ?p(d), p(d)r(d)?
+= ke(thanks to ourchoice of ke), and where d is empty, in which case5However, in a more tricky way, the second-order expec-tation semiring can be constructed using the first-order ex-pectation semiring, as will be seen in Section 4.3.43Element ?p, r?
+?p1, r1??
+?p2, r2?
+?p1p2, p1r2+ p2r1?
+?p1, r1??
+?p2, r2?
+?p1+ p2, r1+ r2?
+?p, r??
+?p?, p?p?r?0 ?0, 0?1 ?1, 0?Table 1: Expectation semiring: Each element in the semir-ing is a pair ?p, r?.
+The second and third rows define theoperations between two elements ?p1, r1?
+and ?p2, r2?, andthe last two rows define the identities.
+Note that the multi-plicative identity 1 has an r component of 0.sasba+ b a ?
+bsa+b`a+bsa?b`a?b+ + + `a+ log(1 + e`b?`a) + `a+ `b+ - + `a+ log(1?
+e`b?`a) - `a+ `b- + - `a+ log(1?
+e`b?`a) - `a+ `b- - - `a+ log(1 + e`b?`a) + `a+ `bTable 3: Storing signed values in log domain: each value a(= sae`a) is stored as a pair ?sa, `a?
+where saand `aare thesign bit of a and natural logarithm of |a|, respectively.
+Thistable shows the operations between two values a = sa2`aand b = sb2`b, assuming `a?
+`b.
+Note: log(1 + x) (where|x| < 1) should be computed by the Mercator series x ?x2/2+x3/3??
+?
+?
+, e.g., using the math library function log1p.
+?p(d), p(d)r(d)?
+= 1.
+It follows by induction that?p(d), p(d)r(d)?
+=?e?dke.The proof for the second-order expec-tation semiring is similar.
+In particular,one mainly needs to show that?e?dke=?p(d), p(d)r(d), p(d)s(d), p(d)r(d)s(d)?.3.4 Preventing Underflow/OverflowIn Tables 1?2, we do not discuss how to store p, r,s, and t. If p is a probability, it often suffers fromthe underflow problem.
+r, s, and tmay suffer fromboth underflow and overflow problems, dependingon their scales.To address these, we could represent p in thelog domain as usual.
+However, r, s, and t can bepositive or negative, and we cannot directly takethe log of a negative number.
+Therefore, we repre-sent real numbers as ordered pairs.
+Specifically, torepresent a = sae`a, we store ?sa, `a?, where thesa?
+{+,?}
+is the sign bit of a and the floating-point number `ais the natural logarithm of |a|.6Table 3 shows the ???
+and ?+?operations.6An alternative that avoids log and exp is to store a =fa2eaas ?fa, ea?, where fais a floating-point number andeais a sufficiently wide integer.
+E.g., combining a 32-bitfawith a 32-bit eawill in effect extend fa?s 8-bit internalexponent to 32 bits by adding eato it.
+This gives much moredynamic range than the 11-bit exponent of a 64-bit double-precision floating-point number, if vastly less than in Table 3.4 Generalizations and SpeedupsIn this section, we generalize beyond the abovecase where p, r, s are R-valued.
+In general, p maybe an element of some other semiring, and r and smay be vectors or other algebraic objects.When r and s are vectors, especially high-dimensional vectors, the basic ?inside algorithm?of Figure 2 will be slow.
+We will show how tospeed it up with an ?inside-outside algorithm.
+?4.1 Allowing Feature Vectors and MoreIn general, for P,R, S, T , we can define thefirst-order expectation semiring EP,R= ?P ?R,?,?, 0, 1?
+and the second-order expectationsemiring EP,R,S,T= ?P ?R?S?T,?,?, 0, 1?,using the definitions from Tables 1?2.
+But dothose definitions remain meaningful, and do theycontinue to satisfy the semiring axioms?Indeed they do when P = R, R = Rn, S =Rm, T = Rn?m, with rs defined as the outerproduct rsT(a matrix) where sTis the trans-pose of s. In this way, the second-order semiringEP,R,S,Tlets us take expectations of vectors andouter products of vectors.
+So we can find meansand covariances of any number of linearly decom-posable quantities (e.g., feature counts) defined onthe hypergraph.We will consider some other choices in Sec-tions 4.3?4.4 below.
+Thus, for generality, we con-clude this section by stating the precise technicalconditions needed to construct EP,Rand EP,R,S,T:?
+P is a semiring?
+R is a P -module (e.g, a vector space), mean-ing that it comes equipped with an associativeand commutative addition operation with anidentity element 0, and also a multiplicationoperation P?R?
+R, such that p(r1+r2) =pr1+pr2, (p1+p2)r = p1r+p2r, p1(p2r) =(p1p2)r?
+S and T are also P -modules?
+there is a multiplication operation R ?
+S ?T that is bilinear, i.e., (r1+ r2)s = r1s +r2s, r(s1+ s2) = rs1+ rs2, (pr)s = p(rs),r(ps) = p(rs)As a matter of notation, note that above and inTables 1?2, we overload ?+?
+to denote any ofthe addition operations within P,R, S, T ; over-load ?0?
+to denote their respective additive iden-tities; and overload concatenation to denote anyof the multiplication operations within or between44Element ?p, r, s, t?
+?p1, r1, s1, t1??
+?p2, r2, s2, t2?
+?p1p2, p1r2+ p2r1, p1s2+ p2s1,p1t2+ p2t1+ r1s2+ r2s1?
+?p1, r1, s1, t1??
+?p2, r2, s2, t2?
+?p1+ p2, r1+ r2, s1+ s2, t1+ t2?
+?p, r, s, t??
+?p?, p?p?r, p?p?s, p?p?
+(p?rs+ p?rs+ t)?0 ?0, 0, 0, 0?1 ?1, 0, 0, 0?Table 2: Second-order expectation semiring (variance semiring): Each element in the semiring is a 4-tuple ?p, r, s, t?.
+Thesecond and third rows define the operations between two elements ?p1, r1, s1, t1?
+and ?p2, r2, s2, t2?, while the last two rowsdefine the identities.
+Note that the multiplicative identity 1 has r,s and t components of 0.P,R, S, T .
+?1?
+refers to the multiplicative identityof P .
+We continue to use distinguished symbols?,?, 0, 1 for the operations and identities in our?main semiring of interest,?
+EP,Ror EP,R,S,T.To compute equations (1)?
+(4) in this more gen-eral setting, we must still require multiplicativeor additive decomposability, defining p(d)def=?e?dpe, r(d)def=?e?dre, s(d)def=?e?dseas be-fore.
+But the?and?operators here now denoteappropriate operations within P , R, and S respec-tively (rather than the usual operations within R).4.2 Inside-Outside Speedup for First-OrderExpectation SemiringsUnder the first-order expectation semiring ER,Rn,the inside algorithm of Figure 2 will return ?Z, r?where r is a vector of n feature expectations.However, Eisner (2002, section 5) observes thatthis is inefficient when n is large.
+Why?
+Theinside algorithm takes the trouble to compute aninside weight ?
+(v) ?
+R ?
+Rnfor each node vin the hypergraph (or lattice).
+The second com-ponent of ?
+(v) is a presumably dense vector ofall features that fire in all subderivations rooted atnode v. Moreover, as ?
+(v) is computed in lines3?8, that vector is built up (via the ?
+and ?
+oper-ations of Table 1) as a linear combination of otherdense vectors (the second components of the vari-ous ?(u)).
+These vector operations can be slow.A much more efficient approach (usually) isthe traditional inside-outside algorithm (Baker,1979).7Figure 4 generalizes the inside-outsidealgorithm to work with any expectation semiringEK,X.8We are given a hypergraph HG whoseedges have weights ?ke, xe?
+in this semiring (so7Note, however, that the expectation semiring requiresonly the forward/inside pass to compute expectations, andthus it is more efficient than the traditional inside-outside al-gorithm (which requires two passes) if we are interested incomputing only a small number of quantities.8This follows Eisner (2002), who similarly generalizedthe forward-backward algorithm.now ke?
+K denotes only part of the edge weight,not all of it).
+INSIDE-OUTSIDE(HG,K, X) finds?d?D?e?d?ke, xe?, which has the form ?
+?k, x?
+?.But, INSIDE(HG,EK,X) could accomplish thesame thing.
+So what makes the inside-outside al-gorithm more efficient?
+It turns out that x?
+canbe found quickly as a single linear combination?ekexeof just the feature vectors xethat ap-pear on individual hyperedges?typically a sumof very sparse vectors!
+And the linear coefficientske, as well as?k, are computed entirely within thecheap semiring K. They are based on ?
+and ?
+val-ues obtained by first running INSIDE(HG,K) andOUTSIDE(HG,K), which use only the kepart ofthe weights and ignore the more expensive xe.It is noteworthy that the expectation semiring isnot used at all by Figure 4.
+Although the returnvalue ?
+?k, x??
+is in the expectation semiring, it isbuilt up not by ?
+and ?
+but rather by computing?k and x?
+separately.
+One might therefore wonderwhy the expectation semiring and its operationsare still needed.
+One reason is that the input toFigure 4 consists of hyperedge weights ?ke, xe?
+inthe expectation semiring?and these weights maywell have been constructed using ?
+and ?.
+Forexample, Eisner (2002) uses finite-state operationssuch as composition, which do combine weightsentirely within the expectation semiring beforetheir result is passed to the forward-backward al-gorithm.
+A second reason is that when we workwith a second-order expectation semiring in Sec-tion 4.4 below, the?k, ?, and ?
+values in Figure 4will turn out to be elements of a first-order expec-tation semiring, and they must still be constructedby first-order ?
+and ?, via calls to Figures 2?3.Why does inside-outside work?
+Whereas theinside algorithm computes?d?D?e?din anysemiring, the inside-outside algorithm exploitsthe special structure of an expectation semir-ing.
+By that semiring?s definitions of ?
+and ?
+(Table 1),?d?D?e?d?ke, xe?
+can be found as45??d?D?e?dke,?d?D?e?d(?e??d,e?6=eke?
+)xe?.The first component (giving?k) is foundby calling the inside algorithm on just thekepart of the weights.
+The second com-ponent (giving x?)
+can be rearranged into?e?d: e?d(?e??d,e?6=eke?
+)xe=?ekexe, wherekedef=?d: e?d(?e??d,e?6=eke?)
+is found from ?, ?.The application described at the start of thissubsection is the classical inside-outside algo-rithm.
+Here ?ke, xe?def= ?pe, pere?, and the al-gorithm returns ?
+?k, x??
+= ?Z, r?.
+In fact, thatx?
+= r can be seen directly: r =?dp(d)r(d) =?dp(d)(?e?dre) =?e?d: e?dp(d)re=?e(keke)re=?ekexe= x?.
+This uses the factthat keke=?d: e?dp(d).4.3 Lifting Trick for Second-Order SemiringsWe now observe that the second-order expectationsemiring EP,R,S,Tcan be obtained indirectly bynesting one first-order expectation semiring insideanother!
+First ?lift?
+P to obtain the first-order ex-pectation semiring Kdef= EP,R.
+Then lift this a sec-ond time to obtain the ?nested?
+first-order expec-tation semiring EK,X= E(EP,R),(S?T ), where weequip Xdef= S ?
+T with the operations ?s1, t1?
++?s2, t2?def= ?s1+ s2, t1+ t2?
+and ?p, r?
+?s, t?def=?ps, pt+ rs?.
+The resulting first-order expectationsemiring has elements of the form ?
+?p, r?, ?s, t?
+?.Table 4 shows that it is indeed isomorphic toEP,R,S,T, with corresponding elements ?p, r, s, t?.This construction of the second-order semiringas a first-order semiring is a useful bit of abstractalgebra, because it means that known propertiesof first-order semirings will also apply to second-order ones.
+First of all, we are immediately guar-anteed that the second-order semiring satisfies thesemiring axioms.
+Second, we can directly applythe inside-outside algorithm there, as we now see.4.4 Inside-Outside Speedup forSecond-Order Expectation SemiringsGiven a hypergraph weighted by a second-orderexpectation semiring EP,R,S,T.
+By recasting thisas the first-order expectation semiringEK,XwhereK = EP,Rand X = (S ?
+T ), we can again ap-ply INSIDE-OUTSIDE(HG,K, X) to find the totalweight of all derivations.For example, to speed up Section 3.2, wemay define ?ke, xe?
+= ?
+?pe, pere?, ?pese, perese?
+?for each hyperedge e. Then the inside-outsidealgorithm of Figure 4 will compute ?
+?k, x??
+=?
+?Z, r?, ?s, t?
+?, more quickly than the inside algo-rithm of Figure 2 computed ?Z, r, s, t?.Figure 4 in this case will run the inside andoutside algorithms in the semiring EP,R, so thatke,?k, ?, ?, and kewill now be elements of P ?R(not just elements of P as in the first-order case).Finally it finds x?
+=?ekexe, where xe?
+S?T .9This is a particularly effective speedup overthe inside algorithm when R consists of scalars(or small vectors) whereas S, T are sparse high-dimensional vectors.
+We will see exactly this casein our experiments, where our weights ?p, r, s, t?denote (probability, risk, gradient of probability,gradient of risk), or (probability, entropy, gradientof probability, gradient of entropy).5 Finding Gradients on HypergraphsIn Sections 3.2 and 4.1, we saw how our semiringshelped find the sum Z of all p(d), and computeexpectations r, s, t of r(d), s(d), and r(d)s(d).It turns out that these semirings can also com-pute first- and second-order partial derivatives ofall the above results, with respect to a parametervector ?
+?
+Rm.
+That is, we ask how they areaffected when ?
+changes slightly from its currentvalue.
+The elementary values pe, re, seare nowassumed to implicitly be functions of ?.Case 1: Recall that Zdef=?dp(d) is com-puted by INSIDE(HG,R) if each hyperedge e hasweight pe.
+?Lift?
+this weight to ?pe,?pe?, where?pe?
+Rmis a gradient vector.
+Now ?Z,?Z?
+willbe returned by INSIDE(HG,ER,Rm)?
+or, moreefficiently, by INSIDE-OUTSIDE(HG,R,Rm).Case 2: To differentiate a secondtime, ?lift?
+the above weights againto obtain ??pe,?pe?,??pe,?pe??
+=?
+?pe,?pe?, ??pe,?2pe?
+?, where ?2pe?
+Rm?mis the Hessian matrix of second-order mixedpartial derivatives.
+These weights are in asecond-order expectation semiring.10Now9Figure 4 was already proved generally correct in Sec-tion 4.2.
+To understand more specifically how ?s, t?
+getscomputed, observe in analogy to the end of Section 4.2 that?s, t?
+=?d?p(d)s(d), p(d)r(d)s(d)?=?d?p(d), p(d)r(d)?
+?s(d), 0?=?d?p(d), p(d)r(d)?
+?e?d?se, 0?=?e?d: e?d?p(d), p(d)r(d)?
+?se, 0?=?e(keke)?se, 0?
+=?eke?pe, pere?
+?se, 0?=?eke?pese, perese?
+=?ekexe= x?.10Modulo the trivial isomorphism from ?
+?p, r?, ?s, t??
+to?p, r, s, t?
+(see Section 4.3), the intended semiring both hereand in Case 3 is the one that was defined at the start of Sec-tion 4.1, in which r, s are vectors and their product is defined46?
+?p1, r1?, ?s1, t1???
+?
+?p2, r2?, ?s2, t2??
+= ?
+?p1, r1?
++ ?p2, r2?, ?s1, t1?
++ ?s2, t2?
+?= ?
+?p1+ p2, r1+ r2?, ?s1+ s2, t1+ t2???
+?p1, r1?, ?s1, t1???
+?
+?p2, r2?, ?s2, t2??
+= ?
+?p1, r1?
+?p2, r2?, ?p1, r1?
+?s2, t2?
++ ?p2, r2?
+?s1, t1?
+?= ?
+?p1p2, p1r2+ p2r1?, ?p1s2+ p2s1, p1t2+ p2t1+ r1s2+ r2s1?
+?Table 4: Constructing second-order expectation semiring as first-order.
+Here we show that the operations in EK,Xareisomorphic to Table 2?s operations in EP,R,S,T, provided that Kdef= EP,Rand Xdef= S ?
+T is a K-module, in which addition isdefined by?s1, t1?
++ ?s2, t2?def= ?s1+ s2, t1+ t2?, and left-multiplication by K is defined by ?p, r?
+?s, t?def= ?ps, pt+ rs?.?Z,?Z,?Z,?2Z?
+will be returned byINSIDE(HG,ER,Rm,Rm,Rm?m), or more effi-ciently by INSIDE-OUTSIDE(HG,ER,Rm,Rm?Rm?m).Case 3: Our experiments will need to find ex-pectations and their partial derivatives.
+Recall that?Z, r?
+is computed by INSIDE(HG,ER,Rn) whenthe edge weights are ?pe, pere?
+with re?
+Rn.
+Liftthese weights to ?
+?pe, pere?,?
+?pe, pere??
+=?
+?pe, pere?, ?
+?pe, (?pe)re+ pe(?re)?
+?.Now ?Z, r,?Z,?r?
+will be returnedby INSIDE(HG,ER,Rn,Rm,Rn?m) or byINSIDE-OUTSIDE(HG,ER,Rn,Rm?
+Rn?m).115.1 What Connects Gradients to Expectations?In Case 1, we claimed that the same algorithmwill compute either gradients ?Z,?Z?
+or expec-tations ?Z, r?, if the hyperedge weights are set to?pe,?pe?
+or ?pe, pere?
+respectively.12This mayseem wonderful and mysterious.
+We now show intwo distinct ways why this follows from our setupof Section 3.1.
+At the end, we derive as a specialcase the well-known relationship between gradi-ents and expectations in log-linear models.From Expectations to Gradients One perspec-tive is that our semiring fundamentally finds ex-pectations.
+Thus, we must be finding ?Z by for-mulating it as a certain expectation r. Specif-ically, ?Z = ?
+?dp(d) =?d?p(d) =to be rsT, a matrix.
+However, when using this semiring tocompute second derivatives (Case 2) or covariances, one mayexploit the invariant that r = s, e.g., to avoid storing s and tocompute r1s2+ s1r2in multiplication simply as 2 ?
+r1r2.11Or, if n > m, it is faster to instead useINSIDE-OUTSIDE(HG,ER,Rm,Rn?
+Rm?n), swapping thesecond and third components of the 4-tuple and trans-posing the matrix in the fourth component.
+Alge-braically, this changes nothing because ER,Rn,Rm?Rn?mandER,Rm,Rn?Rm?nare isomorphic, thanks to symmetries in Ta-ble 2.
+This method computes the expectation of the gradientrather than the gradient of the expectation?they are equal.12Cases 2?3 relied on the fact that this relationship stillholds even when the scalars Z, pe?
+R are replaced by morecomplex objects that we wish to differentiate.
+Our discus-sion below sticks to the scalar case for simplicity, but wouldgeneralize fairly straightforwardly.
+Pearlmutter and Siskind(2007) give the relevant generalizations of dual numbers.
+?dp(d)r(d) = r, provided that r(d) =(?p(d))/p(d).
+That can be arranged by definingredef= (?pe)/pe.13So that is why the input weights?pe, pere?
+take the form ?pe,?pe?.From Gradients to Expectations An alterna-tive perspective is that our semiring fundamen-tally finds gradients.
+Indeed, pairs like ?p,?p?have long been used for this purpose (Clifford,1873) under the name ?dual numbers.?
+Oper-ations on dual numbers, including those in Ta-ble 1, compute a result in R along with its gradi-ent.
+For example, our ?
+multiplies dual numbers,since ?p1,?p1?
+?
+?p2,?p2?
+= ?p1p2, p1(?p2) +(?p1)p2?
+= ?p1p2,?(p1p2)?.
+The inside algo-rithm thus computes both Z and ?Z in a single?forward?
+or ?inside?
+pass?known as automaticdifferentiation in the forward mode.
+The inside-outside algorithm instead uses the reverse mode(a.k.a.
+back-propagation), where a separate ?back-ward?
+or ?outside?
+pass is used to compute?Z.How can we modify this machinery to pro-duce expectations r?
+given some arbitrary reof interest?
+Automatic differentiation maybe used on any function (e.g., a neural net),but for our simple sum-of-products functionZ, it happens that ?Z = ?
+(?d?epe) =?d?e?d(?e??d,e?6=epe?)?pe.
+Our trick is tosurreptitiously replace the ?pein the inputweights ?pe,?pe?
+with pere.
+Then the outputchanges similarly: the algorithms will insteadfind?d?e?d(?e??d,e?6=epe?
+)pere, which re-duces to?d?e?dp(d)re=?dp(d)?e?dre=?dp(d)r(d) = r?.Log-linear Models as a Special Case Replac-ing ?pewith pereis unnecessary if ?pealreadyequals pere.
+That is the case in log-linear models,where pedef= exp(re?
+?)
+for some feature vector reassociated with e. So there, ?Z already equalsr?
+?yielding a key useful property of log-linear13Proof: r(d) =?e?dre=?e?d(?pe)/pe=?e?d?
+log pe= ?
+?e?dlog pe= ?
+log?e?dpe=?
+log p(d) = (?p(d))/p(d).47models, that ?
+logZ = (?Z)/Z = r?/Z, the vec-tor of feature expectations (Lau et al, 1993).6 Practical ApplicationsGiven a hypergraph HG whose hyperedges e areannotated with values pe.
+Recall from Section 3.1that this defines a probability distribution over allderivations d in the hypergraph, namely p(d)/Zwhere p(d)def=?e?dpe.6.1 First-Order Expectation Semiring ER,RIn Section 3, we show how to compute the ex-pected hypothesis length or expected featurecounts, using the algorithm of Figure 2 with afirst-order expectation semiring ER,R.
+In general,given hyperedge weights ?pe, pere?, the algorithmcomputes ?Z, r?
+and thus r/Z, the expectation ofr(d)def=?e?dre.
+We now show how to compute afew other quantities by choosing reappropriately.Entropy on a Hypergraph The entropy of thedistribution of derivations in a hypergraph14isH(p) = ?
+?d?D(p(d)/Z) log(p(d)/Z) (5)= logZ ?1Z?d?Dp(d) log p(d)= logZ ?1Z?d?Dp(d)r(d) = logZ ?rZprovided that we define redef= log pe(so thatr(d) =?e?dre= log p(d)).
+Of course, we cancompute ?Z, r?
+as explained in Section 3.2.Cross-Entropy and KL Divergence We maybe interested in computing the cross-entropy orKL divergence between two distributions p and q.For example, in variational decoding for machinetranslation (Li et al, 2009b), p is a distributionrepresented by a hypergraph, while q, representedby a finite state automaton, is an approximation top.
+The cross entropy between p and q is defined asH(p, q) = ?
+?d?D(p(d)/Zp) log(q(d)/Zq) (6)= logZq?1Zp?d?Dp(d) log q(d)= logZq?1Zp?d?Dp(d)r(d) = logZq?rZp14Unfortunately, it is intractable to compute the entropy ofthe distribution over strings (each string?s probability is a sumover several derivations).
+But Li et al (2009b, section 5.4) doestimate the gap between derivational and string entropies.where the first term Zqcan be computed usingthe inside algorithm with hyperedge weights qe,and the numerator and denominator of the sec-ond term using an expectation semiring with hy-peredge weights ?pe, pere?
+with redef= log qe.The KL divergence to p from q can be computedas KL(p ?
+q) = H(p, q)?
+H(p).Expected Loss (Risk) Given a reference sen-tence y?, the expected loss (i.e., Bayes risk) of thehypotheses in the hypergraph is defined as,R(p) =?d?D(p(d)/Z)L(Y(d), y?)
+(7)where Y(d) is the target yield of d and L(y, y?)
+isthe loss of the hypothesis y with respect to the ref-erence y?.
+The popular machine translation met-ric, BLEU (Papineni et al, 2001), is not additivelydecomposable, and thus we are not able to com-pute the expected loss for it.
+Tromble et al (2008)develop the following loss function, of which a lin-ear approximation to BLEU is a special case,L(y, y?)
+= ?(?0|y|+?w?N?w#w(y)?w(y?))
+(8)where w is an n-gram type, N is a set of n-gramtypes with n ?
+[1, 4], #w(y) is the number of oc-currence of the n-gramw in y, ?w(y?)
+is an indica-tor to check if y?contains at least one occurrenceof w, and ?nis the weight indicating the relativeimportance of an n-gram match.
+If the hypergraphis already annotated with n-gram (n ?
+4) lan-guage model states, this loss function is additivelydecomposable.
+Using redef= Lewhere Leis theloss for a hyperedge e, we compute the expectedloss,R(p) =?d?Dp(d)L(Y(d), y?
+)Z=rZ(9)6.2 Second-Order Expectation SemiringsWith second-order expectation semirings, we cancompute from a hypergraph the expectation andvariance of hypothesis length; the feature expec-tation vector and covariance matrix; the Hessian(matrix of second derivatives) of Z; and the gradi-ents of entropy and expected loss.
+The computa-tions should be clear from earlier discussion.
+Be-low we compute gradient of entropy or Bayes risk.Gradient of Entropy or Risk It is easy to seethat the gradient of entropy (5) is?H(p) =?ZZ?Z?r ?
+r?ZZ2(10)48We may compute ?Z, r,?Z,?r?
+as ex-plained in Case 3 of Section 5 by usingkedef= ?pe, pere,?pe, (?pe)re+ pe?re?def=?pe, pelog pe,?pe, (1 + log pe)?pe?, where ?pedepends on the particular parameterization of themodel (see Section 7.1 for an example).Similarly, the gradient of risk of (9) is?R(p) =Z?r ?
+r?ZZ2(11)We may compute ?Z, r,?Z,?r?
+using kedef=?pe, peLe,?pe, Le?pe?.7 Minimum-Risk Training for MTWe now show how we improve the training of aHiero MT model by optimizing an objective func-tion that includes entropy and risk.
+Our objectivefunction could be computed with a first-order ex-pectation semiring, but computing it along with itsgradient requires a second-order one.7.1 The Model pWe assume a globally normalized linear modelfor its simplicity.
+Each derivation d is scored byscore(d)def= ?
+(d) ?
+?
+=?i?i(d) ?i(12)where ?
+(d) ?
+Rmis a vector of features of d. Wethen define the unnormalized distribution p(d) asp(d) = exp(?
+?
+score(d)) (13)where the scale factor ?
+adjusts how sharply thedistribution favors the highest-scoring hypotheses.7.2 Minimum-Risk TrainingAdjusting ?
+or ?
+changes the distribution p. Mini-mum error rate training (MERT) (Och, 2003) triesto tune ?
+to minimize the BLEU loss of a decoderthat chooses the most probable output accordingto p. (?
+has no effect.)
+MERT?s specialized line-search addresses the problem that this objectivefunction is piecewise constant, but it does not scaleto a large number of parameters.Smith and Eisner (2006) instead propose a dif-ferentiable objective that can be optimized by gra-dient descent: the Bayes risk R(p) of (7).
+This isthe expected loss if one were (hypothetically) touse a randomized decoder, which chooses a hy-pothesis d in proportion to its probability p(d).
+Ifentropy H(p) is large (e.g., small ?
+), the Bayes riskis smooth and has few local minima.
+Thus, Smithand Eisner (2006) try to avoid local minima bystarting with large H(p) and decreasing it gradu-ally during optimization.
+This is called determin-istic annealing (Rose, 1998).
+As H(p) ?
+0 (e.g.,large ?
+), the Bayes risk does approach the MERTobjective (i.e.
+minimizing 1-best error).The objec-tive isminimize R(p)?
+T ?
+H(p) (14)where the ?temperature?
+T starts high and is ex-plicitly decreased as optimization proceeds.7.3 Gradient Descent OptimizationSolving (14) for a given T requires computing theentropy H(p) and risk R(p) and their gradientswith respect to ?
+and ?.
+Smith and Eisner (2006)followed MERT in constraining their decoder toonly an n-best list, so for them, computing thesequantities did not involve dynamic programming.We compare those methods to training on a hy-pergraph containing exponentially many hypothe-ses.
+In this condition, we need our new second-order semiring methods and must also approxi-mate BLEU (during training only) by an additivelydecomposable loss (Tromble et al, 2008).15Our algorithms require that p(d) of (13) is mul-tiplicatively decomposable.
+It suffices to define?
+(d)def=?e?d?e, so that all features are localto individual hyperedges; the vector ?eindicateswhich features fire on hyperedge e. Then score(d)of (12) is additively decomposable:score(d) =?e?dscoree=?e?d?e?
+?
+(15)We can then set pe= exp(?
+?
+scoree), and ?pe=?pe?
+(e), and use the algorithms described in Sec-tion 6 to compute H(p) and R(p) and their gradi-ents with respect to ?
+and ?.1615Pauls et al (2009) concurrently developed a method tomaximize the expected n-gram counts on a hypergraph usinggradient descent.
+Their objective is similar to the minimumrisk objective (though without annealing), and their gradientdescent optimization involves in algorithms in computing ex-pected feature/n-gram counts as well as expected products offeatures and n-gram counts, which can be viewed as instancesof our general algorithms with first- and second-order semir-ings.
+They focused on tuning only a small number (i.e.
+nine)of features as in a regular MERT setting, while our experi-ments involve both a small and a large number of features.16It is easy to verify that the gradient of a function f (e.g.entropy or risk) with respect to ?
+can be written as a weightedsum of gradients with respect to the feature weights ?i, i.e.?f??=1??i?i??f?
+?i(16)497.4 Experimental Results7.4.1 Experimental SetupWe built a translation model on a corpus forIWSLT 2005 Chinese-to-English translation task(Eck and Hori, 2005), which consists of 40k pairsof sentences.
+We used a 5-gram language modelwith modified Kneser-Ney smoothing, trained onthe bitext?s English using SRILM (Stolcke, 2002).7.4.2 Tuning a Small Number of FeaturesWe first investigate how minimum-risk training(MR), with and without deterministic annealing(DA), performs compared to regular MERT.
+MRwithout DA just fixes T = 0 and ?
+= 1 in (14).All MR or MR+DA uses an approximated BLEU(Tromble et al, 2008) (for training only), whileMERT uses the exact corpus BLEU in training.The first five rows in Table 5 present the resultsby tuning the weights of five features (?
+?
+R5).
+Weobserve that MR or MR+DA performs worse thanMERT on the dev set.
+This may be mainly becauseMR or MR+DA uses an approximated BLEU whileMERT doesn?t.
+On the test set, MR or MR+DAon an n-best list is comparable to MERT.
+But ournew approach, MR or MR+DA on a hypergraph,does consistently better (statistically significant)than MERT, despite approximating BLEU.17Did DA help?
+For both n-best and hypergraph,MR+DA did obtain a better BLEU score than plainMR on the dev set.18This shows that DA helpswith the local minimum problem, as hoped.
+How-ever, DA?s improvement on the dev set did nottransfer to the test set.7.4.3 Tuning a Large Number of FeaturesMR (with or without DA) is scalable to tune alarge number of features, while MERT is not.
+Toachieve competitive performance, we adopt a for-est reranking approach (Li and Khudanpur, 2009;Huang, 2008).
+Specifically, our training has twostages.
+In the first stage, we train a baseline systemas usual.
+We also find the optimal feature weightsfor the five features mentioned before, using themethod of MR+DA operating on a hypergraph.
+Inthe second stage, we generate a hypergraph foreach sentence in the training data (which consistsof about 40k sentence pairs), using the baseline17Pauls et al (2009) concurrently observed a similar pat-tern (i.e., MR performs worse than MERT on the dev set, butperforms better on a test set).18We also verified that MR+DA found a better objectivevalue (i.e., expected loss on the dev set) than MR.Training scheme dev testMERT (Nbest, small) 42.6 47.7MR (Nbest, small) 40.8 47.7MR+DA (Nbest, small) 41.6 47.8NEW!
+MR (hypergraph, small) 41.3 48.4NEW!
+MR+DA (hypergraph, small) 41.9 48.3NEW!
+MR (hypergraph, large) 42.3 48.7Table 5: BLEU scores on the Dev and test sets under differenttraining scenarios.
+In the ?small?
+model, five features (i.e.,one for the language model, three for the translation model,and one for word penalty) are tuned.
+In the ?large?
+model,21k additional unigram and bigram features are used.system.
+In this stage, we add 21k additional uni-gram and bigram target-side language model fea-tures (cf.
+Li and Khudanpur (2008)).
+For example,a specific bigram ?the cat?
+can be a feature.
+Notethat the total score by the baseline system is alsoa feature in the second-stage model.
+With thesefeatures and the 40k hypergraphs, we run the MRtraining to obtain the optimal weights.During test time, a similar procedure is fol-lowed.
+For a given test sentence, the baseline sys-tem first generates a hypergraph, and then the hy-pergraph is reranked by the second-stage model.The last row in Table 5 reports the BLEU scores.Clearly, adding more features improves (statisti-cally significant) the case with only five features.We plan to incorporate more informative featuresdescribed by Chiang et al (2009).198 ConclusionsWe presented first-order expectation semiringsand inside-outside computation in more detailthan (Eisner, 2002), and developed extensions tohigher-order expectation semirings.
+This enablesefficient computation of many interesting quanti-ties over the exponentially many derivations en-coded in a hypergraph: second derivatives (Hes-sians), expectations of products (covariances), andexpectations such as risk and entropy along withtheir derivatives.
+To our knowledge, algorithmsfor these problems have not been presented before.Our approach is theoretically elegant, like otherwork in this vein (Goodman, 1999; Lopez, 2009;Gimpel and Smith, 2009).
+We used it practically toenable a new form of minimum-risk training thatimproved Chinese-English MT by 1.0 BLEU point.Our implementation will be released within theopen-source MT toolkit Joshua (Li et al, 2009a).19Their MIRA training tries to favor a specific oracletranslation?indeed a specific tree?from the (pruned) hyper-graph.
+MR does not commit to such an arbitrary choice.50ReferencesJ.
+K. Baker.
+1979.
+Trainable grammars for speechrecognition.
+In Jared J. Wolf and Dennis H. Klatt,editors, Speech Communication Papers Presented atthe 97th Meeting of the Acoustical Society of Amer-ica, MIT, Cambridge, MA, June.David Chiang, Kevin Knight, and Wei Wang.
+2009.11,001 new features for statistical machine transla-tion.
+In NAACL, pages 218?226.David Chiang.
+2007.
+Hierarchical phrase-based trans-lation.
+Computational Linguistics, 33(2):201?228.W.
+K. Clifford.
+1873.
+Preliminary sketch of bi-quaternions.
+Proceedings of the London Mathemat-ical Society, 4:381?395.Matthias Eck and Chiori Hori.
+2005.
+Overview of theiwslt 2005 evaluation campaign.
+In In Proc.
+of theInternational Workshop on Spoken Language Trans-lation.Jason Eisner, Eric Goldlust, and Noah A. Smith.2005.
+Compiling comp ling: practical weighteddynamic programming and the dyna language.
+InHLT/EMNLP, pages 281?290.Jason Eisner.
+2002.
+Parameter estimation for proba-bilistic finite-state transducers.
+In ACL, pages 1?8.Jason Eisner.
+2003.
+Learning non-isomorphic treemappings for machine translation.
+In ACL, pages205?208.Michel Galley, Jonathan Graehl, Kevin Knight, DanielMarcu, Steve DeNeefe, Wei Wang, and IgnacioThayer.
+2006.
+Scalable inference and training ofcontext-rich syntactic translation models.
+In ACL,pages 961?968.Giorgio Gallo, Giustino Longo, Stefano Pallottino, andSang Nguyen.
+1993.
+Directed hypergraphs and ap-plications.
+Discrete Appl.
+Math., 42(2-3):177?201.Kevin Gimpel and Noah A. Smith.
+2009.
+Cubesumming, approximate inference with non-local fea-tures, and dynamic programming without semirings.In EACL, pages 318?326.Joshua Goodman.
+1999.
+Semiring parsing.
+Computa-tional Linguistics, 25(4):573?605.Y Grandvalet and Y Bengio.
+2004.
+Semi-supervisedlearning by entropy minimization.
+In NIPS, pages529?536.Liang Huang and David Chiang.
+2005.
+Better k-bestparsing.
+In IWPT, pages 53?64.Liang Huang.
+2008.
+Forest reranking: Discriminativeparsing with non-local features.
+In ACL, pages 586?594.Feng Jiao, Shaojun Wang, Chi-Hoon Lee, RussellGreiner, and Dale Schuurmans.
+2006.
+Semi-supervised conditional random fields for improvedsequence segmentation and labeling.
+In ACL, pages209?216.Dan Klein and Christopher D. Manning.
+2004.
+Pars-ing and hypergraphs.
+New developments in parsingtechnology, pages 351?372.Raymond Lau, Ronald Rosenfeld, and Salim Roukos.1993.
+Adaptive language modelling using the maxi-mum entropy principle.
+In Proc.
+ARPA Human Lan-guage Technologies Workshop, pages 81?86.Zhifei Li and Sanjeev Khudanpur.
+2008.
+Large-scalediscriminative n-gram language models for statisti-cal machine translation.
+In AMTA, pages 133?142.Zhifei Li and Sanjeev Khudanpur.
+2009.
+Forestreranking for machine translation with the percep-tron algorithm.
+In GALE book chapter on ?MTFrom Text?.Zhifei Li, Chris Callison-Burch, Chris Dyer, JuriGanitkevitch, Sanjeev Khudanpur, Lane Schwartz,Wren Thornton, Jonathan Weese, and Omar.
+Zaidan.2009a.
+Joshua: An open source toolkit for parsing-based machine translation.
+In WMT09, pages 26?30.Zhifei Li, Jason Eisner, and Sanjeev Khudanpur.2009b.
+Variational decoding for statistical machinetranslation.
+In ACL.Yang Liu, Qun Liu, and Shouxun Lin.
+2006.
+Tree-to-string alignment template for statistical machinetranslation.
+In ACL, pages 609?616.Adam Lopez.
+2009.
+Translation as weighted deduc-tion.
+In EACL, pages 532?540.Franz Josef Och.
+2003.
+Minimum error rate training instatistical machine translation.
+In ACL, pages 160?167.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2001.
+BLEU: A method for automaticevaluation of machine translation.
+In ACL, pages311?318.Adam Pauls, John DeNero, and Dan Klein.
+2009.
+Con-sensus training for consensus decoding in machinetranslation.
+In EMNLP.B.
+A. Pearlmutter and J. M. Siskind.
+2007.
+Lazy mul-tivariate higher-order forward-mode ad.
+In Proceed-ings of the 34th Annual Symposium on Principles ofProgramming Languages (POPL), pages 155?160.Fernando C. N. Pereira and David H. D. Warren.
+1983.Parsing as deduction.
+In ACL, pages 137?144.Chris Quirk, Arul Menezes, and Colin Cherry.
+2005.Dependency treelet translation: syntactically in-formed phrasal smt.
+In ACL, pages 271?279.Kenneth Rose.
+1998.
+Deterministic annealing for clus-tering, compression, classification, regression, andrelated optimization problems.
+In Proceedings ofthe IEEE, pages 2210?2239.Stuart M. Shieber, Yves Schabes, and Fernando C. N.Pereira.
+1994.
+Principles and implementation ofdeductive parsing.
+Journal of Logic Programming,24:3?36.David A. Smith and Jason Eisner.
+2006.
+Minimum riskannealing for training log-linear models.
+In ACL,pages 787?794.Andreas Stolcke.
+2002.
+SRILM?an extensible lan-guage modeling toolkit.
+In Proceedings of the Inter-national Conference on Spoken Language Process-ing, pages 901?904.Roy Tromble, Shankar Kumar, Franz Och, and Wolf-gang Macherey.
+2008.
+Lattice minimum-Bayes-risk decoding for statistical machine translation.
+InEMNLP, pages 620?629.51

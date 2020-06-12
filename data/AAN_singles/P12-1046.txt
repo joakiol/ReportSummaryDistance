@@ -1,0 +1,308 @@
+Proceedings of the 50th Annual Meeting of the Association for Computational Linguistics, pages 440?448,Jeju, Republic of Korea, 8-14 July 2012. c?2012 Association for Computational LinguisticsBayesian Symbol-Refined Tree Substitution Grammarsfor Syntactic ParsingHiroyuki Shindo?
+Yusuke Miyao?
+Akinori Fujino?
+Masaaki Nagata?
+?NTT Communication Science Laboratories, NTT Corporation2-4 Hikaridai, Seika-cho, Soraku-gun, Kyoto, Japan{shindo.hiroyuki,fujino.akinori,nagata.masaaki}@lab.ntt.co.jp?National Institute of Informatics2-1-2 Hitotsubashi, Chiyoda-ku, Tokyo, Japanyusuke@nii.ac.jpAbstractWe propose Symbol-Refined Tree Substitu-tion Grammars (SR-TSGs) for syntactic pars-ing.
+An SR-TSG is an extension of the con-ventional TSG model where each nonterminalsymbol can be refined (subcategorized) to fitthe training data.
+We aim to provide a unifiedmodel where TSG rules and symbol refine-ment are learned from training data in a fullyautomatic and consistent fashion.
+We presenta novel probabilistic SR-TSG model basedon the hierarchical Pitman-Yor Process to en-code backoff smoothing from a fine-grainedSR-TSG to simpler CFG rules, and developan efficient training method based on MarkovChain Monte Carlo (MCMC) sampling.
+OurSR-TSG parser achieves an F1 score of 92.4%in the Wall Street Journal (WSJ) English PennTreebank parsing task, which is a 7.7 point im-provement over a conventional Bayesian TSGparser, and better than state-of-the-art discrim-inative reranking parsers.1 IntroductionSyntactic parsing has played a central role in naturallanguage processing.
+The resulting syntactic analy-sis can be used for various applications such as ma-chine translation (Galley et al, 2004; DeNeefe andKnight, 2009), sentence compression (Cohn and La-pata, 2009; Yamangil and Shieber, 2010), and ques-tion answering (Wang et al, 2007).
+Probabilisticcontext-free grammar (PCFG) underlies many sta-tistical parsers, however, it is well known that thePCFG rules extracted from treebank data via maxi-mum likelihood estimation do not perform well dueto unrealistic context freedom assumptions (Kleinand Manning, 2003).In recent years, there has been an increasing inter-est in tree substitution grammar (TSG) as an alter-native to CFG for modeling syntax trees (Post andGildea, 2009; Tenenbaum et al, 2009; Cohn et al,2010).
+TSG is a natural extension of CFG in whichnonterminal symbols can be rewritten (substituted)with arbitrarily large tree fragments.
+These tree frag-ments have great advantages over tiny CFG rulessince they can capture non-local contexts explic-itly such as predicate-argument structures, idiomsand grammatical agreements (Cohn et al, 2010).Previous work on TSG parsing (Cohn et al, 2010;Post and Gildea, 2009; Bansal and Klein, 2010) hasconsistently shown that a probabilistic TSG (PTSG)parser is significantly more accurate than a PCFGparser, but is still inferior to state-of-the-art parsers(e.g., the Berkeley parser (Petrov et al, 2006) andthe Charniak parser (Charniak and Johnson, 2005)).One major drawback of TSG is that the context free-dom assumptions still remain at substitution sites,that is, TSG tree fragments are generated that areconditionally independent of all others given rootnonterminal symbols.
+Furthermore, when a sentenceis unparsable with large tree fragments, the PTSGparser usually uses naive CFG rules derived fromits backoff model, which diminishes the benefits ob-tained from large tree fragments.On the other hand, current state-of-the-art parsersuse symbol refinement techniques (Johnson, 1998;Collins, 2003; Matsuzaki et al, 2005).
+Symbolrefinement is a successful approach for weaken-ing context freedom assumptions by dividing coarsetreebank symbols (e.g.
+NP and VP) into sub-categories, rather than extracting large tree frag-ments.
+As shown in several studies on TSG pars-ing (Zuidema, 2007; Bansal and Klein, 2010), large440tree fragments and symbol refinement work comple-mentarily for syntactic parsing.
+For example, Bansaland Klein (2010) have reported that deterministicsymbol refinement with heuristics helps improve theaccuracy of a TSG parser.In this paper, we propose Symbol-Refined TreeSubstitution Grammars (SR-TSGs) for syntacticparsing.
+SR-TSG is an extension of the conventionalTSG model where each nonterminal symbol can berefined (subcategorized) to fit the training data.
+Ourwork differs from previous studies in that we focuson a unified model where TSG rules and symbol re-finement are learned from training data in a fully au-tomatic and consistent fashion.
+We also propose anovel probabilistic SR-TSG model with the hierar-chical Pitman-Yor Process (Pitman and Yor, 1997),namely a sort of nonparametric Bayesian model, toencode backoff smoothing from a fine-grained SR-TSG to simpler CFG rules, and develop an efficienttraining method based on blocked MCMC sampling.Our SR-TSG parser achieves an F1 score of92.4% in the WSJ English Penn Treebank pars-ing task, which is a 7.7 point improvement over aconventional Bayesian TSG parser, and superior tostate-of-the-art discriminative reranking parsers.2 Background and Related WorkOur SR-TSG work is built upon recent work onBayesian TSG induction from parse trees (Post andGildea, 2009; Cohn et al, 2010).
+We firstly reviewthe Bayesian TSG model used in that work, and thenpresent related work on TSGs and symbol refine-ment.A TSG consists of a 4-tuple, G = (T,N, S,R),where T is a set of terminal symbols, N is a set ofnonterminal symbols, S ?
+N is the distinguishedstart nonterminal symbol and R is a set of produc-tions (a.k.a.
+rules).
+The productions take the formof elementary trees i.e., tree fragments of height?
+1.
+The root and internal nodes of the elemen-tary trees are labeled with nonterminal symbols, andleaf nodes are labeled with either terminal or nonter-minal symbols.
+Nonterminal leaves are referred toas frontier nonterminals, and form the substitutionsites to be combined with other elementary trees.A derivation is a process of forming a parse tree.It starts with a root symbol and rewrites (substi-tutes) nonterminal symbols with elementary treesuntil there are no remaining frontier nonterminals.Figure 1a shows an example parse tree and Figure1b shows its example TSG derivation.
+Since differ-ent derivations may produce the same parse tree, re-cent work on TSG induction (Post and Gildea, 2009;Cohn et al, 2010) employs a probabilistic model ofa TSG and predicts derivations from observed parsetrees in an unsupervised way.A Probabilistic Tree Substitution Grammar(PTSG) assigns a probability to each rule in thegrammar.
+The probability of a derivation is definedas the product of the probabilities of its componentelementary trees as follows.p (e) =?x?e?ep (e |x) ,where e = (e1, e2, .
+.
+.)
+is a sequence of elemen-tary trees used for the derivation, x = root (e) is theroot symbol of e, and p (e |x) is the probability ofgenerating e given its root symbol x.
+As in a PCFG,e is generated conditionally independent of all oth-ers given x.The posterior distribution over elementary treesgiven a parse tree t can be computed by using theBayes?
+rule:p (e |t) ?
+p (t |e) p (e) .where p (t |e) is either equal to 1 (when t and eare consistent) or 0 (otherwise).
+Therefore, the taskof TSG induction from parse trees turns out to con-sist of modeling the prior distribution p (e).
+Recentwork on TSG induction defines p (e) as a nonpara-metric Bayesian model such as the Dirichlet Pro-cess (Ferguson, 1973) or the Pitman-Yor Process toencourage sparse and compact grammars.Several studies have combined TSG induction andsymbol refinement.
+An adaptor grammar (Johnsonet al, 2007a) is a sort of nonparametric BayesianTSG model with symbol refinement, and is thusclosely related to our SR-TSG model.
+However,an adaptor grammar differs from ours in that all itsrules are complete: all leaf nodes must be termi-nal symbols, while our model permits nonterminalsymbols as leaf nodes.
+Furthermore, adaptor gram-mars have largely been applied to the task of unsu-pervised structural induction from raw texts such as441(a) (b) (c)Figure 1: (a) Example parse tree.
+(b) Example TSG derivation of (a).
+(c) Example SR-TSG derivation of(a).
+The refinement annotation is hyphenated with a nonterminal symbol.morphology analysis, word segmentation (Johnsonand Goldwater, 2009), and dependency grammar in-duction (Cohen et al, 2010), rather than constituentsyntax parsing.An all-fragments grammar (Bansal and Klein,2010) is another variant of TSG that aims to uti-lize all possible subtrees as rules.
+It maps a TSGto an implicit representation to make the grammartractable and practical for large-scale parsing.
+Themanual symbol refinement described in (Klein andManning, 2003) was applied to an all-fragmentsgrammar and this improved accuracy in the EnglishWSJ parsing task.
+As mentioned in the introduc-tion, our model focuses on the automatic learning ofa TSG and symbol refinement without heuristics.3 Symbol-Refined Tree SubstitutionGrammarsIn this section, we propose Symbol-Refined TreeSubstitution Grammars (SR-TSGs) for syntacticparsing.
+Our SR-TSG model is an extension ofthe conventional TSG model where every symbol ofthe elementary trees can be refined to fit the train-ing data.
+Figure 1c shows an example of SR-TSGderivation.
+As with previous work on TSG induc-tion, our task is the induction of SR-TSG deriva-tions from a corpus of parse trees in an unsupervisedfashion.
+That is, we wish to infer the symbol sub-categories of every node and substitution site (i.e.,nodes where substitution occurs) from parse trees.Extracted rules and their probabilities can be used toparse new raw sentences.3.1 Probabilistic ModelWe define a probabilistic model of an SR-TSG basedon the Pitman-Yor Process (PYP) (Pitman and Yor,1997), namely a sort of nonparametric Bayesianmodel.
+The PYP produces power-law distributions,which have been shown to be well-suited for suchuses as language modeling (Teh, 2006b), and TSGinduction (Cohn et al, 2010).
+One major issue asregards modeling an SR-TSG is that the space of thegrammar rules will be very sparse since SR-TSG al-lows for arbitrarily large tree fragments and also anarbitrarily large set of symbol subcategories.
+To ad-dress the sparseness problem, we employ a hierar-chical PYP to encode a backoff scheme from the SR-TSG rules to simpler CFG rules, inspired by recentwork on dependency parsing (Blunsom and Cohn,2010).Our model consists of a three-level hierarchy.
+Ta-ble 1 shows an example of the SR-TSG rule and itsbackoff tree fragments as an illustration of this three-level hierarchy.
+The topmost level of our model is adistribution over the SR-TSG rules as follows.e |xk ?
+GxkGxk ?
+PYP(dxk , ?xk , Psr-tsg (?
+|xk )),where xk is a refined root symbol of an elemen-tary tree e, while x is a raw nonterminal symbolin the corpus and k = 0, 1, .
+.
+.
+is an index of thesymbol subcategory.
+Suppose x is NP and its sym-bol subcategory is 0, then xk is NP0.
+The PYP hasthree parameters: (dxk , ?xk , Psr-tsg).
+P sr-tsg (?
+|xk )442SR-TSG SR-CFG RU-CFGTable 1: Example three-level backoff.is a base distribution over infinite space of symbol-refined elementary trees rooted with xk, which pro-vides the backoff probability of e. The remainingparameters dxk and ?xk control the strength of thebase distribution.The backoff probability P sr-tsg (e |xk ) is given bythe product of symbol-refined CFG (SR-CFG) rulesthat e contains as follows.P sr-tsg (e |xk ) =?f?F (e)scf ??i?I(e)(1?
+sci)?
+H (cfg-rules (e |xk ))?
+|xk ?
+HxkHxk ?
+PYP(dx, ?x, Psr-cfg (?
+|xk )),where F (e) is a set of frontier nonterminal nodesand I (e) is a set of internal nodes in e. cf and ciare nonterminal symbols of nodes f and i, respec-tively.
+sc is the probability of stopping the expan-sion of a node labeled with c. SR-CFG rules areCFG rules where every symbol is refined, as shownin Table 1.
+The function cfg-rules (e |xk ) returnsthe SR-CFG rules that e contains, which take theform of xk ?
+?.
+Each SR-CFG rule ?
+rootedwith xk is drawn from the backoff distribution Hxk ,and Hxk is produced by the PYP with parameters:(dx, ?x, P sr-cfg).
+This distribution over the SR-CFGrules forms the second level hierarchy of our model.The backoff probability of the SR-CFG rule,P sr-cfg (?
+|xk ), is given by the root-unrefined CFG(RU-CFG) rule as follows,P sr-cfg (?
+|xk ) = I (root-unrefine (?
+|xk ))?
+|x ?
+IxIx ?
+PYP(d?x, ?
+?x, Pru-cfg (?
+|x )),where the function root-unrefine (?
+|xk ) returnsthe RU-CFG rule of ?, which takes the form of x??.
+The RU-CFG rule is a CFG rule where the rootsymbol is unrefined and all leaf nonterminal sym-bols are refined, as shown in Table 1.
+Each RU-CFGrule ?
+rooted with x is drawn from the backoff distri-bution Ix, and Ix is produced by a PYP.
+This distri-bution over the RU-CFG rules forms the third levelhierarchy of our model.
+Finally, we set the back-off probability of the RU-CFG rule, P ru-cfg (?
+|x),so that it is uniform as follows.P ru-cfg (?
+|x ) =1|x?
+?|.where |x?
+?| is the number of RU-CFG rulesrooted with x.
+Overall, our hierarchical model en-codes backoff smoothing consistently from the SR-TSG rules to the SR-CFG rules, and from the SR-CFG rules to the RU-CFG rules.
+As shown in (Blun-som and Cohn, 2010; Cohen et al, 2010), the pars-ing accuracy of the TSG model is strongly affectedby its backoff model.
+The effects of our hierarchicalbackoff model on parsing performance are evaluatedin Section 5.4 InferenceWe use Markov Chain Monte Carlo (MCMC) sam-pling to infer the SR-TSG derivations from parsetrees.
+MCMC sampling is a widely used approachfor obtaining random samples from a probabilitydistribution.
+In our case, we wish to obtain deriva-tion samples of an SR-TSG from the posterior dis-tribution, p (e |t,d,?, s).The inference of the SR-TSG derivations corre-sponds to inferring two kinds of latent variables:latent symbol subcategories and latent substitution443sites.
+We first infer latent symbol subcategories forevery symbol in the parse trees, and then infer latentsubstitution sites stepwise.
+During the inference ofsymbol subcategories, every internal node is fixed asa substitution site.
+After that, we unfix that assump-tion and infer latent substitution sites given symbol-refined parse trees.
+This stepwise learning is simpleand efficient in practice, but we believe that the jointlearning of both latent variables is possible, and wewill deal with this in future work.
+Here we describeeach inference algorithm in detail.4.1 Inference of Symbol SubcategoriesFor the inference of latent symbol subcategories, weadopt split and merge training (Petrov et al, 2006)as follows.
+In each split-merge step, each symbolis split into at most two subcategories.
+For exam-ple, every NP symbol in the training data is split intoeither NP0 or NP1 to maximize the posterior prob-ability.
+After convergence, we measure the loss ofeach split symbol in terms of the likelihood incurredwhen removing it, then the smallest 50% of thenewly split symbols as regards that loss are mergedto avoid overfitting.
+The split-merge algorithm ter-minates when the total number of steps reaches theuser-specified value.In each splitting step, we use two types of blockedMCMC algorithm: the sentence-level blockedMetroporil-Hastings (MH) sampler and the tree-level blocked Gibbs sampler, while (Petrov et al,2006) use a different MLE-based model and the EMalgorithm.
+Our sampler iterates sentence-level sam-pling and tree-level sampling alternately.The sentence-level MH sampler is a recently pro-posed algorithm for grammar induction (Johnson etal., 2007b; Cohn et al, 2010).
+In this work, we applyit to the training of symbol splitting.
+The MH sam-pler consists of the following three steps: for eachsentence, 1) calculate the inside probability (Lariand Young, 1991) in a bottom-up manner, 2) samplea derivation tree in a top-down manner, and 3) ac-cept or reject the derivation sample by using the MHtest.
+See (Cohn et al, 2010) for details.
+This samplersimultaneously updates blocks of latent variables as-sociated with a sentence, thus it can find MAP solu-tions efficiently.The tree-level blocked Gibbs sampler focuses onthe type of SR-TSG rules and simultaneously up-dates all root and child nodes that are annotatedwith the same SR-TSG rule.
+For example, thesampler collects all nodes that are annotated withS0 ?
+NP1VP2, then updates those nodes to an-other subcategory such as S0 ?
+NP2VP0 accordingto the posterior distribution.
+This sampler is simi-lar to table label resampling (Johnson and Goldwa-ter, 2009), but differs in that our sampler can updatemultiple table labels simultaneously when multipletables are labeled with the same elementary tree.The tree-level sampler also simultaneously updatesblocks of latent variables associated with the type ofSR-TSG rules, thus it can find MAP solutions effi-ciently.4.2 Inference of Substitution SitesAfter the inference of symbol subcategories, weuse Gibbs sampling to infer the substitution sites ofparse trees as described in (Cohn and Lapata, 2009;Post and Gildea, 2009).
+We assign a binary variableto each internal node in the training data, which in-dicates whether that node is a substitution site or not.For each iteration, the Gibbs sampler works by sam-pling the value of each binary variable in randomorder.
+See (Cohn et al, 2010) for details.During the inference, our sampler ignoresthe symbol subcategories of internal nodes ofelementary trees since they do not affect thederivation of the SR-TSG.
+For example, theelementary trees ?
+(S0 (NP0 NNP0) VP0)?
+and?
+(S0 (NP1 NNP0) VP0)?
+are regarded as being thesame when we calculate the generation probabilitiesaccording to our model.
+This heuristics is help-ful for finding large tree fragments and learningcompact grammars.4.3 Hyperparameter EstimationWe treat hyperparameters {d,?}
+as random vari-ables and update their values for every MCMC it-eration.
+We place a prior on the hyperparameters asfollows: d ?
+Beta (1, 1), ?
+?
+Gamma (1, 1).
+Thevalues of d and ?
+are optimized with the auxiliaryvariable technique (Teh, 2006a).4445 Experiment5.1 Settings5.1.1 Data PreparationWe ran experiments on the Wall Street Journal(WSJ) portion of the English Penn Treebank dataset (Marcus et al, 1993), using a standard datasplit (sections 2?21 for training, 22 for developmentand 23 for testing).
+We also used section 2 as asmall training set for evaluating the performance ofour model under low-resource conditions.
+Hence-forth, we distinguish the small training set (section2) from the full training set (sections 2-21).
+The tree-bank data is right-binarized (Matsuzaki et al, 2005)to construct grammars with only unary and binaryproductions.
+We replace lexical words with count?
+5 in the training data with one of 50 unknownwords using lexical features, following (Petrov et al,2006).
+We also split off all the function tags andeliminated empty nodes from the data set, follow-ing (Johnson, 1998).5.1.2 Training and ParsingFor the inference of symbol subcategories, wetrained our model with the MCMC sampler by us-ing 6 split-merge steps for the full training set and 3split-merge steps for the small training set.
+There-fore, each symbol can be subdivided into a maxi-mum of 26 = 64 and 23 = 8 subcategories, respec-tively.
+In each split-merge step, we initialized thesampler by randomly splitting every symbol in twosubcategories and ran the MCMC sampler for 1000iterations.
+After that, to infer the substitution sites,we initialized the model with the final sample froma run on the small training set, and used the Gibbssampler for 2000 iterations.
+We estimated the opti-mal values of the stopping probabilities s by usingthe development set.We obtained the parsing results with the MAX-RULE-PRODUCT algorithm (Petrov et al, 2006) byusing the SR-TSG rules extracted from our model.We evaluated the accuracy of our parser by brack-eting F1 score of predicted parse trees.
+We usedEVALB1 to compute the F1 score.
+In all our exper-iments, we conducted ten independent runs to trainour model, and selected the one that performed beston the development set in terms of parsing accuracy.1http://nlp.cs.nyu.edu/evalb/Model F1 (small) F1 (full)CFG 61.9 63.6*TSG 77.1 85.0SR-TSG (P sr-tsg) 73.0 86.4SR-TSG (P sr-tsg, P sr-cfg) 79.4 89.7SR-TSG (P sr-tsg, P sr-cfg, P ru-cfg) 81.7 91.1Table 2: Comparison of parsing accuracy with thesmall and full training sets.
+*Our reimplementationof (Cohn et al, 2010).Figure 2: Histogram of SR-TSG and TSG rule sizeson the small training set.
+The size is defined as thenumber of CFG rules that the elementary tree con-tains.5.2 Results and Discussion5.2.1 Comparison of SR-TSG with TSGWe compared the SR-TSG model with the CFGand TSG models as regards parsing accuracy.
+Wealso tested our model with three backoff hierarchysettings to evaluate the effects of backoff smoothingon parsing accuracy.
+Table 2 shows the F1 scoresof the CFG, TSG and SR-TSG parsers for small andfull training sets.
+In Table 2, SR-TSG (P sr-tsg) de-notes that we used only the topmost level of the hi-erarchy.
+Similary, SR-TSG (P sr-tsg, P sr-cfg) denotesthat we used only the P sr-tsg and P sr-cfg backoff mod-els.Our best model, SR-TSG (P sr-tsg, P sr-cfg, P ru-cfg),outperformed both the CFG and TSG models onboth the small and large training sets.
+This resultsuggests that the conventional TSG model trainedfrom the vanilla treebank is insufficient to resolve445Model F1 (?
+40) F1 (all)TSG (no symbol refinement)Post and Gildea (2009) 82.6 -Cohn et al (2010) 85.4 84.7TSG with Symbol RefinementZuidema (2007) - *83.8Bansal et al (2010) 88.7 88.1SR-TSG (single) 91.6 91.1SR-TSG (multiple) 92.9 92.4CFG with Symbol RefinementCollins (1999) 88.6 88.2Petrov and Klein (2007) 90.6 90.1Petrov (2010) - 91.8DiscriminativeCarreras et al (2008) - 91.1Charniak and Johnson (2005) 92.0 91.4Huang (2008) 92.3 91.7Table 3: Our parsing performance for the testing set compared with those of other parsers.
+*Results for thedevelopment set (?
+100).structural ambiguities caused by coarse symbol an-notations in a training corpus.
+As we expected, sym-bol refinement can be helpful with the TSG modelfor further fitting the training set and improving theparsing accuracy.The performance of the SR-TSG parser wasstrongly affected by its backoff models.
+For exam-ple, the simplest model, P sr-tsg, performed poorlycompared with our best model.
+This result suggeststhat the SR-TSG rules extracted from the trainingset are very sparse and cannot cover the space ofunknown syntax patterns in the testing set.
+There-fore, sophisticated backoff modeling is essential forthe SR-TSG parser.
+Our hierarchical PYP model-ing technique is a successful way to achieve back-off smoothing from sparse SR-TSG rules to simplerCFG rules, and offers the advantage of automaticallyestimating the optimal backoff probabilities from thetraining set.We compared the rule sizes and frequencies ofSR-TSG with those of TSG.
+The rule sizes of SR-TSG and TSG are defined as the number of CFGrules that the elementary tree contains.
+Figure 2shows a histogram of the SR-TSG and TSG rulesizes (by unrefined token) on the small training set.For example, SR-TSG rules: S1 ?
+NP0VP1 andS0 ?
+NP1VP2 were considered to be the same to-ken.
+In Figure 2, we can see that there are almostthe same number of SR-TSG rules and TSG ruleswith size = 1.
+However, there are more SR-TSGrules than TSG rules with size ?
+2.
+This showsthat an SR-TSG can use various large tree fragmentsdepending on the context, which is specified by thesymbol subcategories.5.2.2 Comparison of SR-TSG with OtherModelsWe compared the accuracy of the SR-TSG parserwith that of conventional high-performance parsers.Table 3 shows the F1 scores of an SR-TSG and con-ventional parsers with the full training set.
+In Ta-ble 3, SR-TSG (single) is a standard SR-TSG parser,446and SR-TSG (multiple) is a combination of sixteenindependently trained SR-TSG models, followingthe work of (Petrov, 2010).Our SR-TSG (single) parser achieved an F1 scoreof 91.1%, which is a 6.4 point improvement overthe conventional Bayesian TSG parser reported by(Cohn et al, 2010).
+Our model can be viewed asan extension of Cohn?s work by the incorporationof symbol refinement.
+Therefore, this result con-firms that a TSG and symbol refinement work com-plementarily in improving parsing accuracy.
+Com-pared with a symbol-refined CFG model such as theBerkeley parser (Petrov et al, 2006), the SR-TSGmodel can use large tree fragments, which strength-ens the probability of frequent syntax patterns inthe training set.
+Indeed, the few very large rules ofour model memorized full parse trees of sentences,which were repeated in the training set.The SR-TSG (single) is a pure generative modelof syntax trees but it achieved results comparable tothose of discriminative parsers.
+It should be notedthat discriminative reranking parsers such as (Char-niak and Johnson, 2005) and (Huang, 2008) are con-structed on a generative parser.
+The reranking parsertakes the k-best lists of candidate trees or a packedforest produced by a baseline parser (usually a gen-erative model), and then reranks the candidates us-ing arbitrary features.
+Hence, we can expect thatcombining our SR-TSG model with a discriminativereranking parser would provide better performancethan SR-TSG alone.Recently, (Petrov, 2010) has reported that com-bining multiple grammars trained independentlygives significantly improved performance over a sin-gle grammar alone.
+We applied his method (referredto as a TREE-LEVEL inference) to the SR-TSGmodel as follows.
+We first trained sixteen SR-TSGmodels independently and produced a 100-best listof the derivations for each model.
+Then, we erasedthe subcategory information of parse trees and se-lected the best tree that achieved the highest likeli-hood under the product of sixteen models.
+The com-bination model, SR-TSG (multiple), achieved an F1score of 92.4%, which is a state-of-the-art result forthe WSJ parsing task.
+Compared with discriminativereranking parsers, combining multiple grammars byusing the product model provides the advantage thatit does not require any additional training.
+Severalstudies (Fossum and Knight, 2009; Zhang et al,2009) have proposed different approaches that in-volve combining k-best lists of candidate trees.
+Wewill deal with those methods in future work.Let us note the relation between SR-CFG, TSGand SR-TSG.
+TSG is weakly equivalent to CFG andgenerates the same set of strings.
+For example, theTSG rule ?S ?
+(NP NNP) VP?
+with probability pcan be converted to the equivalent CFG rules as fol-lows: ?S ?
+NPNNP VP ?
+with probability p and?NPNNP ?
+NNP?
+with probability 1.
+From thisviewpoint, TSG utilizes surrounding symbols (NNPof NPNNP in the above example) as latent variableswith which to capture context information.
+Thesearch space of learning a TSG given a parse treeis O (2n) where n is the number of internal nodesof the parse tree.
+On the other hand, an SR-CFGutilizes an arbitrary index such as 0, 1, .
+.
+.
+as latentvariables and the search space is larger than that of aTSG when the symbol refinement model allows formore than two subcategories for each symbol.
+Ourexperimental results comfirm that jointly modelingboth latent variables using our SR-TSG assists accu-rate parsing.6 ConclusionWe have presented an SR-TSG, which is an exten-sion of the conventional TSG model where eachsymbol of tree fragments can be automatically sub-categorized to address the problem of the condi-tional independence assumptions of a TSG.
+We pro-posed a novel backoff modeling of an SR-TSGbased on the hierarchical Pitman-Yor Process andsentence-level and tree-level blocked MCMC sam-pling for training our model.
+Our best model sig-nificantly outperformed the conventional TSG andachieved state-of-the-art result in a WSJ parsingtask.
+Future work will involve examining the SR-TSG model for different languages and for unsuper-vised grammar induction.AcknowledgementsWe would like to thank Liang Huang for helpfulcomments and the three anonymous reviewers forthoughtful suggestions.
+We would also like to thankSlav Petrov and Hui Zhang for answering our ques-tions about their parsers.447ReferencesMohit Bansal and Dan Klein.
+2010.
+Simple, AccurateParsing with an All-Fragments Grammar.
+In In Proc.of ACL, pages 1098?1107.Phil Blunsom and Trevor Cohn.
+2010.
+UnsupervisedInduction of Tree Substitution Grammars for Depen-dency Parsing.
+In Proc.
+of EMNLP, pages 1204?1213.Eugene Charniak and Mark Johnson.
+2005.
+Coarse-to-Fine n-Best Parsing and MaxEnt DiscriminativeReranking.
+In Proc.
+of ACL, 1:173?180.Shay B Cohen, David M Blei, and Noah A Smith.
+2010.Variational Inference for Adaptor Grammars.
+In InProc.
+of HLT-NAACL, pages 564?572.Trevor Cohn and Mirella Lapata.
+2009.
+Sentence Com-pression as Tree Transduction.
+Journal of ArtificialIntelligence Research, 34:637?674.Trevor Cohn, Phil Blunsom, and Sharon Goldwater.2010.
+Inducing Tree-Substitution Grammars.
+Journalof Machine Learning Research, 11:3053?3096.Michael Collins.
+2003.
+Head-Driven Statistical Mod-els for Natural Language Parsing.
+Computational Lin-guistics, 29:589?637.Steve DeNeefe and Kevin Knight.
+2009.
+SynchronousTree Adjoining Machine Translation.
+In Proc.
+ofEMNLP, page 727.Thomas S Ferguson.
+1973.
+A Bayesian Analysis ofSome Nonparametric Problems.
+Annals of Statistics,1:209?230.Victoria Fossum and Kevin Knight.
+2009.
+CombiningConstituent Parsers.
+In Proc.
+of HLT-NAACL, pages253?256.Michel Galley, Mark Hopkins, Kevin Knight, DanielMarcu, Los Angeles, and Marina Del Rey.
+2004.What?s in a Translation Rule?
+Information Sciences,pages 273?280.Liang Huang.
+2008.
+Forest Reranking : DiscriminativeParsing with Non-Local Features.
+In Proc.
+of ACL,19104:0.Mark Johnson and Sharon Goldwater.
+2009.
+Improvingnonparameteric Bayesian inference: experiments onunsupervised word segmentation with adaptor gram-mars.
+In In Proc.
+of HLT-NAACL, pages 317?325.Mark Johnson, Thomas L Griffiths, and Sharon Gold-water.
+2007a.
+Adaptor Grammars : A Frame-work for Specifying Compositional NonparametricBayesian Models.
+Advances in Neural InformationProcessing Systems 19, 19:641?648.Mark Johnson, Thomas L Griffiths, and Sharon Goldwa-ter.
+2007b.
+Bayesian Inference for PCFGs via Markovchain Monte Carlo.
+In In Proc.
+of HLT-NAACL, pages139?146.Mark Johnson.
+1998.
+PCFG Models of Linguistic TreeRepresentations.
+Computational Linguistics, 24:613?632.Dan Klein and Christopher D Manning.
+2003.
+AccurateUnlexicalized Parsing.
+In Proc.
+of ACL, 1:423?430.K Lari and S J Young.
+1991.
+Applications of Stochas-tic Context-Free Grammars Using the Inside?OutsideAlgorithm.
+Computer Speech and Language, 5:237?257.Mitchell P Marcus, Beatrice Santorini, and Mary AnnMarcinkiewicz.
+1993.
+Building a Large AnnotatedCorpus of English: The Penn Treebank.
+Computa-tional Linguistics, 19:313?330.Takuya Matsuzaki, Yusuke Miyao, and Jun?ichi Tsujii.2005.
+Probabilistic CFG with latent annotations.
+InProc.
+of ACL, pages 75?82.Slav Petrov, Leon Barrett, Romain Thibaux, and DanKlein.
+2006.
+Learning Accurate, Compact, and In-terpretable Tree Annotation.
+In Proc.
+of ACL, pages433?440.Slav Petrov.
+2010.
+Products of Random Latent VariableGrammars.
+In Proc.
+of HLT-NAACL, pages 19?27.Jim Pitman and Marc Yor.
+1997.
+The two-parameterPoisson-Dirichlet distribution derived from a stablesubordinator.
+The Annals of Probability, 25:855?900.Matt Post and Daniel Gildea.
+2009.
+Bayesian Learningof a Tree Substitution Grammar.
+In In Proc.
+of ACL-IJCNLP, pages 45?48.Yee Whye Teh.
+2006a.
+A Bayesian Interpretation ofInterpolated Kneser-Ney.
+NUS School of ComputingTechnical Report TRA2/06.YW Teh.
+2006b.
+A Hierarchical Bayesian LanguageModel based on Pitman-Yor Processes.
+In Proc.
+ofACL, 44:985?992.J Tenenbaum, TJ O?Donnell, and ND Goodman.
+2009.Fragment Grammars: Exploring Computation andReuse in Language.
+MIT Computer Science and Arti-ficial Intelligence Laboratory Technical Report Series.Mengqiu Wang, Noah A Smith, and Teruko Mitamura.2007.
+What is the Jeopardy Model ?
+A Quasi-Synchronous Grammar for QA.
+In Proc.
+of EMNLP-CoNLL, pages 22?32.Elif Yamangil and Stuart M Shieber.
+2010.
+BayesianSynchronous Tree-Substitution Grammar Inductionand Its Application to Sentence Compression.
+In InProc.
+of ACL, pages 937?947.Hui Zhang, Min Zhang, Chew Lim Tan, and Haizhou Li.2009.
+K-Best Combination of Syntactic Parsers.
+InProc.
+of EMNLP, pages 1552?1560.Willem Zuidema.
+2007.
+Parsimonious Data-OrientedParsing.
+In Proc.
+of EMNLP-CoNLL, pages 551?560.448

@@ -1,0 +1,522 @@
+Proceedings of the 51st Annual Meeting of the Association for Computational Linguistics, pages 311?321,Sofia, Bulgaria, August 4-9 2013. c?2013 Association for Computational LinguisticsFast and Adaptive Online Training of Feature-Rich Translation ModelsSpence Green, Sida Wang, Daniel Cer, and Christopher D. ManningComputer Science Department, Stanford University{spenceg,sidaw,danielcer,manning}@stanford.eduAbstractWe present a fast and scalable onlinemethod for tuning statistical machine trans-lation models with large feature sets.
+Thestandard tuning algorithm?MERT?onlyscales to tens of features.
+Recent discrimi-native algorithms that accommodate sparsefeatures have produced smaller than ex-pected translation quality gains in largesystems.
+Our method, which is based onstochastic gradient descent with an adaptivelearning rate, scales to millions of featuresand tuning sets with tens of thousands ofsentences, while still converging after onlya few epochs.
+Large-scale experiments onArabic-English and Chinese-English showthat our method produces significant trans-lation quality gains by exploiting sparse fea-tures.
+Equally important is our analysis,which suggests techniques for mitigatingoverfitting and domain mismatch, and ap-plies to other recent discriminative methodsfor machine translation.1 IntroductionSparse, overlapping features such as words and n-gram contexts improve many NLP systems such asparsers and taggers.
+Adaptation of discriminativelearning methods for these types of features to sta-tistical machine translation (MT) systems, whichhave historically used idiosyncratic learning tech-niques for a few dense features, has been an activeresearch area for the past half-decade.
+However, de-spite some research successes, feature-rich modelsare rarely used in annual MT evaluations.
+For exam-ple, among all submissions to theWMT and IWSLT2012 shared tasks, just one participant tuned morethan 30 features (Hasler et al, 2012a).
+Slow uptakeof these methods may be due to implementationcomplexities, or to practical difficulties of configur-ing them for specific translation tasks (Gimpel andSmith, 2012; Simianer et al, 2012, inter alia).We introduce a new method for training feature-rich MT systems that is effective yet comparativelyeasy to implement.
+The algorithm scales to millionsof features and large tuning sets.
+It optimizes a lo-gistic objective identical to that of PRO (Hopkinsand May, 2011) with stochastic gradient descent, al-though other objectives are possible.
+The learningrate is set adaptively using AdaGrad (Duchi et al,2011), which is particularly effective for the mixtureof dense and sparse features present in MT models.Finally, feature selection is implemented as efficientL1 regularization in the forward-backward splitting(FOBOS) framework (Duchi and Singer, 2009).
+Ex-periments show that our algorithm converges fasterthan batch alternatives.To learn good weights for the sparse features,most algorithms?including ours?benefit frommore tuning data, and the natural source is the train-ing bitext.
+However, the bitext presents two prob-lems.
+First, it has a single reference, sometimes oflower quality than the multiple references in tun-ing sets from MT competitions.
+Second, large bi-texts often comprise many text genres (Haddow andKoehn, 2012), a virtue for classical dense MT mod-els but a curse for high dimensional models: bitexttuning can lead to a significant domain adaptationproblem when evaluating on standard test sets.
+Ouranalysis separates and quantifies these two issues.We conduct large-scale translation quality exper-iments on Arabic-English and Chinese-English.
+Asbaselines we use MERT (Och, 2003), PRO, andthe Moses (Koehn et al, 2007) implementationof k-best MIRA, which Cherry and Foster (2012)recently showed to work as well as online MIRA(Chiang, 2012) for feature-rich models.
+The firstexperiment uses standard tuning and test sets fromthe NIST OpenMT competitions.
+The second ex-periment uses tuning and test sets sampled from thelarge bitexts.
+The new method yields significantimprovements in both experiments.
+Our code isincluded in the Phrasal (Cer et al, 2010) toolkit,which is freely available.3112 Adaptive Online AlgorithmsMachine translation is an unusual machine learningsetting because multiple correct translations existand decoding is comparatively expensive.
+When wehave a large feature set and therefore want to tuneon a large data set, batch methods are infeasible.Online methods can converge faster, and in practicethey often find better solutions (Liang and Klein,2009; Bottou and Bousquet, 2011, inter alia).Recall that stochastic gradient descent (SGD),a fundamental online method, updates weights waccording towt = wt?1 ?
+?
+?`t(wt?1) (1)with loss function1 `t(w) of the tth example,(sub)gradient of the loss with respect to the param-eters ?`t(wt?1), and learning rate ?.SGD is sensitive to the learning rate ?, which isdifficult to set in an MT system that mixes frequent?dense?
+features (like the language model) withsparse features (e.g., for translation rules).
+Further-more, ?
+applies to each coordinate in the gradient,an undesirable property in MT where good sparsefeatures may fire very infrequently.
+We would in-stead like to take larger steps for sparse features andsmaller steps for dense features.2.1 AdaGradAdaGrad is a method for setting an adaptive learn-ing rate that comes with good theoretical guaran-tees.
+The theoretical improvement over SGD ismost significant for high-dimensional, sparse fea-tures.
+AdaGrad makes the following update:wt = wt?1 ?
+?
+?1/2t ?`t(wt?1) (2)?
+?1t = ?
+?1t?1 +?`t(wt?1)?`t(wt?1)>=t?i=1?`i(wi?1)?`i(wi?1)> (3)A diagonal approximation to ?
+can be used for ahigh-dimensional vector wt.
+In this case, AdaGradis simple to implement and computationally cheap.Consider a single dimension j, and let scalars vt =wt,j , gt = ?j`t(wt?1), Gt = ?ti=1 g2i , then theupdate rule isvt = vt?1 ?
+?
+G?1/2t gt (4)Gt = Gt?1 + g2t (5)Compared to SGD, we just need to storeGt = ?
+?1t,jjfor each dimension j.1We specify the loss function for MT in section 3.1.2.2 Prior Online Algorithms in MTAdaGrad is related to two previous online learningmethods for MT.MIRA Chiang et al (2008) described an adaptionof MIRA (Crammer et al, 2006) to MT.
+MIRAmakes the following update:wt = arg minw12?
+?w ?
+wt?1?22 + `t(w) (6)The first term expresses conservativity: the weightshould change as little as possible based on a sin-gle example, ensuring that it is never beneficial toovershoot the minimum.The relationship to SGD can be seen by lineariz-ing the loss function `t(w) ?
+`t(wt?1) + (w ?wt?1)>?`t(wt?1) and taking the derivative of (6).The result is exactly (1).AROW Chiang (2012) adapted AROW (Cram-mer et al, 2009) to MT.
+AROW models the currentweight as a Gaussian centered at wt?1 with covari-ance ?t?1, and does the following update uponseeing training example xt:wt,?t =arg minw,?1?DKL(N (w,?
+)||N (wt?1,?t?1))+ `t(w) +12?x>t ?xt (7)The KL-divergence term expresses a more general,directionally sensitive conservativity.
+Ignoring thethird term, the ?
+that minimizes the KL is actu-ally ?t?1.
+As a result, the first two terms of (7)generalize MIRA so that we may be more conser-vative in some directions specified by ?.
+To seethis, we can write out the KL-divergence betweentwo Gaussians in closed form, and observe that theterms involving w do not interact with the termsinvolving ?
+:wt = arg minw12?
+(w ?
+wt?1)>?
+?1t?1(w ?
+wt?1)+ `t(w) (8)?t = arg min?12?
+log( |?t?1||?|)+ 12?Tr(??1t?1?
+)+ 12?x>t ?xt (9)The third term in (7), called the confidence term,gives us adaptivity, the notion that we should havesmaller variance in the direction v as more data xt312is seen in direction v. For example, if ?
+is diagonaland xt are indicator features, the confidence termthen says that the weight for a rarer feature shouldhave more variance and vice-versa.
+Recall that forgeneralized linear models?`t(w) ?
+xt; if we sub-stitute xt = ?t?`t(w) into (9), differentiate andsolve, we get:?
+?1t = ?
+?1t?1 + xtx>t= ?
+?10 +t?i=1?2i?`i(wi?1)?`i(wi?1)>(10)The precision ?
+?1t generally grows as more datais seen.
+Frequently updated features receive an espe-cially high precision, whereas the model maintainslarge variance for rarely seen features.If we substitute (10) into (8), linearize the loss`t(w) as before, and solve, then we have the lin-earized AROW updatewt = wt?1 ?
+?
+?t?`t(wt?1) (11)which is also an adaptive update with per-coordinatelearning rates specified by ?t (as opposed to ?1/2tin AdaGrad).2.3 Comparing AdaGrad, MIRA, AROWCompare (3) to (10) and observe that if we set?
+?10 = 0 and ?t = 1, then the only differencebetween the AROW update (11) and the AdaGradupdate (2) is a square root.
+Under a constant gradi-ent, AROW decays the step size more aggressively(1/t) compared to AdaGrad (1/?t), and it is sensi-tive to the specification of ?
+?10 .Informally, SGD can be improved in the conser-vativity direction using MIRA so the updates donot overshoot.
+Second, SGD can be improved inthe adaptivity direction using AdaGrad where thedecaying stepsize is more robust and the adaptivestepsize allows better weight updates to featuresdiffering in sparsity and scale.
+Finally, AROW com-bines both adaptivity and conservativity.
+For MT,adaptivity allows us to deal withmixed dense/sparsefeatures effectively without specific normalization.Why do we choose AdaGrad over AROW?MIRA/AROW requires selecting the loss function`(w) so that wt can be solved in closed-form, bya quadratic program (QP), or in some other waythat is better than linearizing.
+This usually meanschoosing a hinge loss.
+On the other hand, Ada-Grad/linearized AROW only requires that the gradi-ent of the loss function can be computed efficiently.Algorithm 1 Adaptive online tuning for MT.Require: Tuning set {fi, e1:ki }i=1:M1: Set w0 = 02: Set t = 13: repeat4: for i in 1 .
+.
+.M in random order do5: Decode n-best list Ni for fi6: Sample pairs {dj,+, dj,?
+}j=1:s from Ni7: Compute Dt = {?(dj,+)?
+?(dj,?
+)}j=1:s8: Set gt = ?`(Dt; wt?1)}9: Set ?
+?1t = ?
+?1t?1 + gtg>t .
+Eq.
+(3)10: Update wt = wt?1 ?
+?
+?1/2t gt .
+Eq.
+(2)11: Regularize wt .
+Eq.
+(15)12: Set t = t+ 113: end for14: until convergenceLinearized AROW, however, is less robust than Ada-Grad empirically2 and lacks known theoretical guar-antees.
+Finally, by using AdaGrad, we separateadaptivity from conservativity.
+Our experimentssuggest that adaptivity is actually more important.3 Adaptive Online MTAlgorithm 1 shows the full algorithm introduced inthis paper.
+AdaGrad (lines 9?10) is a crucial piece,but the loss function, regularization technique, andparallelization strategy described in this section areequally important in the MT setting.3.1 Pairwise Logistic Loss FunctionAlgorithm 1 lines 5?8 describe the gradient com-putation.
+We cast MT tuning as pairwise ranking(Herbrich et al, 1999, inter alia), which Hopkinsand May (2011) applied to MT.
+The pairwise ap-proach results in simple, convex loss functions suit-able for online learning.
+The idea is that for anytwo derivations, the ranking predicted by the modelshould be consistent with the ranking predicted bya gold sentence-level metric G like BLEU+1 (Linand Och, 2004).Consider a single source sentence f with asso-ciated references e1:k. Let d be a derivation in ann-best list of f that has the target e = e(d) and thefeature map ?(d).
+Let M(d) = w ?
+?
+(d) be themodel score.
+For any derivation d+ that is betterthan d?
+under G, we desire pairwise agreementsuch thatG(e(d+), e1:k)> G(e(d?
+), e1:k)??
+M(d+) > M(d?
+)2According to experiments not reported in this paper.313Ensuring pairwise agreement is the same as ensur-ing w ?
+[?(d+)?
+?(d?)]
+> 0.For learning, we need to select derivation pairs(d+, d?)
+to compute difference vectors x+ =?
+(d+) ?
+?(d?).
+Then we have a 1-class separa-tion problem trying to ensure w ?
+x+ > 0.
+Thederivation pairs are sampled with the algorithm ofHopkins and May (2011).We compute difference vectors Dt = {x1:s+ } (Al-gorithm 1 line 7) from s pairs (d+, d?)
+for sourcesentence ft. We use the familiar logistic loss:`t(w) = `(Dt, w) = ?
+?x+?Dtlog 11 + e?w?x+(12)Choosing the hinge loss instead of the logisticloss results in the 1-class SVM problem.
+The 1-class separation problem is equivalent to the binaryclassification problem with x+ = ?(d+)?
+?(d?
+)as positive data and x?
+= ?x+ as negative data,which may be plugged into an existing logistic re-gression solver.We find that Algorithm 1 works best with mini-batches instead of single examples.
+In line 4 wesimply partition the tuning set so that i becomes amini-batch of examples.3.2 Updating and RegularizationAlgorithm 1 lines 9?11 compute the adaptive learn-ing rate, update the weights, and apply regulariza-tion.
+Section 2.1 explained the AdaGrad learn-ing rate computation.
+To update and regularizethe weights we apply the Forward-Backward Split-ting (FOBOS) (Duchi and Singer, 2009) framework,which separates the two operations.
+The two-stepFOBOS update iswt?
+12 = wt?1 ?
+?t?1?`t?1(wt?1) (13)wt = arg minw12?w ?
+wt?
+12 ?22 + ?t?1r(w)(14)where (13) is just an unregularized gradient descentstep and (14) balances the regularization term r(w)with staying close to the gradient step.Equation (14) permits efficient L1 regulariza-tion, which is well-suited for selecting good featuresfrom exponentially many irrelevant features (Ng,2004).
+It is well-known that feature selection is veryimportant for feature-rich MT.
+For example, sim-ple indicator features like lexicalized re-orderingclasses are potentially useful yet bloat the the fea-ture set and, in the worst case, can negatively impactAlgorithm 2 ?Stale gradient?
+parallelizationmethod for Algorithm 1.Require: Tuning set {fi, e1:ki }i=1:M1: Initialize threadpool p1, .
+.
+.
+, pj2: Set t = 13: repeat4: for i in 1 .
+.
+.M in random order do5: Wait until any thread p is idle6: Send (fi, e1:ki , t) to p .
+Alg.
+1 lines 5?87: while ?
+p?
+done with gradient gt?
+do .
+t?
+?
+t8: Update wt = wt?1 ?
+?gt?
+.
+Alg.
+1 lines 9?119: Set t = t+ 110: end while11: end for12: until convergencesearch.
+Some of the features generalize, but manydo not.
+This was well understood in previous work,so heuristic filtering was usually applied (Chianget al, 2009, inter alia).
+In contrast, we need onlyselect an appropriate regularization strength ?.Specifically, when r(w) = ?
+?w?1, the closed-form solution to (14) iswt = sign(wt?
+12 )[|wt?
+12 | ?
+?t?1?
+]+(15)where [x]+ = max(x, 0) is the clipping functionthat in this case sets a weight to 0 when it fallsbelow the threshold ?t?1?.
+It is straightforward toadapt this to AdaGrad with diagonal ?
+by settingeach dimension of ?t?1,j = ?
+?12t,jj and by takingelement-wise products.We find that?`t?1(wt?1) only involves severalhundred active features for the current example(or mini-batch).
+However, naively following theFOBOS framework requires updating millions ofweights.
+But a practical benefit of FOBOS is thatwe can do lazy updates on just the active dimensionswithout any approximations.3.3 ParallelizationAlgorithm 1 is inherently sequential like standardonline learning.
+This is undesirable in MT wheredecoding is costly.
+We therefore parallelize the algo-rithm with the ?stale gradient?
+method of Langfordet al (2009) (Algorithm 2).
+A fixed threadpool ofworkers computes gradients in parallel and sendsthem to a master thread, which updates a centralweight vector.
+Crucially, the weight updates neednot be applied in order, so synchronization is unnec-essary; the workers only idle at the end of an epoch.The consequence is that the update in line 8 of Al-gorithm 2 is with respect to gradient gt?
+with t?
+?
+t.Langford et al (2009) gave convergence results for314stale updating, but the bounds do not apply to oursetting since we use L1 regularization.
+Neverthe-less, Gimpel et al (2010) applied this frameworkto other non-convex objectives and obtained goodempirical results.Our asynchronous, stochastic method has practi-cal appeal for MT.
+During a tuning run, the onlinemethod decodes the tuning set under many moreweight vectors than a MERT-style batch method.This characteristic may result in broader explorationof the search space, and make the learner more ro-bust to local optima local optima (Liang and Klein,2009; Bottou and Bousquet, 2011, inter alia).
+Theadaptive algorithm identifies appropriate learningrates for the mixture of dense and sparse features.Finally, large data structures such as the languagemodel (LM) and phrase table exist in shared mem-ory, obviating the need for remote queries.4 ExperimentsWe built Arabic-English and Chinese-English MTsystems with Phrasal (Cer et al, 2010), a phrase-based system based on alignment templates (Ochand Ney, 2004).
+The corpora3 in our experiments(Table 1) derive from several LDC sources from2012 and earlier.
+We de-duplicated each bitext ac-cording to exact string match, and ensured that nooverlap existed with the test sets.
+We producedalignments with the Berkeley aligner (Liang et al,2006b) with standard settings and symmetrized viathe grow-diag heuristic.For each language we used SRILM (Stolcke,2002) to estimate 5-gram LMs with modifiedKneser-Ney smoothing.
+We included the monolin-gual English data and the respective target bitexts.4.1 Feature TemplatesThe baseline ?dense?
+model contains 19 features:the nine Moses baseline features, the hierarchicallexicalized re-ordering model of Galley and Man-ning (2008), the (log) count of each rule, and anindicator for unique rules.To the dense features we add three high di-mensional ?sparse?
+feature sets.
+Discrimina-3We tokenized the English with packages from the Stan-ford Parser (Klein and Manning, 2003) according to the PennTreebank standard (Marcus et al, 1993), the Arabic with theStanford Arabic segmenter (Green and DeNero, 2012) accord-ing to the Penn Arabic Treebank standard (Maamouri et al,2008), and the Chinese with the Stanford Chinese segmenter(Chang et al, 2008) according to the Penn Chinese Treebankstandard (Xue et al, 2005).Bilingual MonolingualSentences Tokens TokensAr-En 6.6M 375M 990MZh-En 9.3M 538MTable 1: Bilingual and monolingual corpora usedin these experiments.
+The monolingual Englishdata comes from the AFP and Xinhua sections ofEnglish Gigaword 4 (LDC2009T13).tive phrase table (PT): indicators for each rulein the phrase table.
+Alignments (AL): indica-tors for phrase-internal alignments and deleted(unaligned) source words.
+Discriminative re-ordering (LO): indicators for eight lexicalized re-ordering classes, including the six standard mono-tone/swap/discontinuous classes plus the two sim-pler Moses monotone/non-monotone classes.4.2 Tuning AlgorithmsThe primary baseline is the dense feature set tunedwith MERT (Och, 2003).
+The Phrasal implemen-tation uses the line search algorithm of Cer et al(2008), uniform initialization, and 20 random start-ing points.4 We tuned according to BLEU-4 (Pap-ineni et al, 2002).We built high dimensional baselines with two dif-ferent algorithms.
+First, we tuned with batch PROusing the default settings in Phrasal (L2 regulariza-tion with ?=0.1).
+Second, we ran the k-best batchMIRA (kb-MIRA) (Cherry and Foster, 2012) imple-mentation in Moses.
+We did implement an onlineversion of MIRA, and in small-scale experimentsfound that the batch variant worked just as well.Cherry and Foster (2012) reported the same result,and their implementation is available in Moses.
+Weran their code with standard settings.Moses5 also contains the discriminative phrasetable implementation of (Hasler et al, 2012b),which is identical to our implementation usingPhrasal.
+Moses and Phrasal accept the same phrasetable and LM formats, so we kept those data struc-tures in common.
+The two decoders also use thesame multi-stack beam search (Och and Ney, 2004).For our method, we used uniform initialization,16 threads, and a mini-batch size of 20.
+We foundthat ?=0.02 and ?=0.1 worked well on developmentsets for both languages.
+To compute the gradients4Other system settings for all experiments: distortion limitof 5, a maximum phrase length of 7, and an n-best size of 200.5v1.0 (28 January 2013)315Model #features Algorithm Tuning Set MT02 MT03 MT04 MT09Dense 19 MERT MT06 45.08 51.32 52.26 51.42 48.44Dense 19 This paper MT06 44.19 51.42 52.52 50.16 48.13+PT 151k kb-MIRA MT06 42.08 47.25 48.98 47.08 45.64+PT 23k PRO MT06 44.31 51.06 52.18 50.23 47.52+PT 50k This paper MT06 50.61 51.71 52.89 50.42 48.74+PT+AL+LO 109k PRO MT06 44.87 51.25 52.43 50.05 47.76+PT+AL+LO 242k This paper MT06 57.84 52.45 53.18 51.38 49.37Dense 19 MERT MT05/6/8 49.63 51.60 52.29 51.73 48.68+PT+AL+LO 390k This paper MT05/6/8 58.20 53.61 54.99 52.79 49.94(Chiang, 2012)* 10-20k MIRA MT04/6 ?
+?
+?
+?
+45.90(Chiang, 2012)* 10-20k AROW MT04/6 ?
+?
+?
+?
+47.60#sentences 728 663 1,075 1,313Table 2: Ar-En results [BLEU-4 % uncased] for the NIST tuning experiment.
+The tuning and test setseach have four references.
+MT06 has 1,717 sentences, while the concatenated MT05/6/8 set has 4,213sentences.
+Bold indicates statistical significance relative to the best baseline in each block at p < 0.001;bold-italic at p < 0.05.
+We assessed significance with the permutation test of Riezler and Maxwell (2005).
+(*) Chiang (2012) used a similar-sized bitext, but two LMs trained on twice as much monolingual data.Model #features Algorithm Tuning Set MT02 MT03 MT04Dense 19 MERT MT06 33.90 35.72 33.71 34.26Dense 19 This paper MT06 32.60 36.23 35.14 34.78+PT 105k kb-MIRA MT06 29.46 30.67 28.96 30.05+PT 26k PRO MT06 33.70 36.87 34.62 34.80+PT 66k This paper MT06 33.90 36.09 34.86 34.73+PT+AL+LO 148k PRO MT06 34.81 36.31 33.81 34.41+PT+AL+LO 344k This paper MT06 38.99 36.40 35.07 34.84Dense 19 MERT MT05/6/8 32.36 35.69 33.83 34.33+PT+AL+LO 487k This paper MT05/6/8 37.64 37.81 36.26 36.15#sentences 878 919 1,597Table 3: Zh-En results [BLEU-4 % uncased] for the NIST tuning experiment.
+MT05/6/8 has 4,103sentences.
+OpenMT 2009 did not include Zh-En, hence the asymmetry with Table 2.we sampled 15 derivation pairs for each tuning ex-ample and scored them with BLEU+1.4.3 NIST OpenMT ExperimentThe first experiment evaluates our algorithm whentuning and testing on standard test sets, each withfour references.
+When we add features, our algo-rithm tends to overfit to a standard-sized tuning setlike MT06.
+We thus concatenated MT05, MT06,and MT08 to create a larger tuning set.Table 2 shows the Ar-En results.
+Our algorithmis competitive with MERT in the low dimensional?dense?
+setting, and compares favorably to PROwith the PT feature set.
+PRO does not benefitfrom additional features, whereas our algorithm im-proves with both additional features and data.
+Theunderperformance of kb-MIRA may result froma difference between Moses and Phrasal: MosesMERT achieves only 45.62 on MT09.
+Moses PROwith the PT feature set is slightly worse, e.g., 44.52on MT09.
+Nevertheless, kb-MIRA does not im-prove significantly over MERT, and also selects anunnecessarily large model.The full feature set PT+AL+LO does help.
+Withthe PT feature set alne, our algorithm tuned onMT05/6/8 scores well below the best model, e.g.316Model #features Algorithm Tuning Set #refs bitext5k-test MT04Dense 19 MERT MT06 45.08 4 39.28 51.42+PT 72k This paper MT05/6/8 51.29 4 39.50 50.60+PT 79k This paper bitext5k 44.79 1 43.85 45.73+PT+AL+LO 647k This paper bitext15k 45.68 1 43.93 45.24Table 4: Ar-En results [BLEU-4 % uncased] for the bitext tuning experiment.
+Statistical significance isrelative to the Dense baseline.
+We include MT04 for comparison to the NIST genre.Model #features Algorithm Tuning Set #refs bitext5k-test MT04Dense 19 MERT MT06 33.90 4 33.44 34.26+PT 97k This paper MT05/6/8 34.45 4 35.08 35.19+PT 67k This paper bitext5k 36.26 1 36.01 33.76+PT+AL+LO 536k This paper bitext15k 37.57 1 36.30 34.05Table 5: Zh-En results [BLEU-4 % uncased] for the bitext tuning experiment.48.56 BLEU on MT09.
+For Ar-En, our algorithmthus has the desirable property of benefiting frommore and better features, and more data.Table 3 shows Zh-En results.
+Somewhat sur-prisingly our algorithm improves over MERT inthe dense setting.
+When we add the discrimina-tive phrase table, our algorithm improves over kb-MIRA, and over batch PRO on two evaluation sets.With all features and the MT05/6/8 tuning set, weimprove significantly over all other models.
+PROlearns a smaller model with the PT+AL+LO fea-ture set which is surprising given that it applies L2regularization (AdaGrad uses L1).
+We speculatethat this may be an consequence of stochastic learn-ing.
+Our algorithm decodes each example witha new weight vector, thus exploring more of thesearch space for the same tuning set.4.4 Bitext Tuning ExperimentTables 2 and 3 show that adding tuning examplesimproves translation quality.
+Nevertheless, eventhe larger tuning set is small relative to the bitextfrom which rules were extracted.
+He and Deng(2012) and Simianer et al (2012) showed significanttranslation quality gains by tuning on the bitext.However, their bitexts matched the genre of theirtest sets.
+Our bitexts, like those of most large-scalesystems, do not.
+Domain mismatch matters for thedense feature set (Haddow and Koehn, 2012).
+Weshow that it also matters for feature-rich MT.Before aligning each bitext, we randomly sam-pled and sequestered 5k and 15k sentence tuningsets, and a 5k test set.
+We prevented overlap be-DA DB |A| |B| |A ?B|MT04 MT06 70k 72k 5.9kMT04 MT568 70k 96k 7.6kMT04 bitext5k 70k 67k 4.4kMT04 bitext15k 70k 310k 10.5k5ktest bitext5k 82k 67k 5.6k5ktest bitext15k 82k 310k 14kTable 6: Number of overlapping phrase table (+PT)features on various Zh-En dataset pairs.tween the tuning sets and the test set.
+We thentuned a dense model with MERT on MT06, andfeature-rich models on both MT05/6/8 and the bi-text tuning set.
+Table 4 shows the Ar-En results.When tuned on bitext5k the translation quality gainsare significant for bitext5k-test relative to tuning onMT05/6/8, which has multiple references.
+However,the bitext5k models do not generalize as well to theNIST evaluation sets as represented by the MT04result.
+Table 5 shows similar trends for Zh-En.5 Analysis5.1 Feature Overlap AnalysisHow many sparse features appear in both the tun-ing and test sets?
+In Table 6, A is the set of phrasetable features that received a non-zero weight whentuned on datasetDA (same forB).
+ColumnDA listsseveral Zh-En test sets used and column DB liststuning sets.
+Our experiments showed that tuningon MT06 generalizes better to MT04 than tuning317on bitext5k, whereas tuning on bitext5k general-izes better to bitext5k-test than tuning on MT06.These trends are consistent with the level of fea-ture overlap.
+Phrase table features in A ?
+B areoverwhelmingly short, simple, and correct phrases,suggesting L1 regularization is effective for featureselection.
+It is also important to balance the numberof features with how well weights can be learnedfor those features, as tuning on bitext15k producedhigher coverage for MT04 but worse generalizationthan tuning on MT06.5.2 Domain Adaptation AnalysisTo understand the domain adaptation issue we com-pared the non-zero weights in the discriminativephrase table (PT) for Ar-En models tuned on bi-text5k and MT05/6/8.
+Table 7 illustrates a statisti-cal idiosyncrasy in the data for the American andBritish spellings of program/programme.
+The massis concentrated along the diagonal, probably be-cause MT05/6/8 was prepared by NIST, an Amer-ican agency, while the bitext was collected frommany sources including Agence France Presse.Of course, this discrepancy is consequential forboth dense and feature-rich models.
+However, weobserve that the feature-rich models fit the tuningdata more closely.
+For example, the MT05/6/8model learns rules like l .
+?A 	KQK.
+??
+?JK?
+programincludes, l .
+?A 	KQK.
+?
+program of, and l .
+?A 	KQ.
+?
+@ ?
+Y 	?A 	K?program window.
+Crucially, it does not learn thebasic rule l .
+?A 	KQK.
+?
+program.In contrast, the bitext5k model contains ba-sic rules such l .
+?A 	KQK.
+?
+programme, l .
+?A 	KQ.
+?
+@ @ 	Y??
+this programme, and l .
+?A 	KQ.
+?
+@ ??
+X ?
+that pro-gramme.
+It also contains more elaborate rules suchas l .
+?A 	KQ.
+?
+@ HA?
+?
+K I	KA?
+?
+programme expenseswere and ????A??
+@ ?JKA 	?
+??
+@ HCgQ?
+@ l .?@QK.
+?mannedspace flight programmes.
+We observed similartrends for ?defense/defence?, ?analyze/analyse?, etc.This particular genre problem could be addressedwith language-specific pre-processing, but our sys-tem solves it in a data-driven manner.5.3 Re-ordering AnalysisWe also analyzed re-ordering differences.
+Arabicmatrix clauses tend to be verb-initial, meaning thatthe subject and verb must be swapped when translat-ing to English.
+To assess re-ordering differences?if any?between the dense and feature-rich models,we selected all MT09 segments that began with one# bitext5k # MT05/6/8programme 185 0program 19 449PT rules w/ programme 353 79PT rules w/ program 9 31Table 7: Top: comparison of token counts in twoAr-En tuning sets for programme and program.
+Bot-tom: rule counts in the discriminative phrase table(PT) for models tuned on the two tuning sets.
+Bothspellings correspond to the Arabic l .
+?A 	KQK.
+.of seven common verbs: ?A?
+qaal ?said?, hQ??
+SrH?declared?, PA ?
+@ ashaar ?indicated?, 	?A?
+kaan ?was?,Q?X dhkr ?commented?, 	?A 	?
+@ aDaaf ?added?, 	???
+@acln ?announced?.
+We compared the output of theMERT Dense model to our method with the fullfeature set, both tuned on MT06.
+Of the 208 sourcesegments, 32 of the translation pairs contained dif-ferent word order in the matrix clause.
+Our feature-rich model was correct 18 times (56.3%), Densewas correct 4 times (12.5%), and neither methodwas correct 10 times (31.3%).
+(1) ref: lebanese prime minister , fuad siniora ,announceda.
+and lebanese prime minister fuad siniorathatb.
+the lebanese prime minister fouad sinioraannounced(2) ref: the newspaper and television reporteda.
+she said the newspaper and televisionb.
+television and newspaper saidIn (1) the dense model (1a) drops the verb while thefeature-rich model correctly re-orders and insertsit after the subject (1b).
+The coordinated subjectin (2) becomes an embedded subject in the denseoutput (2a).
+The feature-rich model (2b) performsthe correct re-ordering.5.4 Runtime ComparisonTable 8 compares our method to standard implemen-tations of the other algorithms.
+MERT parallelizeseasily but runtime increases quadratically with n-best list size.
+PRO runs (single-threaded) L-BFGSto convergence on every epoch, a potentially slowprocedure for the larger feature set.
+Moreover, both318epochs min.MERT Dense 22 180PRO +PT 25 35kb-MIRA* +PT 26 25This paper +PT 10 10PRO +PT+AL+LO 13 150This paper +PT+AL+LO 5 15Table 8: Epochs to convergence (?epochs?)
+andapproximate runtime per epoch in minutes (?min.?
+)for selected Zh-En experiments tuned on MT06.All runs executed on the same dedicated systemwith the same number of threads.
+(*) Moses andkb-MIRA are written in C++, while all other rowsrefer to Java implementations in Phrasal.the Phrasal and Moses PRO implementations useL2 regularization, which regularizes every weighton every update.
+kb-MIRA makes multiple passesthrough the n-best lists during each epoch.
+TheMoses implementation parallelizes decoding butweight updating is sequential.The core of our method is an inner product be-tween the adaptive learning rate vector and the gra-dient.
+This is easy to implement and is very fasteven for large feature sets.
+Since we applied lazyregularization, this inner product usually involveshundred-dimensional vectors.
+Finally, our methoddoes not need to accumulate n-best lists, a practicethat slows down the other algorithms.6 Related WorkOur work relates most closely to that of Hasler et al(2012b), who tuned models containing both sparseand dense features with Moses.
+A discriminativephrase table helped them improve slightly over adense, online MIRA baseline, but their best resultsrequired initialization with MERT-tuned weightsand re-tuning a single, shared weight for the dis-criminative phrase table with MERT.
+In contrast,our algorithm learned good high dimensional mod-els from a uniform starting point.Chiang (2012) adapted AROW to MT and ex-tended previous work on online MIRA (Chiang etal., 2008; Watanabe et al, 2007).
+It was not clear ifhis improvements came from the novel Hope/Fearsearch, the conservativity gain from MIRA/AROWby solving the QP exactly, adaptivity, or sophis-ticated parallelization.
+In contrast, we show thatAdaGrad, which ignores conservativity and onlycapturing adaptivity, is sufficient.Simianer et al (2012) investigated SGD with apairwise perceptron objective.
+Their best algorithmused iterative parameter mixing (McDonald et al,2010), which we found to be slower than the stalegradient method in section 3.3.
+They regularizedonce at the end of each epoch, whereas we regular-ized each weight update.
+An empirical comparisonof these two strategies would be an interesting fu-ture contribution.Watanabe (2012) investigated SGD and even ran-domly selected pairwise samples as we did.
+Heconsidered both softmax and hinge losses, observ-ing better results with the latter, which solves a QP.Their parallelization strategy required a line searchat the end of each epoch.Many other discriminative techniques have beenproposed based on: ramp loss (Gimpel, 2012);hinge loss (Cherry and Foster, 2012; Haddow etal., 2011; Arun and Koehn, 2007); maximum en-tropy (Xiang and Ittycheriah, 2011; Ittycheriah andRoukos, 2007; Och and Ney, 2002); perceptron(Liang et al, 2006a); and structured SVM (Till-mann and Zhang, 2006).
+These works use radicallydifferent experimental setups, and to our knowl-edge only (Cherry and Foster, 2012) and this workcompare to at least two high dimensional baselines.Broader comparisons, though time-intensive, couldhelp differentiate these methods.7 Conclusion and OutlookWe introduced a new online method for tuningfeature-rich translation models.
+The method isfaster per epoch than MERT, scales to millions offeatures, and converges quickly.
+We used efficientL1 regularization for feature selection, obviatingthe need for the feature scaling and heuristic filter-ing common in prior work.
+Those comfortable withimplementing vanilla SGD should find our methodeasy to implement.
+Even basic discriminative fea-tures were effective, so we believe that our workenables fresh approaches to more sophisticated MTfeature engineering.Acknowledgments We thank John DeNero for helpful com-ments on an earlier draft.
+The first author is supported by aNational Science Foundation Graduate Research Fellowship.We also acknowledge the support of the Defense AdvancedResearch Projects Agency (DARPA) Broad Operational Lan-guage Translation (BOLT) program through IBM.
+Any opin-ions, findings, and conclusions or recommendations expressedin this material are those of the author(s) and do not necessarilyreflect the view of the DARPA or the US government.319ReferencesA.
+Arun and P. Koehn.
+2007.
+Online learning methodsfor discriminative training of phrase based statisticalmachine translation.
+In MT Summit XI.L.
+Bottou and O. Bousquet.
+2011.
+The tradeoffs oflarge scale learning.
+In Optimization for MachineLearning, pages 351?368.
+MIT Press.D.
+Cer, D. Jurafsky, and C. D. Manning.
+2008.
+Regu-larization and search for minimum error rate training.In WMT.D.
+Cer, M. Galley, D. Jurafsky, and C. D. Manning.2010.
+Phrasal: A statistical machine translationtoolkit for exploring new model features.
+In HLT-NAACL, Demonstration Session.P-C. Chang, M. Galley, and C. D. Manning.
+2008.Optimizing Chinese word segmentation for machinetranslation performance.
+In WMT.C.
+Cherry and G. Foster.
+2012.
+Batch tuning strategiesfor statistical machine translation.
+In HLT-NAACL.D.
+Chiang, Y. Marton, and P. Resnik.
+2008.
+On-line large-margin training of syntactic and structuraltranslation features.
+In EMNLP.D.
+Chiang, K. Knight, and W. Wang.
+2009.
+11,001new features for statistical machine translation.
+InHLT-NAACL.D.
+Chiang.
+2012.
+Hope and fear for discrimina-tive training of statistical translation models.
+JMLR,13:1159?1187.K.
+Crammer, O. Dekel, J. Keshet, S. Shalev-Shwartz,and Y.
+Singer.
+2006.
+Online passive-aggressive al-gorithms.
+JMLR, 7:551?585.K.
+Crammer, A. Kulesza, and M. Dredze.
+2009.
+Adap-tive regularization of weight vectors.
+In NIPS.J.
+Duchi and Y.
+Singer.
+2009.
+Efficient online and batchlearning using forward backward splitting.
+JMLR,10:2899?2934.J.
+Duchi, E. Hazan, and Y.
+Singer.
+2011.
+Adaptive sub-gradient methods for online learning and stochasticoptimization.
+JMLR, 12:2121?2159.M.
+Galley and C. D. Manning.
+2008.
+A simple andeffective hierarchical phrase reordering model.
+InEMNLP.K.
+Gimpel and N. A. Smith.
+2012.
+Structured ramploss minimization for machine translation.
+In HLT-NAACL.K.
+Gimpel, D. Das, and N. A. Smith.
+2010.
+Distributedasynchronous online learning for natural languageprocessing.
+In CoNLL.K.
+Gimpel.
+2012.
+Discriminative Feature-Rich Mod-eling for Syntax-Based Machine Translation.
+Ph.D.thesis, Language Technologies Institute, CarnegieMellon University.S.
+Green and J. DeNero.
+2012.
+A class-based agree-ment model for generating accurately inflected trans-lations.
+In ACL.B.
+Haddow and P. Koehn.
+2012.
+Analysing the effectof out-of-domain data on SMT systems.
+In WMT.B.
+Haddow, A. Arun, and P. Koehn.
+2011.
+SampleR-ank training for phrase-basedmachine translation.
+InWMT.E.
+Hasler, P. Bell, A. Ghoshal, B. Haddow, P. Koehn,F.
+McInnes, et al 2012a.
+The UEDIN systems forthe IWSLT 2012 evaluation.
+In IWSLT.E.
+Hasler, B. Haddow, and P. Koehn.
+2012b.
+Sparselexicalised features and topic adaptation for SMT.
+InIWSLT.X.
+He and L. Deng.
+2012.
+Maximum expected BLEUtraining of phrase and lexicon translation models.
+InACL.R.
+Herbrich, T. Graepel, and K. Obermayer.
+1999.Support vector learning for ordinal regression.
+InICANN.M.
+Hopkins and J.
+May.
+2011.
+Tuning as ranking.
+InEMNLP.A.
+Ittycheriah and S. Roukos.
+2007.
+Direct translationmodel 2.
+In HLT-NAACL.D.
+Klein and C. D. Manning.
+2003.
+Accurate unlexi-calized parsing.
+In ACL.P.
+Koehn, H. Hoang, A. Birch, C. Callison-Burch,M.
+Federico, N. Bertoldi, et al 2007.
+Moses: Opensource toolkit for statistical machine translation.
+InACL, Demonstration Session.J.
+Langford, A. J. Smola, and M. Zinkevich.
+2009.Slow learners are fast.
+In NIPS.P.
+Liang and D. Klein.
+2009.
+Online EM for unsuper-vised models.
+In HLT-NAACL.P.
+Liang, A.
+Bouchard-C?t?, D. Klein, and B. Taskar.2006a.
+An end-to-end discriminative approach tomachine translation.
+In ACL.P.
+Liang, B. Taskar, and D. Klein.
+2006b.
+Alignmentby agreement.
+In NAACL.C.-Y.
+Lin and F. J. Och.
+2004.
+ORANGE: a method forevaluating automatic evaluation metrics for machinetranslation.
+In COLING.M.
+Maamouri, A. Bies, and S. Kulick.
+2008.
+Enhanc-ing the Arabic Treebank: A collaborative effort to-ward new annotation guidelines.
+In LREC.320M.
+Marcus, M. A. Marcinkiewicz, and B. Santorini.1993.
+Building a large annotated corpus of En-glish: The Penn Treebank.
+Computational Linguis-tics, 19:313?330.R.McDonald, K. Hall, andG.Mann.
+2010.
+Distributedtraining strategies for the structured perceptron.
+InNAACL-HLT.A.
+Y. Ng.
+2004.
+Feature selection, L1 vs. L2 regular-ization, and rotational invariance.
+In ICML.F.
+J. Och and H. Ney.
+2002.
+Discriminative trainingand maximum entropy models for statistical machinetranslation.
+In ACL.F.
+J. Och and H. Ney.
+2004.
+The alignment templateapproach to statistical machine translation.
+Compu-tational Linguistics, 30(4):417?449.F.
+J. Och.
+2003.
+Minimum error rate training for statis-tical machine translation.
+In ACL.K.
+Papineni, S. Roukos, T. Ward, and W. Zhu.
+2002.BLEU: a method for automatic evaluation of ma-chine translation.
+In ACL.S.
+Riezler and J. T. Maxwell.
+2005.
+On some pitfalls inautomatic evaluation and significance testing in MT.In ACL Workshop on Intrinsic and Extrinsic Evalua-tion Measures for Machine Translation and/or Sum-marization (MTSE).P.
+Simianer, S. Riezler, and C. Dyer.
+2012.
+Joint featureselection in distributed stochastic learning for large-scale discriminative training in SMT.
+In ACL.A Stolcke.
+2002.
+SRILM?an extensible languagemodeling toolkit.
+In ICSLP.C.
+Tillmann and T. Zhang.
+2006.
+A discriminativeglobal training algorithm for statistical MT.
+In ACL-COLING.T.
+Watanabe, J. Suzuki, H. Tsukada, and H. Isozaki.2007.
+Online large-margin training for statistical ma-chine translation.
+In EMNLP-CoNLL.T.
+Watanabe.
+2012.
+Optimized online rank learningfor machine translation.
+In HLT-NAACL.
+Associa-tion for Computational Linguistics.B.
+Xiang and A. Ittycheriah.
+2011.
+Discriminativefeature-tied mixture modeling for statistical machinetranslation.
+In ACL-HLT.N.
+Xue, F. Xia, F. Chiou, and M. Palmer.
+2005.
+ThePenn Chinese Treebank: Phrase structure annotationof a large corpus.
+Natural Language Engineering,11(2):207?238.321

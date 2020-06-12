@@ -1,0 +1,334 @@
+Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics, pages 442?452,Berlin, Germany, August 7-12, 2016.c?2016 Association for Computational LinguisticsCombining Natural Logic and Shallow Reasoning for Question AnsweringGabor AngeliStanford UniversityStanford, CA 94305Neha NayakStanford UniversityStanford, CA 94305Christopher D. ManningStanford UniversityStanford, CA 94305{angeli, nayakne, manning}@cs.stanford.eduAbstractBroad domain question answering is of-ten difficult in the absence of structuredknowledge bases, and can benefit fromshallow lexical methods (broad coverage)and logical reasoning (high precision).We propose an approach for incorporatingboth of these signals in a unified frame-work based on natural logic.
+We extendthe breadth of inferences afforded by nat-ural logic to include relational entailment(e.g., buy ?
+own) and meronymy (e.g.,a person born in a city is born the city?scountry).
+Furthermore, we train an eval-uation function ?
+akin to gameplaying ?to evaluate the expected truth of candidatepremises on the fly.
+We evaluate our ap-proach on answering multiple choice sci-ence questions, achieving strong results onthe dataset.1 IntroductionQuestion answering is an important task in NLP,and becomes both more important and more diffi-cult when the answers are not supported by hand-curated knowledge bases.
+In these cases, view-ing question answering as textual entailment overa very large premise set can offer a means of gen-eralizing reliably to open domain questions.A natural approach to textual entailment is totreat it as a logical entailment problem.
+How-ever, this high-precision approach is not feasible incases where a formal proof is difficult or impossi-ble.
+For example, consider the following hypothe-sis (H) and its supporting premise (P) for the ques-tion Which part of a plant produces the seeds?
+:P: Ovaries are the female part of the flower, which pro-duces eggs that are needed for making seeds.H: A flower produces the seeds.This requires a relatively large amount of infer-ence: the most natural atomic fact in the sentenceis that ovaries produce eggs.
+These inferences arefeasible in a limited domain, but become difficultthe more open-domain reasoning they require.
+Incontrast, even a simple lexical overlap classifiercould correctly predict the entailment.
+In fact,such a bag-of-words entailment model has beenshown to be surprisingly effective on the Recog-nizing Textual Entailment (RTE) challenges (Mac-Cartney, 2009).
+On the other hand, such methodsare also notorious for ignoring even trivial cases ofnonentailment that are easy for natural logic, e.g.,recognizing negation in the example below:P: Eating candy for dinner is an example of a poorhealth habit.H: Eating candy is an example of a good health habit.We present an approach to leverage the bene-fits of both methods.
+Natural logic ?
+a proof the-ory over the syntax of natural language ?
+offers aframework for logical inference which is alreadyfamiliar to lexical methods.
+As an inference sys-tem searches for a valid premise, the candidates itexplores can be evaluated on their similarity to apremise by a conventional lexical classifier.We therefore extend a natural logic inferenceengine in two key ways: first, we handle rela-tional entailment and meronymy, increasing thetotal number of inferences that can be made.
+Wefurther implement an evaluation function whichquickly provides an estimate for how likely a can-didate premise is to be supported by the knowl-edge base, without running the full search.
+Thiscan then more easily match a known premise de-spite still not matching exactly.We present the following contributions: (1) weextend the classes of inferences NaturalLI can per-form on real-world sentences by incorporating re-lational entailment and meronymy, and by operat-442ing over dependency trees; (2) we augment Nat-uralLI with an evaluation function to provide anestimate of entailment for any query; and (3) werun our system over the Aristo science questionscorpus, achieving the strong results.2 BackgroundWe briefly review natural logic and NaturalLI ?the existing inference engine we use.
+Much ofthis paper will extend this system, with additionalinferences (Section 3) and a soft lexical classifier(Section 4).2.1 Natural LogicNatural logic is a formal proof theory that aims tocapture a subset of logical inferences by appeal-ing directly to the structure of language, withoutneeding either an abstract logical language (e.g.,Markov Logic Networks; Richardson and Domin-gos (2006)) or denotations (e.g., semantic pars-ing; Liang and Potts (2015)).
+We use the logic in-troduced by the NatLog system (MacCartney andManning, 2007; 2008; 2009), which was in turnbased on earlier theoretical work on MonotonicityCalculus (van Benthem, 1986; S?anchez Valencia,1991).
+We adopt the precise semantics of Icardand Moss (2014); we refer the reader to this paperfor a more thorough introduction to the formalism.At a high level, natural logic proofs operate bymutating spans of text to ensure that the mutatedsentence follows from the original ?
+each step ismuch like a syllogistic inference.
+Each mutationin the proof follows three steps:1.
+An atomic lexical relation is induced by ei-ther inserting, deleting or mutating a span inthe sentence.
+For example, in Figure 1, mu-tating The to No induces the f relation; mu-tating cat to carnivore induces thev relation.The relations ?
+and v are variants of entail-ment; f and  are variants of negation.2.
+This lexical relation between words is pro-jected up to yield a relation between sen-tences, based on the polarity of the token.
+Forinstance, The cat eats animals v some carni-vores eat animals.
+We explain this in moredetail below.3.
+These sentence level relations are joinedtogether to produce a relation between apremise, and a hypothesis multiple mutationsaway.
+For example in Figure 1, if we join v,?, v, and f, we get negation ().The notion of projecting a relation from a lexi-cal item to a sentence is important to understand.1To illustrate, cat v animal, and some cat meowsv some animal meows (recall, v denotes entail-ment), but no cat barks 6v no animal barks.
+De-spite differing by the same lexical relation, thesentence-level relation is different in the two cases.We appeal to two important concepts: mono-tonicity ?
+a property of arguments to natural lan-guage operators; and polarity ?
+a property of to-kens.
+From the example above, some is monotonein its first argument (i.e., cat or animal), and no isantitone in its first argument.
+This means that thefirst argument to some is allowed to mutate up thespecified hierarchy (e.g., hypernymy), whereas thefirst argument to no is allowed to mutate down.Polarity is a property of tokens in a sentence de-termined by the operators acting on it.
+All lexicalitems have upward polarity by default; monotoneoperators ?
+like some, several, or a few ?
+preservepolarity.
+Antitone operators ?
+like no, not, and all(in its first argument) ?
+reverse polarity.
+For ex-ample, mice in no cats eat mice has downward po-larity, whereas mice in no cats don?t eat mice hasupward polarity (it is in the scope of two down-ward monotone operators).As a final note, although we refer to the mono-tonicity calculus described above as natural logic,this formalism is only one of many possible nat-ural logics.
+For example, McAllester and Gi-van (1992) introduce a syntax for first order logicwhich they call Montagovian syntax.
+This syntaxhas two key advantages over first order logic: first,the ?quantifier-free?
+version of the syntax (roughlyequivalent to the monotonicity calculus we use)is computationally efficient while still handlinglimited quantification.
+Second, the syntax moreclosely mirrors that of natural language.2.2 NaturalLIWe build our extensions within the frameworkof NaturalLI, introduced by Angeli and Manning(2014).
+NaturalLI casts inference as a search prob-lem: given a hypothesis and an arbitrarily largecorpus of text, it searches through the space of lex-ical mutations (e.g., cat ?
+carnivore), with asso-ciated costs, until a premise is found.An example search using NaturalLI is given inFigure 1.
+The relations along the edges denote re-1For clarity we describe a simplified semantics here; Nat-uralLI implements the semantics described in Icard and Moss(2014).443No carnivoreseat animals?The carnivoreseat animalsThe cateats animalsThe catate an animalThe catate a mousew?wfNo animalseat animalsNo animalseat thingsw.
+.
+.w.
+.
+.Figure 1: An illustration of NaturalLI searchingfor a candidate premise to support the hypothesisat the root of the tree.
+We are searching from ahypothesis no carnivores eat animals, and find acontradicting premise the cat ate a mouse.
+Theedge labels denote Natural Logic inference steps.lations between the associated sentences ?
+i.e., theprojected lexical relations from Section 2.2.
+Im-portantly, and in contrast with traditional entail-ment systems, NaturalLI searches over an arbitrar-ily large knowledge base of textual premises ratherthan a single premise/hypothesis pair.3 Improving Inference in NaturalLIWe extend NaturalLI in three ways to improve itscoverage.
+We adapt the search algorithm to oper-ate over dependency trees rather than the surfaceforms (Section 3.1).
+We enrich the class of in-ferences warranted by natural logic beyond hyper-nymy and operator rewording to also encompassmeronymy and relational entailment (Section 3.2).Lastly, we handle token insertions during searchmore elegantly (Section 3.3).The general search algorithm in NaturalLI isparametrized as follows: First, an order is cho-sen to traverse the tokens in a sentence.
+For ex-ample, the original paper traverses tokens left-to-right.
+At each token, one of three operations canbe performed: deleting a token (corresponding toinserting a word in the proof derivation), mutatinga token, and inserting a token (corresponding todeleting a token in the proof derivation).3.1 Natural logic over Dependency TreesOperating over dependency trees rather than a to-ken sequence requires reworking (1) the semanticsof deleting a token during search, and (2) the orderin which the sentence is traversed.We recently defined a mapping from StanfordDependency relations to the associated lexical re-lation deleting the dependent subtree would in-duce (Angeli et al, 2015).
+We adapt this mappingto yield the relation induced by inserting a givendependency edge, corresponding to our deletionsin search; we also convert the mapping to use Uni-versal Dependencies (de Marneffe et al, 2014).This now lends a natural deletion operation: at agiven node, the subtree rooted at that node can bedeleted to induce the associated natural logic rela-tion.For example, we can infer that all truly notori-ous villains have lairs from the premise all villainshave lairs by observing that deleting an amod arcinduces the relation w, which in the downwardpolarity context of villains?projects to v (entail-ment):All?truly?notorious?villains?have?lairs?.operatornsubjamodadvmod dobjAn admittedly rare but interesting subtlety inthe order we chose to traverse the tokens in thesentence is the effect mutating an operator has onthe polarity of its arguments.
+For example, mu-tating some to all changes the polarity of its firstargument.
+There are cases where we must mutatethe argument to the operator before the operatoritself, as well as cases where we must mutate theoperator before its arguments.
+Consider, for in-stance:P: All felines have a tailH: Some cats have a tailwhere we must first mutate cat to feline, versus:P: All cats have a tailH: Some felines have a tailwhere we must first mutate some to all.
+There-fore, our traversal first visits each operator, thenperforms a breadth-first traversal of the tree, andthen visits each operator a second time.3.2 Meronymy and Relational EntailmentAlthough natural logic and the underlying mono-tonicity calculus has only been explored in thecontext of hypernymy, the underlying frameworkcan be applied to any partial order.Natural language operators can be defined as amapping from denotations of objects to truth val-ues.
+The domain of word denotations is then or-444(a)x= Felix kitten cat animal thingDenotation of word xFalseTrueTruth Value ofSentence all x drink milksome x bark(b)x= Hilo Big Island Hawaii USA North AmericaDenotation of word xFalseTrueTruth Value ofSentence Obama was born in xx is an islandFigure 2: An illustration of monotonicity usingdifferent partial orders.
+(a) The monotonicity ofall and some in their first arguments, over a do-main of denotations.
+(b) An illustration of the bornin monotone operator over the meronymy hierar-chy, and the operator is an island as neither mono-tone or antitone.dered by the subset operator, corresponding to or-dering by hypernymy over the words.2However,hypernymy is not the only useful partial orderingover denotations.
+We include two additional or-derings as motivating examples: relational entail-ment and meronymy.Relational Entailment For two verbs v1and v2,we define v1?
+v2if the first verb entails the sec-ond.
+In many cases, a verb v1may entail a verbv2even if v2is not a hypernym of v1.
+For exam-ple, to sell something (hopefully) entails owningthat thing.
+Apart from context-specific cases (e.g.,orbit entails launch only for man-made objects),these hold largely independent of context.
+Notethat the usual operators apply to relational entail-ments ?
+if all cactus owners live in Arizona thenall cactus sellers live in Arizona.This information was incorporated using datafrom VERBOCEAN (Chklovski and Pantel, 2004),adapting the confidence weights as transitioncosts.
+VERBOCEAN uses lexicosyntactic pat-terns to score pairs of verbs as candidate par-ticipants in a set of relations.
+We approximatethe VERBOCEAN relations stronger -than(v1, v2)(e.g., to kill is stronger than to wound) and2Truth values are a trivial partial order corresponding toentailment: if t1?
+t2(i.e., t1v t2), and you know that t1istrue, then t2must be true.happens-before(v2, v1) (e.g., buying happens be-fore owning) to indicate that v1entails v2.
+Theseverb entailment transitions are incorporated us-ing costs derived from the original weights fromChklovski and Pantel (2004).Meronymy The most salient use-case formeronymy is with locations.
+For example, ifObama was born in Hawaii, then we know thatObama was born in America, because Hawaii is ameronym of (part of) America.
+Unlike relationalentailment and hypernymy, meronymy is operatedon by a distinct set of operators: if Hawaii is anisland, we cannot necessarily entail that Americais an island.We semi-automatically collect a set of 81 op-erators (e.g., born in, visited) which then com-pose in the usual way with the conventional op-erators (e.g., some, all).
+These operators consistof dependency paths of length 2 that co-occurredin newswire text with a named entity of type PER-SON and two different named entities of type LO-CATION, such that one location was a meronym ofthe other.
+All other operators are considered non-monotone with respect to the meronym hierarchy.Note that these are not the only two orders thatcan be incorporated into our framework; they justhappen to be two which have lexical resourcesavailable and are likely to be useful in real-worldentailment tasks.3.3 Removing the Insertion TransitionInserting words during search poses an inherentproblem, as the space of possible words to insertat any position is on the order of the size of thevocabulary.
+In NaturalLI, this was solved by keep-ing a trie of possible insertions, and using that toprune this space.
+This is both computationallyslow and adapts awkwardly to a search over de-pendency trees.Therefore, this work instead opts to performa bidirectional search: when constructing theknowledge base, we add not only the originalsentence but also all entailments with subtreesdeleted.
+For example, a premise of some furry catshave tails would yield two facts for the knowledgebase: some furry cats have tails as well as somecats have tails.
+For this, we use the process de-scribed in Angeli et al (2015) to generate shortentailed sentences from a long utterance using nat-ural logic.
+This then leaves the reverse search toonly deal with mutations and inference insertions,445which are relatively easier.The new challenge this introduces, of course,is the additional space required to store the newfacts.
+To mitigate this, we hash every fact into a64 bit integer, and store only the hashed value inthe knowledge base.
+We construct this hash func-tion such that it operates over a bag of edges in thedependency tree.
+This has two key properties: itallows us to be invariant to the word order of ofthe sentence, and more importantly it allows us torun our search directly over modifications to thishash function.To elaborate, we notice that each of the twoclasses of operations our search is performing aredone locally over a single dependency edge.
+Whenadding an edge, we can simply take the XOR ofthe hash saved in the parent state and the hash ofthe added edge.
+When mutating an edge, we XORthe hash of the parent state with the edge we aremutating, and again with the mutated edge.
+Inthis way, each search node need only carry an 8byte hash, local information about the edge cur-rently being considered (8 bytes), global infor-mation about the words deleted during search (5bytes), a 3 byte backpointer to recover the infer-ence path, and 8 bytes of operator metadata ?
+32bytes in all, amounting to exactly half a cache lineon our machines.
+This careful attention to datastructures and memory layout turn out to have alarge impact on runtime efficiency.
+More detailsare given in Angeli (2016).4 An Evaluation Function for NaturalLIThere are many cases ?
+particularly as the lengthof the premise and the hypothesis grow ?
+wheredespite our improvements NaturalLI will fail tofind any supporting premises; for example:P: Food serves mainly for growth, energy and body re-pair, maintenance and protection.H: Animals get energy for growth and repair from food.In addition to requiring reasoning with multi-ple implicit premises (a concomitant weak point ofnatural logic), a correct interpretation of the sen-tence requires fairly nontrivial nonlocal reasoning:Food serves mainly for x ?
+Animals get x fromfood.Nonetheless, there enough lexical clues in thesentence that even a simple entailment classifierwould get the example correct.
+We build such aclassifier and adapt it as an evaluation function in-side NaturalLI in case no premises are found dur-ing search.4.1 A Standalone Entailment ClassifierOur entailment classifier is designed to be as do-main independent as possible; therefore we de-fine only 5 unlexicalized real-valued features, withan optional sixth feature encoding the score out-put by the Solr information extraction system (inturn built upon Lucene).
+In fact, this classifier isa stronger baseline than it may seem: evaluatingthe system on RTE-3 (Giampiccolo et al, 2007)yielded 63.75% accuracy ?
+2 points above the me-dian submission.All five of the core features are based on analignment of keyphrases between the premise andthe hypothesis.
+A keyphrase is defined as a spanof text which is either (1) a possibly empty se-quence of adjectives and adverbs followed by asequence of nouns, and optionally followed by ei-ther of or the possessive marker (?s), and anothernoun (e.g., sneaky kitten or pail of water); (2) apossibly empty sequence of adverbs followed bya verb (e.g., quietly pounce); or (3) a gerund fol-lowed by a noun (e.g., flowing water).
+The verbto be is never a keyphrase.
+We make a distinctionbetween a keyphrase and a keyword ?
+the latter isa single noun, adjective, or verb.We then align keyphrases in the premise andhypothesis by applying a series of sieves.
+First,all exact matches are aligned to each other.
+Then,prefix or suffix matches are aligned, then if eitherkeyphrase contains the other they are aligned aswell.
+Last, we align a keyphrase in the premisepito a keyphrase in the hypothesis hkif there isan alignment between pi?1and hk?1and betweenpi+1and hk+1.
+This forces any keyphrase pairwhich is ?sandwiched?
+between aligned pairs tobe aligned as well.
+An example alignment is givenin Figure 3.Features are extracted for the number of align-ments, the numbers of alignments which do and donot match perfectly, and the number of keyphrasesin the premise and hypothesis which were notaligned.
+A feature for the Solr score of the premisegiven the hypothesis is optionally included; we re-visit this issue in the evaluation.4.2 An Evaluation Function for SearchA version of the classifier constructed in Sec-tion 4.1, but over keywords rather than keyphrasescan be incorporated directly into NaturalLI?ssearch to give a score for each candidate premise446Heat energy is being transferred when a stove is used to boil water in a pan.When you heat water on a stove, thermal energy is transferred.Figure 3: An illustration of an alignment between a premise and a hypothesis.
+Keyphrases can bemultiple words (e.g., heat energy), and can be approximately matched (e.g., to thermal energy).
+In thepremise, used, boil and pan are unaligned.
+Note that heat water is incorrectly tagged as a compoundnoun.visited.
+This can be thought of as analogous to theevaluation function in game-playing search ?
+eventhough an agent cannot play a game of Chess tocompletion, at some depth it can apply an evalua-tion function to its leaf states.Using keywords rather than keyphrases is ingeneral a hindrance to the fuzzy alignments thesystem can produce.
+Importantly though, this al-lows the feature values to be computed incremen-tally as the search progresses, based on the scoreof the parent state and the mutation or deletionbeing performed.
+For instance, if we are delet-ing a word which was previously aligned perfectlyto the premise, we would subtract the weight fora perfect and imperfect alignment, and add theweight for an unaligned premise keyphrase.
+Thishas the same effect as applying the trained clas-sifier to the new state, and uses the same weightslearned for this classifier, but requires substantiallyless computation.In addition to finding entailments from candi-date premises, our system also allows us to en-code a notion of likely negation.
+We can considerthe following two statements na?
+?vely sharing ev-ery keyword.
+Each token marked with its polarity:P: some?cats?have?tails?H: no?cats?have?tails?However, we note that all of the keyword pairsare in opposite polarity contexts.
+We can thereforedefine a pair of keywords as matching in NaturalLIif the following two conditions hold: (1) their lem-matized surface forms match exactly, and (2) theyhave the same polarity in the sentence.
+The secondconstraint encodes a good approximation for nega-tion.
+To illustrate, consider the polarity signaturesof common operators:Operators Subj.
+polarity Obj.
+polaritySome, few, etc.
+?
+?All, every, etc.
+?
+?Not all, etc.
+?
+?No, not, etc.
+?
+?Most, many, etc.
+?
+?We note that most contradictory operators (e.g.,some/no; all/not all) induce the exact opposite po-larity on their arguments.
+Otherwise, pairs of op-erators which share half their signature are usuallycompatible with each other (e.g., some and all).This suggests a criterion for likely negation: Ifthe highest classifier score is produced by a con-tradictory candidate premise, we have reason tobelieve that we may have found a contradiction.To illustrate with our example, NaturalLI wouldmutate no cats have tails to the cats have tails,at which point it has found a contradictory candi-date premise which has perfect overlap with thepremise some cats have tails.
+Even had we notfound the exact premise, this suggests that the hy-pothesis is likely false.5 Related WorkThis work is similar in many ways to work on rec-ognizing textual entailment ?
+e.g., Schoenmack-ers et al (2010), Berant et al (2011), Lewis andSteedman (2013).
+In the RTE task, a singlepremise and a single hypothesis are given as in-put, and a system must return a judgment of eitherentailment or nonentailment (in later years, nonen-tailment is further split into contradiction and in-dependence).
+These approaches often rely onalignment features, similar to ours, but do not gen-erally scale to large premise sets (i.e., a compre-hensive knowledge base).
+The discourse commit-ments in Hickl and Bensley (2007) can be thoughtof as similar to the additional entailed facts weadd to the knowledge base (Section 3.3).
+In an-other line of work, Tian et al (2014) approach the447RTE problem by parsing into Dependency Com-positional Semantics (DCS) (Liang et al, 2011).This work particularly relevant in that it also in-corporates an evaluation function (using distribu-tional similarity) to augment their theorem prover?
+although in their case, this requires a transla-tion back and forth between DCS and language.Beltagy et al (To appear 2016) takes a similar ap-proach, but encoding distributional information di-rectly in entailment rules in a Markov Logic Net-work (Richardson and Domingos, 2006).Many systems make use of structured knowl-edge bases for question answering.
+Semanticparsing methods (Zettlemoyer and Collins, 2005;Liang et al, 2011) use knowledge bases likeFreebase to find support for a complex ques-tion.
+Knowledge base completion (e.g., Chen etal.
+(2013), Bordes et al (2011), or Riedel et al(2013)) can be thought of as entailment, predict-ing novel knowledge base entries from the origi-nal database.
+In contrast, this work runs inferenceover arbitrary text without needing a structuredknowledge base.
+Open IE (Wu and Weld, 2010;Mausam et al, 2012) QA approaches ?
+e.g., Faderet al (2014) are closer to operating over plain text,but still requires structured extractions.Of course, this work is not alone in attemptingto incorporate strict logical reasoning into ques-tion answering systems.
+The COGEX system(Moldovan et al, 2003) incorporates a theoremprover into a QA system, boosting overall per-formance on the TREC QA task.
+Similarly, Wat-son (Ferrucci et al, 2010) incorporates logical rea-soning components alongside shallower methods.This work follows a similar vein, but both thetheorem prover and lexical classifier operate overtext, without requiring either the premises or ax-ioms to be in logical forms.On the Aristo corpus we evaluate on, Hixon etal.
+(2015) proposes a dialog system to augmenta knowledge graph used for answering the ques-tions.
+This is in a sense an oracle measure, wherea human is consulted while answering the ques-tion; although, they show that their additional ex-tractions help answer questions other than the onethe dialog was collected for.6 EvaluationWe evaluate our entailment system on the RegentsScience Exam portion of the Aristo dataset (Clarket al, 2013; Clark, 2015).
+The dataset consists ofa collection of multiple-choice science questionsfrom the New York Regents 4thGrade Science Ex-ams (NYSED, 2014).
+Each multiple choice optionis translated to a candidate hypotheses.
+A largecorpus is given as a knowledge base; the task isto find support in this knowledge base for the hy-pothesis.Our system is in many ways well-suited to thedataset.
+Although certainly many of the facts re-quire complex reasoning (see Section 6.4), the ma-jority can be answered from a single premise.
+Un-like FraCaS (Cooper et al, 1996) or the RTE chal-lenges, however, the task does not have explicitpremises to run inference from, but rather must in-fer the truth of the hypothesis from a large collec-tion of supporting text.6.1 Data ProcessingWe make use of two collections of unlabeled cor-pora for our experiments.
+The first of these isthe Barron?s study guide (BARRON?S), consistingof 1200 sentences.
+This is the corpus used byHixon et al (2015) for their conversational dia-log engine Knowbot, and therefore constitutes amore fair comparison against their results.
+How-ever, we also make use of the full SCITEXT cor-pus (Clark et al, 2014).
+This corpus consists of1 316 278 supporting sentences, including the Bar-ron?s study guide alongside simple Wikipedia, dic-tionaries, and a science textbook.Since we lose all document context whensearching over the corpus with NaturalLI, we firstpre-process the corpus to resolve high-precisioncases of pronominal coreference, via a set of verysimple high-precision sieves.
+This finds the mostrecent candidate antecedent (NP or named entity)which, in order of preference, matches either thepronoun?s animacy, gender, and number.
+Filter-ing to remove duplicate sentences and sentencescontaining non-ASCII characters yields a total of822 748 facts in the corpus.These sentences were then indexed using Solr.The set of promising premises for the soft align-ment in Section 4, as well as the Solr score fea-ture in the lexical classifier (Section 4.1), wereobtained by querying Solr using the default sim-ilarity metric and scoring function.
+On the queryside, questions were converted to answers usingthe same methodology as Hixon et al (2015).
+Incases where the question contained multiple sen-tences, only the last sentence was considered.
+As448discussed in Section 6.4, we do not attempt rea-soning over multiple sentences, and the last sen-tence is likely the most informative sentence in alonger passage.6.2 Training an Entailment ClassifierTo train a soft entailment classifier, we needed aset of positive and negative entailment instances.These were collected on Mechanical Turk.
+In par-ticular, for each true hypothesis in the training setand for each sentence in the Barron?s study guide,we found the top 8 results from Solr and consid-ered these to be candidate entailments.
+These werethen shown to Turkers, who decided whether thepremise entailed the hypothesis, the hypothesis en-tailed the premise, both, or neither.
+Note that eachpair was shown to only one Turker, lowering thecost of data collection, but consequently resultingin a somewhat noisy dataset.
+The data was aug-mented with additional negatives, collected by tak-ing the top 10 Solr results for each false hypothesisin the training set.
+This yielded a total of 21 306examples.The scores returned from NaturalLI incorporatenegation in two ways: if NaturalLI finds a contra-dictory premise, the score is set to zero.
+If Natu-ralLI finds a soft negation (see Section 4.2), anddid not find an explicit supporting premise, thescore is discounted by 0.75 ?
+a value tuned on thetraining set.
+For all systems, any premise whichdid not contain the candidate answer to the multi-ple choice query was discounted by a value tunedon the training set.6.3 Experimental ResultsWe present results on the Aristo dataset in Table 1,alongside prior work and strong baselines.
+In allcases, NaturalLI is run with the evaluation func-tion enabled; the limited size of the text corpus andthe complexity of the questions would cause thebasic NaturalLI system to perform poorly.
+The testset for this corpus consists of only 68 examples,and therefore both perceived large differences inmodel scores and the apparent best system shouldbe interpreted cautiously.
+NaturalLI consistentlyachieves the best training accuracy, and is morestable between configurations on the test set.
+Forinstance, it may be consistently discarding lexi-cally similar but actually contradictory premisesthat often confuse some subset of the baselines.KNOWBOT is the dialog system presented inHixon et al (2015).
+We report numbers for twoSystem Barron?s SCITEXTTrain Test Train TestKNOWBOT (held-out) 45 ?
+?
+?KNOWBOT (oracle) 57 ?
+?
+?Solr Only 49 42 62 58Classifier 53 52 68 60+ Solr 53 48 66 64Evaluation Function 52 54 61 63+ Solr 50 45 62 58NaturalLI 52 51 65 61+ Solr 55 49 73 61+ Solr + Classifier 55 49 74 67Table 1: Accuracy on the Aristo science questionsdataset.
+All NaturalLI runs include the evalua-tion function.
+Results are reported using only theBarron?s study guide or SCITEXT as the support-ing KNOWBOT is the dialog system presented inHixon et.
+al (2015).
+The held-out version uses ad-ditional facts from other question?s dialogs; the or-acle version made use of human input on the ques-tion it was answering.
+The test set did not exist atthe time KNOWBOT was published.variants of the system: held-out is the system?sperformance when it is not allowed to use the di-alog collected from humans for the example it isanswering; oracle is the full system.
+Note that theoracle variant is a human-in-the-loop system.We additionally present three baselines.
+Thefirst simply uses Solr?s IR confidence to rank en-tailment (Solr Only in Table 1).
+The max IR scoreof any premise given a hypothesis is taken as thescore for that hypothesis.
+Furthermore, we reportresults for the entailment classifier defined in Sec-tion 4.1 (Classifier), optionally including the Solrscore as a feature.
+We also report performanceof the evaluation function in NaturalLI applied di-rectly to the premise and hypothesis, without anyinference (Evaluation Function).Last, we evaluate NaturalLI with the improve-ments presented in this paper (NaturalLI in Ta-ble 1).
+We additionally tune weights on our train-ing set for a simple model combination with (1)Solr (with weight 6:1 for NaturalLI) and (2) thestandalone classifier (with weight 24:1 for Nat-uralLI).
+Empirically, both parameters were ob-served to be fairly robust.To demonstrate the system?s robustness on alarger dataset, we additionally evaluate on a testset of 250 additional science exam questions, with449System Test AccuracySolr Only 46.8Classifier 43.6NaturalLI 46.4+ Solr 48.0Table 2: Results of our baselines and NaturalLI ona larger dataset of 250 examples.
+All NaturalLIruns include the evaluation function.an associated 500 example training set (and 249example development set).
+These are substantiallymore difficult as they contain a far larger num-ber of questions that require an understanding ofa more complex process.
+Nonetheless, the trendillustrated in Table 1 holds for this larger set, asshown in Table 2.
+Note that with a web-scalecorpus, accuracy of an IR-based system can bepushed up to 51.4%; a PMI-based solver, in turn,achieves an accuracy of 54.8% ?
+admittedly higherthan our best system (Clark et al, 2016).3An in-teresting avenue of future work would be to runNaturalLI over such a large web-scale corpus, andto incorporate PMI-based statistics into the evalu-ation function.6.4 DiscussionWe analyze some common types of errors madeby the system on the training set.
+The most com-mon error can be attributed to the question requir-ing complex reasoning about multiple premises.29 of 108 questions in the training set (26%) con-tain multiple premises.
+Some of these cases canbe recovered from (e.g., This happens because thesmooth road has less friction.
+), while others aretrivially out of scope for our method (e.g., The vol-ume of water most likely decreased.).
+Althoughthere is usually still some signal for which answeris most likely to be correct, these questions arefundamentally out-of-scope for the approach.Another class of errors which deserves mentionare cases where a system produces the same scorefor multiple answers.
+This occurs fairly frequentlyin the standalone classifier (7% of examples intraining; 4% loss from random guesses), and es-pecially often in NaturalLI (11%; 6% loss fromrandom guesses).
+This offers some insight intowhy incorporating other models ?
+even with lowweight ?
+can offer significant boosts in the per-3Results from personal correspondence with the authors.formance of NaturalLI.
+Both this and the previousclass could be further mitigated by having a notionof a process, as in Berant et al (2014).Other questions are simply not supported by anysingle sentence in the corpus.
+For example, A hu-man offspring can inherit blue eyes has no sup-port in the corpus that does not require significantmulti-step inferences.A remaining chunk of errors are simply classi-fication errors.
+For example, Water freezing is anexample of a gas changing to a solid is marked asthe best hypothesis, supported incorrectly by Anice cube is an example of matter that changes froma solid to a liquid to a gas, which after mutatingwater to ice cube matches every keyword in thehypothesis.7 ConclusionWe have improved NaturalLI to be more robustfor question answering by running the inferenceover dependency trees, pre-computing deletions,and incorporating a soft evaluation function forpredicting likely entailments when formal supportcould not be found.
+Lastly, we show that relationalentailment and meronymy can be elegantly incor-porated into natural logic.
+These features allowus to perform large-scale broad domain questionanswering, achieving strong results on the Aristoscience exams corpus.AcknowledgmentsWe thank the anonymous reviewers for theirthoughtful comments.
+We gratefully acknowl-edge the support of the Allen Institute for Arti-ficial Intelligence, and in particular Peter Clarkand Oren Etzioni for valuable discussions, as wellas for access to the Aristo corpora and associ-ated preprocessing.
+We would also like to ac-knowledge the support of the Defense AdvancedResearch Projects Agency (DARPA) Deep Explo-ration and Filtering of Text (DEFT) Program un-der Air Force Research Laboratory (AFRL) con-tract no.
+FA8750-13-2-0040.
+Any opinions,findings, and conclusion or recommendations ex-pressed in this material are those of the authorsand do not necessarily reflect the view of AI2,DARPA, AFRL, or the US government.450ReferencesGabor Angeli and Christopher D. Manning.
+2014.NaturalLI: Natural logic inference for commonsense reasoning.
+In EMNLP.Gabor Angeli, Melvin Jose Johnson Premkumar, andChristopher D. Manning.
+2015.
+Leveraging linguis-tic structure for open domain information extraction.In ACL.Gabor Angeli.
+2016.
+Learning Open Domain Knowl-edge From Text.
+Ph.D. thesis, Stanford University.Islam Beltagy, Stephen Roller, Pengxiang Cheng, Ka-trin Erk, and Raymond J. Mooney.
+To appear, 2016.Representing meaning with a combination of logicaland distributional models.
+Computational Linguis-tics.Jonathan Berant, Ido Dagan, and Jacob Goldberger.2011.
+Global learning of typed entailment rules.
+InProceedings of ACL, Portland, OR.Jonathan Berant, Vivek Srikumar, Pei-Chun Chen,Brad Huang, Christopher D Manning, Abby Van-der Linden, Brittany Harding, and Peter Clark.2014.
+Modeling biological processes for readingcomprehension.
+In Proc.
+EMNLP.Antoine Bordes, Jason Weston, Ronan Collobert,Yoshua Bengio, et al 2011.
+Learning structuredembeddings of knowledge bases.
+In AAAI.Danqi Chen, Richard Socher, Christopher D Man-ning, and Andrew Y Ng.
+2013.
+Learning newfacts from knowledge bases with neural tensor net-works and semantic word vectors.
+arXiv preprintarXiv:1301.3618.Timothy Chklovski and Patrick Pantel.
+2004.
+Verb-ocean: Mining the web for fine-grained semanticverb relations.
+In EMNLP.Peter Clark, Philip Harrison, and Niranjan Balasubra-manian.
+2013.
+A study of the knowledge base re-quirements for passing an elementary science test.In AKBC.Peter Clark, Niranjan Balasubramanian, Sum-ithra Bhakthavatsalam, Kevin Humphreys, JesseKinkead, Ashish Sabharwal, and Oyvind Tafjord.2014.
+Automatic construction of inference-supporting knowledge bases.
+AKBC.Peter Clark, Oren Etzioni, Tushar Khot, Ashish Sab-harwal, Oyvind Tafjord, Peter Turney, and DanielKhashabi.
+2016.
+Combining retrieval, statistics, andinference to answer elementary science questions.Peter Clark.
+2015.
+Elementary school science andmath tests as a driver for AI: Take the Aristo chal-lenge!
+AAAI.Robin Cooper, Dick Crouch, Jan Van Eijck, ChrisFox, Johan Van Genabith, Jan Jaspars, Hans Kamp,David Milward, Manfred Pinkal, Massimo Poesio,et al 1996.
+Using the framework.
+Technical report,The FraCaS Consortium.Marie-Catherine de Marneffe, Timothy Dozat, Na-talia Silveira, Katri Haverinen, Filip Ginter, JoakimNivre, and Christopher D Manning.
+2014.
+Univer-sal Stanford dependencies: A cross-linguistic typol-ogy.
+In Proceedings of LREC.Anthony Fader, Luke Zettlemoyer, and Oren Etzioni.2014.
+Open question answering over curated andextracted knowledge bases.
+In KDD.David Ferrucci, Eric Brown, Jennifer Chu-Carroll,Jmes Fan, David Gondek, Aditya Kalyanpur, AdamLally, J. William Murdock, Eric Nyberg, JohnPrager, Nico Schlaefer, and Chris Welty.
+2010.
+TheAI behind Watson.
+The AI Magazine.Danilo Giampiccolo, Bernardo Magnini, Ido Dagan,and Bill Dolan.
+2007.
+The third PASCAL recog-nizing textual entailment challenge.
+In Proc.
+of theACL-PASCAL workshop on textual entailment andparaphrasing.
+Association for Computational Lin-guistics.Andrew Hickl and Jeremy Bensley.
+2007.
+A discoursecommitment-based framework for recognizing tex-tual entailment.
+In ACL-PASCAL Workshop on Tex-tual Entailment and Paraphrasing.Ben Hixon, Peter Clark, and Hannaneh Hajishirzi.2015.
+Learning knowledge graphs for question an-swering through conversational dialog.
+NAACL.Thomas Icard, III and Lawrence Moss.
+2014.
+Recentprogress on monotonicity.
+Linguistic Issues in Lan-guage Technology.Mike Lewis and Mark Steedman.
+2013.
+Combineddistributional and logical semantics.
+TACL, 1:179?192.Percy Liang and Christopher Potts.
+2015.
+Corpus-based semantics and pragmatics.
+Annual Review ofLinguistics, 1(1).Percy Liang, Michael Jordan, and Dan Klein.
+2011.Learning dependency-based compositional seman-tics.
+In ACL.Bill MacCartney and Christopher D Manning.
+2007.Natural logic for textual inference.
+In ACL-PASCALWorkshop on Textual Entailment and Paraphrasing.Bill MacCartney and Christopher D Manning.
+2008.Modeling semantic containment and exclusion innatural language inference.
+In Coling.Bill MacCartney and Christopher D Manning.
+2009.An extended model of natural logic.
+In Proceedingsof the eighth international conference on computa-tional semantics.451Bill MacCartney.
+2009.
+Natural Language Inference.Ph.D.
+thesis, Stanford.Mausam, Michael Schmitz, Robert Bart, StephenSoderland, and Oren Etzioni.
+2012.
+Open languagelearning for information extraction.
+In EMNLP.David A McAllester and Robert Givan.
+1992.
+Naturallanguage syntax and first-order inference.
+ArtificialIntelligence, 56(1):1?20.Dan Moldovan, Christine Clark, Sanda Harabagiu, andSteve Maiorano.
+2003.
+COGEX: A logic prover forquestion answering.
+In NAACL.NYSED.
+2014.
+The grade 4 elementary-levelscience test.
+http://www.nysedregents.org/Grade4/Science/home.html.Matthew Richardson and Pedro Domingos.
+2006.Markov logic networks.
+Machine learning, 62(1-2):107?136.Sebastian Riedel, Limin Yao, Andrew McCallum, andBenjamin M Marlin.
+2013.
+Relation extractionwith matrix factorization and universal schemas.
+InNAACL-HLT.V?
+?ctor Manuel S?anchez Valencia.
+1991.
+Studies onnatural logic and categorial grammar.
+Ph.D. thesis,University of Amsterdam.Stefan Schoenmackers, Oren Etzioni, Daniel S Weld,and Jesse Davis.
+2010.
+Learning first-order hornclauses from web text.
+In EMNLP.Ran Tian, Yusuke Miyao, and Takuya Matsuzaki.2014.
+Logical inference on dependency-based com-positional semantics.
+In ACL.Johan van Benthem.
+1986.
+Essays in logical seman-tics.
+Springer.Fei Wu and Daniel S Weld.
+2010.
+Open informationextraction using wikipedia.
+In ACL.
+Association forComputational Linguistics.Luke S. Zettlemoyer and Michael Collins.
+2005.Learning to map sentences to logical form: Struc-tured classification with probabilistic categorialgrammars.
+In UAI.
+AUAI Press.452

@@ -1,0 +1,470 @@
+TINA: A Natural Language System forSpoken Language ApplicationsStephanie Seneff*tMassachusetts Institute of TechnologyA new natural language system, TINA, has been developed for applications involving spokenlanguage tasks.
+TINA integrates key ideas from context free grammars, Augmented TransitionNetworks (ATN's), and the unification concept.
+TINA provides a seamless interface betweensyntactic and semantic analysis, and also produces ahighly constraining probabilistic languagemodel to improve recognition performance.
+An initial set of context-free r write rules provided byhand is first converted to a network structure.
+Probability assignments on all arcs in the networkare obtained automatically from a set of example sentences.
+The parser uses a stack decodingsearch strategy, with a top-down control flow, and includes a feature-passing mechanism todealwith long-distance movement, agreement, and semantic constraints.
+TINA provides an automaticsentence generation capability that has been effective for identifying overgeneralization problemsas well as in producing a word-pair language model for a recognizer.
+The parser is currentlyintegrated with MIT's SUMMIT recognizer for use in two application domains, with the parserscreening recognizer outputs either at the sentential level or to filter partial theories during theactive search process.1.
+Introduction and Overv iewOver the past few years, there has been a gradual paradigm shift in speech recognitionresearch both in the U.S. and in Europe.
+In addition to continued research on the tran-scription problem, i.e., the conversion of the speech signal to text, many researchershave begun to address as well the problem of speech understanding.
+1 This shift isat least partly brought on by the realization that many of the applications involvinghuman/machine interface using speech require an "understanding" of the intendedmessage.
+In fact, to be truly effective, many potential applications demand that thesystem carry on a dialog with the user, using its knowledge base and informationgleaned from previous sentences to achieve proper response generation.
+Current ad-vances in research and development of spoken language systems 2 can be found, forexample, in the proceedings of the DARPA speech and natural anguage workshops,as well as in publications from participants of the ESPRIT SUNDIAL project.
+Repre-sentative systems are described in Boisen et al (1989), De Mattia and Giachin (1989),Niedermair (1989), Niemann (1990), and Young (1989).Spoken Language Systems Group, Laboratory for Computer Science, MIT, Cambridge MA 02139~This research was supported by DARPA under Contract N00014-89-J-1332, monitored through theOffice of Naval Research.1 Speech understanding research flourished in the U.S. in the 1970s under DARPA sponsorship.
+While"understanding" was one of the original goals, none of the systems really placed any emphasis on thisaspect of the problem.2 We will use the term "speech understanding systems" and "spoken language systems" interchangeably.
+(~) 1992 Association for Computational LinguisticsComputational Linguistics Volume 18, Number 1A spoken language system relies on its natural anguage component to providethe meaning representation f a given sentence.
+Ideally, this component should alsobe useful for providing powerful constraints o the recognizer component in terms ofpermissible syntactic and semantic structures, given the limited domain.
+If it is to beuseful for constraint, however, it must concern itself not only with coverage but also,and perhaps more importantly, with overgeneralization.
+I  many existing systems,the ability to parse as many sentences as possible is often achieved at the expenseof accepting inappropriate word strings as legitimate sentences.
+This had not beenviewed as a major concern in the past, since systems were typically presented onlywith well-formed text strings, as opposed to errorful recognizer outputs.The constraints can be much more effective if they are embedded in a probabilisticframework.
+The use of probabilities in a language model can lead to a substantiallyreduced perplexity 3 for the recognizer.
+If the natural language component's computa-tional and memory requirements are not excessive, and if it is organized in such a waythat it can easily predict a set of next-word candidates, then it can be incorporatedinto the active search process of the recognizer, dynamically predicting possible wordsto follow a hypothesized word sequence, and pruning away hypotheses that cannotbe completed in any way.
+The natural anguage component should be able to offersignificant additional constraint to the recognizer, beyond what would be availablefrom a local word-pair or bigram 4language model, because it is able to make use oflong-distance constraints in requiring well-formed whole sentences.This paper describes a natural language system, TINA, which attempts to addresssome of these issues.
+The mechanisms were designed to support a graceful, seam-less interface between syntax and semantics, leading to an efficient mechanism forconstraining semantics.
+Grammar ules are written such that they describe syntacticstructures at the high levels of a parse tree and semantic structures at the low lev-els.
+All of the meaning-carrying content of the sentence is completely encoded in thenames of the categories of the parse tree, thus obviating the need for separate seman-tic rules.
+By encoding meaning in the structural entities of the parse tree, it becomesfeasible to realize probabilistic semantic restrictions in an efficient manner.
+This alsomakes it straightforward to extract a semantic frame representation directly from anunannotated parse tree.The context-free rules are automatically converted to a shared network structure,and probability assignments are derived automatically from a set of parsed sentences.The probability assignment mechanism was deliberately designed to support an abilityto predict a set of next-word candidates with associated word probabilities.
+Constraintmechanisms exist and are carried out through feature passing among nodes.
+A uniqueaspect of the grammar is that unification constraints are expressed one-dimensionally,being associated directly with categories rather than with rules.
+Syntactic and semanticfields are passed from node to node by default, thus making available by default hesecond argument to unification operations.
+This leads to a very efficient implemen-tation of the constraint mechanism.
+Unifications introduce additional syntactic andsemantic onstraints such as person and number agreement and subject/verb seman-tic restrictions.This paper is organized as follows.
+Section 2 contains a detailed escription of thegrammar and the control strategy, including syntactic and semantic onstraint mech-3 A technical term used in speech recognition to denote the geometric mean of the number of alternativeword hypotheses that may follow each word.4 Each word is associated with a list of the probabilites for all the words that could possibly follow itanywhere ina sentence.62Stephanie Seneff TINA: A Natural Language System for Spoken Language Applicationsanisms.
+Section 3 describes a number of domain-dependent versions of the systemthat have been implemented, and addresses, within the context of particular domains,several evaluation measures, including perplexity, coverage, and portability.
+Section4 discusses briefly two application domains involving database access in which theparser provides the link between a speech recognizer and the database queries.
+Thelast section provides a summary and a discussion of our future plans.
+There is also anappendix, which walks through an example grammar for three-digit numbers, show-ing how to train the probabilities, parse a sentence, and compute perplexity on a testsentence.2.
+Detailed DescriptionThis section describes everal aspects of the system in more detail, including how thegrammar is generated and trained, how the control strategy operates, how constraints(both syntactic and semantic) are enforced, and practical issues having to do withefficiency and ease of debugging.2.1 OverviewTINA is based on a context-free grammar augmented with a set of features used toenforce syntactic and semantic onstraints.
+The grammar is converted to a networkstructure by merging common elements on the right-hand side (RHS) of all rulessharing the same left-hand side (LHS) category.
+Each LHS category becomes associatedwith a parent node whose children are the collection of unique categories appearingin the RHSs of all the rules in the common set.
+Each parent node establishes a two-dimensional array of permissible links among its children, based on the rules.
+Eachchild can link forward to all of the children that appear adjacent to that child in any ofthe shared rule set.
+Probabilities are determined for pairs of siblings through frequencycounts on rules generated by parsing a set of training sentences.
+The parsing processachieves efficiency through structure-sharing among rules, resembling in this respecta top-down chart processor.The grammar nodes are contained in a static structure describing a hierarchy ofpermissible sibling pairs given each parent, and a node-dependent set of constraintfilters.
+Each grammar node contains a name specifying its category, a two-dimensionalprobability array of permissible links among the next lower level in the hierarchy anda list of filter specifications tobe applied either in the top-down or the bottom-up cycle.When a sentence is parsed, a dynamic structure is created, a set of parse nodes that arelinked together in a hierarchical structure to form explicit paths through the grammar.During the active parse process, the parse nodes are entered into a queue prioritizedby their path scores.
+Each node (except erminals) in a given parse tree enters thequeue exactly twice: once during the top-down cycle, during which it enters into thequeue all of its possible first children, and once again during the bottom-up cycle,during which it enters all of its possible right siblings, given its parent.
+The controlstrategy repeatedly pops the queue, advancing the active hypothesis by exactly onestep, and applying the appropriate node-level unifications.Each feature specification for each grammar node contains a feature name, a valueor set of values for that feature, a logic function, and a specification as to whether theunification should take place during the top-down or during the bottom-up cycle.All features are associated with nodes (categories) rather than with rules, and eachnode performs exactly the same unifications without regard to whatever rule it mightbe a part of.
+In fact, during the active parse process, a rule is not an explicit entitywhile it is being formed.
+Each instantiation of a rule takes place only at the time that63Computational Linguistics Volume 18, Number 1the next sibling is the distinguished \[end\] node, a special node that signifies a returnto the level of the parent.
+The rule can be acquired by tracing back through the leftsiblings, until the distinguished \[start\] node is encountered, although this is not donein practice until the entire parse is completed.The parse nodes contain a set of features whose values will be modified throughthe unification process.
+All modifications to features are made nondestructively bcopying a parse node each time a hypothesis i  updated.
+Thus each independenthypothesis i  associated with a particular parse node that contains all of the rele-vant feature information for that hypothesis.
+As a consequence, all hypotheses can bepursued in parallel, and no explicit backtracking is ever done.
+Control is repeatedlypassed to the currently most probable hypothesis, until a complete sentence is foundand all of the input stream is accounted for.
+Additional parses can be found by simplycontinuing the process.2.2 Training the ProbabilitiesThe grammar isbuilt from a set of training sentences, using a bootstrapping procedure.Initially, each sentence is translated by hand into a list of the rules invoked to parseit.
+After the grammar has built up a substantial knowledge of the language, manynew sentences can be parsed automatically, or with minimal intervention toadd a fewnew rules incrementally.
+The arc probabilities can be incrementally updated after thesuccessful parse of each new sentence.The process of converting the rules to a network form is straightforward.
+All ruleswith the same LHS are combined to form a structure describing possible intercon-nections among children of a parent node associated with the left-hand category.
+Aprobability matrix connecting each possible child with each other child is constructedby counting the number of times a particular sequence of two siblings occurred in theRHSs of the common rule set, and normalizing by counting all pairs from the partic-ular left-sibling to any right sibling.
+5Two distinguished nodes, a \[start\] node and an\[end\] node, are included among the children of every grammar node.
+A subset of thegrammar nodes are terminal nodes whose children are a list of vocabulary words.This process can be illustrated with the use of a simple example.
+6 Suppose thereexists a grammar for noun phrases that can be expressed through the single compactrule form:Rule 1\[NP\] ~ \[article\] (\[adjective\]) ( [adjective\]) \[noun\]where the parentheses signify optional nodes.
+This grammar would be converted toa network as shown in Figure 1, which would be stored as a single grammar nodewith the name \[NP\].
+The resulting rammar could be used to parse the set of phrasesshown on the left, each of which would generate the corresponding rule shown onthe right.
+"the boy""a beautiful town""a cute little baby""the wonderful pudding"\[NP\] ~ \[article\] [noun\]\[NP\] ~ \[article\] [adjective\] \[noun\]\[NPI ~ \[article\] adjective\] \[adjective\] \[nounl\[NP\] ~ \[articlel \[adjective\] \[noun\]5 In general, a particular rule will occur epeatedly in the training data, and each instantiation f the rulewill add to the counts on its arcs.6 A more complete example is given in the appendix.64Stephanie Seneff TINA: A Natural Language System for Spoken Language Applications.25Figure 1 .25Illustration of probabilistic network obtained from four rules with the same LHS (NP), asgiven in the text.
+A parent node, named \[NP\], would contain these five nodes as its children,with a probability matrix specifying the network connections?To train the probabilities, a record is kept of the relative counts of each subseqentsibling, with respect to each permissible child of the parent node, in our case, \[NP\], asthey occurred in an entire set of parsed training sentences?
+In the example, \[adjective\]is followed three times by \[noun\] and once by \[adjective\], so the network shows aprobability of 1/4 for the self loop and 3/4 for the advance to \[noun\]?
+Notice that thesystem has now generalized to include any number of adjectives in a row.
+Each rulein general would occur multiple times in a given training set, but in addition there isa significant amount of sharing of individual sibling pairs among different rules, theso-called cross-pollination effect?This method of determining probabilities effectively amounts to a bigram languagemodel 7embedded in a hierarchical structure, where a separate set of bigram statisticsis collected on category pairs for each unique LHS category name.
+The method is tobe distinguished from the more common method of applying probabilities to entirerule productions, rather than to sibling pairs among a shared rule set.
+An advantageto organizing probabilities at the sibling-pair level is that it conveniently provides anexplicit probability estimate for a single next word, given a particular word sequence.This probability can be used to represent the language model score for the next word,which, when used in conjunction with the acoustic score, provides the overall scorefor the word.We make a further simplifying assumption that each sentence has only a singleparse associated with it.
+This is probably justified only in conjunction with a grammarthat contains emantic ategories?
+We have found that, within the restricted omainsof specific applications, the first parse is essentially always a correct parse, and of-ten, in fact, the only parse?
+With only a single parse from each sentence, and withthe grammar trained at the sibling-pair level, training probabilities becomes a triv-ial exercise of counting and normalizing sibling-pair frequencies within the pooledcontext-free rule sets.
+Training is localized such that, conditional on the parent, thereis an advance from one sibling to some next sibling with probability 1.0.
+Normaliza-tion requires only this locally applied constraint, making it extremely fast to train ona set of parsed sentences.
+Furthermore, the method could incorporate syntactic andsemantic onstraints, by simply renormalizing the probabilities at run time, after pathsthat fail due to constraints have been eliminated?7 A bigram language model is commonly used in speech recognition systems, where bigram statistics(frequency ounts on adjacent word pairs) are collected from words or word categories in samplesentences.65Computational Linguistics Volume 18, Number 1\] Pop Queue yes Y'~Ib-- ACCEPT/~"~_ _.
+_,~"NNyes - ~atche  s~yes  \] Initiate~erinmmr , , , , ->- -~next  input/, ,>-'~ right siblingsI ?
+~  Initiate parentwith children'ssolution (reduce)Ic .
+yes~ already done?
+)Figure 2Functional block diagram of control strategy.
+(Note: "Initiate" means "enter into the queueranked by probability.
+")2.3 Control StrategyA functional block diagram of the control strategy is given in Figure 2.
+At any giventime, a set of active parse nodes are arranged on a priority queue.
+Each parse nodecontains a pointer to a corresponding grammar node,, and has access to all the infor-mation needed to pursue its partial theory.
+The top node is popped from the queue,and it then creates a number of new nodes (either first children s or right siblings 9de-pending on its state), and inserts them into the queue according to their probabilities.If the node is an \[end\] node, it returns control to the parent node, giving that nodea completed subparse.
+As each new node is considered, unifications of syntactic andsemantic onstraints are performed, and may lead to failure.
+The process can terminateon the first successful completion of a sentence, or tlhe Nth successful completion ifmore than one hypothesis desired.A parse in TINA begins with a single parse node linked to the grammar node\[sentence\], which is entered on the queue with probability 1.0.
+This node creates newparse nodes that might have categories such as \[statement\], \[question\], and \[request\],and places them on the queue, prioritized.
+If \[statement\] is the most likely child, itgets popped from the queue, and returns nodes indicating \[subject\], \[it\], etc., to thequeue.
+When \[subject\] reaches the top of the queue, it activates units such as \[nounphrase\], \[gerund\], and \[noun clause\].
+Each node, after instantiating first-children, be-comes inactive, pending the return of a successful subparse from a sequence of chil-dren.
+Eventually, the cascade of first-children reaches a terminal node such as \[article\],8 All of the categories that can initiate the RHS of rules containing its category on the LHS.9 All of the categories that can follow its own category anywhere on the RIdS in the common rule setsharing its parent's category on the LHS.66Stephanie Seneff TINA: A Natural Language System for Spoken Language Applicationswhich proposes a set of words to be compared with the input stream.
+If a match withan appropriate word is found, then the terminal node fills its subparse slot with anentry such as (\[article\] "the"), and activates all of its possible right-siblings.Whenever a terminal node has successfully matched an input word, the pathprobability is reset o 1.0.1?
+Thus the probabilities that are used to prioritize the queuerepresent not the total path probability but rather the probability given the partialword sequence.
+Each path climbs up from a terminal node and back down to a nextterminal node, with each new node adjusting the path probability by multiplying bya new conditional probability.
+The resulting conditional path probability for a nextword represents the probability of that word in its linguistic role given all precedingwords in their linguistic roles.
+With this strategy, a partial sentence does not becomeincreasingly improbable as more and more words are added.Because of the sharing of common elements on the right-hand side of rules, TINAcan automatically generate new rules that were not explicitly provided.
+For instance,having seen the rule X =~ A B C and the rule X =~ B C D, the system would automat-ically generate two new rules, X ~ B C and X =~ A B C D. Although this propertycan potentially lead to certain problems with overgeneralization, there are a numberof reasons why it should be viewed as a feature.
+First of all, it permits the system togeneralize more quickly to unseen structures.
+For example, having seen the rule \[ques-tion\] ~ \[aux\] [subject\] \]predicate\] (asin "May I go?")
+and the rule \]question\] ~ \]have\]\]subject\] \[link\] \[pred-adjective\] (as in "Has he been good?
+"), the system would alsounderstand the forms \[question\] ~ \[have\] [subject\] \[predicate\] (as in "Has he left?
+")and \[question\] ~ \[aux\] [subject\] \[link\] \[pred-adjective\] (as in "Should I be careful?").
+11Secondly, it greatly simplifies the implementation, because rules do not have to be ex-plicitly monitored uring the parse.
+Given a particular parent and a particular child,the system can generate the allowable right siblings without having to note who theleft siblings (beyond the immediate one) were.
+Finally, and perhaps most importantly,probabilities are established on arcs connecting sibling pairs regardless of which ruleis under construction.
+In this sense the arc probabilities behave like the familiar word-level bigrams of simple recognition language models (Jelinek 1976), except hat theyapply to siblings at multiple levels of the hierarchy.
+This makes the probabilities mean-ingful as a product of conditional probabilities as the parse advances to deeper levelsof the parse tree and also as it returns to higher levels of the parse tree.
+This approachimplies an independence assumption that claims that what can follow depends onlyon the left sibling and the parent.One negative aspect of the cross-pollination is that the system can potentiallygeneralize to include forms that are agrammatical.
+For instance, the forms "Pick thebox up" and "Pick up the box," if defined by the same LHS name, would allow thesystem to include rules producing forms such as "Pick up the box up" and "Pick up thebox up the box!"
+This problem can be overcome ither by giving the two structuresdifferent LHS names or by grouping "up the box" and "the box up" into distinctparent nodes, adding another layer to the hierarchy on the RHS.
+Another solution isto use a trace mechanism to link the two positions for the object, thus preventing itfrom occurring in both places.
+A final alternative is to include a PARTICLE bit among10 Some modification of this scheme is necessary when the input stream is not deterministic.
+For the A*algorithm (Hart et al 1968) as applied to speech recognition, the actual path score is typicallyaugmented with an estimated score for the unseen portion.
+Unless some kind of normalization is done,the short theories have an unfair advantage, s imply because fewer probability scores have beenmultiplied.
+With a deterministic word sequence it seems reasonable to assume probability 1.0 for whathas been found.11 The auxiliary verb sets the mode of the main verb to be root or past participle as appropriate.67Computational Linguistics Volume 18, Number 1the features which, once set, cannot be reset.
+In fact, tlhere were only a few situationswhere such problems arose, and reasonable solutions could always be found.2.4 Design IssuesTINA'S design includes a number of features that lead to rapid development of thegrammar and/or porting of the grammar to a new domain, as well as efficient im-plementation capabilities, in terms of both speed and memory.
+Among its featuresare semi-automatic raining from a set of example sentences, a sentence generationcapability, and a design framework that easily accomodates parallel implementations.It is a two-step rocedure to acquire a grammar :from a specific set of sentences.The rule set is first built up gradually, by parsing the sentences one-by-one, addingrules and/or constraints as needed.
+Once a full set of sentences has been parsed inthis fashion, the parse trees from the sentences are automatically converted to thesequence of rules used to parse each sentence.
+The training of both the rule set andthe probability assignments i  then established irectly in a second pass from theprovided set of parsed sentences; i.e., the parsed sentences are  the grammar.Generation mode uses the same routines as those used by the parser, but choosesa small subset of the permissible paths based on the outcome of a random-numbergenerator, ather than exploring all paths and relying on an input word stream toresolve the correct one.
+Since all of the arcs have assigned probabilities, the parse treeis traversed by generating a random number at each node and deciding which arcsto select based on the outcome.
+The arc probabilities can be used to weigh the alter-natives.
+Occasionally, the generator chooses a path that leads to a dead end, becauseof unanticipated constraints.
+Hence we in general need to keep more than one partialtheory alive at any given time, to avoid having to backtrack upon a failure condition.We could in fact always choose to sprout wo branches at any decision point, althoughthis generally leads to a much larger queue than is really necessary.
+We found insteadthat it was advantageous to monitor the size of the queue, and arbitrarily increase thenumber of branches kept alive from one to two whenever the queue becomes danger-ously short, shrinking it back to one upon recovery.
+We have used generation modeto detect overgeneralizations i  the grammar, to build a word-pair language modelfor use as a simple constraint mechanism in our recognizer, and to generate randomsentences for testing our interface with the back-end.A final practical feature of TINA is that, as in unification grammars, all unificationsare nondestructive, and as a consequence, xplicit backtracking is never necessary.Every hypothesis on the queue is independent of every other one, in the sense thatactivities performed by pursuing one lead do not disturb the other active nodes.
+Thisfeature makes TINA an excellent candidate for parallel implementation.
+The controlstrategy would simply deliver the most probable node to an available processor.TINA has been implemented in Commonlisp and runs on both a Sun workstationand a Symbolics LISP machine.
+A deterministic word sequence can be parsed in asmall fraction of real-time on either machine.
+Of course, once the input is a speechwaveform rather than a word sequence, the uncertainty inherent in the proposedwords will greatly increase the search space.
+Until we have a better handle on controlstrategies in the best-first search algorithm, it is impossible to predict he computationalload for a spoken-input mode.2.5 Constraints and GapsThis section describes how TINA handles everal issues that are often considered to bepart of the task of a parser.
+These include agreement constraints, emantic restrictions,68Stephanie Seneff TINA: A Natural Language System for Spoken Language Applicationssubject-tagging for verbs, and long distance movement (often referred to as gaps, or thetrace, as in "(which article)/do you think I should read (ti)?")
+(Chomsky 1977).
+The gapmechanism resembles the Hold register idea of ATNs (Woods 1970) and the treatmentof bounded omination metavariables in lexical functional grammars (LFGs) (Bresnan1982, p. 235 ft.), but it is different from these in that the process of filling the Holdregister equivalent involves two steps separately initiated by two independent odes.Our approach to the design of a constraint mechanism is to establish a frameworkgeneral enough to handle syntactic, semantic, and, ultimately, phonological constraintsusing identical functional procedures applied at the node level.
+The intent was to de-sign a grammar for which the rules would be kept completely free of any constraints.To achieve this goal, we decided to break the constraint equations usually associatedwith rules down into their component parts, and then to attach constraints to nodes(i.e., categories) as equations in a single variable.
+The missing variable that must beunified with the new information would be made available by default.
+In effect, theconstraint mechanism is thus reduced from a two-dimensional to a one-dimensionaldomain.
+Thus, for example, the developer would not be permitted to write an f-structure (Bresnan 1982) equation of the form \[subj\]inf = \[np\] associated with the rule\[vp\] --, \[verb\] [np\] \[inf\], to cover, "I told John to go."
+Instead, the \[np\] node (regard-less of its parent) would generate a CURRENT-FOCUS (defined later) from its subparse,which would be passed along passively to the verb "go."
+The verb would then sim-ply consult he CURRENT-FOCUS (regardless of its source) to establish the identity of itssubject.The procedure works as follows.
+In the absence of any explicit instructions from itsgrammar node, a parse node simply passes along all features to the immediate relative(first child in the top-down cycle, and right sibling during the bottom-up cycle12).Any constraints pecified by the grammar node result in a modification of certainfeature values.
+The modifications are specified through a four-tuple of (feature-namenew-value logic-function cycle).
+The possible features include person and number,case, determiner (DEFINITE, INDEFINITE, PROPER, etc.
+), mode (ROOT, FINITE, etc.
+), and asemantic ategory bit map.
+The new value, entered as a bit pattern, could be a singlevalue, such as SINGULAR, or could be multiple valued as in the number for the noun"fish."
+Furthermore, during the bottom-up cycle, the new value can be the specialvariable top-down-setting, i.e., the value for that feature that currently occupies the slotin the parse node in question.
+This has the effect of disconnecting the node from itschildren, with respect o the feature in question.
+The logic function is one of AND, OR,or SET, and the cycle is either top-down or bottom-up.A parse node has jurisdiction over its own slots only during the bottom-up cycle.During the top-down cycle, its feature value modifications are manifested only in itsdescendants.
+The node retains the values for the features that its parent delivered, andmay use these for unifications prior to passing information on to its right siblings.
+Thisadditional complexity was felt necessary to handle number agreement in questions ofthe form "Do John and Mary eat out a lot?"
+Here, the auxiliary verb "do" sets thenumber to plural, but the two individual nouns are singular.
+The SUBJECT node blockstransfer of number information to its children (by setting the value to all ls), butunifies the value for number returned during the bottom-up cycle with the valuepreviously delivered to it by its left sibling, the auxiliary verb.
+There is a node, \[and-noun-phrase\], that deals specifically with compound nouns.
+This node blocks transfer12 If the right sibling happens to be the distinguished \[end\] node, then the features get passed up to theparent.69Computational Linguistics Volume 18, Number 1of number information to its children and sets number to plural during the bottom-upcycle.It has been found expedient to define a meta-level operator named "detach" thatinvokes a block operation during both the top-down and bottom-up cycles.
+This oper-ation has the effect of isolating the node in question from its descendents with respectto the particular blocked feature.
+This mechanism was commonly used to detach asubordinate clause from a main clause with respect o the semantic bits, for example.The setting that had been delivered to the node during the top-down cycle is retainedand sent forward during the bottom-up cycle, but not communicated to the node'schildren.
+Another special blocking property can be associated with certain features, butthe block only applies at the point where an \[end\] node returns a solution to a parent.This is true, for instance, of the mode for the verb.Along with the syntactic and semantic features, there are also two slots that areconcerned with the trace mechanism, and these are used as well for semantic filteringon key information from the past.
+There are some special operations concerned withfilling these slots and unifying semantics with these slots that will be described inmore detail in later sections.Lexical entries contain three-tuple specifications of values for features; the fourthelement is irrelevant since there are no separate top-down and bottom-up cycles.
+Thusa terminal verb node contains vocabulary entries that include settings for verb mode,and for person/number if the verb is finite.
+The plural form for nouns can be handledthrough a \[pl\] morph for the sake of efficiency.
+This morph sets the value of number toplural, regardless of its prior setting.
+It is the job of a parent node to unify that settingwith the value delivered by the left siblings of the noun.Some examples may help explain how the constraint mechanism works.
+Consider,for example, the ill-formed phrase "each boats."
+Suppose the grammar has the threerules, (\[np\] -* \[det\] [noun\]), (\[noun\] --* \[root-noun\]), and (\[noun\] --* \[root-noun\] \[pl\]).The lexical item "each" sets the number to singular and passes this value to the \[noun\]node.
+The \[noun\] node blocks transfer of number to its children.
+"Boat" sets the num-ber to singular, but the \[pl\] morph overrides this value, returning a plural value to theparent.
+This plural value gets unified with the singular value that had been retainedfrom "each" during the top-down cycle.
+The unification fails and the parse dies.
+Bysplitting off the plural morph, singular and plural nouns can share the bulk of theirphonetics, thus reducing greatly the redundancy in the recognizer's matching prob-lem.
+In theory, morphs could be split off for verbs as well, but due to the large numberof irregularities this was not done.Subject-verb agreement gets enforced by default, because the number informationthat was realized during the parsing of the subject node gets passed along to thepredicate and down to the terminal verb node.
+The lexical item unifies the numberinformation, and the parse fails if the result is zero.
+Any nonauxiliary verb node blocksthe transfer of any predecessor person/number information to its right siblings duringthe bottom-up cycle, reflecting the fact that verbs agree in person/number with theirsubject but not their object.Certain nodes set the mode of the verb either during the top-down or the bottom-up cycle.
+Thus, for example, "have" as an auxiliary verb sets mode to PAST-PARTICIPLEduring the bottom-up cycle (i.e., for its right-siblings).
+The category \[gerund\] sets themode to PRESENT-PARTICIPLE during the top-down cycle (for its children).
+Whenever a\[predicate\] node is invoked, the verb's mode has always been set by a predecessor.2.5.1 Gaps.
+The mechanism to deal with gaps resembles in certain respects the Holdregister idea of ATNs, but with an important difference, reflecting the design philoso-70Stephanie Seneff TINA: A Natural Language System for Spoken Language Applicationsphy that no node can have access to information outside of its immediate domain.
+Themechanism involves two slots that are available in the feature vector of each parsenode.
+These are called the CURRENT-FOCUS and the FLOAT-OBJECT, respectively.
+TheCURRENT-FOCUS slot contains, at any given time, a pointer to the most recently men-tioned content phrase in the sentence.
+If the FLOAT-OBJECT slot is occupied, it meansthat there is a gap somewhere in the future that will ultimately be filled by the partialparse contained in the FLOAT-OBJECT.
+The process of getting into the FLOAT-OBJECT slot(which is analogous to the Hold register) requires two steps, executed independentlyby two different nodes.
+The first node, the generator, fills the CURRENT-FOCUS slot withthe subparse returned to it by its children.
+The second node, the activator, moves theCURRENT-FOCUS into the FLOAT-OBJECT position, for its children, during the top-downcycle.
+It also requires that the FLOAT-OBJECT be absorbed somewhere among its descen-dants by a designated absorber node, a condition that is checked uring the bottom-upcycle.
+The CURRENT-FOCUS only gets passed along to siblings and their descendants,and hence is unavailable to activators at higher levels of the parse tree.
+That is to say,the CURRENT-FOCUS is a feature, like verb-mode, that is blocked when an \[end\] node isencountered.
+To a first approximation, a CURRENT-FOCUS reaches only nodes that arec-commanded (Chomsky 1977) by its generator.
+Finally, certain blocker nodes block thetransfer of the FLOAT-OBJECT to their children.A simple example will help explain how this works.
+For the sentence "(Howmany pies)/ did Mike buy (ti)?"
+as illustrated by the parse tree in Figure 3, the \[q-subject\] "how many pies" is a generator, so it fills the CURRENT-FOCUS with its subparse.The \[do-question\] is an activator; it moves the CURRENT-FOCUS into the FLOAT-OBJECTposition.
+Finally, the object of '~ouy," an absorber, takes the \[q-subject\] as its subparse.The \[do-question\] refuses to accept any solutions from its children if the FLOAT-OBJECThas not been absorbed.
+Thus, the sentence "How many pies did Mike buy the pies?
+"would be rejected.
+Furthermore, the same \[do-question\] grammar node deals with theyes/no question "Did Mike buy the pies?," except in this case there is no CURRENT-FOCUS and hence no gap.More complicated sentences involving nested or chained traces are handledstraightforwardly b this scheme.
+For instance, the phrase, "Which hospital was Janetaken to?"
+can be parsed correctly by TINA, identifying "which hospital" as the objectof the preposition "to" and "Jane" as the object of "taken."
+The phrase "which hos-pital" gets generated by the \[q-subject\] and activated by the following \[be-question\],thus filling the FLOAT-OBJECT slot.
+When the predicate of the clause is reached, theword "Jane" is in the CURRENT-FOCUS slot, and the phrase "which hospital" is still inthe FLOAT-OBJECT slot.
+The \[participial-phrase\] for "taken \[object\]" activates "Jane," butonly for its children.
+This word is ultimately absorbed by the \[object\] node withinthe verb phrase.
+Meanwhile, the \[participial-phrase\] passes along the original FLOAT-OBJECT ("which hospital") to its right sibling, the adverbial prepositional phrase, "to\[object\]."
+The phrase "which hospital" is finally absorbed by the preposition's object.The example used to illustrate the power of ATNs (Woods 1986), "John was be-lieved to have been shot," also parses correctly, because the \[object\] node followingthe verb "believed" acts as both an absorber and a (re)generator.
+Cases of crossedtraces are automatically blocked because the second CURRENT-FOCUS gets moved intothe FLOAT-OBJECT position at the time of the second activator, overriding the preexist-ing FLOAT-OBJECT set up by the earlier activator.
+The wrong FLOAT-OBJECT is availableat the position of the first trace, and the parse dies:*(Which books)/did you ask John (where)j Bill bought (ti) (tj)?71Computational Linguistics Volume 18, Number 1SENTENCEIQUESTIONQ-SUBJECTHOW QUANTIFIER NOUN-PLHow many piesDO-QUESTIONDO SUBJECT PREDICATEINOUN-GROUPLNOUN-PHRASEJPROPER-NOUNd/d M~..eVERB-PHRASE-IOVBIO OBJECTI Ibuy Q-SUI~ECTFigure 3Example of a parse tree illustrating a gap.The CURRENT-FOCUS slot is not restricted to nodes that represent nouns.
+Some ofthe generators are adverbial or adjectival parts of speech (pos).
+An absorber checks foragreement in POS before it can accept he FLOAT-OBJECT as its subparse.
+As an example,the question, "(How oi ly)/do you like your salad dressing (ti)?"
+contains a \[q-subject\]"how oily" that is an adjective.
+The absorber \[pred-adjective\] accepts the availablefloat-object as its subparse, but only after confirming that POS is ADJECTIVE.The CURRENT-FOCUS has a number of other uses besides its role in movement.It always contains the subject whenever a verb is proposed, including verbs that arepredicative objects of another verb, as in "I want to go to China."
+It has also been foundto be very effective for passing semantic information to be constrained by a futurenode, and it can play an integral role in pronoun reference.
+For instance, a reflexivepronoun nearly always refers back to the CURRENT-FOCUS, whereas a nonreflexive formnever does, unless it is in the nominative case.2.5.2 Semantic  Filtering.
+In the more recent versions of the grammar, we have im-plemented a number of semantic onstraints using procedures very similar to thoseused for syntactic onstraints.
+We found it effective to filter on the CURRENT-FOCUS'ssemantic ategory, as well as to constrain absorbers in the gap mechanism to require amatch on semantics before they could accept a FLOAT-OBJECT.
+Semantic ategories were72Stephanie Seneff TINA: A Natural Language System for Spoken Language ApplicationsSENTENCEQ-SUBJECTWHAT STREETI IWhat streetBE-QUESTIONL I N ~ U N C T/sARTICLE A-PLACEIA-HOTELIHOTEL-NAMEIthe HyattION-STREETON A-STREETI Ion Q-SUBJECTFigure 4Parse tree for the sentence, "What street is the Hyatt on?
+"implemented in a hierarchy such that, for example, RESTAURANT automatically inher-its the more general properties BUILDING and PLACE.
+We also introduced semanticallyloaded categories at the low levels of the parse tree.
+It seems that, as in syntax, thereis a trade-off between the number of unique node-types and the number of constraintfiltering operations.
+At low levels of the parse tree it seems more efficient o label thecategories, whereas information that must pass through igher levels of the hierarchyis better done through constraint filters.As an example, consider the sentence, "(what street)/is the Hyatt on (ti)?"
+shownin Figure 4.
+The \[q-subject\] places "What street" into the CURRENT-FOCUS slot, but thisunit is activated to FLOAT-OBJECT status by the subsequent \[be-question\].
+The \[subject\]node refills the now empty CURRENT-FOCUS with "the Hyatt."
+The node \[a-street\], anabsorber, can accept he FLOAT-OBJECT as a solution, but only if there is tight agree-ment in semantics; i.e., it requires the identifier Street.
+Thus a sentence such as "Whatrestaurant is the Hyatt on?"
+would fail on semantic grounds.
+Furthermore, the node\[on-street\] imposes trict semantic restrictions on the CURRENT-FOCUS.
+Thus the sen-tence "(What street)/ is Cambridge on (ti)?"
+would fail because Ion-street\] does notpermit Region as the semantic ategory for the CURRENT-FOCUS, "Cambridge.
+"One place where semantic filtering can play a powerful role is in subject/verb ela-tionships.
+This is easily accomplished within TINA'S framework because the CURRENT-FOCUS slot always contains the subject of a verb at the time of the verb's instantiation.This is obvious in the case of a simple statement or complete clause, since the \[subject\]node generates a current-focus, which is available as the subject of the terminal verbnode in the subsequent \]predicate\].
+The same \[subject\] current-focus i  also availableas the subject of a verb in a predicative object of another verb, as in "I want to go to73Computational Linguistics Volume 18, Number 1China."
+For the case where a verb takes an object and an infinitive phrase as argu-ments, the \]object\] node replaces the current-focus with its subparse, such that whenthe verb of the infinitive phrase is proposed, the correct subject is available.
+This han-dles cases like "I asked Jane to help."
+With this mechanism, the two sentences "I wantto go" and "I want John to go" can share the same parse node for the verb want.Certain sentences exhibit a structure that superficially resembles the verb-object-infinitive-phrase pattern but should not be represented this way, such as "I avoidcigarettes to stay healthy."
+Here, clearly, 'T' is the subject of "stay."
+This can be realizedin TINA by having a top-level rule, (\[statement\] ~ \]subject\] \]predicate\] \[adjunct-why\]).The \]object\] node for "cigarettes" replaces the CURRENT-FOCUS, but the replacementdoes not get propagated back up to the \[predicate\] node (since a current-focus ipassed only to siblings and children, but not to parents).
+Thus, the CURRENT-FOCUS "I"is passed on from the predicate to the adjunct, and eventually to the verb "stay.
+"Finally, in the case of passive voice, the CURRENT-FOCUS slot is empty at the timethe verb is proposed, because the CURRENT-FOCUS which was the surface-form subjecthas been moved to the float-object position.
+In this case, the verb has no informationconcerning its subject, and so it identifies it as an unbound pronoun.Semantic filters can also be used to prevent multiple versions of the same caseframe (Fillmore 1968) showing up as complements.
+For instance, the set of comple-ments \[from-place\], \[to-place\], and \[at-time\] are freely ordered following a movementverb such as "leave."
+Thus a flight can "leave for Chicago from Boston at nine,"or, equivalently, "leave at nine for Chicago from Boston."
+If these complements areeach allowed to follow the other, then in TINA an infinite sequence of \[from-place\]s,\[to-place\]s and \[at-time\]s is possible.
+This is of course unacceptable, but it is straight-forward to have each node, as it occurs, or in a semantic bit specifying its case frame,and, in turn, fail if that bit has already been set.
+We have found that this strategy, inconjunction with the capability of erasing all semantic bits whenever a new clause isentered (through the meta level "detach" operation mentioned previously) serves thedesired goal of eliminating the unwanted redundancies.Thus far, we have added all semantic filters by hand, and they are implemented ina hard-fail mode, i.e., if the semantic restrictions fail, the node dies.
+This strategy seemsto be adequate for the limited domains that we have worked with thus far, but theywill probably be inadequate for more complex domains.
+In principle, one could parse alarge set of sentences with semantics turned off, collecting the semantic onditions thatoccurred at each node of interest.
+Then the system could propose to a human expert aset of filters for each node, based on its observations, and the human could make thefinal decision on whether to accept he proposals.
+This approach resembles the workby Grishman et al (1986) and Hirschman et al (1975) on selectional restrictions.
+Thesemantic onditions that pass could even ultimately be associated with probabilities,obtained by frequency counts on their occurrences.
+There is obviously a great dealmore work to be done in this important area.3.
+Evaluat ion MeasuresThis section addresses some performance measures for a grammar, including coverage,portability, perplexity, and trainability.
+Perplexity, roughly defined as the geometricmean of the number of alternative word hypotheses that may follow each word in thesentence, is of particular concern in spoken language tasks.
+Portability and trainabilityconcern the ease with which an existing rammar can be ported to a new task, as wellas the amount of training data necessary before the grammar is able to generalize wellto unseen data.74Stephanie Seneff TINA: A Natural Language System for Spoken Language ApplicationsTo date, four distinct domain-specific versions of TINA have been implemented.The first version (TIMIT) was developed for the 450 phonetically rich sentences of theTIMIT database (Lamel et al 1986).
+The second version (RM) concerns the ResourceManagement task (Pallett 1989) that has been popular within the DARPA communityin recent years.
+The third version (VOYAGER) serves  as an interface both with a recog-nizer and with a functioning database back-end (Zue et al 1990).
+The VOYAGER systemcan answer a number of different ypes of questions concerning navigation within acity, as well as provide certain information about hotels, restaurants, libraries, etc.,within the region.
+A fourth domain-specific version is under development for the ATIS(Air Travel Information System) task, which has recently been designated as the newcommon task for the DARPA community.3.1 PortabilityWe tested ease of portability for TINA by beginning with a grammar built from the450 TIMIT sentences and then deriving a grammar for the RM task.
+These two tasksrepresent very different sentence types.
+For instance, the overwhelming majority ofthe TIMIT sentences are statements, whereas the RM task is made up exclusively ofquestions and requests.
+The process of conversion to a new grammar involves parsingthe new sentences one by one, and adding context-free rules whenever a parse fails.The person entering the rules must be very familiar with the grammar structure, butfor the most part it is straightforward to identify and incrementally add missing rules.The parser identifies where in the sentence it fails, and also maintains a record of thesuccessful partial parses.
+These pieces of information usually are adequate to pinpointthe problem.
+Once the grammar has been expanded to accomodate he new set ofsentences, a subset grammar can be created automatically that only contains rulesneeded in the new domain, eliminating any rules that were particular to the originaldomain.
+It required less than one person-month o convert he grammar from TIMITto the RM task.3.2 Perplexity and Coverage in RM TaskA set of 791 sentences within the RM task have been designated as training sentences,and a separate set of 200 sentences as the test set.
+We built a subset grammar fromthe 791 parsed training sentences, and then used this grammar to test coverage andperplexity on the unseen test sentences.
+The grammar could parse 100% of the trainingsentences and 84% of the test sentences.A formula for the test set perplexity (Lee 1989) is: 13N_1 ~log2P(wi \] wi-1,...Wl).
+N Perplexity = 2 i=1where the wi are the sequence of all words in all sentences, N is the total numberof words, including an "end" word after each sentence, and P(wi I Wi--I~'''Wl) isthe probability of the ith word given all preceding wordsJ 4 If all words are assumedequally likely, then P(wi \] wi-1,..,  wl) can be determined by counting all the wordsthat could follow each word in the sentence, along all workable partial theories.
+If thegrammar contains probability estimates, then these can be used in place of the equally13 The appendix includes an example for computing test set perplexity.14 In the case of TINA, all words up to the current word within each sentence are relevant.75Computational Linguistics Volume 18, Number 1Table 1Summary of perplexity and coverage within the Resource Management domain, for the 200designated test sentences.Vocabulary Coverage Perplexity PerplexitySize No Probabilities With Probabilities985 84% 368 41.5Table 2Ranking of first reasonable parse in the Resource Management task.Top 1 Top 2 Top 3 Top 7Training 88% 96% 98% 100%Test 90% 96% 99% 99%likely assumption.
+If the grammar's  estimates reflect reality, the estimated probabilitieswill result in a reduction in the total perplexity.An average perplexity for the 167 test sentences that were parsable was computedfor the two conditions, without (Case 1) and with (Case 2) the estimated probabilities.The result was a perplexity of 368 for Case 1, but only 41.5 for Case 2, as summarizedin Table 1.
+This is with a total vocabulary size of 985 words, and with a grammarthat included some semantically restricted classes uch as \[ship-name\] and \[readiness-category\].
+The incorporation of arc probabilities reduced the perplexity by a factor ofnine, a clear indicator that a proper mechanism for utilizing probabilities in a grammarcan help significantly.
+An even lower perplexity could be realized within this domainby increasing the number of semantic nodes.
+In fact, this is a trend that we haveincreasingly adopted as we move to new domains.We didn't look at the test sentences while designing the grammar, nor have we yetlooked at those sentences that failed to parse.
+However, we decided to examine theparse trees for those sentences that produced at least one parse to determine the depthof the first reasonable parse.
+The results were essentially the same for the training andthe test sentences, as shown in Table 2.
+Both gave a reasonable parse as either the firstor second proposed parse 96% of the time.
+Two of the test sentences never gave acorrect parse.3.3 Experiments within the VOYAGER domainWe have recently developed a subdomain for TINA that has been incorporated intoa complete spoken language system called VOYAGER.
+The system provides directionson how to get from one place to another within an urban region, and also givesinformation such as phone number or address for places such as restaurants, hotels,libraries, etc.
+We have made extensive use of semantic filters within this domain, inorder to reduce the perplexity of the recognition task as much as possible.To obtain training and test data for this task, we had a number of naive sub-jects use the system as if they were trying to obtain actual information.
+Their speechwas recorded in a simulation mode in which the speech recognition component was76Stephanie Seneff TINA: A Natural Language System for Spoken Language ApplicationsTable 3Perplexity and coverage data for test and training samples within the VOYAGER domain.Data set: Test Test TrainingSystem: initial expanded expandedNo Prob: 20.6 27.1 25.8Prob: 7.1 8.3 8.1Coverage: 69% 76% 78%excluded.
+Instead, an experimenter in a separate room typed in the utterances asspoken by the subject.
+Subsequent processing by the natural anguage and responsegeneration components was done automatically by the computer (Zue et al 1989).We were able to'collect a total, of nearly 5000 utterances in this fashion.
+The speechmaterial was then used to train the recognizer component, and the text material wasused to train the natural language and back-end components.We designated a subset of 3312 sentences as the training set, and augmented theoriginal rules so as to cover a number of sentences that appeared to stay within thedomain of the back-end.
+We did not try to expand the rules to cover sentences thatthe back-end could not deal with, because we wanted to keep the natural anguagecomponent tightly restricted to sentences with a likely overall success.
+In this waywe were able to increase the coverage of an independent test set of 560 utterancesfrom 69% to 76%, with a corresponding increase in perplexity, as shown in Table 3.Perplexity was quite low even without probabilities; this is due mainly to an extensivesemantic filtering scheme.
+Probabilities decreased the perplexity by a factor of three,however, which is still quite significant.
+An encouraging result was that both perplexityand coverage were of comparable values for the training and test sets, as shown inthe table.3.4 Generation ModeAs mentioned previously, generation mode has been a very useful device for detectingovergeneralization problems in a grammar.
+After the addition of a number of seman-tically loaded nodes and semantic filters, the VOYAGER version of the grammar is nowrestricted mainly to sentences that are semantically as well as syntactically legitimate.To illustrate this point we show in Table 4 five examples of consecutively generatedsentences.
+Since these were not selectively drawn from a larger set, they accuratelyreflect he current performance l vel.We also used generation mode to construct a word-pair grammar automatically forthe recognizer component of our VOYAGER system.
+To do this, over 100,000 sentenceswere generated, and word-pair links were established for all words sharing the sameterminal category (such as \[restaurant-name\], for all category-pairs appearing in thegenerated sentences.
+We could test completion by continuing until no new pairs werefound.
+The resulting word pair grammar has a perplexity of over 70, in contrast to aperplexity of less than nine for the grammar used to construct i .
+This difference reflectsthe additional constraint of both the probabilities and the long-distance dependencies.77Computational Linguistics Volume 18, Number 1Table 4Sample sentences generated consecutively b  the VOYAGER version of TINA.?
+Do you know the most direct route to Broadway Avenue from here??
+Can I get Chinese cuisine at Legal's??
+I would like to walk to the subway stop from any hospital.?
+Locate a T-stop in Inman Square.?
+What kind of restaurant is located around Mount Auburn in Kendall Square of EastCambridge?4.
+Interfaces with the Recognizer and the Back-EndAt present, we have available at MIT two systems, VOYAGER and ATIS, involving specificapplication domains in which a person can carry on a dialog with the computer, eitherthrough spoken speech or through text input.
+In both of these systems, TINA providesthe interface between the recognizer and the application back-end.
+In this section, Iwill describe our current interfaces between TINA and the recognizer and our futureplans in this area.
+In addition, I will describe briefly how we currently translate theparse tree into a semantic frame that serves as the input to database access and textresponse generation.
+This aspect of the system is beyond the scope of this paper, andtherefore it will not be covered in detail.The recognizer for these systems is the SUMMIT system (Zue et al 1989), whichuses a segmental-based framework and includes an auditory model in the front-endprocessing.
+The lexicon is entered as phonetic pronunciations that are then augmentedto account for a number of phonological rules.
+The search algorithm is the standardViterbi search (Viterbi 1967), except that the match involves a network-to-networkalignment problem rather than sequence-to-sequence.When we first integrated this recognizer with TINA, we used a "wire" connection,in that the recognizer produced a single best output, which was then passed to TINA forparsing.
+A simple word-pair grammar constrained the search space.
+If the parse failed,then the sentence was rejected.
+We have since improved the interface by incorporatinga capability in the recognizer to propose additional solutions in turn once the firstone fails to parse (Zue et al 1991) To produce these "N-best" alternatives, we makeuse of a standard A* search algorithm (Hart 1968, Jelinek 1976).
+Both the A* and theViterbi search are left-to-right search algorithms.
+However, the A* search is contrastedwith the Viterbi search in that the set of active hypotheses take up unequal segmentsof time.
+That is, when a hypothesis is scoring well it is allowed to procede forward,whereas poorer scoring hypotheses are kept on hold.We have thus far developed two versions of the control strategy, a "loosely cou-pled" system and a "tightly coupled" system.
+Both versions begin with a Viterbi searchall the way to the end of the sentence, resulting in not only the first candidate solutionbut also partial scores for a large set of other hypotheses.
+If this first solution fails toparse, then the best-scoring partial theory is allowed to procede forward incrementally.In an A* search, the main issue is how to get an estimate of the score for the unseenportion of the sentence.
+In our case, we can use the Viterbi path to the end as theestimate of the future score.
+This path is guaranteed to be the best way to get to theend; however, it may not parse.
+Hence it is a tight upper bound on the true score forthe rest of the sentence.
+The recognizer can continue to propose hypotheses until one78Stephanie Seneff TINA: A Natural Language System for Spoken Language Applicationssuccessfully parses, or until a quitting criterion is reached, such as an upper boundon N.Whereas in the loosely coupled system the parser acts as a filter only on completedcandidate solutions (Zue et al 1991), the tightly coupled system allows the parser todiscard partial theories that have no way of continuing.
+Following the Viterbi search,each partial theory is first extended by the parser to specify possible next words, whichare then scored by the recognizer.
+We have not yet made use of TINA'S probabilities inadjusting the recognizer scores on the fly, but we have been able to incorporate linguis-tic scores to resort N-best outputs, giving a significant improvement in performance(Goodine et al 1991).
+Ultimately we want to incorporate TINA'S probabilities directlyinto the A* search, but it is as yet unclear how to provide an appropriate upper boundfor the probability estimate of the unseen portion of the linguistic model.Once a parser has produced an analysis of a particular sentence, the next stepis to convert it to a meaning representation form that can be used to perform what-ever operations the user intended by speaking the sentence.
+We currently achieve thistranslation step in a second-pass treewalk through the completed parse tree.
+Althoughthe generation of semantic frames could be done on the fly as the parse is being pro-posed, it seems inappropriate o go through all of that extra work for large numbersof incorrect partial theories, due to the uncertainty as to the identity of the terminalword strings inherent in spoken input.We have taken the point of view that all syntactic and semantic information canbe represented uniformly in strictly hierarchical structures in the parse tree.
+Thus theparse tree contains nodes such as \[subject\] and \[dir-object\] that represent structuralroles, as well as nodes such as \[on-street\] and \[a-school\] representing specific semanticcategories.
+There are no separate semantic rules off to the side; rather, the semanticinformation is encoded irectly as names attached to nodes in the tree.Exactly how to get from the parse tree to an appropriate meaning representationis a current research topic in our group.
+However, the method we are currently usingin the ATIS domain (Seneff et al 1991) represents our most promising approach to thisproblem.
+We have decided to limit semantic frame types to a small set of choices uchas CLAUSE (for a sentence-level concept, such as request), PREDICATE (for a functionaloperation), REFERENCE (essentially proper noun), and QSET (for a set of objects).
+Theprocess of obtaining a completed semantic frame amounts to passing frames alongfrom node to node through the completed parse tree.
+Each node receives a frame inboth a top-down and a bottom-up cycle, and modifies the frame according to spec-ifications based on its broad-class identity (as one of noun, noun-phrase, predicate,quantifier, etc.).
+For example, a \[subject\] is a noun-phrase node with the label "topic.
+"During the top-down cycle, it creates a blank frame and inserts it into a "topic" slotin the frame that was handed to it.
+It passes the blank frame to its children, who willthen fill it appropriately, labeling it as a QSET or as a REFERENCE.
+It then passes along tothe right sibling the same frame that was handed to it from above, with the completedtopic slot filled with the information delivered by the children.The raw frame that is realized through the treewalk is post-processed to simplifysome of the structure, as well as to augment or interpret expressions such as relativetime.
+For example, the predicate modifier in "flights leaving at ten a.m." is simplifiedfrom a predicate leave to a modifier slot labeled departure-time.
+An expression suchas "next Tuesday" is interpreted relative to today's date to fill in an actual month,date, and year.
+Following this post-analysis step, the frame is merged with referencescontained in a history record, to fold in information from the previous discourse.The completed semantic frame is used in ATIS both to generate an SQL (StructuredQuery Language) command to access the database and to generate a text output o be79Computational Linguistics Volume 18, Number 1spoken in the interactive dialog.
+The SQL pattern is controlled through lists of framepatterns to match and query fragments o generate given the match.
+Text generation isdone by assigning appropriate temporal ordering for modifiers on nouns and for themain noun.
+The modifiers are contained in slots associated with the QSET frame.
+Certainframes such as clock-time have special print functions that produce the appropriatepiece of text associated with the contents.5.
+D iscuss ionThis paper describes a new natural language system that addresses i sues of concernin building a fully integrated spoken language system.
+The formalism provides anintegrated approach to representations for syntax and for semantics, and produces ahighly constraining language model to a speech recognizer.
+The grammar includesarc probabilities reflecting the frequency of occurrence of patterns within the domain.These probabilities are used to control the order in which hypotheses are considered,and are trained automatically from a set of parsed sentences, making it straightforwardto tailor the grammar to a particular need.
+Ultimately, one could imagine the existenceof a very large grammar that could parse almost anything, which would be subsettedfor a particular task by simply providing it with a set of example sentences withinthat domain.The grammar makes use of a number of other principles that we felt were im-portant.
+First of all, it explicitly incorporates into the parse tree semantic ategoriesintermixed with syntactic ones, rather than having a set of semantic rules providedseparately.
+The semantic nodes are dealt with in the same way as the syntactic nodes;the consequence is that the node names alone carry essentially all of the informationnecessary to extract a meaning representation from the sentence.
+The grammar is nota semantic grammar in the usual sense, because it does include high level nodes of asyntactic nature, such as noun-clause, subject, predicate, etc.A second important feature is that unifications are performed in a one-dimensionalframework.
+That is to say, features delivered to a node by a close relative (sibling/parent/child) are unified with particular feature values associated with that node.
+The x vari-able in an x-y relationship is not explicitly mentioned, but rather is assigned to be"whatever was delivered by the relative."
+Thus, for example, a node such as \[subject\]unifies in exactly the same way, regardless of the rule under construction.Another important feature of TINA is that the same grammar can be run in gener-ation mode, making up random sentences by tossing the dice.
+This has been found tobe extremely useful for revealing overgeneralization problems in the grammar, as wellas for automatically acquiring a word-pair grammar for a recognizer and producingsentences to test the back-end capability.We discussed a number of different application domains, and gave some perfor-mance statistics in terms of perplexity/coverage/overgeneralization within some ofthese domains.
+The most interesting result was obtained within the VOYAGER domain(see Sections 3.3 and 3.4).
+The perplexity (average number of words that can followa given word) decreased from 70 to 28 to 8 when the grammar changed from word-pair (derived from the same grammar) to parser without probabilities to parser withprobabilities.We_currently have two application domains that can carry on a spoken dialog witha user.
+One, the VOYAGER domain (Zue et al 1990), answers questions about placesof interest in an urban area, in our case, the vicinity of MIT and Harvard University.The second one, ATIS (Seneff et al 1991), is a system for accessing data in the Official80Stephanie Seneff TINA: A Natural Language System for Spoken Language ApplicationsAirline Guide and booking flights.
+Work continues on improving all aspects of thesedomains.Our current research is directed at a number of different remaining issues.
+As ofthis writing, we have a fully integrated version of the VOYAGER system, using an A*search algorithm (Goodine t al.
+1991).
+The parser produces a set of next-word candi-dates dynamically for each partial theory.
+We have not yet incorporated probabilitiesfrom TINA into the search, but they are used effectively to resort he final output sen-tence candidates.
+In order to incorporate the probabilities into the search we need atight upper bound on the future linguistic score for the unseen portion of each hypoth-esis.
+This is a current research topic in our group.
+We also plan to experiment withfurther eductions in perplexity based on a discourse state.
+This should be particularlyeffective within the ATIS domain where the system often asks directed questions aboutas yet unresolved particulars to the flight.6.
+Appendix: Sample Grammar Illustrating Probability Calculation and PerplexityComputationThis appendix walks through a pedagogical example to parse spoken digit sequencesup to three long, as in "three hundred and sixteen."
+Included is a set of initial context-free rules, a set of training sentences, an illustration of how to compute the path prob-abilities from the training sentences, and an illustration of both parsing and perplexitycomputation for a test sentence.Since there are only five training sentences, a number of the arcs of the originalgrammar are lost after training.
+This is a problem to be aware of in building grammarsfrom example sentences.
+In the absence of a sufficient amount of training data, somearcs will inevitably be zeroed out.
+Unless it is desired to intentionally filter these outas being outside of the new domain, one can insert some arbitrarily small probabilityfor these arcs, using, for example, an N-gram back-off model (Katz 1987).The Grammar:(parentheses indicate optional elements)number = hundreds-p lace (tens-place) ones-placenumber = tens-placenumber = (tens-place) ones-placehundreds-p lace = digits (hundred)hundreds-p lace = a hundred (and)tens-place = tenstens-place = teens (this overgeneral izes a bit)tens-place = oh (as in "four oh five")ones-place = digitstens = \[twenty thirty forty ...\] (a terminal  node with eightindividual  words)digits = \[zero one two three four .... \]teens = \[ten eleven twelve... \]oh = \[oh\]hundred = \[hundred\]and = \[and\]The training sentences: (with spoken form)I: 144 "one hundred and forty four"81Computational Linguistics Volume 18, Number 12:430  "four thirty"3 :208  "two oh eight"4: 24 "twenty four"5 :114  "a hundred fourteen"The training rules: (excluding terminals)1: number = hundreds-place tens-place ones-placehundreds-place = digits hundred andtens-place = tensones-place = digits2: number = hundreds-place tens-placehundreds-place = digitstens-place = tensnumber = hundreds-place tens-place ones-placehundreds-place = digitstens-place = ohones-place = digits4.
+number = tens-place ones-placetens-place = tensones-place = digits5.
+number = hundreds-place tens-placehundreds-place = a hundredtens-place = teensThe training pairs for "hundreds-place" (gathering together all rules in (1, 2, 3, 5)above that have "hundreds-place" on the LHS:from 1: startfrom 2: startfrom 3: startfrom 5: startdigits, digits hundred, hundred and, and enddigits, digits enddigits, digits enda, a hundred, hundred endThe count array for "hundreds-place":digits hundred and end a totalstart 3 0 0 0 1 4digits 0 1 0 2 0 3hundred 0 0 1 1 0 2and 0 0 0 1 0 1a 0 1 0 0 0 1The probability of a transition from start o digits, within the parent node "hundreds-place," is just 3/4, the ratio of the number of times "hundreds-place" started with"digits" over the number of times it started with anything.82Stephanie Seneff TINA: A Natural Language System for Spoken Language ApplicationsParsing the phrase "four fifteen" with the trained parser:The initial stack: ~5ChildiParent, Left Siblinghundreds-placelnumber, starttens-placeinumber, startPath Probability4/5i/5After "hundreds-place" gets popped and expanded:digitsJhundreds-place, start 4/5*3/4tens-placelnumber, start 1/5alhundreds-place, start 4/5.1/4 (this is a tie score withthe above)After "digitslhundreds-place" is popped and a match with "four" is found:endihundreds-place, digitshundredJhundreds-place, digitstens-placelnumber, startalhundreds-place, start2/3 (given "four" with certainty)1/3 (this is the word "hundred")i/54/5~I/4After "endlhundreds-place, digits" is popped, "hundreds-place" has a solution inhand, "four."
+It now activates its only right sibling, "tens-place."
+This is a differentinstance of "tens-place" from the one at the third place in the stack.
+Its left sibling is"hundreds-place" rather than "start.
+"tens-placeJnumber, hundreds-place 2/3hundredIhundreds-place, digits i/3tens-placeinumber, start I/5aihundreds-place, start 4/5,1/4After "tens-place" is expanded, we have:tensftens-place, start 2/3~3/5hundredihundreds-place, digits i/3tens-placelnumber, start i/5aJhundreds-place, start 4/5~1/4teensftens-place, start 2/3.1/5ohltens-place, start 2/3~1/5"Tens" and "hundred" will both get popped off and rejected, because there is no matchwith the word "fifteen."
+"Tens-151ace" will also get popped, and eventually rejected,because nothing within "tens-place" matches the digit "four."
+A similar fate meets the"a" hypothesis.
+Finally, "teens" will be popped off and matched, and "endltens-place,teens" will be inserted at the top with probability 1.0.
+This answer will be returnedto the parent, "tens-place," and two new hypotheses will be inserted at the top of the15 To make the story simpler, I'm ignoring probabilities on the terminal word nodes.83Computational Linguistics Volume 18, Number 1numberFigure A.1I hundreds3/4~ 2/3~\['our ItensI teens1/10~ 1~fifteenPaths through the parse tree for the phrase "four fifteen" with associated probabilities derivedfrom the training data.stack as follows:ones-placelnumber, tens-placeendlnumber, tens-place315 215After the first one is rejected, the second one finds a completed "number"  rule and anempty input stream.
+The correct solution is now in hand.
+Notice that because "teens"was a relatively rare occurrence, a number of incorrect hypotheses had to be pursuedbefore the correct one was considered.Computation of perplexity, for the phrase, "four fifteen:"N- l  y~ logaP(wilwi-1,  .
+.
+.
+Wl )Perplexity = 2 i=1These are the three transitions with associated probabilities, following the appropriatepaths in Figure A.I:Transition Probability1: start ~ four 4 /5 ,3 /4 ,1 /102: four --* fifteen 1 ,2 /3 ,1 ,1 /5 ,1 /103: fifteen --* end 1 ,1 ,2 /5Thus, for this example test sentence:lo ~ /43  1 ~ 21 1 ~;2~  ~ Y6 ) q- log2(~ ~ i-6) q- l?g2(2)Perplexity = 2 3This comes out to about 14 words on average following a given word, for this84Stephanie Seneff TINA: A Natural Language System for Spoken Language Applicationsparticular phrase.
+This is higher than the norm for numbers given the grammar, againbecause of the rare occurrence of the "teens" node, as well as the fact that there isno ones-place.
+This example is a bit too simple - in general there would be multipleways to get to a particular next word, and there are also constraints which kill certainpaths and make it necessary to readjust probabilities on the fly.
+In practice, one mustfind all possible ways to extend a word sequence, computing total path probability foreach one, and then renormalize to assure that with probability 1.0 there is an advanceto some next word.
+It is the normalized probability contribution of all paths that canreach the next word that is used to update the log P calculation.AcknowledgmentsThis research as benefited significantlyfrom interactions with Lynette Hirschmanand Victor Zue.
+In addition, Jim Glass,David Goodine, and Christine Pao have allmade significant contributions to theprogramming of the TINA system, for whichI am deeply grateful.
+I would also like tothank several anonymous reviewers fortheir careful critiques, the outcome of whichwas a substantially improved ocument.ReferencesBoisen, S.; Chow, Y.-L.; Haas, A.; lngria, R.;Roukos, S.; and Stallard, D. (1989).
+"TheBBN spoken language system."
+InProceedings, DARPA Speech and NaturalLanguage Workshop.
+106-111.Bresnan, J., ed.
+(1982).
+The MentalRepresentation f Grammatical Relations.Cambridge, MA: The MIT Press.Chomsky, Noam (1977).
+"Onwh-movement."
+In Formal Syntax, editedby P. Culicover, T. Wasow, andA.
+Akmajian.
+New York: Academic Press.De Mattia, M., and Giachin, E. P.
+(1989).
+"Experimental results on large vocabularycontinuous speech understanding.
+"ICASSP-89 Proceedings.
+691-694.Fillmore, C. J.
+(1968).
+"The case for case."
+InUniversals in Linguistic Theory, edited byE.
+Bach and R. Harms.
+New York: Holt,Rinehart, and Winston.
+1-90.Goodine, D.; Seneff, S.; Hirschman, L.; andPhillips, M. (1991).
+"Full integration ofspeech and language understanding inthe MIT spoken language system."
+InProceedings, 2nd European Conference onSpeech Communication a d Technology.Genova, Italy.
+24-26.Grishman, R.; Hirschman, L.; and Nhan,N.
+T. (1986).
+"Discovery procedures forsublanguage s lectional patterns: Initialexperiments."
+Computational Linguistics12(3): 205-215.Hart, P.; Nilsson, N. J.; and Raphael B.(1968).
+"A formal basis for the heuristicdetermination f minimum cost paths.
+"IEEE Transactions ofSystems, Science andCybernetics SSC-4(2): 100-107.Hirschman, L.; Grishman, R.; and Sager, N.(1975).
+"Grammatically-based automaticword class formation."
+InformationProcessing and Management 11: 39-57.Jelinek, E (1976).
+"Continuous speechrecognition by statistical methods."
+IEEEProceedings 64(4): 532-556.Katz, S. M. (1987).
+"Estimation ofprobabilities from sparse data for thelanguage model component of a speechrecognizer."
+ASSP-35: 400-401.Lamel, L.; Kassel, R. H.; and Seneff, S.(1986).
+"Speech database development:Design and analysis of theacoustic-phonetic corpus."
+In Proceedings,DARPA Speech Recognition Workshop.
+PaloAlto, CA.
+100-109.Lee, K. E (1989).
+Automatic SpeechRecognition: The Development of the SPHINXSystem, Appendix I. Boston: KluwerAcademic Publishers.Lee, K. F.; Hon, H. W.; and Reddy, R.
+(1989).
+"An overview of the SPHINX speechrecognition system."
+IEEE Transactions onAcoustics, Speech, and Signal Processing38(1): 35-46.Niedermair, G. Th.
+(1989).
+"The use of asemantic network in speech dialogue."
+1stEuropean Conference on SpeechCommunication and Technology, Paris,France.
+26-29.Niemann, H. (1990).
+"The interaction ofword recognition and linguisticprocessing in speech understanding.
+"Invited Lecture, NATO-ASI Workshop onSpeech Recognition and Understanding,Cetraro, Italy.Pallett, D. (1989).
+"Benchmark tests forDARPA resource management databaseperformance evaluations."
+In Proceedings,ICASSP-89.
+536-539.Seneff, S.; Glass, J.; Goddeau, D.; Goodine,D.
+; Hirschman, L.; Leung, H.; Phillips, M.;Polifroni, J.; and Zue, V.
+(1991).
+"Development and preliminaryevaluation of the MIT ATIS system.
+"85Computational Linguistics Volume 18, Number 1Fourth DARPA Speech and NaturalLanguage Workshop, Asilomar, CA.88-93.Viterbi, A.
+(1967).
+"Error bounds forconvolutional codes and anasymptotically optimal decodingalgorithm."
+IEEE Transactions onInformation Theory IT-13.
+260-269.Woods, W. A.
+(1970).
+"Transition etworkgrammars for natural language analysis."Commun.
+of the ACM 13: 591-606.Woods, W. A.
+(1986).
+"Semantics andquantification i  natural languagequestion answering."
+In Readings inNatural Language Processing, edited byB.
+J. Grosz, K. S. Jones; and B. L. Webber.Los Altos, CA: Morgan Kaufmann.205-248.Young, S. R. (1989).
+"The minds system:Using context and dialog to enhancespeech recognition."
+Proceedings, DARPASpeech and Natural Language Workshop.131-136.Zue, V.; Daly, N.; Glass, J.; Goodine, D.;Leung, H.; Phillips, M.; Polifroni, J.;Seneff, S.; and Sodof, M. (1989a).
+"Thecollection and preliminary analysis of aspontaneous speech database."
+DARPASpeech and Natural Language Workshop.Harwichport, MA.
+15-18.Zue, V.; Glass, J.; Phillips, M.; and Seneff, S.(1989b).
+"The MIT SUMMIT speechrecognition system, a progress report.
+"Proceedings, DARPA Speech and NaturalLanguage Workshop.
+Philadelphia.
+21-23.Zue, V.; Glass, J.; Goodine, D.; Leung, H.;Phillips;, M.; Polifroni, J.; and Seneff, S.(1990).
+"The VOYAGER speechunderstanding system: Preliminarydevelopment and evaluation."
+IEEEInternational Conference on Acoustics, Speechand Signal Processing.
+Albuquerque, NM.73-76.Zue, V.; Glass, J.; Goodine, D.; Leung, H.;Phillips, M.; Polifroni, J.; and Seneff, S.(1991).
+"Integration of speech recognitionand natural language processing in theMIT VOYAGER system."
+IEEE InternationalConference on Acoustics, Speech and SignalProcessing.
+Toronto, Ontario.
+14-17.86

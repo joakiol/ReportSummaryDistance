@@ -1,0 +1,256 @@
+Proceedings of the 49th Annual Meeting of the Association for Computational Linguistics, pages 440?449,Portland, Oregon, June 19-24, 2011. c?2011 Association for Computational LinguisticsBeam-Width Prediction for Efficient Context-Free ParsingNathan Bodenstab?
+Aaron Dunlop?
+Keith Hall?
+and Brian Roark??
+Center for Spoken Language Understanding, Oregon Health & Science University, Portland, OR?Google, Inc., Zurich, Switzerland{bodensta,dunlopa,roark}@cslu.ogi.edu kbhall@google.comAbstractEfficient decoding for syntactic parsing hasbecome a necessary research area as statisti-cal grammars grow in accuracy and size andas more NLP applications leverage syntac-tic analyses.
+We review prior methods forpruning and then present a new frameworkthat unifies their strengths into a single ap-proach.
+Using a log linear model, we learnthe optimal beam-search pruning parametersfor each CYK chart cell, effectively predictingthe most promising areas of the model spaceto explore.
+We demonstrate that our methodis faster than coarse-to-fine pruning, exempli-fied in both the Charniak and Berkeley parsers,by empirically comparing our parser to theBerkeley parser using the same grammar andunder identical operating conditions.1 IntroductionStatistical constituent parsers have gradually in-creased in accuracy over the past ten years.
+Thisaccuracy increase has opened the door to automati-cally derived syntactic information within a numberof NLP tasks.
+Prior work incorporating parse struc-ture into machine translation (Chiang, 2010) and Se-mantic Role Labeling (Tsai et al, 2005; Punyakanoket al, 2008) indicate that such hierarchical structurecan have great benefit over shallow labeling tech-niques like chunking and part-of-speech tagging.Although syntax is becoming increasingly impor-tant for large-scale NLP applications, constituentparsing is slow ?
+too slow to scale to the size ofmany potential consumer applications.
+The exhaus-tive CYK algorithm has computational complexityO(n3|G|) where n is the length of the sentence and|G| is the number of grammar productions, a non-negligible constant.
+Increases in accuracy have pri-marily been accomplished through an increase inthe size of the grammar, allowing individual gram-mar rules to be more sensitive to their surround-ing context, at a considerable cost in efficiency.Grammar transformation techniques such as linguis-tically inspired non-terminal annotations (Johnson,1998; Klein and Manning, 2003b) and latent vari-able grammars (Matsuzaki et al, 2005; Petrov et al,2006) have increased the grammar size |G| from afew thousand rules to several million in an explic-itly enumerable grammar, or even more in an im-plicit grammar.
+Exhaustive search for the maximumlikelihood parse tree with a state-of-the-art grammarcan require over a minute of processing for a sin-gle sentence of 25 words, an unacceptable amountof time for real-time applications or when process-ing millions of sentences.
+Deterministic algorithmsfor dependency parsing exist that can extract syntac-tic dependency structure very quickly (Nivre, 2008),but this approach is often undesirable as constituentparsers are more accurate and more adaptable to newdomains (Petrov et al, 2010).The most accurate constituent parsers, e.g., Char-niak (2000), Petrov and Klein (2007a), make useof approximate inference, limiting their search toa fraction of the total search space and achievingspeeds of between one and four newspaper sen-tences per second.
+The paradigm for building state-of-the-art parsing models is to first design a modelstructure that can achieve high accuracy and then,after the model has been built, design effective ap-proximate inference methods around that particu-lar model; e.g., coarse-to-fine non-terminal hierar-chies for a given model, or agenda-based methods440that are empirically tuned to achieve acceptable ef-ficiency/accuracy operating points.
+While both ofthe above mentioned papers use the CYK dynamicprogramming algorithm to search through possiblesolutions, their particular methods of approximateinference are quite distinct.In this paper, we examine a general approach toapproximate inference in constituent parsing thatlearns cell-specific thresholds for arbitrary gram-mars.
+For each cell in the CYK chart, we sort allpotential constituents in a local agenda, ordered byan estimate of their posterior probability.
+Given fea-tures extracted from the chart cell context ?
+e.g.,span width; POS-tags and words surrounding theboundary of the cell ?
+we train a log linear modelto predict how many constituents should be poppedfrom the local agenda and added to the chart.
+Asa special case of this approach, we simply pre-dict whether the number to add should be zero orgreater than zero, in which case the method can beseen as a cell-by-cell generalization of Roark andHollingshead?s (2008; 2009) tagger-derived ChartConstraints.
+More generally, instead of a binaryclassification decision, we can also use this methodto predict the desired cell population directly andget cell closure for free when the classifier predictsa beam-width of zero.
+In addition, we use a non-symmetric loss function during optimization to ac-count for the imbalance between over-predicting orunder-predicting the beam-width.A key feature of our approach is that it doesnot rely upon reference syntactic annotations whenlearning to search.
+Rather, the beam-width predic-tion model is trained to learn the rank of constituentsin the maximum likelihood trees.1 We will illus-trate this by presenting results using a latent-variablegrammar, for which there is no ?true?
+reference la-tent variable parse.
+We simply parse sections 2-21of the WSJ treebank and train our search modelsfrom the output of these trees, with no prior knowl-edge of the non-terminal set or other grammar char-acteristics to guide the process.
+Hence, this ap-1Note that we do not call this method ?unsupervised?
+be-cause all grammars used in this paper are induced from super-vised data, although our framework can also accommodate un-supervised grammars.
+We emphasize that we are learning tosearch using only maximum likelihood trees, not that we aredoing unsupervised parsing.Figure 1: Inside (grey) and outside (white) representations ofan example chart edge Ni,j .proach is broadly applicable to a wide range of sce-narios, including tuning the search to new domainswhere domain mismatch may yield very different ef-ficiency/accuracy operating points.In the next section, we present prior work onapproximate inference in parsing, and discuss howour method to learn optimal beam-search param-eters unite many of their strengths into a singleframework.
+We then explore using our approach toopen or close cells in the chart as an alternative toRoark and Hollingshead (2008; 2009).
+Finally, wepresent results which combine cell closure and adap-tive beam-width prediction to achieve the most effi-cient parser.2 Background2.1 Preliminaries and notationLet S = w1 .
+.
+.
+w|S| represent an input string of|S| words.
+Let wi,j denote the substring from wordwi+1 to wj ; i.e., S = w0,|S|.
+We use the term chartedge to refer to a non-terminal spanning a specificsubstring of the input sentence.
+Let Ni,j denote theedge labeled with non-terminalN spanning wi,j , forexample NP3,7.
+We define an edge?s figure-of-merit(FOM) as an estimate of the product of its inside(?)
+and outside (?)
+scores, conceptually the relativemerit the edge has to participate in the final parsetree (see Figure 1).
+More formally:?
+(Ni,j) = P (w0,i, Ni,j , wj,n)?
+(Ni,j) = P (wi,j |N)FOM(Ni,j) = ??(Ni,j)??
+(Ni,j)441With bottom-up parsing, the true inside probabilityis accumulated and ?
+(Ni,j) does not need to be esti-mated, improving the FOMs ability to represent thetrue inside/outside distribution.In this paper, we use a modified version of theCaraballo and Charniak Boundary FOM (1998)for local edge comparison, which computes ??
+(Ni,j)using POS forward-backward scores and POS-to-nonterminal constituent boundary transition proba-bilities.
+Details can be found in (?
+).We also note that in this paper we only usethe FOM scoring function to rank constituents ina local agenda.
+Alternative approaches to rank-ing competitors are also possible, such as Learningas Search Optimization (Daume?
+and Marcu, 2005).The method we present in this paper to learn the op-timal beam-search parameters is applicable to anyranking function, and we demonstrate this by com-puting results with both the Boundary FOM andonly the inside probability in Section 6.2.2 Agenda-based parsingAgenda-based parsers maintain a global agenda ofedges, ranked by FOM score.
+At each iteration, thehighest-scoring edge is popped off of the agenda,added to the chart, and combined with other edgesalready in the chart.
+The agenda-based approachincludes best-first parsing (Bobrow, 1990) and A*parsing (Klein and Manning, 2003a), which differin whether an admissible FOM estimate ??
+(Ni,j) isrequired.
+A* uses an admissible FOM, and thusguarantees finding the maximum likelihood parse,whereas an inadmissible heuristic (best-first) mayrequire less exploration of the search space.
+Muchwork has been pursued in both admissible and in-admissible heuristics for agenda parsing (Caraballoand Charniak, 1998; Klein and Manning, 2003a;Pauls et al, 2010).In this paper, we also make use of agendas, butat a local rather than a global level.
+We maintain anagenda for each cell, which has two significant ben-efits: 1) Competing edges can be compared directly,avoiding the difficulty inherent in agenda-based ap-proaches of comparing edges of radically differ-ent span lengths and characteristics; and 2) Sincethe agendas are very small, the overhead of agendamaintenance ?
+a large component of agenda-basedparse time ?
+is minimal.2.3 Beam-search parsingCYK parsing with a beam-search is a local pruningstrategy, comparing edges within the same chart cell.The beam-width can be defined in terms of a thresh-old in the number of edges allowed, or in terms ofa threshold on the difference in probability relativeto the highest scoring edge (Collins, 1999; Zhang etal., 2010).
+For the current paper, we use both kindsof thresholds, avoiding pathological cases that eachindividual criteria is prone to encounter.
+Further, un-like most beam-search approaches we will make useof a FOM estimate of the posterior probability of anedge, defined above, as our ranking function.
+Fi-nally, we will learn log linear models to assign cell-specific thresholds, rather than relying on a singlesearch parameter.2.4 Coarse-to-Fine ParsingCoarse-to-fine parsing, also known as multiple passparsing (Goodman, 1997; Charniak, 2000; Char-niak and Johnson, 2005), first parses the input sen-tence with a simplified (coarse) version of the tar-get (fine) grammar in which multiple non-terminalsare merged into a single state.
+Since the coarsegrammar is quite small, parsing is much faster thanwith the fine grammar, and can quickly yield an es-timate of the outside probability ?(?)
+for use in sub-sequent agenda or beam-search parsing with the finegrammar.
+This approach can also be used iterativelywith grammars of increasing complexity (Petrov andKlein, 2007a).Building a coarse grammar from a fine gram-mar is a non-trivial problem, and most often ap-proached with detailed knowledge of the fine gram-mar being used.
+For example, Goodman (1997)suggests using a coarse grammar consisting of reg-ular non-terminals, such as NP and VP, and thennon-terminals augmented with head-word informa-tion for the more accurate second-pass grammar.Such an approach is followed by Charniak (2000) aswell.
+Petrov and Klein (2007a) derive coarse gram-mars in a more statistically principled way, althoughthe technique is closely tied to their latent variablegrammar representation.To the extent that our cell-specific threshold clas-sifier predicts that a chart cell should contain zeroedges or more than zero edges, it is making coarse442predictions about the unlabeled constituent structureof the target parse tree.
+This aspect of our work iscan be viewed as a coarse-to-fine process, thoughwithout considering specific grammatical categoriesor rule productions.2.5 Chart ConstraintsRoark and Hollingshead (2008; 2009) introduceda pruning technique that ignores entire chart cellsbased on lexical and POS features of the input sen-tence.
+They train two finite-state binary taggers:one that allows multi-word constituents to start ata word, and one that allows constituents to end at aword.
+Given these tags, it is straightforward to com-pletely skip many chart cells during processing.In this paper, instead of tagging word positions toinfer valid constituent spans, we classify chart cellsdirectly.
+We further generalize this cell classificationto predict the beam-width of the chart cell, where abeam-width of zero indicates that the cell is com-pletely closed.
+We discuss this in detail in the nextsection.3 Open/Closed Cell Classification3.1 Constituent ClosureWe first look at the binary classification of chart cellsas either open or closed to full constituents, and pre-dict this value from the input sentence alone.
+Thisis the same problem that Roark and Hollingshead(2008; 2009) solve with Chart Constraints; however,where they classify lexical items as either beginningor ending a constituent, we classify individual chartcells as open or closed, an approach we call Con-stituent Closure.
+Although the number of classifi-cations scales quadratically with our approach, thetotal parse time is still dominated by the O(n3|G|)parsing complexity and we find that the added levelof specificity reduces the search space significantly.To learn to classify a chart cell spanning wordswi+1 .
+.
+.
+wj of a sentence S as open or closed to fullconstituents, we first map cells in the training corpusto tuples:?
+(S, i, j) = (x, y) (1)where x is a feature-vector representation of thechart cell and y is the target class 1 if the cell con-tains an edge from the maximum likelihood parsetree, 0 otherwise.
+The feature vector x is encodedwith the chart cell?s absolute and relative span width,as well as unigram and bigram lexical and part-of-speech tag items from wi?1 .
+.
+.
+wj+2.Given feature/target tuples (x, y) for every chartcell in every sentence of a training corpus ?
+, we traina weight vector ?
+using the averaged perceptron al-gorithm (Collins, 2002) to learn an open/closed bi-nary decision boundary:??
+= argmin??(x,y)??(?)L?(H(?
+?
+x), y) (2)where H(?)
+is the unit step function: 1 if the innerproduct ?
+?x > 0, and 0 otherwise; and L?
+(?, ?)
+is anasymmetric loss function, defined below.When predicting cell closure, all misclassifica-tions are not equal.
+If we leave open a cell whichcontains no edges in the maximum likelihood (ML)parse, we incur the cost of additional processing, butare still able to recover the ML tree.
+However, if weclose a chart cell which contains an ML edge, searcherrors occur.
+To deal with this imbalance, we intro-duce an asymmetric loss functionL?
+(?, ?)
+to penalizefalse-negatives more severely during training.L?
+(h, y) =????
+?0 if h = y1 if h > y?
+if h < y(3)We found the value ?
+= 102 to give the best per-formance on our development set, and we use thisvalue in all of our experiments.Figures 2a and 2b compare the pruned charts ofChart Constraints and Constituent Closure for a sin-gle sentence in the development set.
+Note that bothof these methods are predicting where a completeconstituent may be located in the chart, not partialconstituents headed by factored nonterminals withina binarized grammar.
+Depending on the grammarfactorization (right or left) we can infer chart cellsthat are restricted to only edges with a factored left-hand-side non-terminal.
+In Figure 2 these chart cellsare colored gray.
+Note that Constituent Closure re-duces the number of completely open cells consider-ably vs.
+Chart Constraints, and the number of cellsopen to factored categories somewhat.4433.2 Complete ClosureAlternatively, we can predict whether a chart cellcontains any edge, either a partial or a full con-stituent, an approach we call Complete Closure.This is a more difficult classification problem as par-tial constituents occur in a variety of contexts.
+Nev-ertheless, learning this directly allows us to remove alarge number of internal chart cells from considera-tion, since no additional cells need to be left open topartial constituents.
+The learning algorithm is iden-tical to Equation 2, but training examples are nowassigned a positive label if the chart cell contains anyedge from the binarized maximum likelihood tree.Figure 2c gives a visual representation of CompleteClosure for the same sentence; the number of com-pletely open cells increases somewhat, but the totalnumber of open cells (including those open to fac-tored categories) is greatly reduced.We compare the effectiveness of Constituent Clo-sure, Complete Closure, and Chart Constraints, bydecreasing the percentage of chart cells closed un-til accuracy over all sentences in our developmentset start to decline.
+For Constituent and CompleteClosure, we also vary the loss function, adjustingthe relative penalty between a false-negative (clos-ing off a chart cell that contains a maximum like-lihood edge) and a false-positive.
+Results show thatusing Chart Constrains as a baseline, we prune (skip)33% of the total chart cells.
+Constituent Closure im-proves on this baseline only slightly (36%), but wesee our biggest gains with Complete Closure, whichprunes 56% of all chart cells in the development set.All of these open/closed cell classification meth-ods can improve the efficiency of the exhaustiveCYK algorithm, or any of the approximate infer-ence methods mentioned in Section 2.
+We empir-ically evaluate them when applied to CYK parsingand beam-search parsing in Section 6.4 Beam-Width PredictionThe cell-closing approaches discussed in Section 3make binary decisions to either allow or completelyblock all edges in each cell.
+This all-on/all-off tacticignores the characteristics of the local cell popula-tion, which, given a large statistical grammar, maycontain hundred of edges, even if very improbable.Retaining all of these partial derivations forces the(a) Chart Constraints (Roark and Hollingshead, 2009)(b) Constituent Closure (this paper)(c) Complete Closure (this paper)Figure 2: Comparison of Chart Constraints (Roark andHollingshead, 2009) to Constituent and Complete Closure for asingle example sentence.
+Black cells are open to all edges whilegrey cells only allow factored edges (incomplete constituents).search in larger spans to continue down improbablepaths, adversely affecting efficiency.
+We can furtherimprove parsing speed in these open cells by lever-aging local pruning methods, such as beam-search.When parsing with a beam-search, finding the op-timal beam-width threshold(s) to balance speed andaccuracy is a necessary step.
+As mentioned in Sec-444tion 2.3, two variations of the beam-width are of-ten considered: a fixed number of allowed edges,or a relative probability difference from the highestscoring local edge.
+For the remainder of this pa-per we fix the relative probability threshold for allexperiments and focus on adapting the number ofallowed edges per cell.
+We will refer to this number-of-allowed-edges value as the beam-width, notatedby b, and leave adaptation of the relative probabilitydifference to future work.The standard way to tune the beam-width is a sim-ple sweep over possible values until accuracy ona heldout data set starts to decline.
+The optimalpoint will necessarily be very conservative, allowingoutliers (sentences or sub-phrases with above aver-age ambiguity) to stay within the beam and producevalid parse trees.
+The majority of chart cells willrequire much fewer than b entries to find the max-imum likelihood (ML) edge, yet, constrained by aconstant beam-width, the cell will continue to befilled with unfruitful edges, exponentially increasingdownstream computation.For example, when parsing with the Berkeleylatent-variable grammar and Boundary FOM, wefind we can reduce the global beam-width b to 15edges in each cell before accuracy starts to decline.However we find that 73% of the ML edges areranked first in their cell and 96% are ranked in thetop three.
+Thus, in 24 of every 25 cells, 80% of theedges are unnecessary (12 of the top 15).
+Clearly,it would be advantageous to adapt the beam-widthsuch that it is restrictive when we are confident inthe FOM ranking and more forgiving in ambiguouscontexts.To address this problem, we learn the optimalbeam-width for each chart cell directly.
+We defineRi,j as the rank of the ML edge in the chart cellspanning wi+1 .
+.
+.
+wj .
+If no ML edge exists in thecell, then Ri,j = 0.
+Given a global maximum beam-width b, we train b different binary classifiers, eachusing separate mapping functions ?k, where the tar-get value y produced by ?k is 1 if Ri,j > k and 0otherwise.The same asymmetry noted in Section 3 appliesin this task as well.
+When in doubt, we prefer toover-predict the beam-width and risk an increase inprocessing time opposed to under-predicting at theexpense of accuracy.
+Thus we use the same lossfunction L?, this time training several classifiers:?
+?k = argmin??(x,y)??k(?)L?(H(?
+?
+x), y) (4)Note that in Equation 4 when k = 0, we re-cover the open/closed cell classification of Equa-tion 2, since a beam width of 0 indicates that thechart cell is completely closed.During decoding, we assign the beam-widthfor chart cell spanning wi+1 .
+.
+.
+wj given models?0, ?1, ...?b?1 by finding the lowest value k such thatthe binary classifier ?k classifiesRi,j ?
+k. If no suchk exists, R?i,j is set to the maximum beam-widthvalue b:R?i,j = argmink?k ?
+xi ?
+0 (5)In Equation 5 we assume there are b unique clas-sifiers, one for each possible beam-width value be-tween 0 and b?
+1, but this level of granularity is notrequired.
+Choosing the number of classification binsto minimize total parsing time is dependent on theFOM function and how it ranks ML edges.
+With theBoundary FOM we use in this paper, 97.8% of MLedges have a local rank less than five and we find thatthe added cost of computing b decision boundariesfor each cell is not worth the added specificity.
+Wesearched over possible classification bins and foundthat training four classifiers with beam-width deci-sion boundaries at 0, 1, 2, and 4 is faster than 15 in-dividual classifiers and more memory efficient, sinceeach model ?k has over 800,000 parameters.
+Allbeam-width prediction results reported in this paperuse these settings.Figure 3 is a visual representation of beam-widthprediction on a single sentence of the developmentset using the Berkeley latent-variable grammar andBoundary FOM.
+In this figure, the gray scale repre-sents the relative size of the beam-width, black beingthe maximum beam-width value, b, and the lightestgray being a beam-width of size one.
+We can seefrom this figure that very few chart cells are classi-fied as needing the full 15 edges, apart from span-1cells which we do not classify.445Figure 3: Visualization of Beam-Width Prediction for a single example sentence.
+The grey scale represents the size of the predictedbeam-width: white is 0 (cell is skipped) and black is the maximum value b (b=15 in this example).5 Experimental SetupWe run all experiments on the WSJ treebank (Mar-cus et al, 1999) using the standard splits: section2-21 for training, section 22 for development, andsection 23 for testing.
+We preprocess the treebankby removing empty nodes, temporal labels, and spu-rious unary productions (X?X), as is standard inpublished works on syntactic parsing.The pruning methods we present in this paper canbe used to parse with any grammar.
+To achieve state-of-the-art accuracy levels, we parse with the Berke-ley SM6 latent-variable grammar (Petrov and Klein,2007b) where the original treebank non-terminalsare automatically split into subclasses to optimizeparsing accuracy.
+This is an explicit grammar con-sisting of 4.3 million productions, 2.4 million ofwhich are lexical productions.
+Exhaustive CYKparsing with the grammar takes more than a minuteper sentence.Accuracy is computed from the 1-best Viterbi(max) tree extracted from the chart.
+Alternative de-coding methods, such as marginalizing over the la-tent variables in the grammar or MaxRule decod-ing (Petrov and Klein, 2007a) are certainly possiblein our framework, but it is unknown how effectivethese methods will be given the heavily pruned na-ture of the chart.
+We leave investigation of this tofuture work.
+We compute the precision and recallof constituents from the 1-best Viterbi trees usingthe standard EVALB script (?
+), which ignores punc-tuation and the root symbol.
+Accuracy results arereported as F-measure (F1), the harmonic mean be-tween precision and recall.We ran all timing tests on an Intel 3.00GHz pro-cessor with 6MB of cache and 16GB of memory.Our parser is written in Java and publicly availableat http://nlp.csee.ogi.edu.6 ResultsWe empirically demonstrate the advantages of ourpruning methods by comparing the total parse timeof each system, including FOM initialization, chartcell classification, and beam-width prediction.
+Theparse times reported for Chart Constraints do not in-clude tagging times as we were provided with thispre-tagged data, but tagging all of Section 22 takesless than three seconds and we choose to ignore thiscontribution for simplicity.Figure 4 contains a timing comparison of the threecomponents of our final parser: Boundary FOM ini-tialization (which includes the forward-backward al-gorithm over ambiguous part-of-speech tags), beam-446Figure 4: Timing breakdown by sentence length for majorcomponents of our parser.width prediction, and the final beam-search, includ-ing 1-best extraction.
+We bin these relative timeswith respect to sentence length to see how each com-ponent scales with the number of input words.
+Asexpected, theO(n3|G|) beam-search begins to dom-inate as the sentence length grows, but BoundaryFOM initialization is not cheap, and absorbs, onaverage, 20% of the total parse time.
+Beam-widthprediction, on the other hand, is almost negligiblein terms of processing time even though it scalesquadratically with the length of the sentence.We compare the accuracy degradation of beam-width prediction and Chart Constraints in Figure 5as we incrementally tighten their respective prun-ing parameters.
+We also include the baseline beam-search parser with Boundary FOM in this figureto demonstrate the accuracy/speed trade-off of ad-justing a global beam-width alone.
+In this figurewe see that the knee of the beam-width predictioncurve (Beam-Predict) extends substantially furtherto the left before accuracy declines, indicating thatour pruning method is intelligently removing a sig-nificant portion of the search space that remains un-pruned with Chart Constraints.In Table 1 we present the accuracy and parse timefor three baseline parsers on the development set:exhaustive CYK parsing, beam-search parsing usingonly the inside score ?(?
+), and beam-search parsingusing the Boundary FOM.
+We then apply our twocell-closing methods, Constituent Closure and Com-plete Closure, to all three baselines.
+As expected,the relative speedup of these methods across the var-ious baselines is similar since the open/closed cellclassification does not change across parsers.
+WeFigure 5: Time vs. accuracy curves comparing beam-widthprediction (Beam-Predict) and Chart Constraints.also see that Complete Closure is between 22% and31% faster than Constituent Closure, indicating thatthe greater number of cells closed translates directlyinto a reduction in parse time.
+We can further applybeam-width prediction to the two beam-search base-line parsers in Table 1.
+Dynamically adjusting thebeam-width for the remaining open cells decreasesparse time by an additional 25% when using the In-side FOM, and 28% with the boundary FOM.We apply our best model to the test set and reportresults in Table 2.
+Beam-width prediction, again,outperforms the baseline of a constant beam-widthby 65% and the open/closed classification of ChartConstraints by 49%.
+We also compare beam-widthprediction to the Berkeley Coarse-to-Fine parser.Both our parser and the Berkeley parser are writtenin Java, both are run with Viterbi decoding, and bothparse with the same grammar, so a direct compari-son of speed and accuracy is fair.27 Conclusion and Future WorkWe have introduced three new pruning methods, thebest of which unites figure-of-merit estimation fromagenda-based parsing, local pruning from beam-search parsing, and unlabeled constituent structure2We run the Berkeley parser with the default search param-eterization to achieve the fastest possible parsing time.
+We notethat 3 of 2416 sentences fail to parse under these settings.
+Usingthe ?-accurate?
+option provides a valid parse for all sentences,but increases parsing time of section 23 to 0.293 seconds persentence with no increase in F-score.
+We assume a back-offstrategy for failed parses could be implemented to parse all sen-tences with a parsing time close to the default parameterization.447Parser Sec/Sent F1CYK 70.383 89.4CYK + Constituent Closure 47.870 89.3CYK + Complete Closure 32.619 89.3Beam + Inside FOM (BI) 3.977 89.2BI + Constituent Closure 2.033 89.2BI + Complete Closure 1.575 89.3BI + Beam-Predict 1.180 89.3Beam + Boundary FOM (BB) 0.326 89.2BB + Constituent Closure 0.279 89.2BB + Complete Closure 0.199 89.3BB + Beam-Predict 0.143 89.3Table 1: Section 22 development set results for CYK andBeam-Search (Beam) parsing using the Berkeley latent-variablegrammar.prediction from coarse-to-fine parsing and ChartConstraints.
+Furthermore, our pruning method istrained using only maximum likelihood trees, allow-ing it to be tuned to specific domains without labeleddata.
+Using this framework, we have shown that wecan decrease parsing time by 65% over a standardbeam-search without any loss in accuracy, and parsesignificantly faster than both the Berkeley parser andChart Constraints.We plan to explore a number of remaining ques-tions in future work.
+First, we will try combin-ing our approach with constituent-level Coarse-to-Fine pruning.
+The two methods prune the searchspace in very different ways and may prove to becomplementary.
+On the other hand, our parser cur-rently spends 20% of the total parse time initializingthe FOM, and adding additional preprocessing costs,such as parsing with a coarse grammar, may not out-weigh the benefits gained in the final search.Second, as with Chart Constraints we do notprune lexical or unary edges in the span-1 chart cells(i.e., chart cells that span a single word).
+We ex-pect pruning entries in these cells would notably re-duce parse time since they cause exponentially manychart edges to be built in larger spans.
+Initial workconstraining span-1 chart cells has promising results(Bodenstab et al, 2011) and we hope to investigateits interaction with beam-width prediction even fur-ther.Parser Sec/Sent F1CYK 64.610 88.7Berkeley CTF MaxRule 0.213 90.2Berkeley CTF Viterbi 0.208 88.8Beam + Boundary FOM (BB) 0.334 88.6BB + Chart Constraints 0.244 88.7BB + Beam-Predict (this paper) 0.125 88.7Table 2: Section 23 test set results for multiple parsers usingthe Berkeley latent-variable grammar.Finally, the size and structure of the grammar isthe single largest contributor to parse efficiency.
+Incontrast to the current paradigm, we plan to inves-tigate new algorithms that jointly optimize accuracyand efficiency during grammar induction, leading tomore efficient decoding.AcknowledgmentsWe would like to thank Kristy Hollingshead forher valuable discussions, as well as the anony-mous reviewers who gave very helpful feedback.This research was supported in part by NSF Grants#IIS-0447214, #IIS-0811745 and DARPA grant#HR0011-09-1-0041.
+Any opinions, findings, con-clusions or recommendations expressed in this pub-lication are those of the authors and do not necessar-ily reflect the views of the NSF or DARPA.ReferencesRobert J. Bobrow.
+1990.
+Statistical agenda parsing.
+InDARPA Speech and Language Workshop, pages 222?224.Nathan Bodenstab, Kristy Hollingshead, and BrianRoark.
+2011.
+Unary constraints for efficient context-free parsing.
+In Proceedings of the 49th Annual Meet-ing of the Association for Computational Linguistics,Portland, Oregon.Sharon A Caraballo and Eugene Charniak.
+1998.
+Newfigures of merit for best-first probabilistic chart pars-ing.
+Computational Linguistics, 24:275?298.Eugene Charniak and Mark Johnson.
+2005.
+Coarse-to-fine n-best parsing and MaxEnt discriminative rerank-ing.
+In Proceedings of the 43rd Annual Meeting on As-sociation for Computational Linguistics, pages 173?180, Ann Arbor, Michigan.Eugene Charniak.
+2000.
+A maximum-entropy-inspiredparser.
+In Proceedings of the 1st North American448chapter of the Association for Computational Linguis-tics conference, pages 132?139, Seattle, Washington.David Chiang.
+2010.
+Learning to translate with sourceand target syntax.
+In Proceedings of the 48rd An-nual Meeting on Association for Computational Lin-guistics, pages 1443?1452.Michael Collins.
+1999.
+Head-Driven Statistical Modelsfor Natural Language Parsing.
+PhD dissertation, Uni-versity of Pennsylvania.Michael Collins.
+2002.
+Discriminative training meth-ods for hidden markov models: theory and experi-ments with perceptron algorithms.
+In Proceedingsof the ACL-02 conference on Empirical Methods inNatural Language Processing, volume 10, pages 1?8,Philadelphia.Hal Daume?, III and Daniel Marcu.
+2005.
+Learning assearch optimization: approximate large margin meth-ods for structured prediction.
+In Proceedings of the22nd international conference on Machine learning,ICML ?05, pages 169?176, New York, NY, USA.Joshua Goodman.
+1997.
+Global thresholding andMultiple-Pass parsing.
+Proceedings of the SecondConference on Empirical Methods in Natural Lan-guage Processing (EMNLP), pages 11?25.Mark Johnson.
+1998.
+PCFG models of linguis-tic tree representations.
+Computational Linguistics,24(4):613?632.Dan Klein and Christopher D. Manning.
+2003a.
+A* pars-ing.
+In Proceedings of the 2003 Conference of theNorth American Chapter of the Association for Com-putational Linguistics on Human Language Technol-ogy (NAACL ?03), pages 40?47, Edmonton, Canada.Dan Klein and Christopher D. Manning.
+2003b.
+Ac-curate unlexicalized parsing.
+In Proceedings of the41st Annual Meeting on Association for Computa-tional Linguistics - Volume 1, pages 423?430, Sap-poro, Japan.Mitchell P Marcus, Beatrice Santorini, Mary AnnMarcinkiewicz, and Ann Taylor.
+1999.
+Treebank-3,Philadelphia.Takuya Matsuzaki, Yusuke Miyao, and Jun?ichi Tsujii.2005.
+Probabilistic CFG with latent annotations.
+InProceedings of the 43rd Annual Meeting on Associa-tion for Computational Linguistics - ACL ?05, pages75?82, Ann Arbor, Michigan.Joakim Nivre.
+2008.
+Algorithms for deterministic in-cremental dependency parsing.
+Comput.
+Linguist.,34:513?553.Adam Pauls, Dan Klein, and Chris Quirk.
+2010.
+Top-down k-best a* parsing.
+In In proceedings of the An-nual Meeting on Association for Computational Lin-guistics Short Papers, ACLShort ?10, pages 200?204,Morristown, NJ, USA.Slav Petrov and Dan Klein.
+2007a.
+Improved inferencefor unlexicalized parsing.
+In Human Language Tech-nologies 2007: The Conference of the North AmericanChapter of the Association for Computational Linguis-tics; Proceedings of the Main Conference, pages 404?411, Rochester, New York.Slav Petrov and Dan Klein.
+2007b.
+Learning and in-ference for hierarchically split PCFGs.
+In AAAI 2007(Nectar Track).Slav Petrov, Leon Barrett, Romain Thibaux, and DanKlein.
+2006.
+Learning accurate, compact, and inter-pretable tree annotation.
+In Proceedings of the 21stInternational Conference on Computational Linguis-tics and the 44th annual meeting of the Associationfor Computational Linguistics, pages 433?440, Syd-ney, Australia.Slav Petrov, Pi-Chuan Chang, Michael Ringgaard, andHiyan Alshawi.
+2010.
+Uptraining for accurate deter-ministic question parsing.
+In Proceedings of the 2010Conference on Empirical Methods in Natural Lan-guage Processing, pages 705?713, Cambridge, MA,October.Vasin Punyakanok, Dan Roth, and Wen tau Yih.
+2008.The importance of syntactic parsing and inference insemantic role labeling.
+Computational Linguistics,34(2):257?287.Brian Roark and Kristy Hollingshead.
+2008.
+Classify-ing chart cells for quadratic complexity context-freeinference.
+In Donia Scott and Hans Uszkoreit, editors,Proceedings of the 22nd International Conference onComputational Linguistics (Coling 2008), pages 745?752, Manchester, UK.Brian Roark and Kristy Hollingshead.
+2009.
+Linearcomplexity Context-Free parsing pipelines via chartconstraints.
+In Proceedings of Human Language Tech-nologies: The 2009 Annual Conference of the NorthAmerican Chapter of the Association for Computa-tional Linguistics, pages 647?655, Boulder, Colorado.Tzong-Han Tsai, Chia-Wei Wu, Yu-Chun Lin, and Wen-Lian Hsu.
+2005.
+Exploiting full parsing informationto label semantic roles using an ensemble of ME andSVM via integer linear programming.
+In Proceed-ings of the Ninth Conference on Computational Natu-ral Language Learning, CONLL ?05, pages 233?236,Morristown, NJ, USA.Yue Zhang, Byung gyu Ahn, Stephen Clark, Curt VanWyk, James R. Curran, and Laura Rimell.
+2010.Chart pruning for fast Lexicalised-Grammar parsing.In Proceedings of the 23rd International Conferenceon Computational Linguistics, pages 1472?1479, Bei-jing, China.449

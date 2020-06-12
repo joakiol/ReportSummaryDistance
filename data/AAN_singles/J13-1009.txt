@@ -1,0 +1,953 @@
+Parsing Models for IdentifyingMultiword ExpressionsSpence Green?Stanford UniversityMarie-Catherine de Marneffe?
+?Stanford UniversityChristopher D. Manning?Stanford UniversityMultiword expressions lie at the syntax/semantics interface and have motivated alternativetheories of syntax like Construction Grammar.
+Until now, however, syntactic analysis andmultiword expression identification have been modeled separately in natural language process-ing.
+We develop two structured prediction models for joint parsing and multiword expressionidentification.
+The first is based on context-free grammars and the second uses tree substitutiongrammars, a formalism that can store larger syntactic fragments.
+Our experiments show thatboth models can identify multiword expressions with much higher accuracy than a state-of-the-art system based on word co-occurrence statistics.We experiment with Arabic and French, which both have pervasive multiword expres-sions.
+Relative to English, they also have richer morphology, which induces lexical sparsityin finite corpora.
+To combat this sparsity, we develop a simple factored lexical representationfor the context-free parsing model.
+Morphological analyses are automatically transformed intorich feature tags that are scored jointly with lexical items.
+This technique, which we calla factored lexicon, improves both standard parsing and multiword expression identificationaccuracy.1.
+IntroductionMultiword expressions are groups of words which, taken together, can have un-predictable semantics.
+For example, the expression part of speech refers not to someaspect of speaking, but to the syntactic category of a word.
+If the expression isaltered in some ways?part of speeches, part of speaking, type of speech?then theidiomatic meaning is lost.
+Other modifications, however, are permitted, as in the pluralparts of speech.
+These characteristics make multiword expressions (MWEs) difficult toidentify and classify.
+But if they can be identified, then the incorporation of MWEknowledge has been shown to improve task accuracy for a range of NLP applications?
+Department of Computer Science.
+E-mail: spenceg@stanford.edu.??
+Department of Linguistics.
+E-mail: mcdm@stanford.edu.?
+Departments of Computer Science and Linguistics.
+E-mail: manning@stanford.edu.Submission received: October 1, 2011; revised submission received: June 9, 2012; accepted for publication:August 3, 2012.No rights reserved.
+This work was authored as part of the Contributor?s official duties as an Employee ofthe United States Government and is therefore a work of the United States Government.
+In accordance with17 U.S.C.
+105, no copyright protection is available for such works under U.S. law.Computational Linguistics Volume 39, Number 1including dependency parsing (Nivre and Nilsson 2004), supertagging (Blunsom andBaldwin 2006), sentence generation (Hogan et al2007), machine translation (Carpuatand Diab 2010), and shallow parsing (Korkontzelos and Manandhar 2010).The standard approach to MWE identification is n-gram classification.
+This tech-nique is simple.
+Given a corpus, all n-grams are extracted, filtered using heuristics,and assigned feature vectors.
+Each coordinate in the feature vector is a real-valuedquantity such as log likelihood or pointwise mutual information.
+A binary classifieris then trained to render a MWE/non-MWE decision.
+All entries into the 2008 MWEShared Task (Evert 2008) utilized variants of this technique.Broadly speaking, n-gram classification methods measure word co-occurrence.
+Sup-pose that a corpus contains more occurrences of part of speech than parts of speech.
+Surfacestatistics may erroneously predict that only the former is an MWE and the latter is not.More worrisome is that the statistics for the two n-grams are separate, thus missing anobvious generalization.In this article, we show that statistical parsing models generalize more effectivelyover arbitrary-length multiword expressions.
+This approach has not been previouslydemonstrated.
+To show its effectiveness, we build two parsing models for MWE iden-tification.
+The first model is based on a context-free grammar (CFG) with manualrule refinements (Klein and Manning 2003).
+This parser also includes a novel lexicalmodel?the factored lexicon?that incorporates morphological features.
+The secondmodel is based on tree substitution grammar (TSG), a formalism with greater stronggenerative capacity that can store larger structural tree fragments, some of which arelexicalized.We apply the models to Modern Standard Arabic (henceforth MSA, or simply?Arabic?)
+and French, two morphologically rich languages (MRLs).
+The lexical sparsity(in finite corpora) induced by rich morphology poses a particular challenge for n-gramclassification.
+Relative to English, French has a richer array of morphological features?such as grammatical gender and verbal conjugation for aspect and voice.
+Arabic alsohas richer morphology including gender and dual number.
+It has pervasive verb-initial matrix clauses, although preposed subjects are also possible.
+For languages likethese it is well known that constituency parsing models designed for English often donot generalize well.
+Therefore, we focus on the interplay among language, annotationchoices, and parsing model design for each language (Levy and Manning 2003; K?bler2005, inter alia), although our methods are ultimately very general.Our modeling strategy for MWEs is simple: We mark them with flat bracketingsin phrase structure trees.
+This representation implicitly assumes a locality constrainton idioms, an assumption with a precedent in linguistics (Marantz 1997, inter alia).Of course, it is easy to find non-local idioms that do not correspond to surface con-stituents or even contiguous strings (O?Grady 1998).
+Utterances such as All hell seemedto break loose and The cat got Mary?s tongue are clearly idiomatic, yet the idiomaticelements are discontiguous.
+Our models cannot identify these MWEs, but then again,neither can n-gram classification.
+Nonetheless, many common MWE types like nominalcompounds are contiguous and often correspond to constituent boundaries.Consider again the phrasal compound part of speech,1 which is non-compositional:The idiomatic meaning ?syntactic category?
+does not derive from any of the component1 It is common to hyphenate some nominal compounds, e.g., part-of-speech.
+This practice invites awords-with-spaces treatment of idioms.
+However, hyphens are inconsistently used in English.Hyphenation is more common in French, but totally absent in Arabic.196Green, de Marneffe, and Manning Parsing Models for Identifying Multiword Expressionswords.
+This non-compositionality affects the syntactic environment of the compound asshown by the addition of an attributive adjective:(1) a. Noun is a part of speech.b.
+*Noun is a big part of speech.c.
+*Noun is a big part.
+(2) a.
+Liquidity is a part of growth.b.
+Liquidity is a big part of growth.c.
+Liquidity is a big part.In Example (1a) the copula predicate part of speech as a whole describes Noun.
+InExamples (1b) and (1c) big clearly modifies only part and the idiomatic meaning islost.
+The attributive adjective cannot probe arbitrarily into the non-compositional com-pound.
+In contrast, Example (2) contains parallel data without idiomatic semantics.The conventional syntactic analysis of Example (2a) is identical to that of Example (1a)except for the lexical items, yet part of growth is not idiomatic.
+Consequently, many pre-modifiers are appropriate for part, which is semantically vacuous.
+In Example (2b), bigclearly modifies part, and of growth is just an optional PP complement, as shown byExample (2c), which is still grammatical.This article proposes different phrase structures for examples such as (1a) and(2a).
+Figure 1a shows a Penn Treebank (PTB) (Marcus, Marcinkiewicz, and Santorini1993) parse of Example (1a), and Figure 1b shows the parse of a paraphrase.
+Thephrasal compound part of speech functions syntactically like a single-word nominallike category, and indeed Noun is a big category is grammatical.
+Single-word para-phrasability is a common, though not mandatory, characteristic of MWEs (Baldwinand Kim 2010).
+Starting from the paraphrase parse, we create a representation likeFigure (1c).
+The MWE is indicated by a label in the predicted structure, which isflat.
+This representation explicitly models the idiomatic semantics of the compoundand is context-free, so we can build efficient parsers for it.
+Crucially, MWE identifi-cation becomes a by-product of parsing as we can trivially extract MWE spans fromfull parses.We convert existing Arabic and French syntactic treebanks to the new MWErepresentation.
+With this representation, the TSG model yields the best MWE iden-tification results for Arabic (81.9% F1) and competitive results for French (71.3%),even though its parsing results lag state-of-the-art probabilistic CFG (PCFG)-basedparsers.
+The TSG model also learns human-interpretable MWE rules.
+The fac-tored lexicon model with gold morphological annotations achieves the best MWEresults for French (87.3% F1) and competitive results for Arabic (78.2% F1).
+For bothlanguages the factored lexicon model also approaches state-of-the-art basic parsingaccuracy.The remainder of this article begins with linguistic background on common MWEtypes in Arabic and French (Section 2).
+We then describe two constituency parsingmodels that are tuned for MWE identification (Sections 3 and 4).
+These models aresupervised and can be trained on existing linguistic resources (Section 5).
+We evaluatethe models for both basic parsing and MWE identification (Section 6).
+Finally, wecompare our results with a state-of-the-art n-gram classification system (Section 7) andto prior work (Section 8).197Computational Linguistics Volume 39, Number 12.
+Multiword Expressions in Arabic and FrenchIn this section we provide a general definition and taxonomy of MWEs.
+Then we discusstypes of MWEs in Arabic and French.2.1 Definition of Multiword ExpressionsMWEs, a known nuisance for both linguistics and NLP, blur the lines between syntaxand semantics.
+Jackendoff (1997, page 156) comments that MWEs ?are hardly a marginalpart of our use of language,?
+and estimates that a native speaker knows at least as manyMWEs as single words.
+A linguistically adequate representation for MWEs remains anactive area of research, however.
+Baldwin and Kim (2010) define MWEs as follows:Definition 1Multiword expressions are lexical items that: (a) can be decomposed into multi-ple lexemes; and (b) display lexical, syntactic, semantic, pragmatic, and/or statisticalidiomaticity.SNPNNNounVPVBZisNPDTaNNpartPPINofNPNNspeechSNPNNNounVPVBZisNPDTaNNcategory(a) Standard analysis of Example (1a) (b) Standard analysis of a paraphraseSNPNNNounVPVBZisNPDTaMWNNNpartINofNNspeech(c) MWE analysis used in this articleFigure 1(a) A standard PTB parse of Example (1a).
+(b) The MWE part of speech functions syntacticallylike the ordinary nominal category, as shown by this paraphrase.
+(c) We incorporate thepresence of the MWE into the syntactic analysis by flattening the tree dominating part of speechand introducing a new non-terminal label multiword noun (MWN) for the resulting span.
+Thenew representation classifies an MWE according to a global syntactic type and assigns a POSto each of the internal tokens.
+It makes no commitment to the internal syntactic structure ofthe MWE, however.198Green, de Marneffe, and Manning Parsing Models for Identifying Multiword ExpressionsTable 1Semi-fixed MWEs in French and English.
+The French adverb ?
+terme (?in the end?)
+can bemodified by a small set of adjectives, and in turn some of these adjectives can be modifiedby an adverb such as tr?s (?very?).
+Similar restrictions appear in English.French English?
+terme in the near term?
+court terme in the short term?
+tr?s court terme in the very short term?
+moyen terme in the medium term?
+long terme in the long term?
+tr?s long terme in the very long termMWEs fall into four broad categories (Sag et al2002):1.
+Fixed?do not allow morphosyntactic variation or internal modification (in short,by and large).2.
+Semi-fixed?can be inflected or undergo internal modification (Table 1).3.
+Syntactically flexible?undergo syntactic variation such as inflection (e.g.,phrasal verbs such as look up and write down).4.
+Institutionalized phrases?fully compositional phrases that are statisticallyidiosyncratic (traffic light, Secretary of State).Statistical parsers are well-suited for coping with lexical, syntactic, and statisticalidiomaticity across all four MWE classes.
+However, to our knowledge, we are the firstto explicitly tune parsers for MWE identification.2.2 Arabic MWEsThe most recent and most relevant work on Arabic MWEs was by Ashraf (2012), whoanalyzed an 83-million-word Arabic corpus.
+He developed an empirical taxonomy ofsix MWE types, which correspond to syntactic classes.
+The syntactic class is definedby the projection of the purported syntactic head of the MWE.
+MWEs are furthersubcategorized by observed POS sequences.
+For some of these classes, the syntacticdistinctions are debatable.
+For example, in the verb-object idiom  Daraba cSfuurayn bi-Hajar (?he killed two birds with one stone?
+)2 the composition of (?two birds?)
+with  (?stone?)
+is at least as important as composition with theverb  (?he killed?
+), yet Ashraf (2012) classifies the phrase as a verbal idiom.The corpus in our experiments only marks three of the six Arabic MWE classes:Nominal idioms (MWN) consist of proper nouns (Example 3a), noun compounds(Example 3b), and construct NPs (Example 3c).
+MWNs typically correspond to NPbracketings:(3) a. N N:  abuu Dabii (?Abu Dhabi?
+)2 For each Arabic example in this work, we provide native script, transliterations in italics according to thephonetic scheme in Ryding (2005), and English translations in single quotes.199Computational Linguistics Volume 39, Number 1b.
+D+N D+N:    al-cnaaya al-faaOqa (?intensive care unit?)c.
+N D+N:  ! "# kura al-qudum (?soccer?
+)Prepositional idioms (MWP) include PPs that are commonly used as discourse con-nectives (Example 4a), function like adverbials in English (Example 4b), or havebeen institutionalized (Example 4c).
+These MWEs are distinguished by a prepositionalsyntactic head:(4) a. P D+N: $%&  Hataa al-aan (?until now?)b.
+P+N: 'bi-cnf (?violently?)c.
+P+D+N D+N:()*+,bi-al-twqiit al-maHalii (?local time?
+)Adjectival idioms (MWA) are typically the so-called ?false?
+iDaafa constructs in whichthe first term is an adjective that acts as a modifier of some other noun.
+These constructsoften correspond to a hyphenated modifier in English such as Examples (5a) and(5b).
+Less frequent are coordinated adjectives that have been institutionalized such asExamples (5c) and (5d):(5) a.
+A D+N: -.
+)*  , rafiica al-mustuuaa (?high-level?)b.
+A D+N: / ,0 swfiiaatiia al-Sanac (?Soviet-made?)c.
+D+A C+D+A: !12.
+ al-shaqiiqa w-al-Sadiiqa (?neighborly?)d.
+D+A C+D+A: 13 al-bariia w-al-baHariia (?land and sea?
+)These idiom types usually do not cross constituent boundaries, so constituency parsersare well suited for modeling them.
+The other three classes of Ashraf (2012)?verb-subject, verbal, and adverbial?tend to cross constituent boundaries, so they are dif-ficult to represent in a PTB-style treebank.
+Dependency representations may be moreappropriate for these idiom classes.2.3 French MWEsIn French, there is a lexicographic tradition of compiling MWE lists.
+For example, Gross(1986) shows that whereas French dictionaries contain about 1,500 single-word adverbsthere are over 5,000 multiword adverbs.
+MWEs occur in every part of speech (POS)category (e.g., noun trousse de secours (?first-aid kit?
+); verb faire main-basse [do hand-low](?seize?
+); adverb comme dans du beurre [as in butter] (?easily?
+); adjective ?
+part enti?re(?wholly?
+)).Motivated by the prevalence of MWEs in French, Gross (1984) developed alinguistic theory known as Lexicon-Grammar.
+In this theory, MWEs are classifiedaccording to their global POS tags (noun, verb, adverb, adjective), and described interms of the sequence of the POS tags of the words that constitute the MWE (e.g., ?Nde N?
+garde d?enfant [guard of child] (?daycare?
+), pied de guerre [foot of war] (?at theready?))
+(Gross 1986).
+In other words, MWEs are represented by a flat structure.
+TheLexicon-Grammar distinguishes between units that are fixed and have to appear as is(en tout et pour tout [in all and for all] (?in total?))
+and units that accept some syntacticvariation such as admitting the insertion of an adverb or adjective, or the variation of200Green, de Marneffe, and Manning Parsing Models for Identifying Multiword Expressionsone of the words in the expression (e.g., a possessive as in from the top of one?s hat).
+Italso notes whether the MWE displays some selectional preferences (e.g., it has to bepreceded by a verb or by an adjective).We discuss three of the French MWE categories here, and list the rest in Appendix A.Nominal idioms (MWN) consist of proper nouns (Example (6a)), foreign commonnouns (6b), and common nouns.
+The common nouns appear in several syntacti-cally regular sequences of POS tags (Example (7)).
+Multiword nouns allow inflection(singular vs. plural) but no insertion:(6) a. London Sunday Times, Los Angelesb.
+week - end, mea culpa, joint - venture(7) a. N A: corps m?dical (?medical staff?
+), dette publique (?public debt?)b.
+N P N: mode d?emploi (?instruction manual?)c.
+N N: num?ro deux (?number two?
+), maison m?re [house mother] (?headquar-ters?
+), gr?ve surprise (?sudden strike?)d.
+N P D N: imp?t sur le revenu (?income tax?
+), ministre de l?
+?conomie (?financeminister?
+)Adjectival idioms (MWA) appear with different POS sequences (Example (8)).
+Theyinclude numbers like vingt et uni?me (?21st?).
+Some MWAs allow internal variation.
+Forexample, some adverbs or adjectives can be added to both examples in (8b) (?
+tr?s hautrisque, de toute derni?re minute):(8) a. P N: d?antan [from before] (?old?
+), en question (?under discussion?)b.
+P A N: ?
+haut risque (?high-risk?
+), de derni?re minute [from the last minute](?at the eleventh hour?)c.
+A C A: pur et simple [pure and simple] (?straightforward?
+), noir et blanc (?blackand white?
+)Verbal idioms (MWV) allow number and tense inflections (Example (9)).
+Some MWVscontaining a noun or an adjective allow the insertion of a modifier (e.g., donner grandesatisfication (?give great satisfaction?
+)), whereas others do not.
+When an adverb inter-venes between the main verb and its complement, the two parts of the MWV maybe marked discontinuously (e.g., [MWV [V prennent]] [ADV d?j?]
+[MWV [P en] [N cause]](?already take into account?
+)):(9) a. V N: avoir lieu (?take place?
+), donner satisfaction (?give satisfaction?)b.
+V P N: mettre en place (?put in place?
+), entrer en vigueur (?to come into effect?)c.
+V P ADV: mettre ?
+mal [put at bad] (?harm?
+), ?tre ?
+m?me [be at same] (?beable?)d.
+V D N P N: tirer la sonnette d?alarme (?ring the alarm bell?
+), avoir le vent enpoupe (?to have the wind astern?
+)Both Gross (1986) and Ashraf (2012) classify MWEs according to global syntactic roleand internal POS sequence.
+In a constituency tree, these two features can be modeled201Computational Linguistics Volume 39, Number 1Table 2French grammar development.
+Incremental effects on grammar size and labeled F1 for each ofthe manual grammar features (development set, sentences ?
+40 words).
+The baseline is aparent-annotated grammar.
+The features tradeoff between maximizing two objectives: overallparsing F1 and MWE F1.Feature States Tags Parse F1 ?F1 MWE F1?
+4,128 32 77.3 60.7tagPA 4,360 264 78.4 +1.1 71.4splitPUNC 4,762 268 78.8 +0.4 71.1markDe 4,882 284 79.8 +1.0 71.6markP 4,884 286 79.9 +0.1 71.5MWADVtype1 4,919 286 79.9 +0.0 71.8MWADVtype2 4,970 286 79.9 +0.0 71.7MWNtype1 5,042 286 80.0 +0.1 71.9MWNtype2 5,098 286 79.9 ?0.1 71.9by a span over the MWE composed of a phrasal label indicating the MWE type andpre-terminal labels indicating the internal POS sequence.
+MWE identification thenbecomes a trivial process of extracting such subtrees from full parses.3.
+Context-Free Parsing Model: Stanford ParserIn this section and Section 4, we describe constituency parsing models that will betuned for MWE identification.
+The algorithmic details of the parsing models may seemremoved from multiword expressions, but this is by design.
+MWEs are encoded inthe syntactic representation, allowing the model designer to focus on learning thatrepresentation rather than trying to model semantic phenomena directly.The Stanford parser (Klein and Manning 2003) is a product model that combines theoutputs of a manually refined PCFG with an arc-factored dependency parser.
+Adaptingthe Stanford parser to a new language requires: (1) feature engineering for the PCFGgrammar, (2) specification of head-finding rules for extracting dependencies, and (3)development of an unknown word model.3After adapting the basic parser, we develop a novel lexical model, which we call afactored lexicon.
+The factored lexicon incorporates morphological information that ispredicted by a separate morphological analyzer.3.1 Grammar DevelopmentGrammar features consist of manual splits of labels in the training data (e.g., markingbase NPs with the rich label ?NP-base?).
+These features were tuned on a developmentset.
+Some of them have linguistic interpretations, whereas others (e.g., punctuationsplitting) have only empirical justification.French Grammar Features.
+Table 2 lists the category splits used in our grammar.
+Mostof the features are POS splits as many phrasal tag splits did not improve accuracy.
+Thisresult may be due to the flat annotation scheme of the FTB.3 The Stanford parser code, head-finding rules, and trained models are available athttp://nlp.stanford.edu/software/lex-parser.shtml.202Green, de Marneffe, and Manning Parsing Models for Identifying Multiword ExpressionsParent annotation of POS tags captures information about the external context.
+Forexample, prepositions (P) can introduce a prepositional phrase (PP) or an infinitivalcomplement (VPinf), but some prepositions will uniquely appear in one context andnot the other (e.g., sur (?on?)
+will only occur in a PP environment).
+The tagPA providesthis kind of distribution.
+We also split punctuation tags (splitPUNC) into equivalenceclasses similar to those present in the PTB.We tried different features to mark the context of prepositions.
+markP identifiesprepositions which introduce PPs modifying a noun (NP).
+Marking other kinds ofprepositional modifiers (e.g., verb) did not help.
+The feature markDe the prepositionde and its variants (du, des, d?
+), which are very frequent and appear in many contexts.The features that help MWE F1 depend on idiom frequency.
+We mark MWADVsunder S nodes (MWADVtype1), and those with POS sequences that occur more than500 times (?P N?
+?
+en jeu, ?
+peine, or ?P D N?
+dans l?imm?diat, ?
+l?inverse) (MWADVtype2).Similarly, we mark MWNs that occur more than 600 times (e.g., ?N P N?
+and ?N N?
+)(MWNtype1 and MWNtype2).Arabic Grammar Features.
+The Arabic grammar features come from Green andManning (2010), which contains an ablation study similar to Table 2.
+We added oneadditional feature, markMWEPOS, which marks POS tags dominated by MWE phrasalcategories.3.2 Head-Finding RulesFor Arabic, we use the head-finding rules from Green and Manning (2010).
+For French,we use the head-finding rules of Dybro-Johansen (2004), which yielded an approxi-mately 1% development set improvement over those of Arun (2004).3.3 Unknown Word ModelsFor both languages, we create simple unknown word models that substitute wordsignatures for rare and unseen word types.
+The signatures are generated according tothe features in Table 3.
+For tag t and signature s, the signature parameters p(t|s) areestimated after collecting counts for 50% of the training data.
+Then p(s|t) is computedvia Bayes rule with a flat Dirichlet prior.Table 3Unknown word model features for Arabic and French.Arabic Lexical Features French Lexical Features Presence of the determiner 4 al  Nominal, adjectival, verbal, adverbial, andplural suffixes Contains digits or punctuation  Contains digits or punctuation Ends with the feminine affix " ah  Is capitalized (except the first word in asentence), or consists entirely of capitalletters Various verbal (e.g.,  t, 1 waa, $1 uun) andadjectival suffixes (e.g., iiah, -ii) If none of the above, deterministicallyextract one- and two-character suffixes203Computational Linguistics Volume 39, Number 13.4 Factored Lexicon with Morphological FeaturesWe will apply our models to Arabic and French, yet we have not dealt with the lexicalsparsity induced by rich morphology (see Table 5 for a comparison to English).
+Oneway to combat sparsity is to parse a factored representation of the terminals, wherefactors might be the word form, the lemma, or grammatical features such as gender,number, and person (?
+features) (Bilmes and Kirchoff 2003; Koehn and Hoang 2007,inter alia).The basic parser lexicon estimates the generative probability of a word given atag p(w|t) from word/tag pairs observed in the training set.
+Additionally, the lexiconincludes parameter estimates p(t|s) for unknown word signatures s produced by theunknown word models (see Section 3.3).
+At parsing time, the lexicon scores each inputword type w according to its observed count in the training set c(w).
+We define theunsmoothed and smoothed parameter estimates:p(t|w) = c(t, w)c(w)(1)psmooth(t|w) =c(t, w) + ?p(t|s)c(w) + ?
+(2)We then compute the desired parameter p(w|t) asp(w|t) =??????
+?p(t|w)p(w)p(t) if c(w) > ?psmooth(t|w)p(w)p(t) if c(w) > 0p(t|s)p(s)p(t) otherwise(3)We found that ?
+= 1.0 and ?
+= 100 worked well on both development sets.In the factored lexicon, each token has an associated morphological analysis m,which is a string describing various grammatical features (e.g., tense, voice, definite-ness).
+Instead of generating terminals alone, we generate the word and morphologicalanalysis using a simple product:p(w, m|t) = p(w|t)p(m|t) (4)where p(m|t) is estimated using exactly the same procedure as the lexical insertionprobability p(w|t).
+Because there are only a few hundred unique ?t, m?
+tuples in thetraining data for each language, we tend to get sharper parameter estimates, namely,we usually estimate p(t|m) directly as in Equation (1).
+Moreover, at test time, even ifthe word type w is unknown, the associated morphological analysis m is almost alwaysknown, providing additional evidence for tagging.We also experimented with an additional lemma factor, but found that it did notimprove accuracy.
+We thus excluded the lemma factor from our experiments.For words that have been observed with only one tagging, the factored lexicon isclearly redundant.
+Consider, however, the case of the Arabic triliteral 5, qtl which,in unvocalized text, can be either a verb meaning ?he killed?
+or a nominal meaning?murder, killing.?
+If 5, appears as a verb, and we include the tense feature in themorphological analysis, then all associated nominal tags (e.g., NN) will be assignedzero probability because nominals never carry tense in the training data.204Green, de Marneffe, and Manning Parsing Models for Identifying Multiword Expressions4.
+Fragment Parsing Model: Dirichlet Process Tree Substitution GrammarsFor our task, a shortcoming of CFG-based grammars is that they do not explicitlycapture idiomatic usage.
+For example, consider the two utterances:(10) a.
+He kicked the bucket.b.
+He kicked the pail.Unless horizontal markovization is applied, PCFGs generate words independently.Consequently, no phrasal rule parameter in the model differentiates between Exam-ples (10a) and (10b).
+Recall, however, that in our representation, Example (10a) shouldreceive a flat analysis as MWV, whereas Example (10b) should have a conventionalanalysis of the transitive verb kicked and its two arguments.TSGs are weakly equivalent to CFGs, but with greater strong generative capacity(Joshi and Schabes 1997).
+TSGs can store lexicalized tree fragments as rules.
+Conse-quently, if we have seen [MWV kicked the bucket] several times before, we can store thatwhole lexicalized fragment in the grammar.We consider the non-parametric probabilistic TSG (PTSG) model of Cohn,Goldwater, and Blunsom (2009) in which tree fragments are drawn from a Dirichletprocess (DP) prior.4 The DP-TSG can be viewed as a data-oriented parsing (DOP)model (Scha 1990; Bod 1992) with Bayesian parameter estimation.
+A PTSG is a 5-tuple?V,?, R,?,??
+where c ?
+V are non-terminals; t ?
+?
+are terminals; e ?
+R are elementarytrees;5 ?
+?
+V is a unique start symbol; and ?c,e ?
+?
+are parameters for each treefragment.
+A PTSG derivation is created by successively applying the substitutionoperator to the leftmost frontier node (denoted by c+).
+All other nodes are internal(denoted by c?
+).In the supervised setting, DP-TSG grammar extraction reduces to a segmentationproblem.
+We have a treebank T that we segment into the set R, a process that is modeledwith Bayes?
+rule:p(R |T) ?
+p(T |R) p(R) (5)Because the tree fragments completely specify each tree, p(T |R) is either 0 or 1, so allwork is performed by the prior over the set of elementary trees.The DP-TSG contains a DP prior for each c ?
+V and generates a tree fragment erooted at non-terminal c according to:?c|c,?c, P0(?|c) ?
+DP(?c, P0)e|?c ?
+?c4 Similar models were developed independently by O?Donnell, Tenenbaum, and Goodman (2009) and Postand Gildea (2009).5 We use the terms tree fragment and elementary tree interchangeably.205Computational Linguistics Volume 39, Number 1Table 4DP-TSG notation.
+For consistency, we largely follow the notation of Liang, Jordan, andKlein (2010).
+?c DP concentration parameter for each non-terminal type c ?
+VP0(e|c) CFG base distributionx Set of all non-terminal nodes in the treebankS Set of sampling sites (one for each x ?
+x)S A block of sampling sites, where S ?
+Sb = {bs}s?S Binary variables to be sampled (bs = 1 for frontier nodes)z Latent state of the segmented treebankm Number of sites s ?
+S s.t.
+bs = 1n = {nc,e} Sufficient statistics of z?nS:m Change in counts by setting m sites in STable 4 defines notation.
+The data likelihood is given by the latent state z and theparameters ?
+: p(z|?)
+=?z?z ?nc,e(z)c,e .
+Integrating out the parameters, we have:p(z) =?c?V?e(?cP0(e|c))nc,e(z)?nc,?
+(z)c(6)where xn = x(x + 1) .
+.
+.
+(x + n ?
+1) is the rising factorial.Base Distribution.
+The base distribution P0 is the same maximum likelihood PCFG usedin the Stanford parser.6 After applying the manual grammar features, we perform sim-ple right binarization, collapse unary rules, and replace rare words with their signatures(Petrov et al2006).For each non-terminal type c, we learn a stop probability qc ?
+Beta(1, 1).
+UnderP0, the probability of generating a tree fragment A+ ?
+B?
+C+ composed of non-terminals isP0(A+ ?
+B?
+C+) = pMLE(A ?
+BC)qB(1 ?
+qC) (7)Unlike Cohn, Goldwater, and Blunsom (2009), we penalize lexical insertion:P0(c ?
+t) = pMLE(c ?
+t)p(t) (8)where p(t) is equal to the MLE unigram probability of t in the treebank.
+Lexicalizing arule makes it very specific, so we generally want to avoid lexicalization with rare words.Empirically, we found that this penalty reduces overfitting.Type-Based Inference Algorithm.
+To learn the parameters ?
+we use the collapsed, blockGibbs sampler of Liang, Jordan, and Klein (2010).
+We sample binary variables bsassociated with each sampling site s in the treebank.
+The key idea is to select a block6 The Stanford parser is a product model which scores parses with both a dependency grammar and aPCFG.
+We extract the TSG from the manually split PCFG only.
+Bansal and Klein (2010) also experimentedwith manual grammar features in an all-fragments (parametric) TSG for English.206Green, de Marneffe, and Manning Parsing Models for Identifying Multiword ExpressionsNP+PUNC?
+(1)?N+JacquesN?ChiracPUNC+(2)?Figure 2Example of two conflicting sites of the same type in a training tree.
+Define the type of asite t(z, s) def= (?ns:0,?ns:1 ).
+Sites (1) and (2) have the same type because t(z, s1) = t(z, s2).
+The twosites conflict, however, because the probabilities of setting bs1 and bs2 both depend on counts forthe tree fragment rooted at NP.
+Consequently, sites (1) and (2) are not exchangeable: Theprobabilities of their assignments depend on the order in which they are sampled.of exchangeable sites S of the same type that do not conflict (Figure 2).
+Because thesites in S are exchangeable, we can set bS randomly if we know m, the number of siteswith bs = 1.
+This algorithm is not a contribution of this article, so we refer the interestedreader to Liang, Jordan, and Klein (2010) for further details.After each Gibbs iteration, we sample each stop probability qc directly usingbinomial-Beta conjugacy.
+We also infer the DP concentration parameters ?c with theauxiliary variable procedure of West (1995).Decoding.
+To decode, we first create a maximum a posterior (MAP) grammar in whichtree fragments have fixed estimates according to a single sample from the DP-TSG:?c,e =nc,e(z) + ?cP0(e|c)nc,(z) + ?c(9)This MAP grammar has an infinite rule set, however, because elementary trees withzero count in n have some residual probability under P0.
+We discard all zero-count treesexcept for the zero-count CFG rules in P0.
+Scores for these rules follow from Equation (9)with nc,e(z) = 0.
+This grammar represents most of the probability mass and permitsinference using dynamic programming (Cohn, Goldwater, and Blunsom 2009).Because the derivations of a TSG are context-free (Vijay-Shanker and Weir 1993),we can form a CFG of the derivation sequences and use a synchronous CFG to translatethe most probable CFG parse to its TSG derivation.
+Consider a unique tree fragmentei rooted at cj with frontier ?, which is a sequence of terminals and non-terminals.
+Weencode this fragment as an SCFG rule of the form[cj ?
+?
+, cj ?
+i, ck, cl, .
+.
+. ]
+(10)where ck, cl, .
+.
+.
+is a finite-length sequence of the non-terminal frontier nodes in ?.7 TheSCFG translates the input string to a sequence of tree fragment indices.
+Because theTSG substitution operator applies to the leftmost frontier node, the best TSG parse canbe deterministically recovered from the sequence of indices.7 This formulation is due to Chris Dyer.207Computational Linguistics Volume 39, Number 1Table 5Gross corpus statistics for the pre-processed corpora used to train and evaluate our models.
+Wecompare to the WSJ section of the PTB: train (Sections 02?21); dev.
+(Section 22); test (Section 23).Due to its flat annotation style, the FTB sentences have fewer constituents per sentence.
+In theATB, morphological variation accounts for the high proportion of word types to sentences.ATB FTB WSJTrain#sentences 18,818 13,448 39,832#tokens 597,933 397,917 950,028#word types 37,188 26,536 44,389#POS types 32 30 45#phrasal types 31 24 27avg.
+length 31.8 29.6 23.9Dev.#sentences 2,318 1,235 1,700#tokens 70,656 38,298 40,117#word types 12,358 6,794 6,840avg.
+length 30.5 31.0 23.6OOV rate 15.6% 17.8% 12.8%Test #sentences 2,313 1,235 2,416#tokens 70,065 37,961 56,684The SCFG formulation has a practical benefit: We can take advantage of the heavilyoptimized SCFG decoders for machine translation.
+We use cdec (Dyer et al2010) to findthe Viterbi derivation for each input string.5.
+Training Data and Morphological AnalyzersWe have described two supervised parsing models for Arabic and French.
+Now weshow how to construct MWE-aware training resources for them.The corpora used in our experiments are the Penn Arabic Treebank (ATB)(Maamouri et al2004) and the French Treebank (FTB) (Abeill?, Cl?ment, and Kinyon2003).
+Prior to parsing, both treebanks require significant pre-processing, whichwe perform automatically.8 Because parsing evaluation metrics are sensitive to theterminal/non-terminal ratio (Rehbein and van Genabith 2007), we only remove non-terminal labels in the case of unary rewrites of the same category (e.g., NP ?
+NP)(Johnson 1998).
+Table 5 compares the pre-processed corpora with the WSJ section ofthe PTB.
+Appendix C compares the annotation consistency of the ATB, FTB, and WSJ.5.1 Arabic TreebankWe work with parts 1?3 (newswire) of the ATB,9 which contain documents from threedifferent news agencies.
+In addition to phrase structure markers, each syntactic tree alsocontains per-token morphological analyses.8 Tree manipulation is automated with Tregex/Tsurgeon (Levy and Andrew 2006).
+Our pre-processingpackage is available at http://nlp.stanford.edu/software/lex-parser.shtml.9 LDC catalog numbers: LDC2008E61, LDC2008E62, and LDC2008E22.208Green, de Marneffe, and Manning Parsing Models for Identifying Multiword ExpressionsTable 6Frequency distribution of the MWE types in the ATB and FTB training sets.Categories ATB FTBMWN noun 6,975 91.6% 9,680 49.7%MWP prep.
+623 8.18% 3,526 18.1%MWA adj.
+18 0.24% 324 1.66%MWPRO pron.
+?
+?
+266 1.37%MWC conj.
+?
+?
+814 4.18%MWADV adverb ?
+?
+3,852 19.8%MWV verb ?
+?
+585 3.01%MWD det.
+?
+?
+328 1.69%MWCL clitic ?
+?
+59 0.30%MWET foreign ?
+?
+24 0.12%MWI interj.
+?
+?
+4 0.02%Total 7,616 19,462Tokenization/Segmentation.
+We retained the default ATB clitic segmentation scheme.Morphological Analysis.
+The ATB contains gold per-token morphological analyses, butno lemmas.Tag Sets.
+We used the POS tag set described by Kulick, Gabbard, and Marcus (2006).
+Wepreviously showed that the ?Kulick?
+tag set is very effective for basic Arabic parsing(Green and Manning 2010).MWE Tagging.
+The ATB does not mark MWEs.
+Therefore, we merged an existing ArabicMWE list (Attia et al2010b) with the constituency trees.10 For each string from the MWElist that was bracketed in the treebank, we flattened the structure over the MWE spanand added a non-terminal label according to the MWE type (Table 6).
+We ignored MWEstrings that crossed constituent boundaries.Orthographic Normalization.
+Orthographic normalization has a significant impact onparsing accuracy.
+We remove all diacritics, instances of taTwiil,11 and pro-drop markers.We also applied alif normalization12 and mapped punctuation and numbers to theirLatin equivalents.Corpus Split.
+We divided the ATB into training/development/test sections accordingto the split prepared by Mona Diab for the 2005 Johns Hopkins workshop on parsingArabic dialects (Rambow et al2005).1310 The list of 30,277 distinct MWEs is available at: http://sourceforge.net/projects/arabicmwes/.11 taTwiil (6) is an elongation character for justifying text.
+It has no morphosyntactic function or phoneticrealization.12 Variants of alif [ ,, ,%] are inconsistent in Arabic text.13 The corpus split is available at: http://nlp.stanford.edu/projects/arabic.shtml.209Computational Linguistics Volume 39, Number 15.2 French TreebankThe FTB14 contains phrase structure trees with morphological analyses and lemmas.
+Inaddition, the FTB explicitly annotates MWEs.
+POS tags for MWEs are given not onlyat the MWE level, but also internally: Most tokens that constitute an MWE also havea POS tag.
+Our FTB pre-processing is largely consistent with Lexicon-Grammar, whichdefines MWE categories based on the global POS.Tokenization/Segmentation.
+We changed the default tokenization for numbers by fusingadjacent digit tokens.
+For example, 500 000 is tagged as an MWE composed of twowords 500 and 000.
+We made this 500000 and removed the MWE POS.
+We also mergednumbers like ?17,9?.Morphological Analysis.
+The FTB provides both gold morphological analyses and lemmasfor 86.6% of the tokens.
+The remaining tokens lack morphological analyses, and in manycases basic parts of speech.
+We restored the basic parts of speech by assigning each tokenits most frequent POS tag elsewhere in the treebank.15 This technique was too coarse formissing morphological analyses, which we left empty.Tag Sets.
+We transformed the raw POS tags to the CC tag set (Crabb?
+and Candito2008), which is now the standard tag set in the French parsing literature.
+The CC tagset includes WH markers and verbal mood information.MWE Tagging.
+We added the 11 MWE labels shown in Table 6.
+We mark MWEs witha flat bracketing in which the phrasal label is the MWE-level POS tag with an MWprefix, and the preterminals are the internal POS tags for each terminal.
+The resultingPOS sequences are not always unique to MWEs: They appear in abundance elsewherein the corpus.
+Some MWEs contain normally ungrammatical POS sequences, however(e.g., adverb ?
+la va vite (?in a hurry?
+): P D V ADV [at the goes quick]), and some wordsappear only as part of an MWE, such as insu in ?
+l?insu de (?to the ignorance of?).
+We alsofound that 36 MWE spans still lacked a global POS.
+To restore these labels, we assignedthe most frequent label for that internal POS sequence elsewhere in the corpus.Corpus Split.
+We used the 80/10/10 split described by Crabb?
+and Candito (2008).
+Theyused a previous release of the treebank with 12,531 trees.
+Subsequently, 3,391 trees wereadded to the FTB.
+We appended these extra trees to the training set, thus preserving theoriginal development and test sets.5.3 Morphological Analysis for Arabic and FrenchThe factored lexicon requires predicted per-token morphological analyses at test time.We used separately trained, language-specific tools to obtain these analyses (Table 7).14 Version from June 2010.
+We used the subset of the FTB with functional annotations, not for thoseannotations but because this subset is known to be more consistently annotated.
+Appendix B comparesour pre-processed version of the FTB to other versions in prior work.15 Seventy-three of the unlabeled word types did not appear elsewhere in the treebank.
+All but 11 of thesewere nouns.
+We manually assigned the correct tags, but we would not expect a negative effect bydeterministically labeling all of them as nouns.210Green, de Marneffe, and Manning Parsing Models for Identifying Multiword ExpressionsTable 7Linguistic resources required by the factored lexicon.
+Equivalent resources for Arabic and Frenchdo not presently exist.
+The ATB lacks gold lemmas and a French morphological rankerequivalent to MADA?which can produce the full set of morphosyntactic features specified inthe ATB?has not been developed.
+Morfette is effectively a discriminative classifier that treatsanalyses as atomic labels, whereas MADA utilizes a morphological generator.Arabic (ATB) French (FTB)Gold Morphological Features Gender, Number, Tense,Person, Mood, Voice,DefinitenessGender, Number, Tense,PersonGold Lemmas ?
+Morphological Analyzer  (SAMA) ?Morphological Ranker  (MADA)  (Morfette)Lemmatizer  (MADA)  (Morfette)Arabic.
+The morphological analyses in the ATB are human-selected outputs of theStandard Arabic Morphological Analyzer (SAMA),16 a deterministic system that relieson manually compiled linguistic dictionaries.
+The latest version of SAMA has completelexical coverage of the ATB, thus it does not encounter unseen word types at test time.To rank the output of SAMA, we use MADA (Habash and Rambow 2005),17 whichmakes predictions based on an ensemble of support vector machine (SVM) classifiers.French.
+The FTB includes morphological analyses for gender, number, person, tense,type of pronouns (relative, reflexive, interrogative), type of adverbs (relative or inter-rogative), and type of nouns (proper vs. common noun).
+Morfette (Chrupala, Dinu,and van Genabith 2008) has been used in previous FTB parsing experiments (Canditoand Seddah 2010; Seddah et al2010) to predict these features in addition to lemmas.Morfette is a discriminative sequence classifier that relies on lexical and greedy left con-text features.
+Because Morfette lacks a morphological generator like SAMA, however, itis effectively a tagger that must predict a very large tag set.
+We trained Morfette on oursplit of the FTB and evaluated accuracy on the development set: 88.3% (full morpho-logical tagging); 95.0% (lemmatization); and 86.5% (full tagging and lemmatization).186.
+ExperimentsFor each language, we ran two experiments: standard parsing and MWE identifica-tion.
+The evaluation included the Stanford, Stanford+factored lexicon, and DP-TSGmodels.All experiments used gold tokenization/segmentation.
+Unlike the ATB, the FTBdoes not contain the raw source documents, so we could not start from raw text for both16 LDC catalog number LDC2010L01.17 We used version 3.1.
+According to the user manual, the training set for the distributed models overlapswith our ATB development and test sets.
+Training scripts/procedures are not distributed with MADA,however.18 Morfette training settings: 10 tag and 3 lemma training iterations.
+We excluded punctuation tokens fromthe morphological tagging evaluation because our parsers split punctuation deterministically.211Computational Linguistics Volume 39, Number 1languages.
+We previously showed that segmentation errors decrease Arabic parsingaccuracy by about 2.0% F1 (Green and Manning 2010).Morphological analysis accuracy was another experimental resource asymmetrybetween the two languages.
+The morphological analyses were obtained with signifi-cantly different tools: in Arabic, we had a morphological generator/ranker (MADA),whereas for French we had only a discriminative classifier (Morfette).
+Consequently,French analysis quality was lower (Section 5.3).6.1 Standard Parsing ExperimentsBaselines.
+We included two parsing baselines: a parent-annotated PCFG (PAPCFG) anda PCFG with the grammar features in the Stanford parser (SplitPCFG).
+The PAPCFG isthe standard baseline for TSG models (Cohn, Goldwater, and Blunsom 2009).Berkeley Parser.
+We previously showed optimal Berkeley parser (Petrov et al2006) pa-rameterizations for both the Arabic (Green and Manning 2010) and French (Green et al2011) data sets.19 For Arabic, our pre-processing and parameter settings significantlyincreased the best-published Berkeley ATB baseline.
+Others had used the Berkeleyparser for French, but on an older revision of the FTB.
+To our knowledge, we are thefirst to use the Berkeley parser for MWE identification.Factored Lexicon Features.
+We selected features for the factored lexicon on the develop-ment sets.
+For Arabic, we used gender, number, tense, mood, and definiteness.
+ForFrench, we used the grammatical and syntactic features in the CC tag set in additionto grammatical number.
+For the experiments in which we evaluated with predictedmorphological analyses, we also trained the parser on predicted analyses.Evaluation Metrics.
+We report three evaluation metrics.
+Evalb is the standard labeledprecision/recall metric.20 Leaf Ancestor measures the cost of transforming guess treesto the reference (Sampson and Babarczy 2003), and is less biased against flat tree-banks like the FTB (Rehbein and van Genabith 2007).
+The Leaf Ancestor score rangesfrom 0 to 1 (higher is better).
+We report micro-averaged (Corpus) and macro-averaged(Sent.)
+scores.
+Finally, EX% is the percentage of perfectly parsed sentences accordingto Evalb.Sentence Lengths.
+We report results for sentences of lengths ?
+40 words.
+This cutoffaccounts for similar proportions of the ATB and FTB.
+The DP-TSG grammar extractorproduces very large grammars for Arabic,21 and we found that the grammar constantwas too large for parsing all sentences.
+For example, the ATB development set containsa sentence that is 268 tokens long.19 Berkeley training settings: right binarization, no parent annotation, and six split-merge cycles.
+Results arethe average of three runs in which the random number generator was seeded with the system time.20 Available at http://nlp.cs.nyu.edu/evalb/ (v.20080701).
+We used a Java re-implementation includedin the Stanford parser distribution that is compatible with the reference implementation.21 Average DP-TSG grammar sizes: Arabic, 89,003 rules; French, 46,515 rules.212Green, de Marneffe, and Manning Parsing Models for Identifying Multiword ExpressionsTable 8Arabic standard parsing experiments (test set, sentences ?
+40 words).
+SplitPCFG is the samegrammar used in the Stanford parser, but without the dependency model.
+FactLex uses basicPOS tags predicted by the parser and morphological analyses from MADA.
+FactLex* uses goldmorphological analyses.
+Berkeley and DP-TSG results are the average of three independent runs.Arabic Leaf Ancestor EvalbSent.
+Corpus LP LR F1 EX%PAPCFG 0.777 0.745 69.5 64.6 66.9 12.9SplitPCFG 0.821 0.797 75.6 73.4 74.5 17.8Berkeley 0.865 0.853 83.3 82.7 83.0 24.0DP-TSG 0.822 0.800 75.5 75.4 75.4 17.7Stanford 0.851 0.835 81.3 80.7 81.0 23.5Stanford+FactLex 0.849 0.835 81.2 80.8 81.0 22.8Stanford+FactLex* 0.852 0.837 81.8 81.3 81.5 24.0Results.
+Tables 8 and 9 show Arabic and French parsing results, respectively.
+For bothlanguages, the Berkeley parser produces the best results in terms of Evalb F1.
+The goldfactored lexicon setting compares favorably in terms of exact match.6.2 MWE Identification ExperimentsThe predominant approach to MWE identification is the combination of lexical associa-tion measures (surface statistics) with a binary classifier (Pecina 2010).
+A state-of-the-art,language-independent package that implements this approach for higher order n-gramsis mwetoolkit (Ramisch, Villavicencio, and Boitet 2010).mwetoolkit Baseline.
+We configured mwetoolkit with the four standard lexical features:the maximum likelihood estimator, Dice?s coefficient, pointwise mutual information,and Student?s t-score.
+We also included POS tags predicted by the Stanford tagger(Toutanova et al2003).
+We filtered the training instances by removing unigrams andTable 9French standard parsing experiments (test set, sentences ?
+40 words).
+FactLex uses basic POStags predicted by the parser and morphological analyses from Morfette.
+FactLex* uses goldmorphological analyses.French Leaf Ancestor EvalbSent.
+Corpus LP LR F1 EX%PAPCFG 0.857 0.840 73.5 72.8 73.1 14.5SplitPCFG 0.870 0.853 77.9 77.1 77.5 16.0Berkeley 0.905 0.894 83.9 83.4 83.6 24.0DP-TSG 0.858 0.841 77.1 76.8 76.9 16.0Stanford 0.869 0.853 78.5 79.6 79.0 17.6Stanford+FactLex 0.877 0.860 79.0 79.6 79.3 19.6Stanford+FactLex* 0.890 0.874 82.8 84.0 83.4 27.4213Computational Linguistics Volume 39, Number 1Table 10Arabic MWE identification per category and overall results (test set, sentences ?
+40 words).#gold PAPCFG SplitPCFG Berkeley DP-TSG Stanford FactLex FactLex*MWA 1 0.0 0.0 0.0 0.0 0.0 0.0 0.0MWP 34 36.9 76.9 81.2 91.8 88.2 88.2 86.6MWN 465 9.8 66.7 74.6 81.1 76.6 77.0 77.5Total: 500 13.2 67.4 74.8 81.9 77.5 77.9 78.2non-MWE n-grams that occurred only once.
+For each resulting n-gram, we created real-valued feature vectors and trained a binary SVM classifier with Weka (Hall et al2009)with an RBF kernel.
+See Appendix D for further configuration details.Results.
+Because our parsers mark MWEs as labeled spans, MWE identification is a by-product of parsing.
+Our evaluation metric is category-level Evalb for the MWE non-terminal categories.
+We report both the per-category scores (Tables 10 and 11), anda weighted average for all categories.
+Table 12 shows aggregate MWE identificationresults.
+All parsing models?even the baselines?exceed mwetoolkit by a wide margin.7.
+Discussion7.1 MWE Identification ResultsThe main contribution of this article is Table 12, which summarizes MWE identificationresults.
+For both languages, our parsing models yield substantial improvements overthe n-gram classification method represented by mwetoolkit.
+The best improvementscome from different models: The DP-TSG model achieves 66.9% F1 absolute improve-ment for Arabic and the Stanford+FactLex* achieves 50.0% F1 absolute improvementfor French.Differences in how the training resources were constructed may account for differ-ences in the ordering of the models.
+The Arabic MWE list consists mainly of namedentities and nominal compounds, hence the high concentration of MWN types in theTable 11French MWE identification per category and overall results (test set, sentences ?
+40 words).MWI and MWCL do not occur in the test set.#gold PAPCFG SplitPCFG Berkeley DP-TSG Stanford FactLex FactLex*MWET 3 0.0 0.0 0.0 0.0 0.0 0.0 0.0MWV 26 6.1 56.1 54.3 56.2 57.1 44.9 83.3MWA 8 42.9 29.6 36.7 36.0 26.1 25.0 33.3MWN 457 41.1 56.0 67.4 65.7 64.8 64.9 86.3MWD 15 60.0 70.3 74.4 65.1 68.4 64.9 70.3MWPRO 17 83.9 70.3 87.6 75.3 72.2 72.2 81.3MWADV 220 46.8 68.0 72.5 77.2 75.0 76.0 87.9MWP 162 49.0 78.9 81.4 79.5 81.2 81.9 92.9MWC 47 74.2 80.7 83.7 85.8 86.3 88.2 97.9Total: 955 46.0 64.2 71.4 71.3 70.5 70.5 87.3214Green, de Marneffe, and Manning Parsing Models for Identifying Multiword ExpressionsTable 12MWE identification F1 of the parsing models vs. the mwetoolkit baseline (test set, sentences?
+40 words).
+FactLex?
+uses gold morphological analyses at test time.Model Arabic F1 French F1mwetoolkit (baseline) 15.0 37.3PAPCFG 13.2 46.0SplitPCFG 67.4 64.2Berkeley 74.8 71.4DP-TSG 81.9 71.3Stanford 77.5 70.5Stanford+FactLex 77.8 70.5Stanford+FactLex* 78.2 87.3pre-processed ATB (Table 10).
+Consequently, this particular Arabic MWE identificationexperiment is similar to joint parsing and named entity recognition (NER) (Finkel andManning 2009).
+The DP-TSG is effective at memorizing the entities and re-using themat test time.
+It would be instructive to compare the DP-TSG to the discriminative modelof Finkel and Manning (2009), which currently represents the state-of-the-art for jointparsing and NER.The Berkeley and DP-TSG models are equally effective at learning French MWErules.
+One explanation for this result could be the CC tag set, which was explicitly tunedfor the Berkeley parser.
+The CC tag set improved Berkeley MWE identification accuracyby 1.8% F1 and basic parsing accuracy by 1.2% F1 over the previous version of our work(Green et al2011), in which we used the basic FTB tag set.
+However, this tag set yieldedonly 0.2% F1 and 1.1% F1 improvements, respectively, for the DP-TSG.Interpretation of the factored lexicon results should account for resource asym-metries.
+For French, the extraordinary result with gold analyses (Stanford+FactLex*) ispartly due to annotation errors.
+Gold morphological analyses are missing for many ofthe MWE tokens in the FTB.
+The factored lexicon thus learns that when a token has nomorphology, it is usually part of an MWE.
+In the automatic setting (Stanford+FactLex),however, Morfette tends to assign morphology to the MWE tokens because it has nosemantic knowledge.
+Consequently, the morphological predictions are less consistent,and the parsing model falls back to the baseline Stanford result.
+Certainly moreconsistent FTB annotations would help Morfette, which we found to be significantly lessaccurate on our version of the FTB than MADA on the ATB (see Habash and Rambow2005).
+Another remedy would be to incorporate MWE knowledge into the lexicalanalyzer, a strategy that Constant, Sigogne, and Watrin (2012) recently found to be veryeffective.The Arabic factored lexicon results are more realistic.
+Stanford+FactLex* achievesa 0.7% F1 improvement over Stanford along with a significant improvement inexact match (EX%).
+In the automatic setting, a 0.3% F1 improvement is maintainedfor MWE identification.
+One direction for improvement might be the POS tag set.
+The?Kulick?
+tag set encodes some morphological information (e.g., number, definiteness),so the factored lexicon can be redundant.
+Eliminating this overlap might improveaccuracy.215Computational Linguistics Volume 39, Number 1Table 13Sample of human-interpretable Arabic TSG rules.
+Recursive rules like MWA?A MWA resultfrom memoryless binarization of n-ary rules.
+This pre-processing step not only increases parsingaccuracy, but also allows the generation of previously unseen MWEs of a given type.MWN MWP MWA789 7 ?Los Angeles?
+MWP ?with MWP?
+-.
+)*  , ?high-level?
+:  78?Prime Minister?
+$%&  ?until now?
+/ ,0 ?Soviet-made?-;. N ?military N?()*+,?local time?
+A MWA1!
+ N 79< ?national N council?
+-  = ?on the other hand?7.2 Interpretability of DP-TSG MWE RulesArabic.
+Table 13 lists a sample of the TSG rules learned by the DP-TSG model.
+Fixedexpressions such as names (Los Angeles) and titles (Prime Minister) are cachedin the grammar.
+The model also generalizes over nominal compounds with ruleslike military N, which captures military coup, military council, and so forth.
+Formultiword adjectives, the model caches several instances of false iDafa in full (high-level, Soviet-made).
+Memoryless binarization permits the grammar to capture rules likeMWA ?
+A MWA, which permits generation of a previously unseen multiword ad-jectives.
+Some of these recursive rules are lexicalized, as in the multiword prepositionrule MWP ?
+MWP.French.
+We find that the DP-TSG model also learns useful generalizations over FrenchMWEs.
+A sample of the rules is given in Table 14.
+Some specific sequences like ?
+[MWN[coup de N]]?
+are part of the grammar: such rules can indeed generate quite a fewMWEs, for example, coup de pied (?kick?
+), coup de coeur, coup de foudre (?love at firstsight?
+), coup de main (?help?
+), coup d?
+?tat, coup de gr?ce.
+Certain of these MWEs are unseenin the training data.
+For MWV, the grammar contains ?V de N?
+as in avoir de cesse(?give no peace?
+), perdre de vue [lose from sight] (?forget?
+), prendre de vitesse [take fromspeed] (?outpace?).
+For prepositions, the grammar stores full subtrees of MWPs, butalso generalizes over very frequent sequences: ?en N de?
+occurs in many multiwordprepositions (e.g., en compagnie de, en face de, en mati?re de, en terme de, en cours de, enfaveur de, en raison de, en fonction de).
+The TSG grammar thus provides a categorizationof MWEs consistent with the Lexicon-Grammar.
+It also learns verbal phrases whichcontain discontiguous MWVs due to the insertion of an adverb or negation such as?
+[VN [MWV va] [MWADV d?ailleurs] [MWV bon train]]?
+[go indeed well], ?
+[VN [MWV a][ADV jamais] [MWV ?t?
+question d?]]?
+[has never been in question].Table 14Sample of human-interpretable French TSG rules.MWN MWV MWPsoci?t?s de N sous - V de l?ordre dechef de N mis en N y compriscoup de N V DET N au N deN d?
+?tat V de N en N deN de N V en N ADV deN ?
+N216Green, de Marneffe, and Manning Parsing Models for Identifying Multiword Expressions7.3 Basic Parsing ResultsThe relative rankings of the different models are the same for Arabic and French(Berkeley > Stanford parser > DP-TSG > PAPCFG), and these rankings correspond tothose observed for English (Cohn, Blunsom, and Goldwater 2010).
+Although statisticalstatements cannot be made about the difficulty of parsing the two languages by com-paring raw evaluation figures, we can compare the differences between PAPCFG andthe best model for each language.
+From this perspective, manual rule splitting in theStanford parser is apparently more effective for the ATB than for the FTB.
+Differences inannotation styles may account for this discrepancy.
+Consider the unbinarized treebanks.The ATB training set has 8,937 unique non-unary rule types with mean branching factorM = 2.41 and sample standard deviation SD = 0.984.
+The FTB has a flat annotationstyle, which leads to more rule types (16,159) with a higher branching factor (M = 2.87,SD = 1.51).A high branching factor can lead to more brittle grammars, an empirical observa-tion that motivated memoryless binarization in both the Berkeley parser (Petrov et al2006, page 434) and the DP-TSG.
+The Berkeley parser results also seem to support theobservation that rule refinement is less effective for the FTB.
+Automatic rule refinementresults in a 16.1% F1 absolute improvement over PAPCFG for Arabic, but only 10.0% F1for French.Of course, the FTB contains 28.5% fewer sentences than the ATB, so the FTB rulecounts are also sparser.
+In addition, we found that the FTB has lower inner-annotatoragreement (IAA) than the ATB (Appendix C), which also negatively affects super-vised models.
+Finally, Evalb penalizes flat treebanks like the FTB (Rehbein and vanGenabith 2007).
+To counteract that bias, we also included a Leaf Ancestor evaluation.Nonetheless, even Leaf Ancestor showed that, with respect to PAPCFG, the best Arabicmodel improved nearly twice as much as the best French model.The DP-TSG improves over PAPCFG, but does not exceed the Berkeley parser.
+Onecrucial difference between the two models is the decoding objective.
+The Berkeley parsermaximizes the expected rule count (max-rule-sum) (Petrov and Klein 2007), an objectivethat Cohn, Blunsom, and Goldwater (2010) demonstrated could improve the DP-TSGby 2.0% F1 over Viterbi for English with no changes to the grammar.
+We decoded withViterbi, so our results are likely a lower bound relative to what could be achieved withobjectives that correlate with labeled recall.
+Because MWE identification is a by-productof parsing, we expect that MWE identification accuracy would also improve.Because the DP-TSG and PAPCFG have the same weak generative capacity, theimprovement must come from relaxing independencies in the grammar rules (by sav-ing larger tree fragments).
+This is the same justification for manual rule refinementfor PCFGs (Johnson 1998, page 614).
+We observe an 8.5% F1 absolute improvementfor Arabic, but just 3.8% F1 for French.
+Nonetheless, we chose this model precisely forits greater strong generative capacity, which we hypothesized would improve MWEidentification accuracy.
+The MWE identification results seem to bear out this hypothesis.8.
+Related WorkThis section contains three parts.
+First, we review work on MWEs in linguistics andrelate it to parallel developments in NLP.
+Second, we describe other syntax-basedMWE identification methods.
+Finally, we enumerate related experiments on Arabic andFrench.217Computational Linguistics Volume 39, Number 18.1 Analysis of MWEs in Linguistics and NLPAn underlying assumption of mainline generative grammatical theory is that wordsare the basic units of syntax (Chomsky 1957).
+Lexical insertion is the process by whichwords enter into phrase structure, thus lexical insertion rules have the form [N ?
+dog,car, apple], and so on.
+This assumption, however, was questioned not long after it wasproposed, as early work on idiomatic constructions like kick the bucket?which functionslike a multiword verb in syntax?seemed to indicate a conflict (Katz and Postal 1963;Chafe 1968).
+Chomsky (1981) briefly engaged kick the bucket in a footnote, but idiomsremained a peripheral issue in mainline generative theory.To others, the marginal status of idioms and fixed expressions seemed inappropri-ate given their pervasiveness cross-linguistically.
+In their classic work on the Englishconstruction let ale, Fillmore, Kay, and O?Connor (1988) argued that the basic units ofgrammar are not Chomskyan rules but constructions, or triples of phonological, syntac-tic, and conceptual structures.
+The subsequent development of Construction Grammar(Fillmore, Kay, and O?Connor 1988; Goldberg 1995) maintained the central role ofidioms.
+Jackendoff (1997) has advanced a linguistic theory, the Parallel Architecture,which includes multiword expressions in the lexicon.In NLP, concurrent with the development of Construction Grammar, Scha (1990)conceptualized an alternate model of parsing in which new utterances are built frompreviously observed language fragments.
+In his model, which became known as data-oriented parsing (DOP) (Bod 1992), ?idiomaticity is the rule rather than the exception?
+(Scha 1990, page 13).
+Most DOP work, however, has focused on parameter estimationissues with a view to improving overall parsing performance rather than explicit mod-eling of idioms.Given developments in linguistics, and to a lesser degree DOP, in modeling MWEs,it is curious that most NLP work on MWE identification has not utilized syntax.
+More-over, the words-with-spaces idea, which Sag et al(2002) dismissed as unattractive on boththeoretical and computational grounds,22 has continued to appear in NLP evaluationssuch as dependency parsing (Nivre and Nilsson 2004), constituency parsing (Arun andKeller 2005), and shallow parsing (Korkontzelos and Manandhar 2010).
+In all cases, theconclusion was drawn that pre-grouping MWEs improves task accuracy.
+Because theyields (and thus the labelings) of the evaluation sentences were modified, however,the experiments were not strictly comparable.
+Moreover, gold pre-grouping was usuallyassumed, as was the case in most FTB parsing evaluations after Arun and Keller (2005).The words-with-spaces strategy is especially unattractive for MRLs because (1) itintensifies the sparsity problem in the lexicon; and (2) it is not robust to morphologicaland syntactic processes such as inflection and phrasal expansion.8.2 Syntactic Methods for MWE IdentificationThere is a voluminous literature on MWE identification, so we focus on syntax-based methods.
+The classic statistical approach to MWE identification, Xtract (Smadja1993), used an incremental parser in the third stage of its pipeline to identifypredicate-argument relationships.
+Lin (1999) applied information-theoretic measuresto automatically extracted dependency relationships to find MWEs.
+To our knowledge,22 Sag et al(2002) showed how to integrate MWE information into a non-probabilistic head-driven phrasestructure grammar for English.218Green, de Marneffe, and Manning Parsing Models for Identifying Multiword ExpressionsWehrli (2000) was the first to propose the use of a syntactic parser for multiwordexpression identification.
+No empirical results were provided, however, and the MWE-augmented scoring function for the output of his symbolic parser was left to futureresearch.
+Recently, Seretan (2011) used a symbolic parser for collocation extraction.
+Col-locations are two-word MWEs.
+In contrast, our models handle arbitrary length MWEs.To our knowledge, only two previous studies considered MWEs in the contextof statistical parsing.
+Nivre and Nilsson (2004) converted a Swedish corpus into twoversions: one in which MWEs were left as tokens, and one in which they weregrouped (words-with-spaces).
+They parsed both versions with a transition-based parser,showing that the words-with-spaces version gave an improvement over the baseline.Cafferkey (2008) also investigated the words-with-spaces idea along with imposingchart constraints for pre-bracketed spans.
+He annotated the PTB using external MWElists and an NER system, but his technique did not improve two different constituencymodels.
+At issue in both of these studies is the comparison to the baseline.
+MWEpre-grouping changes the number of evaluation units (dependency arcs or bracketedspans), thus the results are not strictly comparable.
+From an application perspective,pre-grouping assumes high accuracy identification, which may not be available for alllanguages.Our goal differs considerably from these two studies, which attempt to im-prove parsing via MWE information.
+In contrast, we tune statistical parsers for MWEidentification.8.3 Related Experiments on Arabic and FrenchArabic Statistical Constituency Parsing.
+Kulick, Gabbard, and Marcus (2006) were the firstto parse the sections of the ATB used in this article.
+They adapted the Bikel parser (Bikel2004) and improved accuracy primarily through punctuation equivalence classing andthe Kulick tag set.
+The ATB was subsequently revised (Maamouri, Bies, and Kulick2008), and Maamouri, Bies, and Kulick (2009) produced the first results on the revisionfor our split of the revised corpus.
+They only reported development set results withgold POS tags, however.
+Petrov (2009) adapted the Berkeley parser to the ATB, and welater provided a parameterization that dramatically improved his baseline (Green andManning 2010).
+We also adapted the Stanford parser to the ATB, and provided the firstresults for non-gold tokenization.
+Attia et al(2010a) developed an Arabic unknownword model for the Berkeley parser based on signatures, much like those in Table 3.More recently, Huang and Harper (2011) presented a discriminative lexical model forArabic that can encode arbitrary local lexical features.Arabic MWE Identification.
+Very little prior work exists on Arabic MWE identi-fication.
+Attia (2006) demonstrated a method for integrating MWE knowledge intoa lexical-functional grammar, but gave no experimental results.
+Siham Boulaknadeland Aboutajdine (2008) evaluated several lexical association measures in isolation forMWE identification in newswire.
+More recently, Attia et al(2010b) compared cross-lingual projection methods (using Wikipedia and English Wordnet) with standardn-gram classification methods.French Statistical Constituency Parsing.
+Abeill?
+(1988) and Abeill?
+and Schabes (1989)identified the linguistic and computational attractiveness of lexicalized grammars formodeling non-compositional constructions in French well before DOP.
+They developeda small tree adjoining grammar (TAG) of 1,200 elementary trees and 4,000 lexical items219Computational Linguistics Volume 39, Number 1that included MWEs.
+Recent statistical parsing work on French has included stochas-tic tree insertion grammars (STIG), which are related to TAGs, but with a restrictedadjunction operation.23 Both Seddah, Candito, and Crabb?
+(2009) and Seddah (2010)showed that STIGs underperform CFG-based parsers on the FTB.
+In their experiments,MWEs were grouped.
+Appendix B describes additional prior work on CFG-basedFTB parsing.French MWE Identification.
+Statistical French MWE identification has only been investi-gated recently.
+We previously reported the first results on the FTB using a parser forMWE identification (Green et al2011).
+Contemporaneously, Watrin and Francois (2011)applied n-gram methods to a French corpus of multiword adverbs (Laporte, Nakamura,and Voyatzi 2008).
+Constant and Tellier (2012) used a linear chain conditional randomfields model (CRF) for joint POS tagging and MWE identification.
+They incorporatedexternal linguistic resources as features, but reported results for a much older version ofthe FTB.
+Subsequently, Constant, Sigogne, and Watrin (2012) integrated the CRF modelinto the Berkeley parser and evaluated on the pre-processed FTB used in this article.Their best model (with external lexicon features) achieved 77.8% F1.9.
+ConclusionIn this article, we showed that parsing models are very effective for identifyingarbitrary-length, contiguous MWEs.
+We achieved a 66.9% F1 absolute improvementfor Arabic, and a 50.0% F1 absolute improvement for French over n-gram classifica-tion methods.
+All parsing models discussed in the paper improve MWE identificationover n-gram methods, but the best improvements come from different models.
+Unliken-gram classification methods, parsers provide syntactic subcategorization and do notrequire heuristic pre-filtering of the training data.
+Our techniques can be applied toany language for which the following linguistic resources exist: a syntactic treebank,an MWE list, and a morphological analyzer.More fundamentally, we exploited a connection between syntax and idiomaticsemantics.
+This connection has been debated in linguistics, yet overlooked in statisticalNLP until now.
+Although empirical task evaluations do not always reinforce linguistictheories, our results suggest that syntactic context can help identify idiomatic language,as posited by some modern grammar theories.We introduced the factored lexicon for the Stanford parser, a simple extension tothe lexical insertion model that helps combat lexical sparsity in morphologically richlanguages.
+In the gold setting, the factored lexicon yielded improvements over the basiclexicon for both standard parsing and MWE identification.
+Results were lower in theautomatic setting, suggesting that it might be helpful to optimize the morphologicalanalyzers for specific features included in downstream tasks like parsing.
+We evaluatedon in-domain data, but we expect that the factored lexicon would be even more usefulon out-of-domain text with higher out-of-vocabulary rates.We have also provided empirical evidence that TSGs can capture idiomatic usageas well as or better than a state-of-the-art CFG-based parser.
+The suitability of TSGsfor idioms has been discussed since the earliest days of DOP (Scha 1990), but it hasnever been demonstrated with experiments like ours.
+Although the DP-TSG, whichis a relatively new parsing model, still lags other parsers in terms of overall labeling23 Unlike TAG and TIG, TSG does not include an adjunction operator.220Green, de Marneffe, and Manning Parsing Models for Identifying Multiword Expressionsaccuracy, we have shown that it is already very effective for tasks like MWE iden-tification.
+Because we modified the syntactic representation rather than the modelformulation, general improvements to this parsing model should yield improvementsin MWE identification accuracy.Appendix A: Additional French MWEsThis appendix describes the other French MWE categories annotated in the FTB.Adverbial idioms (MWADV) often start with a preposition (Example (11)) but can havevery different part-of-speech sequences:(11) a. P N: du coup (?so?
+), sans doute (?doubtless?)b.
+P D A N: avec un bel ensemble [with a nice ensemble] (?in harmony?)c.
+P ADV P ADV: de plus en plus (?more and more?)d.
+V V: peut-?tre [can be] (?maybe?)e.
+ADV A: bien s?r [very certain] (?of course?)f.
+ET ET: a priori, grosso modoForeign words (MWET) include English nominal idioms, such as cash flow and successstory, which are less integrated in French than words such as T-shirt.
+Expressions suchas Just do it or struggle for life also fall in this category.Prepositional idioms (MWP) are mostly fixed (Example (12)), but some permit minimalvariation such as de vs. des or ?
+vs. au:(12) a. P N P: en d?pit de (?despite?
+), ?
+hauteur de (?at the height of?)b.
+P D N P: dans le cadre de (?in the framework of?
+), ?
+l?exception de (?at theexception of?)c.
+P P: afin de (?to?
+), jusqu??
+(?as far as?)d.
+ADV P: autour de (?around?
+), quant ?
+(?as for?)e.
+N V P: compte tenu de (?taking into account?
+), exception faite de [exceptionmade of] (?at the exception of?
+)Pronominal idioms (MWPRO) consist of demonstrative pronouns (celui-ci ?this one?,celui-l?
+?that one?)
+and reflexive pronouns (lui-m?me ?himself?
+), which vary in gender andnumber, as well as a few indefinite pronouns which allow gender inflection (d?aucuns?no-one?, quelque chose ?something?, qui que ce soit ?who ever it is?, n?importe qui ?anyone?
+)and some which are fixed (d?autres ?others?, la plupart ?most?, tout un chacun ?everyone?,tout le monde ?everybody?
+).Multiword determiners (MWD) consist of expressions such as bien des (?a lot of?)
+andtout le (?all the?
+), which display minimal variation in terms of inflection (e.g., la plupart devs.
+la plupart des ?most of?).
+Numbers which act as determiners in the sentence (class?es envingt-huit cat?gories ?categorized in twenty-eight categories?)
+are also classified as MWD.221Computational Linguistics Volume 39, Number 1Multiword conjunctions (MWC) are a fixed class:(13) a.
+C C: parce que (?because?)b.
+ADV C: m?me si (?even so?)c.
+V C: pourvu que (?so long as?)d.
+D N C: au moment o?
+(?at the time when?)e.
+CL V A C: il est vrai que (?it?s true that?)f.
+ADV C ADV ADV C: tant et si bien que (?to such an extent that?
+)Multiword interjections (MWI) are a small category with expressions such as millesabords (?blistering barnacles?)
+and au secours (?help?
+).Appendix B: Comparison to Prior FTB Pre-ProcessingOur FTB pre-processing is automatic, unlike all previous methods.ARUN-CONT and ARUN-EXP.
+(Arun and Keller 2005) Two versions of the full 20,000-sentence treebank that differed principally in their treatment of MWEs: (1) CONT, inwhich MWE tokens were grouped (en moyenne ?
+en_moyenne); and (2) EXP, in whichMWEs were marked with a flat structure.
+For both representations, they also gaveresults in which coordinated phrase structures were flattened.
+In the published exper-iments, they mistakenly removed half of the corpus, believing that the multi-terminal(per POS tag) annotations of MWEs were XML errors (Schluter and van Genabith 2007).MFT.
+(Schluter and van Genabith 2007) Manual revision to 3,800 sentences.
+Majorchanges included coordination raising, an expanded POS tag set, and the correctionof annotation errors.
+Like ARUN-CONT, MFT contains concatenated MWEs.FTB-UC.
+(Candito and Crabb?
+2009) A version of the functionally annotated section thatmakes a distinction between MWEs that are ?syntactically regular?
+and those that arenot.
+Syntactically regular MWEs were given internal structure, whereas all other MWEswere grouped.
+For example, nouns followed by adjectives, such as loi agraire (?land law?
+)or Union mon?taire et ?conomique (?monetary and economic Union?)
+were considered syn-tactically regular.
+They are MWEs because the choice of adjective is arbitrary (loi agraireand not ?loi agricole, similarly to (?coal black?)
+but not (?
+?crow black?
+), for example),but their syntactic structure is not intrinsic to MWEs.
+In such cases, FTB-UC gives theMWE a conventional analysis of an NP with internal structure.
+Such analysis is indeedsufficient to recover the meaning of these semantically compositional MWEs that areextremely productive.
+FTB-UC loses information about MWEs with non-compositionalsemantics, however.Almost all work on the FTB has followed ARUN-CONT and used gold MWE pre-grouping.
+Candito, Crabb?, and Denis (2010) were the first to acknowledge and addressthis issue, but they still used FTB-UC (with some pre-grouped MWEs).
+Because thesyntax and definition of MWEs is a contentious issue, we take a more agnostic view?which is consistent with that of the FTB annotators?and leave them ungrouped.
+Thispermits a data-oriented approach to MWE identification that is more robust to changesto the status of specific MWE instances.222Green, de Marneffe, and Manning Parsing Models for Identifying Multiword ExpressionsAlthough our FTB basic parsing results are lower than those of Seddah (2010), theexperiments are not comparable: The data split and pre-processing were different, andhe grouped MWEs.Appendix C: Annotation Consistency of TreebanksDifferences in annotation quality among corpora complicate cross-lingual experimentalcomparisons.
+To control for this variable, we performed an annotation consistencyevaluation on the PTB, ATB, and FTB.
+The conventional wisdom has it that the PTB hascomparatively high inter-annotator agreement (IAA).
+In the initial release of the ATB,IAA was inferior to other LDC treebanks, although in subsequent revisions, IAA wasquantifiably improved (Maamouri, Bies, and Kulick 2008).
+The FTB also had significantannotation errors upon release (Arun and Keller 2005), but it, too, has been revised.To quantify IAA, we extend the variation nucleus method of Dickinson (2005) tocompare annotation error rates.
+Let C be a set of tuples ?s, l, i?, where s is a substring atcorpus position i with label l. We consider all substrings in the corpus.
+If s is bracketedat position i, then its label is its non-terminal category.
+Otherwise, s has label l = NIL.
+Tolocate variation nuclei, define Ls as the set of all labels associated with each unique s. If|Ls| > 1, then s is a variation nucleus.24Variation nuclei can result from either annotation errors or linguistic ambiguity.
+Hu-man evaluation is one way to distinguish between the two cases.
+Following Dickinson(2005), we sampled 100 variation nuclei from each corpus and evaluated each samplefor the presence of an annotation error.
+To control for the number of corpus positionsincluded in each treebank sample, we used frequency-matched stratified sampling withbin sizes of 2, 3, 4, 10, 50, and 500.The human evaluators were a non-native, fluent Arabic speaker for the ATB (thefirst author), a native French speaker for the FTB (the second author), and a nativeEnglish speaker for the WSJ (the third author).25 Table C.1 shows the results of theevaluation, which supports the anecdotal consistency ranking of the three treebanks.26The FTB averages more than one variation nucleus per sentence and has twice the token-level error rate of the other two treebanks.Appendix D: mwetoolkit ConfigurationWe configured mwetoolkit27 with the four standard lexical features: the maximumlikelihood estimator, Dice?s coefficient, pointwise mutual information, and Student?st-score.
+We added the POS sequence for each n-gram as a single feature.
+We removedthe Web counts features since the parsers do not use auxiliary data.Because MWE n-grams only account for a small fraction of the n-grams in thecorpus, we filtered the training and test sets by removing all n-grams that occurredonce.
+To further balance the proportion of MWEs, we trained on all valid MWEsplus 10x randomly selected non-MWE n-grams.
+This proportion matches the fraction24 Kulick, Bies, and Mott (2011) extended our method with TAGs to account for nested bracketing errors.25 Unlike Dickinson (2005), we stripped traces and only considered POS tags when pre-terminals were theonly intervening nodes between the nucleus and its bracketing (e.g., unaries, base NPs).
+Because ourobjective was to compare distributions of bracketing discrepancies, we did not prune the set of nuclei.26 The total variation nuclei in each corpus were: 22,521 (WSJ), 15,629 (ATB), and 14,803 (FTB).27 We re-implemented mwetoolkit in Java for compatibility with Weka and our pre-processing routines.223Computational Linguistics Volume 39, Number 1Table C.1Evaluation of 100 randomly sampled variation nuclei for training splits of the WSJ, ATB, andFTB.
+Corpus positions indicates the number of corpus positions in the sample (a variationnucleus by definition appears in at least two corpus positions).
+Nuclei per tree is the averagenuclei per syntactic tree in the corpus, a statistic that gives a rough estimate of variability acrossthe corpus.
+The type-level error rate indicates the number of variation nuclei for which at leastone error existed.
+The token-level error rate indicates the ratio of errors to corpus positions.
+Wecomputed 95% confidence intervals for the type-level error rate.Corpus Nuclei Error % Type 95%Positions Per Tree Type Token Confidence IntervalPTB (2-21) 750 0.565 16.0% 4.10% [8.80%, 23.2%]ATB (train) 658 0.830 26.0% 4.00% [17.4%, 34.6%]FTB (train) 668 1.10 28.0% 9.13% [19.2%, 36.8%]of MWE/non-MWE tokens in the FTB.
+As we generated a random training set, wereported the average of three independent training runs.We created feature vectors for the training n-grams and trained a binary SVMclassifier with Weka (Hall et al2009).
+Although mwetoolkit defaults to a linear kernel,we achieved higher accuracy on the development set with an RBF kernel.The FTB is sufficiently large for the corpus-based methods implemented inmwetoolkit.
+Ramisch, Villavicencio, and Boitet (2010) experimented with the Geniacorpus, which contains 18k English sentences and 490k tokens, similar to the FTB.
+Theirtest set had 895 sentences, fewer than ours.
+They reported 30.6% F1 for their task againstan Xtract baseline, which only obtained 7.3% F1.
+Their best result compares favorably(in magnitude) to our mwetoolkit baselines for French and Arabic.AcknowledgmentsWe thank John Bauer for materialcontributions to the MWE identificationexperiments, and Claude Reichard for helpwith editing this article.
+We also thank MarieCandito, Markus Dickinson, Chris Dyer,Ali Farghaly, Dan Flickinger, Nizar Habash,Seth Kulick, Beth Levin, Percy Liang, DavidMcClosky, Carlos Ramisch, Ryan Roth,Djam?
+Seddah, Valentin Spitkovsky, andReut Tsarfaty for insightful comments onprevious versions of this work.
+The firstauthor was supported by a National ScienceFoundation Graduate Research Fellowship.The second author was supported bya Stanford Interdisciplinary GraduateFellowship.ReferencesAbeill?, A.
+1988.
+Parsing French with TreeAdjoining Grammar: some linguisticaccounts.
+In COLING, pages 7?12,Budapest, Hungary.Abeill?, A., L. Cl?ment, and A. Kinyon.
+2003.Building a treebank for French.
+In AnneAbeill?, editor, Treebanks: building andusing parsed corpora.
+Kluwer, chapter 10.Abeill?, A. and Y. Schabes.
+1989.
+Parsingidioms in lexicalized TAGs.
+In EACL,pages 1?9, Manchester.Arun, A.
+2004.
+Statistical parsing of theFrench treebank.
+Master?s thesis,University of Edinburgh.Arun, A. and F. Keller.
+2005.
+Lexicalizationin crosslinguistic probabilistic parsing:The case of French.
+In ACL, pages 306?313,Ann Arbor, MI.Ashraf, A.
+2012.
+Arabic Idioms: A Corpus-BasedStudy.
+Routledge.Attia, M. 2006.
+Accommodating multiwordexpressions in an Arabic LFG grammar.In Advances in Natural Language Processing,volume 4139.
+Springer, pages 87?98.Attia, M., J.
+Foster, D. Hogan, J.
+Le Roux,L.
+Tounsi, and J. van Genabith.
+2010a.Handling unknown words in statisticallatent-variable parsing models for Arabic,English and French.
+In First Workshop onStatistical Parsing of Morphologically-RichLanguages (SPMRL), pages 67?75,Los Angeles, CA.224Green, de Marneffe, and Manning Parsing Models for Identifying Multiword ExpressionsAttia, M., A. Toral, L. Tounsi, P. Pecina,and J. van Genabith.
+2010b.
+Automaticextraction of Arabic multiwordexpressions.
+In Workshop on MultiwordExpressions: From Theory to Applications,pages 19?27, Beijing.Baldwin, T. and S. N. Kim.
+2010.
+Multiwordexpressions.
+In N. Indurkhya and F. J.Damerau, editors, Handbook of NaturalLanguage Processing.
+CRC Press, chapter 12,pages 267?293.Bansal, M. and D. Klein.
+2010.
+Simple,accurate parsing with an all-fragmentsgrammar.
+In ACL, pages 1098?1107,Uppsala.Bikel, D. M. 2004.
+Intricacies of Collins?parsing model.
+Computational Linguistics,30(4):479?511.Bilmes, J. and K. Kirchoff.
+2003.
+Factoredlanguage models and generalized parallelbackoff.
+In NAACL, pages 4?6, Edmonton.Blunsom, P. and T. Baldwin.
+2006.Multilingual deep lexical acquisition forHPSGs via supertagging.
+In EMNLP,pages 164?171, Sydney.Bod, R. 1992.
+A computation model oflanguage performance: Data-OrientedParsing.
+In COLING, pages 855?859,Nantes.Cafferkey, C. 2008.
+Exploiting multi-wordunits in statistical parsing and generation.Master?s thesis, Dublin City University.Candito, M. and B. Crabb?.
+2009.
+Improvinggenerative statistical parsing withsemi-supervised word clustering.In IWPT, pages 138?141, Paris.Candito, M., B.
+Crabb?, and P. Denis.2010.
+Statistical French dependencyparsing: Treebank conversion and firstresults.
+In LREC, pages 1840?1847,Valletta.Candito, M. and D. Seddah.
+2010.
+Parsingword clusters.
+In First Workshop onStatistical Parsing of Morphologically-RichLanguages (SPMRL), pages 76?84,Los Angeles, CA.Carpuat, M. and M. Diab.
+2010.
+Task-basedevaluation of multiword expressions:A pilot study in statistical machinetranslation.
+In HLT-NAACL,pages 242?245, Los Angeles, CA.Chafe, W. L. 1968.
+Idiomaticity as ananomaly in the Chomskyan paradigm.Foundations of Language, 4(2):109?127.Chomsky, N. 1957.
+Syntactic Structures.Mouton, London.Chomsky, N. 1981.
+Lectures on Governmentand Binding: The Pisa Lectures.
+ForisPublications, Holland.Chrupala, G., G. Dinu, and J. van Genabith.2008.
+Learning morphology with Morfette.In LREC, pages 2362?2367, Marrakech.Cohn, T., P. Blunsom, and S. Goldwater.
+2010.Inducing tree-substitution grammars.JMLR, 11:3053?3096.Cohn, T., S. Goldwater, and P. Blunsom.2009.
+Inducing compact but accuratetree-substitution grammars.
+In HLT-NAACL, pages 548?556, Boulder, CO.Constant, M., A. Sigogne, and P. Watrin.2012.
+Discriminative strategies to integratemultiword expression recognition andparsing.
+In ACL, pages 204?212, Jeju.Constant, M. and I. Tellier.
+2012.
+Evaluatingthe impact of external lexical resourcesinto a CRF-based multiword segmenterand part-of-speech tagger.
+In LREC,pages 646?650, Istanbul.Crabb?, B. and M. Candito.
+2008.
+Exp?riencesd?analyse syntaxique statistique dufran?ais.
+In TALN, pages 1?10, Avignon.Dickinson, M. 2005.
+Error Detection andCorrection in Annotated Corpora.
+Ph.D.thesis, The Ohio State University.Dybro-Johansen, A.
+2004.
+Extractionautomatique de grammaires ?
+partir d?uncorpus fran?ais.
+Master?s thesis, Universit?Paris 7.Dyer, C., A. Lopez, J. Ganitkevitch, J. Weese,F.
+Ture, P. Blunsom, H. Setiawan,V.
+Eidelman, and P. Resnik.
+2010. cdec:A decoder, alignment, and learningframework for finite-state and context-freetranslation models.
+In ACL SystemDemonstrations, pages 7?12, Uppsala.Evert, S. 2008.
+The MWE 2008 Shared Task:Ranking MWE candidates.
+In Presentationat 2008 Workshop on Multiword Expressions,Marrakech.Fillmore, C. J., P. Kay, and M. C. O?Connor.1988.
+Regularity and idiomaticity ingrammatical constructions: The case oflet ale.
+Language, 64(3):501?538.Finkel, J. R. and C. D. Manning.
+2009.
+Jointparsing and named entity recognition.
+InHLT-NAACL, pages 326?334, Boulder, CO.Goldberg, A.
+1995.
+Constructions:A Construction Grammar Approach toArgument Structure.
+University OfChicago Press, Chicago.Green, S., M-C. de Marneffe, J. Bauer,and C. D. Manning.
+2011.
+Multiwordexpression identification with TreeSubstitution Grammars: A parsingtour de force with French.
+In EMNLP,pages 725?735, Edinburgh.Green, S. and C. D. Manning.
+2010.
+BetterArabic parsing: Baselines, evaluations,225Computational Linguistics Volume 39, Number 1and analysis.
+In COLING, pages 394?402,Beijing.Gross, M. 1984.
+Lexicon-Grammar andthe syntactic analysis of French.In COLING-ACL, pages 275?282,Stanford, CA.Gross, M. 1986.
+Lexicon-Grammar: Therepresentation of compound words.In COLING, pages 1?6, Bonn.Habash, N. and O. Rambow.
+2005.
+Arabictokenization, part-of-speech tagging andmorphological disambiguation in onefell swoop.
+In ACL, pages 573?580,Ann Arbor, MI.Hall, M., E. Frank, G. Holmes, B. Pfahringer,P.
+Reutemann, and I. H. Witten.
+2009.
+TheWEKA data mining software: An update.SIGKDD Explorations Newsletter, 11:10?18.Hogan, D., C. Cafferkey, A. Cahill, andJ.
+van Genabith.
+2007.
+Exploitingmulti-word units in history-basedprobabilistic generation.
+In EMNLP-CoNLL, pages 267?276, Prague.Huang, Z. and M. Harper.
+2011.
+Feature-richlog-linear lexical model for latentvariable PCFG grammars.
+In IJCNLP,pages 219?227, Chiang Mai.Jackendoff, R. 1997.
+The Architecture ofthe Language Faculty.
+MIT Press,Cambridge, MA.Johnson, M. 1998.
+PCFG models of linguistictree representations.
+ComputationalLinguistics, 24(4):613?632.Katz, J. J. and P. M. Postal.
+1963.
+Semanticinterpretation of idioms and sentencescontaining them.
+M.I.T.
+Research Laboratoryof Electronics Quarterly Progress Report,70:275?282.Klein, D. and C. D. Manning.
+2003.Accurate unlexicalized parsing.In ACL, pages 423?430, Sapporo.Koehn, P. and H. Hoang.
+2007.
+Factoredtranslation models.
+In EMNLP-CoNLL,pages 868?876, Prague.Korkontzelos, I. and S. Manandhar.
+2010.Can recognising multiword expressionsimprove shallow parsing?
+In HLT-NAACL,pages 636?644, Los Angeles, CA.K?bler, S. 2005.
+How do treebank annotationschemes influence parsing results?Or how not to compare apples andoranges.
+In RANLP, pages 79?88,Borovets.Kulick, S., A. Bies, and J. Mott.
+2011.
+Usingderivation trees for treebank errordetection.
+In ACL, pages 693?698,Portland, OR.Kulick, S., R. Gabbard, and M. Marcus.
+2006.Parsing the Arabic Treebank: Analysis andimprovements.
+In TLT, pages 31?42,Prague.Laporte, E., T. Nakamura, and S. Voyatzi.2008.
+A French corpus annotatedfor multiword expressions withadverbial function.
+In LREC LinguisticAnnotation Workshop, pages 48?51,Marrakech.Levy, R. and G. Andrew.
+2006.
+Tregexand Tsurgeon: Tools for querying andmanipulating tree data structures.In LREC, pages 2,231?2,234, Genoa.Levy, R. and C. D. Manning.
+2003.
+Is itharder to parse Chinese, or the Chinesetreebank?
+In ACL, pages 439?446,Sapporo.Liang, P., M. I. Jordan, and D. Klein.
+2010.Type-based MCMC.
+In HLT-NAACL,pages 573?581, Los Angeles, CA.Lin, D. 1999.
+Automatic identification ofnon-compositional phrases.
+In ACL,pages 317?324, College Park, MD.Maamouri, M., A. Bies, T. Buckwalter,and W. Mekki.
+2004.
+The Penn ArabicTreebank: Building a large-scale annotatedArabic corpus.
+In NEMLAR, pages 1?8,Cairo.Maamouri, M., A. Bies, and S. Kulick.2008.
+Enhancing the Arabic Treebank:A collaborative effort toward newannotation guidelines.
+In LREC,pages 3,192?3,196, Marrakech.Maamouri, M., A. Bies, and S. Kulick.
+2009.Creating a methodology for large-scalecorrection of treebank annotation: Thecase of the Arabic Treebank.
+In MEDAR,pages 138?144, Cairo.Marantz, A.
+1997.
+No escape from syntax:Don?t try morphological analysis in theprivacy of your own lexicon.
+In 21stAnnual Penn Linguistics Colloquium,pages 1?15, Philadelphia, PA.Marcus, M., M. A. Marcinkiewicz, andB.
+Santorini.
+1993.
+Building a largeannotated corpus of English: The PennTreebank.
+Computational Linguistics,19:313?330.Nivre, J. and J. Nilsson.
+2004.
+Multiwordunits in syntactic parsing.
+In Methodologiesand Evaluation of Multiword Units inReal-World Applications (MEMURA),pages 1?8, Lisbon.O?Donnell, T. J., J.
+B. Tenenbaum, and N. D.Goodman.
+2009.
+Fragment grammars:Exploring computation and reuse inlanguage.
+Technical report, MIT ComputerScience and Artificial IntelligenceLaboratory Technical Report Series,MIT-CSAIL-TR-2009-013.226Green, de Marneffe, and Manning Parsing Models for Identifying Multiword ExpressionsO?Grady, W. 1998.
+The syntax of idioms.Natural Language and Linguistic Theory,16:279?312.Pecina, P. 2010.
+Lexical association measuresand collocation extraction.
+LanguageResources and Evaluation, 44:137?158.Petrov, S. 2009.
+Coarse-to-Fine NaturalLanguage Processing.
+Ph.D. thesis,University of California-Berkeley.Petrov, S., L. Barrett, R. Thibaux, andD.
+Klein.
+2006.
+Learning accurate, compact,and interpretable tree annotation.
+In ACL,pages 443?440, Sydney.Petrov, S. and D. Klein.
+2007.
+Improvedinference for unlexicalized parsing.In HLT-NAACL, pages 404?411,Rochester, MN.Post, M. and D. Gildea.
+2009.
+Bayesianlearning of a tree substitution grammar.In ACL-IJCNLP, Short Papers, pages 45?48,Suntec.Rambow, O., D. Chiang, M. Diab, N. Habash,R.
+Hwa, K. Sima?an, V. Lacey, R. Levy,C.
+Nichols, and S. Shareef.
+2005.
+ParsingArabic dialects.
+Technical report.
+JohnsHopkins University.Ramisch, C., A. Villavicencio, and C. Boitet.2010.
+mwetoolkit: A framework formultiword expression identification.In LREC, pages 662?669, Valletta.Rehbein, I. and J. van Genabith.
+2007.Treebank annotation schemes and parserevaluation for German.
+In EMNLP-CoNLL,pages 630?639, Prague.Ryding, K. 2005.
+A Reference Grammar ofModern Standard Arabic.
+CambridgeUniversity Press.Sag, I.
+A., T. Baldwin, F. Bond, A. Copestake,and D. Flickinger.
+2002.
+Multiwordexpressions: A pain in the neck for NLP.In CICLing, pages 1?15, Mexico City.Sampson, G. and A. Babarczy.
+2003.
+A test ofthe leaf-ancestor metric for parse accuracy.Natural Language Engineering, 9:365?380.Scha, R. 1990.
+Taaltheorie en taaltechnologie:competence en performance.
+In Q.
+A. M.de Kort and G. L. J. Leerdam, editors,Computertoepassingen in de Neerlandistiek.Landelijke Vereniging van Neerlandici(LVVNjaarboek), pages 7?22.Schluter, N. and J. van Genabith.
+2007.Preparing, restructuring, and augmentinga French treebank: Lexicalised parsers orcoherent treebanks?
+In Pacling, pages 1?10,Melbourne.Seddah, D. 2010.
+Exploring the Spinal-STIGmodel for parsing French.
+In LREC,pages 1,936?1,943, Valletta.Seddah, D., M. Candito, and B. Crabb?.2009.
+Cross parser evaluation and tagsetvariation: a French treebank study.In IWPT, pages 150?161, Paris.Seddah, D., G. Chrupa?a, ?.
+?etinoglu,J.
+Genabith, and M. Candito.
+2010.Lemmatization and lexicalized statisticalparsing of morphologically rich languages:The case of French.
+In First Workshop onStatistical Parsing of Morphologically RichLanguages (SPMRL), pages 85?93,Los Angeles, CA.Seretan, V. 2011.
+Syntax-Based CollocationExtraction.
+Springer.Siham Boulaknadel, B. D. andD.
+Aboutajdine.
+2008.
+A multi-word termextraction program for Arabic language.In LREC, pages 1,485?1,488, Marrakech.Smadja, F. 1993.
+Retrieving collocations fromtext: Xtract.
+Computational Linguistics,19:143?177.Toutanova, K., D. Klein, C. D. Manning, andY.
+Singer.
+2003.
+Feature-rich part-of-speechtagging with a cyclic dependency network.In NAACL, pages 173?180, Edmonton.Vijay-Shanker, K. and D. J. Weir.
+1993.
+Theuse of shared forests in tree adjoininggrammar parsing.
+In EACL, pages 384?393,Utrecht.Watrin, P. and T. Francois.
+2011.
+An n-gramfrequency database reference to handleMWE extraction in NLP applications.
+InWorkshop on Multiword Expressions: fromParsing and Generation to the Real World,pages 83?91, Portland, OR.Wehrli, E. 2000.
+Parsing and collocations.In Natural Language Processing?NLP 2000,volume 1835 of Lecture Notes in ComputerScience.
+Springer, pages 272?282.West, M. 1995.
+Hyperparameter estimationin Dirichlet process mixture models.Technical report.
+Duke University.227

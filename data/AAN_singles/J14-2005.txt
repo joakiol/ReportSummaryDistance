@@ -1,0 +1,1560 @@
+Phrase Dependency MachineTranslation with Quasi-SynchronousTree-to-Tree FeaturesKevin Gimpel?Toyota Technological Instituteat ChicagoNoah A.
+Smith?
+?Carnegie Mellon UniversityRecent research has shown clear improvement in translation quality by exploiting linguisticsyntax for either the source or target language.
+However, when using syntax for both languages(?tree-to-tree?
+translation), there is evidence that syntactic divergence can hamper the extractionof useful rules (Ding and Palmer 2005).
+Smith and Eisner (2006) introduced quasi-synchronousgrammar, a formalism that treats non-isomorphic structure softly using features rather thanhard constraints.
+Although a natural fit for translation modeling, its flexibility has provedchallenging for building real-world systems.
+In this article, we present a tree-to-tree machinetranslation system inspired by quasi-synchronous grammar.
+The core of our approach is a newmodel that combines phrases and dependency syntax, integrating the advantages of phrase-basedand syntax-based translation.
+We report statistically significant improvements over a phrase-based baseline on five of seven test sets across four language pairs.
+We also present encouragingpreliminary results on the use of unsupervised dependency parsing for syntax-based machinetranslation.1.
+IntroductionBuilding translation systems for many language pairs requires addressing a wide rangeof translation divergence phenomena.
+Several researchers have studied divergence be-tween languages in corpora and found it to be considerable, even for closely relatedlanguages (Dorr 1994; Fox 2002; Wellington, Waxmonsky, and Melamed 2006; S?gaardand Kuhn 2009).
+To address this, many have incorporated linguistic syntax into trans-lation model design.
+The statistical natural language processing (NLP) communityhas developed automatic parsers that can produce syntactic analyses for sentences inseveral languages (Klein and Manning 2003; Buchholz and Marsi 2006; Nivre et al.?
+Toyota Technological Institute at Chicago, Chicago, IL 60637.
+E-mail: kgimpel@ttic.edu.??
+School of Computer Science, Carnegie Mellon University, Pittsburgh, PA 15213.E-mail: nasmith@cs.cmu.edu.Submission received: 10 November 2012; revised submission received: 12 May 2013; accepted for publication:23 June 2013.doi:10.1162/COLI a 00175?
+2014 Association for Computational LinguisticsComputational Linguistics Volume 40, Number 22007).
+The availability of these parsers, and gains in their accuracy, triggered researchinterest in syntax-based statistical machine translation (Yamada and Knight 2001).Syntax-based translation models are diverse, using different grammatical for-malisms and features.
+Some use a parse tree for the source sentence (?tree-to-string?
+),others produce a parse when generating the target sentence (?string-to-tree?
+), andothers combine both (?tree-to-tree?).
+We focus on the final category in this article.Tree-to-tree translation has proved to be a difficult modeling problem, as initial at-tempts at it underperformed systems that used no syntax at all (Cowan, Kuc?erova?,and Collins 2006; Ambati and Lavie 2008; Liu, Lu?, and Liu 2009).
+Subsequent re-search showed that substantial performance gains can be achieved if hard constraints?specifically, isomorphism between a source sentence?s parse and the parse of itstranslation?are relaxed (Liu, Lu?, and Liu 2009; Chiang 2010; Zhang, Zhai, and Zong2011; Hanneman and Lavie 2011).
+This suggests that constraints must be handledwith care.Yet the classic approach to tree-to-tree translation imposes hard constraints throughthe use of synchronous grammars developed for programming language compilation(Aho and Ullman 1969).
+A synchronous grammar derives two strings simultaneously:one in the source language and one in the target language.
+A single derivation isused for both strings, which limits the divergence phenomena that can be captured.As a result, researchers have developed synchronous grammars with larger rulesthat, rule-internally, capture more phenomena, typically at increased computationalexpense (Shieber and Schabes 1990; Eisner 2003; Gildea 2003; Ding and Palmer 2005).We take a different approach.
+We take inspiration from a family of formalismscalled quasi-synchronous grammar (QG; Smith and Eisner 2006).
+Unlike synchronousgrammar, QG assumes the entire input sentence and some syntactic parse of it areprovided and fixed.
+QG then defines a monolingual grammar whose language is aset of translations inspired by the input sentence and tree.
+The productions in thismonolingual grammar generate a piece of the translation?s tree and align it to a piece ofthe fixed input tree.
+Therefore, arbitrary non-isomorphic structures are possible betweenthe two trees.
+A weighted QG uses feature functions to softly penalize or encourageparticular types of syntactic divergence.In this article, we present a statistical tree-to-tree machine translation system in-spired by quasi-synchronous grammar.
+We exploit the flexibility of QG to develop anew syntactic translation model that seeks to combine the benefits of both phrase-basedand syntax-based translation.
+Our model organizes phrases into a tree structure inspiredby dependency syntax (Tesnie`re 1959).
+Instead of standard dependency trees in whichwords are vertices, our trees have phrases as vertices.
+The result captures phenomenalike local reordering and idiomatic translations within phrases, as well as long-distancerelationships among the phrases in a sentence.
+We use the term phrase dependency treewhen referring to this type of dependency tree; phrase dependencies have also beenused by Wu et al.
+(2009) for opinion mining and previously for machine translation byHunter and Resnik (2010).
+Because we combine phrase dependencies with features fromquasi-synchronous grammar, we refer to our model as a quasi-synchronous phrasedependency (QPD) translation model.Our tree-to-tree approach requires parsers for both the source and target languages.For two of the language pairs we consider (Chinese?English and German?English),treebanks of hand-annotated parse trees are available (e.g., the Penn Treebank;Marcus, Santorini, & Marcinkiewitz 1993), allowing the use of highly accurate statisticalparsers (Levy and Manning 2003; Rafferty and Manning 2008; Martins, Smith, andXing 2009).
+We also want to apply our model to languages that do not have tree-350Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Featuresbanks (e.g., Urdu and Malagasy), and for this we turn to unsupervised parsing.
+TheNLP community has developed a range of statistical algorithms for building unsuper-vised parsers (Klein and Manning 2002, 2004; Smith 2006; Blunsom and Cohn 2010;Naseem et al.
+2010; Spitkovsky, Alshawi, and Jurafsky 2010; Cohen 2011).
+They requireonly raw, unannotated text in the language of interest, making them ideal for use intranslation.Unsupervised shallow syntactic analysis has been used successfully for translationmodeling by Zollmann and Vogel (2011), who showed that unsupervised part-of-speechtags could be used to label the hierarchical translation rules of Chiang (2005) to matchthe performance of a system that uses supervised full syntactic parses.
+We take addi-tional steps in this direction, leveraging state-of-the-art unsupervised models for fullsyntactic analysis (Klein and Manning 2004; Berg-Kirkpatrick et al.
+2010; Gimpel andSmith 2012a) to obtain improvements in translation quality.
+We find that replacing asupervised parser for Chinese with an unsupervised one has no effect on performance,and using an unsupervised English parser only hurts slightly.
+We use unsupervisedparsing to apply our full model to Urdu?English and English?Malagasy translation,reporting statistically significant improvements over our baselines.
+These initial resultsoffer promise for researchers to apply syntactic translation models to the thousands oflanguages for which we do not have manually annotated corpora, and naturally suggestfuture research directions.The rest of this article is laid out as follows.
+In Section 2, we discuss quasi-synchronous grammar and dependency syntax and motivate our modeling choices.We present our translation model in Section 3, describe how we extract rules in Sec-tion 4, and list our feature functions in Section 5.
+Decoding algorithms are given inSection 6.
+We present experiments measuring our system?s performance on translationtasks involving four language pairs and several test sets in Section 7.
+We find statisticallysignificant improvements over a strong phrase-based baseline on five out of seven testsets across four language pairs.
+We also perform a human evaluation to study how oursystem improves translation quality.
+This article is a significantly expanded version ofGimpel and Smith (2011), containing additional features, a new decoding algorithm,and a more thorough experimental evaluation.
+It presents key material from Gimpel(2012), to which readers seeking further details are referred.2.
+Background and MotivationWe begin by laying groundwork for the rest of the article.
+We define notation inSection 2.1.
+Section 2.2 discusses how synchronous and quasi-synchronous grammarhandle syntactic divergence.
+In Section 2.3, we introduce dependency syntax and reviewprior work that has used it for machine translation.
+Section 2.4 presents two examplesof syntactic divergence that motivate the model we develop in Section 3.2.1 NotationWe use boldface for vectors and we denote individual elements in vectors using sub-scripts; for example, the source and target sentences are denoted x = ?x1, .
+.
+.
+, xn?
+andy = ?y1, .
+.
+.
+, ym?.
+We denote sequences of elements in vectors using subscripts and su-perscripts; for example, the sequence from source word i to source word j (inclusive)is denoted xji, and therefore xii = ?xi?.
+We denote the set containing the first k positiveintegers as [k].
+This notation is summarized in Table 1.351Computational Linguistics Volume 40, Number 2Table 1Notation used in this article.i, j, k, l integersx,y vectorsxi entry i in vector xxji sequence from entry i to entry j (inclusive) in vector x[i] the set containing the first i positive integers|x| length of vector x2.2 Synchronous and Quasi-Synchronous GrammarsTo model syntactic transformations, researchers have developed powerful grammat-ical formalisms, many of which are variations of synchronous grammars.
+The mostwidely used is synchronous context-free grammar (Wu 1997; Gildea 2003; Chiang 2005;Melamed 2003), an extension of context-free grammar to a bilingual setting where twostrings are generated simultaneously with a single derivation.
+Synchronous context-freegrammars are computationally attractive but researchers have shown that they cannothandle certain phenomena in manually aligned parallel data (Wellington, Waxmonsky,and Melamed 2006; S?gaard and Kuhn 2009).
+Figure 1 shows two such examples ofword alignment patterns in German?English data.
+These patterns were called ?cross-serial discontinuous translation units?
+(CDTUs) by S?gaard and Kuhn (2009).
+CDTUscannot even be handled by the more sophisticated synchronous formalisms given byEisner (2003) and Ding and Palmer (2005).
+CDTUs can be handled by synchronoustree adjoining grammar (STAG; Shieber and Schabes 1990), but STAG comes with sub-stantially heftier computational requirements.
+Furthermore, S?gaard and Kuhn (2009)found examples in parallel data that even STAG cannot handle.Smith and Eisner (2006) noted that these limitations of synchronous grammarsresult from an emphasis on generating the two strings.
+However, for many real-worldapplications, such as translation, one of the sentences is provided.
+The model only needsto score translations of the given source sentence, not provide a generative account forsentence pairs.
+Smith and Eisner proposed an alternative to synchronous grammar?quasi-synchronous grammar (QG)?that exploits this fact for increased flexibility intranslation modeling.
+A QG assumes the source sentence and a parse are given andscores possible translations of the source sentence along with their parses.
+That is, aquasi-synchronous grammar is a monolingual grammar that derives strings in the targetlanguage.
+The strings?
+derivations are scored using feature functions on an alignmentfrom nodes in the target tree to nodes in the source tree.
+The quasi-synchronous depen-dency grammars of Smith and Eisner (2006) and Gimpel and Smith (2009b) can generatethe translations in Figure 1, as can phrase-based models like Moses (Koehn et al.
+2007)and the phrase dependency model we present in Section 3.wir  durchleben  keine  wiederholung  des  jahres  1938  .we  are  not  living  a  replay  of  1938  .wir  wollen  keinen  .we  do  not  want  one  .Figure 1Examples of word alignment patterns in German?English that require the increased expressivepower of synchronous tree adjoining grammar.352Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesQuasi-synchronous grammar, like synchronous grammar, can in principle be in-stantiated for a wide range of formalisms.
+Dependency syntax (which we discuss inSection 2.3) has been used in most previous applications of QG, including word align-ment (Smith and Eisner 2006) and machine translation (Gimpel and Smith 2009b).
+Asidefrom translation, QG has been used for a variety of applications involving relationshipsamong sentences, including question answering (Wang, Smith, and Mitamura 2007),paraphrase identification (Das and Smith 2009), parser projection and adaptation (Smithand Eisner 2009), title generation (Woodsend, Feng, and Lapata 2010), sentence sim-plification (Woodsend and Lapata 2011), information retrieval (Park, Croft, and Smith2011), and supervised parsing from multiple treebanks with different annotationconventions (Li, Liu, and Che 2012).2.3 Dependency Syntax and Machine TranslationMany syntactic theories have been applied to translation modeling, but we focus inthis article on dependency syntax (Tesnie`re 1959).
+Dependency syntax is a lightweightformalism that builds trees consisting of a set of directed arcs from words to theirsyntactic heads (also called ?parents?).
+Examples of dependency trees are shown inFigure 2.
+Each word has exactly one parent, and $ is a special ?wall?
+symbol that islocated at position 0 in the sentence and acts as parent to words that have no otherparent in the sentence.
+Formally, a dependency tree on an m-word sentence y is afunction ?y : {1, .
+.
+.
+, m} ?
+{0, .
+.
+.
+, m} where ?y (i) is the index of the parent of wordyi.
+If ?y (i) = 0, we say word yi is a root of the tree.
+The function ?y is not permittedto have cycles.
+We restrict our attention to projective dependency trees in this article.Projective dependency trees are informally defined as having no crossing arcs when alldependencies are drawn on one side of the sentence.
+See Ku?bler, McDonald, and Nivre(2009) for formal definitions of these terms.Researchers have shown that dependency trees are better preserved when pro-jecting across word alignments than phrase structure trees (Fox 2002).
+This makesdependency syntax appealing for translation modeling, but to date there are not manytree-to-tree translation models that use dependency syntax on both sides.
+One exceptionis the system of Ding and Palmer (2005), who used a synchronous tree substitutiongrammar designed for dependency syntax, capturing non-isomorphic structure withinrules using elementary trees.
+Another is the system of Riezler and Maxwell III (2006),who used lexical-functional dependency trees on both sides and also include phrasetranslation rules.
+Relatedly, Quirk, Menezes, and Cherry (2005) used a source-sidedependency parser and projected automatic parses across word alignments in orderto model dependency syntax on phrase pairs.$  konnten  sie  es  ?bersetzen  ?$  could  you  translate  it  ?Figure 2Examples of dependency trees with word alignment.
+Arrows are drawn from children toparents.
+A child word is a modifier of its parent.
+Each word has exactly one parent and $ is aspecial ?wall?
+symbol that serves as the parent of all root words in the tree (i.e., those withno other parent).353Computational Linguistics Volume 40, Number 2But most who have used dependency syntax have done so either on the source sidein tree-to-string systems (Lin 2004; Xiong, Liu, and Lin 2007; Xie, Mi, and Liu 2011) orthe target side in string-to-tree systems (Shen, Xu, and Weischedel 2008; Carreras andCollins 2009; Galley and Manning 2009; Hunter and Resnik 2010; Su et al.
+2010; Tu et al.2010).
+Others have added features derived from source dependency parses to phrase-based or hierarchical phrase-based translation models (Gimpel and Smith 2008; Gao,Koehn, and Birch 2011).2.4 Motivating ExamplesAlthough Fox (2002) found that dependencies are more often preserved across hand-aligned bitext than constituents, there are still several concerns when using dependencysyntax for tree-to-tree translation.
+First, we only have hand-aligned sentence pairs forsmall data sets and few language pairs, so in practice we must deal with the noise inautomatic word aligners and parsers.
+Second, not all dependencies are preserved inhand-aligned data, so we would need to be able to handle non-isomorphic structureeven if we did have perfect tools.
+The model we present in Section 3 avoids isomor-phism constraints from synchronous grammar and encourages dependency preserva-tion across languages by using dependencies on phrases?flat multi-word units?ratherthan words.To motivate these choices, we now give two frequently occurring examples of de-pendency tree-to-tree divergence in German?English data.1 We consider the German?English parallel corpus used in our experiments (and described in Appendix A).
+Weparsed the English side using TurboParser (Martins et al.
+2010), a state-of-the-art depen-dency parser.
+TurboParser was trained on the Penn Treebank (Marcus, Santorini, andMarcinkiewicz 1993) converted to dependencies using the Yamada-Matsumoto headrules (Yamada and Matsumoto 2003).
+We parsed the German side using the factoredmodel in the Stanford parser (Rafferty and Manning 2008), which is trained fromthe NEGRA phrase-structure treebank (Skut et al.
+1997).
+The Stanford parser?s sourcecode defines a set of head rules for converting the phrase-structure parse output todependencies.2The first example is shown in Figure 3.
+The bold words illustrate a ?sibling?
+rela-tionship, meaning that the source words aligned to the parent and child in the Englishsentence have the same parent on the German side.
+Many sibling configurations appearwhen the English dependency is DET?N within a PP.
+By convention, the NEGRAtreebank uses flat structures for PPs like ?P DET N?
+rather than using a separate NPfor DET N. When the parser converts this to a dependency tree, the DET and N are madechildren of the P. In English dependency parsing, due to the Penn Treebank conventions,the DET is made a child of the N, which is a child of the P. There are many other instanceslike this one that frequently lie within PPs, like the?us and recent?years.
+However, ifwe tokenized the us as a phrase and also den usa, then both would be children of thepreposition, and the dependency would be preserved.1 The study that uncovered these examples is detailed in Gimpel (2012).
+It gives evidence of frequentnon-isomorphic dependency structure between German and English with automatic word alignersand parsers.2 These rules use comparable conventions to the Yamada-Matsumoto head rules for English (modulothe differences in languages and tag/label sets): finite verbs are sentence roots, adpositions are headsof adpositional phrases, nouns are heads of noun phrases, and so forth.354Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Features$  auch  die mietm?rkte  in den  usa  sind  flexibler$  rental  markets  are  also  more  flexible  in  the  usFigure 3Example of a sentence pair containing a frequently-observed ?sibling?
+relationship inGerman?English data: in the the?us dependency, the aligned German words are siblingsin the source dependency tree.
+This occurs due to differences in treebank and head ruleconventions between the two data sets.
+The German parser produces flat PPs with littleinternal structure, so when the dependency tree is generated, each word in the PP attachesto the P, the head of the phrase.The second example is shown in Figure 4, which gives an example of a?grandparent-grandchild?
+relationship.
+In the English dependency until?recently, thealigned source words are in a grandparent relationship in the source sentence?s depen-dency tree.
+We note, however, that if vor kurzem is tokenized as a phrase, then we mightlet the entire phrase be the child of bis, preserving the dependency across languages.By considering phrasal structure and dependencies among phrases, we can reducesome of the syntactic divergence in real-world data.
+The model we develop in the nextsection is based on this idea.3.
+ModelIn the previous section we noted two examples in which flattening dependency treestructure into ?phrasal dependencies?
+could improve dependency preservation be-tween German and English.
+This idea is compatible with the well-known principle thattranslation quality is improved when larger units are modeled within translation rules.For example, improvements were found by moving from word-based models to so-called phrase-based translation models.
+Modern phrase-based translation systems aretypified by the Moses system (Koehn et al.
+2007), based on the approach presented byKoehn, Och, and Marcu (2003).
+Phrase-based models excel at capturing local reorderingphenomena and memorizing multi-word translations.$  bis vor kurzem hielten sich beide seiten an diesen stillschweigenden vertrag$  until recently , both sides adhered to this tacit contractFigure 4Example of a sentence pair containing a frequently-observed ?grandparent-grandchild?relationship in German?English data: the English parent and child words in the until?recentlydependency are aligned to German words in a grandparent-grandchild relationship.355Computational Linguistics Volume 40, Number 2On the other hand, models that use rules employing syntax (Yamada and Knight2001) or syntax-like representations (Chiang 2005) handle long-distance reorderingbetter than phrase-based systems (Birch, Blunsom, and Osborne 2009), and thereforeperform better for certain language pairs (Zollmann et al.
+2008).
+In order to better handlesyntactic divergence and obtain the benefits of these two types of models, we use rulesthat combine phrases and syntax.
+In particular, our rules use dependencies betweenphrases rather than words; we call them phrase dependencies.
+When adding in sourcesyntax, we eschew the constraints of synchronous grammar in favor of the feature-basedapproach of quasi-synchronous grammar.
+So we call our model a quasi-synchronousphrase dependency (QPD) translation model.In Section 3.1, we define phrase dependency trees and in Section 3.2 we presentour model.
+We discuss rule extraction in Section 4 and define the feature functions inthe model in Section 5.
+Decoding is discussed in Section 6 and an empirical evaluationis given in Section 7.
+Key definitions used throughout this section and the remainingsections are listed in Table 2.3.1 Phrase DependenciesIn Section 2.3 we defined dependency trees.
+Now we provide an analogous definitionfor phrase dependency trees.
+We first define a segmentation of a sentence into phrases.Given a sentence y, where m = |y|, we define a phrase?
+as a word sequence ykj , for j andTable 2Key definitions for our model.x = ?x1, .
+.
+.
+, xn?
+source language sentencey = ?y1, .
+.
+.
+, ym?
+target language sentence, translation of xpi = xkj source-sentence phrase: subsequence of words in the sourcesentence x, i.e., 1 ?
+j ?
+k ?
+n; the number of words in pi is |pi|?
+= ykj target-sentence phrase: subsequence of words in the targetsentence y, i.e., 1 ?
+j ?
+k ?
+mpi = ?pi1, .
+.
+.
+,pin??
+segmentation of x into phrases such that for i ?
+[n?
+], pii = xkj isa source-sentence phrase and pi1 ?
+.
+.
+.
+?
+pin?
+= x?
+= ?
+?1, .
+.
+.
+,?n??
+segmentation of y into phrases such that for i ?
+[n?
+], ?i = ykj isa target-sentence phrase and ?1 ?
+.
+.
+.
+??n?
+= yb : {1, .
+.
+.
+, n?}
+?
+{1, .
+.
+.
+, n?}
+one-to-one alignment (bijection) from phrases in ?
+to phrasesin pi; for all i ?
+[n?
+], if b(i) = j, then pij is a subsequence of x and?i is a subsequence of y?x : {1, .
+.
+.
+, n} ?
+{0, .
+.
+.
+, n} dependency tree on source words x, where ?x (i) is the indexof the parent of word xi (0 is the wall symbol $)??
+: {1, .
+.
+.
+, n?}
+?
+{0, .
+.
+.
+, n?}
+dependency tree on target phrases ?, where ??
+(i) is the indexof the parent of phrase ?i (0 is the wall symbol $)h = ?h?,h???
+vector of feature functions; h?
+holds the Moses feature func-tions and h??
+holds the QPD feature functions?
+= ???,????
+vector of feature weights for h356Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Featuresk such that 1 ?
+j ?
+k ?
+m. The number of words in phrase ?
+is denoted |?|.
+We define aphrase segmentation of y as ?
+= ?
+?1, .
+.
+.
+,?n??
+such that for i ?
+[n?
+], ?i = ykj is a phraseand ?1 ?
+.
+.
+.
+??n?
+= y, where ?
+denotes string concatenation.Given a phrase segmentation ?, we define a phrase dependency tree as a function??
+: [n?]?
+{0} ?
+[n?]
+where ??
+(i) is the index of the parent of phrase?i.
+If ??
+(i) = 0, wesay phrase ?i is the root of the phrase dependency tree; we require there to be exactlyone root phrase.
+As with dependency trees, ??
+cannot have cycles.3 To distinguishphrase dependency trees from the ordinary dependency trees defined in Section 2.3,we will sometimes refer to the latter as ?lexical dependency trees.
+?Phrase dependency trees have also been used by Wu et al.
+(2009) to extract featuresfor opinion mining and a similar formalism was used previously for machine translationby Hunter and Resnik (2010).
+Phrase dependencies allow us to capture phenomena likelocal reordering and idiomatic translations within each phrase as well as longer-distancerelationships among the phrases in a sentence.3.2 Quasi-Synchronous Phrase Dependency TranslationLet X denote the set of all strings in a source language and, for a particular x ?
+X , let Yxdenote the set of its possible translations (correct and incorrect) in the target language.Given a sentence x and its lexical dependency tree ?x , we formulate the translationproblem as finding the target sentence y?, the phrase segmentation pi?
+of x, the phrasesegmentation ??
+of y?, the phrase dependency tree ???
+on the target phrases ?
+?, and theone-to-one phrase alignment b?
+such that?y?,pi?,?
+?, ???,b??
+= argmax?y,pi,?,??,b??
+?
+h(x, ?x ,y,pi,?, ?
+?,b) (1)where h is a vector of feature functions and ?
+is a vector of feature weights.
+The source-language dependency parse ?x is optional and can be omitted if no source dependencyparser is available.
+If ?x is provided, we include tree-to-tree configurational featuresfrom QG, which are described in Section 5.3.
+Hence we call the model defined inEquation (1) a quasi-synchronous phrase dependency (QPD) translation model.Our model extends the phrase-based translation model of Koehn, Och, and Marcu(2003).
+The phrase segmentation variables ?
+and the one-to-one phrase alignment b :[n?]?
+[n?]
+are taken directly from phrase-based translation.
+For all i ?
+[n?
+], if b(i) = j,then pij is a subvector of x and ?i is a subvector of y.
+If ?x is not given and the featuresignore ?
+?, then the remaining variables (x, y, pi, ?, and b) are defined in the same wayas in phrase-based models.Computational tractability requires that the feature functions h decompose across?parts?
+of the output structures in the model.
+The feature functions that look only atthe phrase-based variables (x, y, pi, ?, and b) are identical to the features used in theMoses phrase-based system (Koehn et al.
+2007), so they decompose in the same wayas in Moses.4 For clarity, we partition the features and weights into two parts, namely,?
+= ???,????
+and h = ?h?,h??
+?, where ??
+are the weights for the phrase-based features h?3 Further, we restrict our attention to projective phrase dependency trees in this article.
+We conjecture thatnon-projective trees may be a better fit for translation modeling (Carreras and Collins 2009; Galley andManning 2009), particularly for certain language pairs, but we leave their exploration for future work.4 A more detailed discussion of how the Moses features decompose can be found in Gimpel (2012).357Computational Linguistics Volume 40, Number 2and ???
+are the weights for the QPD features h??.
+So we rewrite the right-hand side ofEquation (1) as the following:argmax?y,pi,?,??,b???
+?
+h?
+(x,y,pi,?,b) + ???
+?
+h??
+(x, ?x ,y,pi,?, ?
+?,b) (2)Furthermore, we assume an additive decomposition across individual phrase depen-dencies in the phrase dependency tree ?
+?, allowing us to rewrite Equation (2) asargmax?y,pi,?,??,b???
+?
+h?(x,y,pi,?,b)+n??i=1???
+?
+f (x, ?x , i, ??(i),?i,???(i),b(i),b(??(i)),pib(i),pib(??
+(i))) (3)where we introduce new notation f to represent the feature vector that operates on asingle phrase dependency at a time in the ?arc-factored?
+decomposition of h??.
+Eachfeature in f can look at the entirety of x and ?x because they are inputs, but can onlylook at a single target-side phrase dependency ??i,???(i)?
+at a time (along with theiraligned source phrases pib(i) and pib(??
+(i)) and the indices).Example.
+Figure 5 shows an example.
+The inputs to the model are a segmented Chi-nese sentence and its lexical dependency tree.
+We used the Stanford Chinese wordsegmenter (Chang, Galley, and Manning 2008) to segment the Chinese data and theStanford parser (Levy and Manning 2003) to get Chinese dependency trees.
+The outputsreferences: annan to hold talks with us , russia and eu over situation in middle eastannan will discuss middle east situation with u.s. , russia and european unionannan to discuss mideast situation with us , russia and euannan to meeting the us , russia and eu to discuss middle east crisisannan  will  hold talks  with  the united states  , russia and  the european union  to discuss  the middle east  situation$$Figure 5Example output of our model for Chinese?English translation.
+The word-segmented Chinesesentence and dependency tree are inputs.
+Our model?s outputs include the English translation,phrase segmentations for each sentence (a box surrounds each phrase), a one-to-one alignmentbetween the English and Chinese phrases, and a projective dependency tree on the Englishphrases.
+Note that the Chinese dependency tree is on words whereas the English dependencytree is on phrases.358Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Featuresof the model include a segmentation of the Chinese sentence into phrases, the Englishtranslation, its segmentation into phrases, a projective dependency tree on the Englishphrases, and a one-to-one alignment between the English phrases and Chinese phrases.Four reference translations are also shown.
+In this example, the model correctly movedthe phrase hold talks and also noted its connection to to discuss by making the latter aphrasal dependent.4.
+Rule ExtractionIn typical statistical machine translation (SMT) models, the space of allowable trans-lations is constrained by a set of rules.
+Informally, a rule consumes part of the inputtext and emits text in the output language.
+Building an SMT system typically requirescollecting a massive set of rules from parallel text, a process called rule extraction.For phrase-based translation, these rules are phrase pairs and the translation spaceis constrained by the phrase pairs in the phrase table.5 In our model, even thoughwe have additional structure (i.e., the phrase dependency tree ??
+), we do not wantto enforce any additional constraints on the search space.
+That is, the space of validtranslations is still constrained solely by a standard phrase table.
+We allow ??
+to beany projective phrase dependency tree on ?, so the structure of ??
+merely affects howtranslations are scored, not what translations are permitted.
+We made this decisionbecause we did not want to reduce the coverage of phrase-based models, which is oneof their strengths.
+Rather, we wanted to better score their translations.6So, even though our phrase dependency rules do not consume parts of the input,we still speak in terms of ?rule extraction?
+because our procedure is similar to ruleextraction in other systems and we define feature functions on our rules in a standardway.
+In particular, we use the extracted rule instances to compute relative frequencyestimates for many of the features presented in Section 5.The rest of this section is organized as follows.
+In Section 4.1 we describe how weextract rules that only look at target-side words and syntactic structure.
+In Section 4.2we extract rules that also look at the source sentence, but not its syntax.
+(Although oursystem uses unlexicalized features based on source-side syntax, they do not derive fromrules; we turn to features in Section 5).
+This lets us avoid the computational expense ofparsing the source side of the parallel training corpus.4.1 Target-Tree RulesWe first extract rules that only consider the target side: y, ?, and ??.
+These rules can beused as the basis for ?dependency language model?
+features (Shen, Xu, and Weischedel2008; Galley and Manning 2009; Zhang 2009), though unlike previous work, our featuresmodel both the phrase segmentation and dependency structure.
+Typically, these sortsof features are relative frequencies from a corpus parsed using a supervised parser.However, there do not currently exist treebanks with annotated phrase dependency5 It is common to add ?identity?
+phrase pairs for unknown words to allow them to pass throughuntranslated.6 This strategy can also lead to limitations.
+Because we do not expand the search space beyond what islicensed by the phrase table, we are limited by the ability of the underlying phrase-based model toprovide us with a good search space.359Computational Linguistics Volume 40, Number 2trees.
+Our solution is to use a standard lexical dependency parser and extract phrasedependencies using bilingual information.7 Essentially, we combine phrases from thestandard phrase extraction pipeline with selected lexical dependencies from the outputof a dependency parser.We first give an overview of our approach and then describe it more formally.
+Webegin by obtaining word alignments and extracting phrase pairs using the standardheuristic approach of Koehn, Och, and Marcu (2003).
+We then parse the target sentencewith a projective dependency parser to obtain a projective dependency tree ?y for asentence y.
+Note that ?y is a tree on words, not phrases (cf.
+??).
+For each pair of target-side phrases in the phrase pairs from phrase extraction, we extract a phrase dependency(along with its direction) if the phrases do not overlap and there is at least one lexicaldependency between them.
+If there is only a dependency in one direction, we extracta single phrase dependency with that direction.
+If there are lexical dependencies inboth directions, we extract a phrase dependency only for the single longest lexicaldependency, and in its direction.
+Because we use a projective dependency parser, thelongest lexical dependency between two phrases is guaranteed to be unique.
+If a phrasecontains a root word in ?y , we extract a phrase dependency with the wall symbol asits head.We now present the procedure more formally.
+Given word-aligned sentence pairs,we extract phrase pairs that are p-consistent with (i.e., do not violate) the word align-ments.
+Let R denote a relation between the two sets [n] and [m], where n = |x| andm = |y|.
+If a pair (i, j) belongs to R for some i ?
+[n] and j ?
+[m], then we say that xi isaligned to yj.
+We define new notation R here instead of using b because R allows many-to-many word alignments, which are typically used for phrase extraction.8 A phrasepair ?xji,ylk?
+is p-consistent with R if, for all u such that i ?
+u ?
+j, and all v such that (u, v)belongs to R, it is the case that k ?
+v ?
+l. So far this is identical to the phrase extractionpipeline used in Moses.Given word alignments R and a dependency tree ?y on y, we extract (target-side)phrase dependencies.
+We say a phrase dependency ?yji,ylk?with ylk as the parent phraseis d-consistent with ?y and R if:1.
+?xj?i?
+,xl?k?
+such that ?xj?i?
+,yji?
+and ?xl?k?
+,ylk?
+are p-consistent with R2.
+yji and ylk do not overlap: (1 ?
+i ?
+j < k ?
+l ?
+m) ?
+(1 ?
+k ?
+l < i ?
+j ?
+m)3. the longest lexical dependency from yji to ylk is longer than the longest fromylk to yji: maxu:i?u?j,k?
+?y (u)?l|?y (u)?
+u| > maxv:k?v?l,i?
+?y (v)?j|?y (v)?
+v|The final condition also implies that there is a lexical dependency from a word in yji to aword in ylk: ?u, i ?
+u ?
+j, such that k ?
+?y (u) ?
+l.7 Other ways of getting phrase dependencies are possible.
+For example, for a monolingual task, Wu et al.
+(2009) used a shallow parser to convert lexical dependencies from a dependency parser into phrasedependencies.8 Many-to-many word alignments can be obtained from certain alignment models or, more frequently, byusing heuristics to combine alignments from one-to-many and many-to-one alignments (Koehn, Och, andMarcu 2003).360Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesWe also need to extract root phrase dependencies.
+We say a root phrase dependency?yji, $?
+is d-consistent with ?y and R if:1.
+?xj?i?
+such that ?xj?i?
+,yji?
+is p-consistent with R2.
+?u, i ?
+u ?
+j, such that ?y (u) = 0We extract all phrase dependencies that are d-consistent with the word alignmentsand target-side lexical dependency trees.
+We note that while extracting phrase depen-dencies we never explicitly commit to any single phrase dependency tree for a targetsentence.
+Rather, we extract phrase dependencies from all phrase dependency treescompatible with the word alignments and the lexical dependency tree.
+Thus we treatphrase dependency trees analogously to phrase segmentations in phrase extraction.When actually extracting phrase dependencies, we record additional informationfrom the sentence pairs in which we found them.
+Specifically, for d-consistent phrasedependencies ?yji,ylk?
+(where ylk is the parent), we extract tuples of the following form:?yji,ylk, yu?
+, y?y (u?
+), I[j < k]?
+(4)where I [P] is the indicator function that returns 1 if P evaluates to true and 0 otherwise.The index u?
+is chosen to make ?yu?
+, y?y (u?
+)?
+the longest lexical dependency within thephrase dependency:u?
+= argmaxu:i?u?j,k?
+?y (u)?l|?y (u)?
+u| (5)This lexical dependency is recorded for use in back-off features, analogous to the lexicalweighting in phrase-based models.
+The fifth field in Equation (4) holds the direction ofthe phrase dependency, which is also the direction of the longest lexical dependency.Root phrase dependencies use k = l = 0 in the parent phrase and designate $ as y0.
+Thedirection of root phrase dependencies is inconsequential and can remain as I[j < k].4.1.1 Examples.
+What do typical phrase dependencies look like?
+Tables 3 and 4show some of the most frequent examples of root phrases and parent-child phrasedependencies extracted by this technique on our German?English (DE?EN) corpus.The English side of the parallel corpus was parsed using TurboParser (Martins et al.2010).
+Naturally, there are many phrase dependencies with a single word in eachphrase, but because these are very similar to lists of frequent lexical dependencies in aparsed corpus, we have only shown dependencies with phrases containing more thanone word.Root phrases (Table 3) frequently contain a subject along with a verb (it is, i wouldlike, etc.
+), though the lexical root is typically a verb or auxiliary.
+These are examples ofhow we can get syntactic information for phrases that typically would not correspondto constituents in phrase structure trees.Table 4 shows frequent phrase dependencies from the same corpus; because thiscorpus is mostly European Parliamentary proceedings, certain formulaic and domain-specific phrases appear with large counts.
+When phrases attach to each other, theytypically behave like their heads.
+For example, in the phrase dependency of the?union,the word union is the child phrase because of the is behaving like of .
+There is likely also a361Computational Linguistics Volume 40, Number 2Table 3Top 60 most frequent root phrases in DE?EN data with at least two words, shown with theircounts.
+Shown in bold are the actual root words in the lexical dependency trees from which thesephrases were extracted; these are extracted along with the phrases and used for back-off features.35,265 it is 6,210 i think 4,843 would be 2,918 thank you13,751 this is 6,115 is that 4,289 we will 2,816 it will12,763 is a 6,105 is not 4,262 i believe that 2,788 is to11,831 we have 6,019 , it is 4,018 is also 2,737 it is a11,551 would like 5,975 believe that 3,910 that is why 2,736 it has11,245 we must 5,818 will be 3,838 i would like to 2,730 they are11,243 is the 5,706 we need 3,775 would like to 2,611 we can11,015 i would like 5,628 there are 3,505 hope that 2,580 i think that10,008 there is 5,495 should like 3,427 is an 2,551 i will8,983 i am 5,453 i should like 3,239 , i would like 2,483 does not8,019 we are 5,227 i hope 3,130 i hope that 2,482 debate is7,722 that is 5,150 , is 3,101 need to 2,445 i can6,883 i would 5,110 we should 3,059 it was 2,438 want to6,443 i have 5,010 has been 3,021 have been 2,416 must be6,328 i believe 4,917 do not 2,937 think that 2,405 this is adependency from the to union whenever the longer phrase dependency is extracted, butdue to our practice of following the longest lexical dependency in deciding the direction,of?union is favored over the?union.We note that even though these phrase dependencies only contain words from thetarget language (English), the presence and counts of the phrase dependencies willTable 4Most frequent phrase dependencies in DE?EN data, shown with their counts and attachmentdirections.
+Child phrases point to their parents.
+To focus on interesting phrase dependencies,we only show those in which one phrase has at least two tokens and neither phrase is entirelypunctuation.
+The words forming the longest lexical dependency in each extracted phrasedependency are shown in bold; these are used for back-off features.30,064 mr?
+president , 4,582 i believe?
+that19,931 the?
+european union 4,516 , which?
+is18,819 the european?
+union 4,347 that?
+will be12,318 i?
+would like 4,297 the fact?
+that11,990 the?member states 4,289 it is?
+important8,169 it is?
+that 4,232 one?
+of the7,779 the?
+european parliament 4,215 of the?
+commission7,762 madam?
+president , 3,932 it is?
+not7,448 the european?
+parliament 3,793 i?
+would like to6,897 of the?
+union 3,761 in the?
+union6,196 mr?
+president , i 3,752 in?member states6,188 i?
+should like 3,673 president?
+ladies and gentlemen ,6,087 that the?
+is 3,673 is?
+that the5,478 i?
+believe that 3,667 president ,?
+ladies and gentlemen ,5,283 of the?
+european union 3,602 i hope?
+that5,268 that?
+and that 3,531 we?
+need to4,956 of the european?
+union 3,495 the?
+fact that4,902 , and?
+is 3,494 that the?
+commission4,798 the?
+united states 3,462 i?
+do not4,607 ) mr?
+president , 3,446 , the?
+commission4,592 , it?
+is 3,421 that the?
+will362Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Featuresdepend on the source language through the word alignments.
+For example, when ofthe union is expressed in German, the preposition will often be dropped and the definitearticle chosen to express genitive case.
+In our corpus, the most common translation ofthe English union is the German noun union, which is feminine.
+The genitive femininedefinite article is der and, indeed, we find in the phrase table that the translation of ofthe union with highest probability is der union.9 Thus the dominance of the phrase depen-dency of the?union (6,897 occurrences) as compared with of?the union (142 occurrences)is caused by the German translation.4.1.2 Word Clusters.
+When trying to compute feature functions for dependencies betweenlong phrases, we expect to face problems of data sparseness.
+Long phrases do not occurvery often, so pairs of long phrases will occur less often still.
+One way to address this isto also extract rules that use part-of-speech (POS) tags in place of words.
+However, sincewords can have multiple POS tags, we would then need to infer POS tags for the wordsin order to determine which rule is applicable.
+So we instead use hard word clusters,which provide a deterministic mapping from words to cluster identifiers.
+Furthermore,certain types of hard word clusters, such as Brown clusters (Brown et al.
+1992), havebeen shown to correspond well to POS tag categories (Christodoulopoulos, Goldwater,and Steedman 2010).
+We chose Brown clusters for this reason.Brown clustering uses a bigram hidden Markov model (HMM) in which statesare hard cluster labels and observations are words.
+The emission distributions areconstrained such that each word has a nonzero emission probability from at mostone cluster label.
+Clusters can be obtained efficiently through a greedy algorithm thatapproximately maximizes the HMM?s log-likelihood by alternately proposing newclusters and merging existing ones.
+This procedure actually produces a hierarchicalclustering, but we discard the hierarchy information and simply use unique IDs foreach cluster.
+The number of clusters is specified as an input to the algorithm; we used100 clusters for all experiments in this article.
+Additional details on cluster generationfor our data sets are provided in Appendix B.Given Brown clusters, we extract tuples like those above in which we replace eachword by its Brown cluster ID:?clust(yji), clust(ylk), clust(yu?
+), clust(y?y (u?
+)), I[j < k]?
+(6)where clust() is a function that takes a sequence of words and replaces each byits Brown cluster ID.
+The index u?
+is defined as in Equation (5).
+Examples of fre-quent Brown cluster phrase dependencies, including root dependencies, are shown inTable 5.4.2 String-to-Tree RulesOur simplest probability features use the information in these tuples, but we also extracttuples with more information to support richer features.
+In particular, we record aligned9 The phrase table probability of the German der union given the English of the union is 0.64.
+The nextmost-probable German phrase is der europa?ischen union, with probability 0.03.363Computational Linguistics Volume 40, Number 2Table 5Most frequent Brown cluster phrase dependencies extracted from DE?EN data, shown withtheir counts.
+As in Table 4, we only show those in which one phrase has at least two tokens andneither phrase is entirely punctuation.
+Each cluster is shown as a set of words large enough tocover 95% of the token counts in the cluster, up to a maximum of four words.
+It is characteristicof Brown clustering that very frequent tokens (e.g., function words) often receive their ownclusters.47,137 {mr, mrs, madam, mr.}?
+{president, president-in-office, van, barroso} ,35,656 $?
+it is29,775 the?
+{time, way, right, question} of28,199 the?
+{european, soviet} {union, parliament, globalisation}27,373 $?
+i {say, believe, think, know}26,480 the?
+{state, development, group, security} of26,388 the {european, soviet}?
+{union, parliament, globalisation}24,726 {one, part, number, behalf}?
+of the22,536 of the?
+{people, countries, members, citizens}21,449 {state, development, group, security} {and, or}?
+{state, development, group, security}21,007 $?
+{we, they} {should, must, cannot, shall}20,933 {state, development, group, security}?
+{and, or} {state, development, group, security}20,919 the?
+{one, part, number, behalf} of20,897 of the?
+{report, committee, issue, agreement}20,081 the?
+{economic, political, international, national} {policy, years, rights, market}19,209 the?
+{report, committee, issue, agreement} of18,535 {people, countries, members, citizens}?
+of the18,523 $?
+{say, believe, think, know} that18,510 {time, way, right, question}?
+of the18,232 the?
+{member, united} {states, nations}18,157 {one, part, number, behalf} of?
+{people, countries, members, citizens}17,950 {people, countries, members, citizens} {and, or}?
+{people, countries, members, citizens}17,643 {state, development, group, security}?
+of the17,539 the?
+{people, countries, members, citizens} of17,457 the?
+{economic, political, international, national} {state, development, group, security}16,608 to {take, make, see, help}?
+{people, countries, members, citizens}16,163 the {time, way, right, question}?
+of15,517 the?
+{economic, political, international, national} {people, countries, members, citizens}15,292 in the?
+{report, committee, issue, agreement}15,257 a?
+{new, good, u.s., common} {report, committee, issue, agreement}15,223 the {state, development, group, security}?
+of15,217 {people, countries, members, citizens}?
+{and, or} {people, countries, members, citizens}15,214 it is?
+{important, clear, necessary, concerned}14,977 i?
+{say, believe, think, know} that14,697 $?
+is {important, clear, necessary, concerned}14,582 i {say, believe, think, know}?
+that14,399 {should, must, cannot, shall}?
+be {made, taken, put, set}14,146 $?
+this is14,089 a {new, good, u.s., common}?
+{report, committee, issue, agreement}14,047 {europe, china, today, women}?
+{and, or} {europe, china, today, women}13,599 {made, taken, put, set}?
+{by, from, into, between} the13,190 the?
+{new, good, u.s., common} {report, committee, issue, agreement}13,089 the?
+{new, good, u.s., common} {people, countries, members, citizens}13,035 $?
+{we, they} have13,034 {economic, political, international, national}?
+{and, or} {economic, political, international,.
+.
+.
+}13,013 $?
+is a12,713 $?
+{need, want, needs, wish} to12,399 $?
+i {say, believe, think, know} that12,387 the?
+{time, way, right, question} of the12,319 i?would {like, according, relating}12,217 in the?
+{eu, world, government, country}12,125 the?
+{economic, political, international, national} {report, committee, issue, agreement}11,979 of?
+{economic, political, international, national} {state, development, group, security}11,955 the {report, committee, issue, agreement}?
+of11,838 $?
+{we, they} {are, were}11,551 $?would {like, according, relating}11,537 the?
+{people, countries, members, citizens} of the364Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Featuressource phrases and details about reordering and the presence of gaps between phrases.That is, for d-consistent phrase dependencies ?yji,ylk?, we extract tuples?yji,ylk,xj?i?
+,xl?k?
+,I[j < k],I[I[j < k)]= I[j?
+< k?
+]],I[(j + 1 = k) ?
+(l + 1 = i)],I[(j?
++ 1 = k?)
+?
+(l?
++ 1 = i?)]?
+(7)for all i?, j?, k?, and l?
+such that the phrase pairs ?xj?i?
+,yji?
+and ?xl?k?
+,ylk?
+are p-consistentwith R, and such that xj?i?
+does not overlap with xl?k?
+.10 Again, I [P] is the indicatorfunction that returns 1 if P evaluates to true and 0 otherwise.
+That is, we include thetwo target phrases, their aligned source phrases, the direction of the target attachment,the orientation between the source and target phrases (whether the two target phrasesare in the same order as their aligned source phrases or swapped), whether a gap ispresent between the two target phrases, and finally whether a gap is present betweenthe two source phrases.
+When ylk = $, all of the additional fields are irrelevant exceptthe aligned source phrase xj?i?
+.We now note some examples of the phenomena that we can model with these richertuples.
+A common cause of reordering in German-to-English translation relates to verbs.Figure 6 shows two examples of frequently extracted phrase dependencies that modelverb movement.
+Figure 6(a) gives an example of how German reorders the finite verbto the end of a dependent clause, whereas English keeps it next to the subject.
+Theextracted rule, shown below the sentence pair, only applies when intervening wordsappear on the German side and no intervening words appear on the English side.
+Thisis indicated by the presence (absence) of an ellipsis on the German (English) side of therule.Figure 6(b) shows an example of how German moves an infinitive (danken, ?tothank?)
+to the end of an independent clause when a modal verb (mo?chte, ?would like?
+)is present.
+The ellipses on both sides indicate that other words must be present betweenboth the source and target phrase pairs.
+We note that this rule says nothing about whatfills the gap.
+In particular, the gap-filling material does not have to be translationallyequivalent, and indeed in the given sentence pair it is not.
+As opposed to rules inhierarchical phrase-based models (Chiang 2005), which typically specify translationallyequivalent substructures, this rule simply models the reordering and long-distancemovement of the infinitive.
+Much prior work has found phrase pairs with gaps tobe useful for machine translation (Simard et al.
+2005; Crego and Yvon 2009; Galleyand Manning 2010), and we extract tuples as in Equation (7) so that we can modelsuch structures, even though we do not directly model gap-filling like hierarchicalmodels and other models based on synchronous context-free grammar (Zollmann andVenugopal 2006, inter alia).10 This non-overlapping constraint is what differentiates these tuples from the target-tree rule tuples fromthe previous section, which are extracted even when the source phrases overlap.365Computational Linguistics Volume 40, Number 2ich meine deshalb  , dass es  eine frage der geeigneten methodik  ist  .i think  that it   is  consequently a question of the appropriate methodologies .dass es   ...(a)(b)istthat it  isabschlie?end m?chte ich herrn langen herzlich  f?r seinen  bericht  danken  ,...finally , mr president , i would like  to thank  mr langen warmly  for his  report ,...f?r seinen    ... dankento thank     ...  for hisFigure 6Examples of illustrative sentence pairs and frequently extracted rules that model verbmovement between German and English.
+An ellipsis indicates that there must be materialbetween the two phrases for the rule to apply.
+(a) Example of movement of the finite verbto the end of a dependent clause.
+(b) Example of movement of an infinitive to the end of anindependent clause following a modal verb (mo?chte, ?would like?).
+Discussion of the featuresused to score these string-to-tree rules is given in Section 5.2.The tuples described here are used to compute all of the lexicalized phrase depen-dency features in our model.
+We extract each tuple with a count of 1 each time it isobserved, aggregate the counts across all sentence pairs in the parallel corpus, and usethe counts to compute the statistical features we present in the next section.
+We alsohave structural features that consider string-to-tree and tree-to-tree configurations, butthese do not require any rule extraction.
+In the next section we describe the full set offeatures in our model.5.
+FeaturesOur model extends the phrase-based translation model of Moses (Koehn et al.
+2007), sowe include all of its features in our model.
+These include four phrase table probabilityfeatures, a phrase penalty feature, an n-gram language model, a distortion cost, sixlexicalized reordering features, and a word penalty feature.
+These features are containedin h?
+in Equation (3), reproduced here:argmax?y,pi,?,??,b???
+?
+h?(x,y,pi,?,b)+n??i=1???
+?
+f (x, ?x , i, ??(i),?i,???(i),b(i),b(??(i)),pib(i),pib(??
+(i))) (8)366Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesWe now describe in detail the additional features f that are used to score phrase de-pendency trees.
+Each operates on a single phrase dependency and takes the arguments?x, ?x , c, d,?c,?d, c?, d?,pic?
+,pid?
+?, which are, in order, the source sentence (x), the sourcedependency tree (?x), the target child phrase index (c), the target parent phrase index(d), the target child phrase (?c), the target parent phrase (?d), the index of the sourcephrase aligned to the target child (c?
+), the index of the source phrase aligned to thetarget parent (d?
+), the child-aligned source phrase (pic?
+), and the parent-aligned sourcephrase (pid?
+).Like the phrase probability features in Moses, many of our feature functions areconditional probabilities computed using relative frequency estimation given the fullcollection of extracted tuples.
+That is, for a tuple ??,?
+?, the conditional probability offield ?
+given field ?
+is estimated asp?(?
+| ?)
+=#{??,??}???
+#{??,???
+}(9)where #{??,??}
+denotes the count of the tuple ??,??
+in the multiset of extracted tuples.We use the notation p?
+in the following to indicate that relative frequency estimates arebeing used.115.1 Target-Tree FeaturesWe first include features that only consider the target-side words and phrase depen-dency tree; these are computed based on the rules extracted in Section 4.1.
+The firstfeature is the sum of the scaled log-probabilities of each phrase dependency attachmentin ??
+:fpdep(x, ?x , c, d,?c,?d, c?, d?,pic?
+,pid? )
+= max(0, C + log p?
+(?c | ?d, dir(c, d)))(10)where dir(c, d) is defineddir(c, d) =????
+?root if d = 0left if d > cright otherwise(11)and returns the direction of the attachment for head index d and child index c, that is,the direction in which the child resides; root indicates that phrase c is the root.Although we use log-probabilities in this feature function, we add a constant C,chosen to ensure the feature value is never negative.
+The reasoning here is that when-ever we use a phrase dependency that we have observed in the training data, wewant to boost the score of the translation.
+If we used log-probabilities, each observeddependency would incur a penalty.
+The max expression prevents unseen parent-childphrase dependencies from causing the score to be negative infinity.
+Our motivation isa desire for the features to prefer one derivation over another but not to rule out aderivation completely if it merely happens to contain an unseen phrase dependency.11 Note that, as is standard across many SMT models, all frequencies here are counts of extraction events.They are not counts of derivation or translation events, since many competing rules may be extracted fromeach training instance.367Computational Linguistics Volume 40, Number 2Because we will use this same practice for all other probability features, we intro-duce some shorthand for simplicity of presentation.
+We first redefine this feature:fpdep(x, ?x , c, d,?c,?d, c?, d?,pic?
+,pid? )
+=max(0, Cpdep + log gpdep(x, ?x , c, d,?c,?d, c?, d?,pic?
+,pid?
+))(12)wheregpdep(x, ?x , c, d,?c,?d, c?, d?,pic?
+,pid? )
+= p?
+(?c | ?d, dir(c, d)) (13)In what follows, we will restrict our attention to defining the g-style functions forprobability features, and assume that there is always a corresponding f that has the samesubscript and takes the same inputs, as in Equation (12).
+Furthermore, when presentingthe remaining features, we will suppress the arguments of each for clarity; all take thesame arguments as fpdep and gpdep.We will assume C is chosen appropriately for each g based on the minimum log-probability for the feature.
+For example,Cpdep = 0.01?
+min?,?
+?,rlog p?(?
+| ?
+?, r) (14)that is, the minimum log-probability is found, negated, and a small positive value(0.01) is added to ensure the feature is greater than zero.
+This ensures that, if a phrasedependency has been seen, its contribution is at least 0.01.To counteract data sparseness, we include other features that are less specific thangpdep.
+First, we include a version of this feature with words replaced by Brown clusters:gpdepclust= p?
+(clust(?c) | clust(?d), dir(c, d)) (15)We also include lexical weighting features similar to those used in phrase-based ma-chine translation (Koehn, Och, and Marcu 2003).
+These use the longest lexical depen-dencies extracted during rule extraction.
+First, for all ?child, parent, direction?
+lexicaldependency tuples ?y, y?, r?
+in the parsed target side of the parallel corpus, we estimateconditional probabilities p?lex(y | y?, r) using relative frequency estimation.Then, assuming the given phrase dependency ??c,?d?
+has longest child-parentlexical dependency ?y, y??
+for direction dir(c, d), we include the feature:gldep = p?lex(y | y?, dir(c, d)) (16)We include an analogous feature with words replaced by Brown clusters.
+Differentinstances of a phrase dependency may have different lexical dependencies extractedwith them.
+We only use the lexical weight for the most frequent, breaking ties bychoosing the lexical dependency that maximizes p?lex(y | y?, r), as was done similarly byKoehn, Och, and Marcu (2003).So far we described four features that consider y, ?, and ??
+: one for phrase de-pendencies, one for lexical dependencies, and the same two features computed ona transformed version of the corpus in which each word is replaced by its Browncluster ID.368Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Features5.2 String-to-Tree FeaturesWe next discuss features that consider properties of the source sentence x, its phrasesegmentation pi, and the phrase alignment b, in addition to y,?, and ??.
+However, thesefeatures still do not depend on the source tree ?x , so they can be included even when aparser for the source language is not available.
+We will discuss features that use ?x inSection 5.3.These features are similar to the previously defined gpdep, but condition on addi-tional pieces of structure.
+All features condition on direction.
+The first pair of featurescondition on the source phrase (pic? )
+aligned to the child phrase (?c) in the target phrasedependency (??c,?d?
+):gpdepchild= p?
+(?c | ?d, dir(c, d),pic? )
+(17)gpdepchildclust= p?
+(?c | clust(?d), dir(c, d),pic? )
+(18)In the second feature, we condition on word clusters for the parent phrase ?d, but onwords in the aligned source phrase pic?
+.
+Because Brown clusters often correspond tosyntactic clusters, even at times resembling part-of-speech tags (Christodoulopoulos,Goldwater, and Steedman 2010), it did not seem logical to model translation probabili-ties between source- and target-language word clusters.
+This is why we did not includea feature like the above with word clusters for ?c and pic?
+.
+Our use of these clusters is asimple kind of backoff or smoothing that allows some sharing across specific phrases,since statistics on phrase pairs are expected to be sparse.The next set of features includes those that condition on the orientation betweenthe source- and target-side phrases.
+The ori function returns the orientation of thealigned source phrases in a target phrase dependency attachment, namely, whether thealigned source phrases are in the same order as the target phrases (?same?)
+or if theyare in the opposite order (?swap?
+):ori(c, d, c?, d?)
+=????
+?root if d = 0same if dir(c, d) = dir(c?, d?
+)swap otherwise(19)Given this definition of ori, we define the following features that condition on orienta-tion (in addition to other fields):gpdeporient= p?
+(?c | ?d, dir(c, d), ori(c, d, c?, d?))
+(20)gpdeporientclust= p?
+(clust(?c) | clust(?d), dir(c, d), ori(c, d, c?, d?))
+(21)gpdepchildorient= p?
+(?c | ?d, dir(c, d),pic?
+, ori(c, d, c?, d?))
+(22)gpdepchildorientclust= p?
+(?c | clust(?d), dir(c, d),pic?
+, ori(c, d, c?, d?))
+(23)369Computational Linguistics Volume 40, Number 2where the last two features condition on the aligned child phrase pic?
+in addition to thedirection and orientation.We next give features that condition on the presence of gaps between the child andparent target phrases and gaps between the aligned phrases on the source side.
+Thegap(c, d) function indicates whether there is a gap between the phrases indexed by cand d:gap(c, d) =????
+?root if d = 0yes if |d?
+c| ?
+1no otherwise(24)Given this gap function, we define the following features:gpdeporientgap= p?
+(?c | ?d, dir(c, d), ori(c, d, c?, d?
+), gap(c, d), gap(c?, d?))
+(25)gpdeporientgapclust= p?
+(clust(?c) | clust(?d), dir(c, d), ori(c, d, c?, d?
+), gap(c, d), gap(c?, d?))
+(26)All the features mentioned so far have the child phrase on the left-hand side of theconditioning bar.
+We now present features that have both the child and parent phraseson the left-hand side:gpdeppc= p?
+(?c,?d, dir(c, d) | pic?
+,pid? )
+(27)gpdeppcorient= p?
+(?c,?d, dir(c, d) | pic?
+,pid?
+, ori(c, d, c?, d?))
+(28)gpdeppcorientgap= p?
+(?c,?d, dir(c, d), gap(c, d) | pic?
+,pid?
+, ori(c, d, c?, d?
+), gap(c?, d?))
+(29)These last features score larger rules composed of two phrase pairs from the phrasetable.
+Including direction, orientation, and gaps enables us to model longer-distance re-orderings; we showed some examples of such frequently extracted phrase dependenciesin Section 4.2.In all, we introduced 11 features in this section, giving us a total of 15 so far.
+Forthe feature ablation experiments in Section 7, we will partition these features into twoparts: We refer to the six features with subscript clust as CLUST and the other nineas WORD.5.2.1 String-to-Tree Configurations (CFG).
+We now present features that count instances oflocal reordering configurations involving phrase dependencies.
+We refer to the featuresdescribed in this section and the next section as CFG.
+These features consider the targetsegmentation ?, the target phrase dependency tree ?
+?, and the phrase alignment b,but not the target words y or the source words x, segmentation pi, or dependencytree ?x .370Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesOur first set of features only looks at configurations involving direction and orien-tation.
+The first feature value is incremented if the child is to the left and the alignedsource-side phrases are in the same order:fleftsame= I[dir(c, d) = left ?
+ori(c, d, c?, d?)
+= same](30)Another feature fires if the aligned source phrases are in the opposite order:fleftswap= I[dir(c, d) = left ?
+ori(c, d, c?, d?)
+= swap](31)Analogous features are used when the child is to the right of the parent:frightsame= I[dir(c, d) = right ?
+ori(c, d, c?, d?)
+= same](32)frightswap= I[dir(c, d) = right ?
+ori(c, d, c?, d?)
+= swap](33)These four configuration features are shown in order in the leftmost column inFigure 7.
+They are agnostic as to the presence of gaps between the two target phrasesand between the two source phrases.
+We include 16 features that add gap informationto these four coarse configurations, as shown in the remainder of the table.
+Four gapconfigurations are possible, constructed from one binary variable indicating the pres-ence or absence of a source gap paired with a binary variable indicating the presence orabsence of a target gap.
+We replicate the four coarse features for each gap configuration,giving us a total of 20 string-to-tree configuration features, all shown in Figure 7.?
+?no gaps source gap target gap source andtarget gapscoarse configurations(only directionand orientation)xi xj xk xi xj xk xlxi xj xk xlxi xj xkxlxi xj xk xlxi xj xkxlxi xj xk xlxi xj xkxlxi xj xk xlxi xj xkxi xj xkxi xj xk xi xj xkxi xj xk xi xj xkxi xj xk xi xj xk?xi xj xk?xi xj xk?xi xj xkyk?yi?
+yj?
+yk?yi?
+yj?
+yk?yi?
+yj?
+yl?
+yk?yi?
+yj?
+yl?
+yk?yi?
+yj?yl?
+yk?yi?
+yj?yl?
+yk?yi?
+yj?yl?
+yk?yi?
+yj?yl?
+yk?yi?
+yj?yl?
+yk?yi?
+yj?yl?
+yk?yi?
+yj?yk?yi?
+yj?
+yk?yi?
+yj?yk?yi?
+yj?
+yk?yi?
+yj?yk?yi?
+yj?
+yk?yi?
+yj??
+yk?yi?
+yj??
+yk?yi?
+yj??
+yk?yi?
+yj?Figure 7String-to-tree configurations; each is associated with a feature that counts its occurrences ina derivation.371Computational Linguistics Volume 40, Number 25.2.2 Dependency Length Features.
+Related to the string-to-tree configurations are featuresthat score source- and target-side lengths (i.e., number of words crossed) of target-sidephrase dependencies.
+These lengths can also be useful for hard constraints to speed upinference; we return to this in Section 6.
+These features and constraints are similar tothose used in vine grammar (Eisner and Smith 2005).We first include a feature that counts the number of source-side words between thealigned source phrases in each attachment in ??.
+Letting pic?
+= xj?i?
+and pid?
+= xl?k?
+:fsrcvine= I[dir(c?, d?)
+= left] (k?
+?
+(j?
++ 1))+ I[dir(c?, d?)
+= right] (i?
+?
+(l?
++ 1))(34)Although this feature requires the segmentation of the source sentence in order todetermine the number of source words crossed, the actual identities of those words arenot needed, so the feature does not depend on x.
+We would expect this feature?s weightto be negative for most language pairs, encouraging closeness in the source sentence ofphrases aligned to each phrase dependency in the target.We would like to use a similar feature for target-side dependency lengths, forexample, where ?c = yji and ?d = xlk:I [dir(c, d) = left](k?
+(j + 1))+ I [dir(c, d) = right] (i?
+(l + 1)) (35)However, such a feature could require looking at the entire phrase segmentation beinggenerated to score a single phrase dependency (e.g., if ??
+(1) = n?).
+Using this featurewould prevent us from being able to use dynamic programming for decoding (wediscuss our approach to decoding in Section 6).
+Instead, we use a feature that considersbounds on the number of target words crossed by each phrase dependency.
+In particular,the feature sums the maximum number of target words that could be crossed by aparticular phrase dependency.
+We will discuss how this feature is computed when wediscuss decoding in Section 6.We use CFG to refer to the set containing the 20 string-to-tree configuration featuresand the 2 string-to-tree dependency length features.
+Adding these 22 features to the 15from Sections 5.1 and 5.2 gives us 37 QPD features so far.5.3 Tree-to-Tree Features (TREETOTREE)The last two sets of features consider the source-side dependency tree ?x in additionto x, pi, b, y, ?, and ??.
+These are the only features that use source and target syntaxsimultaneously.
+We use TREETOTREE to refer to these features.5.3.1 Quasi-Synchronous Tree-to-Tree Configurations.
+We begin with features based onthe quasi-synchronous configurations from Smith and Eisner (2006), shown for lexicaldependency trees in Figure 8.
+For a child-parent dependency on the target side, theseconfigurations consider the relationship between the aligned source words.
+For exam-ple, if the aligned source words form a child-parent dependency in the source tree, thenwe have a ?parent-child?
+configuration.
+There is also an ?other?
+category for those thatdo not fit any of the named categories.However, for our model we need to score configurations involving phrase depen-dencies.
+That is, for a child-parent phrase dependency ??c,?d?
+in ?
+?, we consider therelationship between pic?
+and pid?
+, the source-side phrases to which ?c and ?d align.372Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Featuresxi   ...   xjyk   ...   ylparent-childxh  ...  xi   ...  xjyk   ...   ylgrandparent-grandchild c-commandxh  ...  xi   ...  xjyk   ...   ylsiblingsxg  ...  xh   ...  xi  ...  xjyk   ...   yl$   ...   xi$   ...   ykroot-rootxi   ...   xjyk   ...   ylchild-parentxiyk   ...   ylsame-nodeFigure 8Quasi-synchronous tree-to-tree configurations from Smith and Eisner (2006).
+There areadditional configurations involving NULL alignments and an ?other?
+category for those that donot fit into any of the named categories.There are several options for computing configuration features for our model, since weuse a phrase dependency tree for the target sentence, a lexical dependency tree for thesource sentence, and a phrase alignment.We use a heuristic approach.
+First we find the full set of configurations that arepresent between any word in one source phrase and any word in the other sourcephrase.
+That is, given a pair of source words, one with index j in source phrase d?and the other with index k in source phrase c?, we have a parent-child configura-tion if ?x (k) = j; if ?x (j) = k, a child-parent configuration is present.
+In order for thegrandparent-grandchild configuration to be present, the intervening parent word mustbe outside both phrases.
+For sibling configurations, the shared parent must also beoutside both phrases.
+In lieu of standard (non-sibling) c-command relationships, wedefine a modified c-command category as follows.
+We first find the highest ancestors ofwords j and k that are still in their respective phrases.
+Of these two ancestors, if neitheris an ancestor of the other and if they are not siblings, then the ?c-command?
+featurefires.After obtaining a list of all configurations present for each pair of words ?j, k?, we firethe feature for the single configuration corresponding to the maximum distance |j?
+k|.If no configurations are present between any pair of words, the ?other?
+feature fires.Therefore, only one configuration feature fires for each extracted phrase dependencyattachment.For the six configurations other than ?root-root,?
+we actually include multipleinstances of each configuration feature: one set includes direction (6?
+2 = 12 features),another set includes orientation (12 features), and the final set includes both source- andtarget-side gap information (24 features).
+There are therefore 49 features in this category(including the single ?root-root?
+feature).5.3.2 Tree-to-Tree Dependency Path Length Features.
+Finally, we include features that con-sider the dependency path length between the source phrases aligned to the targetphrases in each phrase dependency.
+The features in Section 5.2.2 considered distancealong the source sentence (the number of words crossed).
+Now we add features thatconsider distance along the source tree (the number of lexical dependency arcs crossed).We expect the learned weights for these features to encourage short dependency pathlengths on the source side.373Computational Linguistics Volume 40, Number 2We first include a feature that sums, for each target phrase i, the inverse of theminimum undirected path length between each word in pic?
+= xj?i?
+and each word inpid?
+= xl?k?
+:fundirpath=j??j=i?l?
+?k=k?1minUndirPathLen(x, ?x , j, k)(36)where minUndirPathLen(x, ?x , j, k) returns the shortest undirected dependency pathlength from xj to xk in ?x .
+The shortest undirected path length is defined as the numberof dependency arcs that must be crossed to travel from one word to the other along thearcs in ?x .Assuming an analogous function minDirPathLen(x, ?x , j, k) that computes the mini-mum directed dependency path length, we also include the following feature:fdirpath=j??j=i?l?
+?k=k?1minDirPathLen(x, ?x , j, k)(37)If there is no directed path from xj to xk, minDirPathLen returns?.Adding these two features gives us a total of 88 QPD features.
+Along with the 14phrase-based features there are a total of 102 features in our model.6.
+DecodingFor our model, decoding consists of solving Equation (1)?that is, finding the highest-scoring tuple ?y,pi,?, ??,b?
+for an input sentence x and its parse ?x .
+This is a challengingsearch problem, because it is at least as hard as the search problem for phrase-basedmodels, which is intractable (Koehn, Och, and Marcu 2003).
+Because of this we use acoarse-to-fine strategy for decoding (Charniak and Johnson 2005; Petrov 2009).
+Coarse-to-fine inference is a general term for procedures that make two (or more) passes overthe search space, pruning the space with each pass.
+Typically, feature complexity isincreased in each pass, as richer features can often be computed more easily in thesmaller search space.One simple coarse-to-fine procedure for our model would start by generating ak-best list of derivations using a phrase-based decoder.
+This ?coarse model?
+wouldaccount for all of the phrase-based features.
+Then we could parse each derivation toincorporate the QPD features and rerank the k-best list with the modified scores; this isthe ?fine model.?
+The advantage of this approach is its simplicity, but other research hasshown that k-best lists for structured prediction tend to have very little diversity (Huang2008), and we expect even less diversity in cases like machine translation where latentvariables are almost always present.
+Instead, we generate a phrase lattice (Ueffing, Och,and Ney 2002) in a coarse pass and perform lattice dependency parsing as the fine pass.The remainder of this section is laid out as follows.
+We begin by reviewing phraselattices in Section 6.1.
+In Section 6.2 we present our basic lattice dependency parsingalgorithm.
+We give three ways to speed it up in Section 6.3; one enables a more judicioussearch without affecting the search space, and the other two prune the search spacein different ways.
+In Section 6.4, we discuss how decoding affects learning of thefeature weights ?, and we describe the structured support vector machine rerankingformulation from Yadollahpour, Batra, and Shakhnarovich (2013) that we use.
+We close374Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Featureskonnten / couldkonnten / couldkonnten sie / could yousie / yousie / youes ?bersetzen / translate itsie es   ?bersetzen / you translate it?bersetzen /translate?bersetzen /translatees / ites / ites / it?
+/ ??
+/ ?...
+you... could... couldsource:  konnten sie es ?bersetzen ?reference:  could you translate it ?Figure 9Example phrase lattice for the source sentence shown.
+Each node contains an n-gram history forcomputing n-gram language model features and a coverage vector representing the sourcewords that have been translated so far.
+For clarity, the n-gram history (n = 2) and coveragevector are only shown for three nodes.in Section 6.5 with a brief discussion of how this decoder differs from earlier versionspublished in Gimpel and Smith (2009b, 2011).6.1 Phrase LatticesThe most common decoding strategy for phrase-based models is to use beamsearch (Koehn, Och, and Marcu 2003).
+The search is performed by choosing phrasepairs from the phrase table and applying them to translate source phrases into the targetlanguage.
+Coverage vectors are maintained during decoding to track which words havebeen translated so far.
+They are used to enforce the constraint that each source wordappear in exactly one phrase pair.It is often convenient to build a packed representation of the (pruned) search spaceexplored during decoding.
+For phrase-based models, this representation takes the formof a phrase lattice (Ueffing, Och, and Ney 2002), a finite-state acceptor in which eachpath corresponds to a derivation.
+Figure 9 shows an example.
+The source sentence anda reference translation are shown at the top of the figure.
+Each path from the start nodeon the left to a final node corresponds to a complete output in the model?s output space.Each lattice edge corresponds to a phrase pair used in the output.
+All paths leading to agiven node in the lattice must agree in the set of source words that have been translatedthus far.
+So, every node in the lattice is annotated with the coverage vector of all pathsthat end there.
+This is shown for three of the nodes in the figure.The lattice is constructed such that all features in the model are locally computableon individual lattice edges.
+To make n-gram language model features local, all pathsleading to a given node must end in the same n?
+1 words.12 In the example, thereare two nodes with equivalent coverage vectors that are separated because they end in12 In practice, this state replication can be reduced by exploiting sparsity in the language model (Li andKhudanpur 2008).375Computational Linguistics Volume 40, Number 2different words (you vs. could).
+Decoders like Moses can output phrase lattices like these;the lattice simply encodes the paths explored during the beam search.6.2 Lattice Dependency ParsingEach path in a phrase lattice corresponds to a tuple ?y,pi,?,b?
+for the input x.
+To alsomaximize over ?
+?, we perform lattice dependency parsing, which allows us to searchover the space of tuples ?y,pi,?,b, ???.
+Lattice parsing jointly maximizes over pathsthrough a lattice and parse structures on those paths.Because we use an arc-factored phrase dependency model (Equation (3)), the latticedependency parsing algorithm we use is a straightforward generalization of the arc-factored dynamic programming algorithm from Eisner (1996).
+The algorithm is shownin Figure 10.
+It is shown as a set of recursive equations in which shapes are used inplace of function names and shape indices are used in place of function arguments.The equations ground out in functions edgeScore and arcScore that score individuallattice edges and phrase dependency arcs, respectively.13 A semiring-generic format isused; for decoding, the semiring ?plus?
+operator (?)
+would be defined as max and thesemiring ?times?
+operator (?)
+would be defined as +.
+The entry point when executingthe algorithm is to build GOAL, which in turn requires building the other structures.We use a simple top?down implementation with memoization.
+Our style of spec-ifying dynamic programming algorithms is similar to weighted deduction, but ad-ditionally specifies indices and ranges of iteration, which are useful for a top?downimplementation.
+Top?down dynamic programming avoids the overhead of maintaininga priority queue that is required by bottom?up agenda algorithms (Nederhof 2003;Eisner, Goldlust, and Smith 2005).The disadvantage of top?down dynamic programming is that wasted work can bedone; structures can be built that are never used in any full parse.
+This problem appearswhen parsing with context-free grammars, and so the CKY algorithm works bottom?up, starting with the smallest constituents and incrementally building larger ones.
+Thisis because context-free grammars may contain rules with only non-terminals.
+Top?down execution may consider the application of such rules in sequence, producing longderivations of non-terminals that never ?ground out?
+in any symbols in the string.
+Adependency model, on the other hand, always works directly on words when buildingitems, so a top?down implementation can avoid wasted effort.However, this situation changes with lattice dependency parsing.
+It is possible fora top?down lattice dependency parser to consider some dependencies that are neverused in a full parse.
+We address this issue in the next section.6.3 Computational Complexity and Speeding Up DecodingThe lattice parsing algorithm requires O(E2V) time and O(E2 + VE) space, where Eis the number of edges in the lattice and V is the number of nodes.
+Typical phraselattices might easily contain tens of thousands of nodes and edges, making exact searchprohibitively expensive for all but the smallest lattices.
+So we use three techniques tospeed up decoding: (1) avoiding construction of items that are inconsequential (i.e.,13 To prevent confusion, we use the term edge to refer to a phrase lattice edge and arc to refer to adependency attachment in a dependency tree.376Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesFigure 10Lattice dependency parsing using an arc-factored dependency model.
+Lone indices like p andi denote nodes in the lattice, and an ordered pair like (i, j) denotes the lattice edge from node ito node j.
+START is the single start node in the lattice and FINAL is a set of final nodes.
+We useedgeScore(i, j) to denote the model score of crossing lattice edge (i, j), which only includesthe phrase-based features h?.
+We use arcScore((i, j), (l, m)) to denote the score of building thedependency arc from lattice edge (i, j) to its parent (l, m); arcScore only includes the QPDfeatures h?
+?.that could never be contained in a full parse), (2) pruning the lattices, and (3) limitingthe maximum length of a phrase dependency.6.3.1 Avoiding Construction of Inconsequential Items.
+By design, our phrase lattices imposeseveral types of natural constraints on allowable dependency arcs.
+For example, eachnode in the phrase lattice is annotated with a coverage vector?a bit vector indicating377Computational Linguistics Volume 40, Number 2which words in the source sentence have been translated?which implies a topologicalordering of the nodes.
+Once a word in the source sentence has been covered (i.e.,translated), it cannot be uncovered later.
+This can tell us whether certain nodes areunreachable from other nodes.
+For example, for a three-word source sentence, therecannot exist a directed path from a node with coverage vector ?0, 1, 0?
+to a node withcoverage vector ?0, 0, 1?.
+However, there may or may not be a path from a node withvector ?0, 1, 0?
+to one with ?0, 1, 1?.Generally, we need an efficient way to determine, for any two nodes in the lattice,whether there exists a path from one to the other.
+If there is no path, we can avoidwasting time figuring out the best way to build items that would end at the two nodes.To discover this, we use an all-pairs shortest paths algorithm to find the score of the bestpath between each pair of nodes in the lattice.
+The algorithm also tells us whether eachedge is reachable from each other edge, allowing us to avoid drawing dependenciesthat will never ground out in a lattice path.
+We use the Floyd-Warshall algorithm (Floyd1962).
+This adds some initial overhead to decoding, but in preliminary experiments wefound that it saves more time than it costs.
+We actually run a modified version of thealgorithm that computes the length (in words) of the longest path between any twonodes.
+If the maximum length between two nodes is?, the nodes are unreachable fromeach other.
+Before we build an item in the algorithm in Figure 10, we check reachabilityof the item endpoints and only proceed if one can reach the other.We modified the algorithm to output maximum lengths because we use the max-imum lengths to compute the target-side vine grammar features and constraints, asmentioned in Section 5.2.2.
+In particular we use a feature ftgtvinethat is a target-sideanalog to fsrcvinebut using the Floyd-Warshall maximum path lengths in place of the actuallengths.6.3.2 Lattice Pruning.
+To reduce phrase lattice sizes, we prune lattice edges usingforward?backward pruning (Sixtus and Ortmanns 1999), which has also been used byTromble et al.
+(2008).
+This pruning method computes the max-marginal for each latticeedge, which is the score of the best full path that uses that edge, then prunes edgeswhose max-marginal is below a certain fraction of the best path score in the lattice.
+Max-marginals have been used for other coarse-to-fine learning frameworks (Weiss, Sapp,and Taskar 2010) and offer the advantage that the best path in the lattice is preservedduring pruning.We only use the score contribution from the phrase-based features when computingthese max-marginals.
+For each lattice, we use a grid search to find the most liberalthreshold that leaves fewer than 2,000 edges in the resulting lattice.
+As complexity isquadratic in E, forcing E to be less than 2,000 improves runtime substantially.
+Afterpruning, the lattices contain more than 1016 paths on average and oracle BLEU scoresare typically 10?15 points higher than the model-best paths.6.3.3 Maximum Dependency Lengths.
+We can easily adapt our vine grammar featuresto function as hard constraints on allowable dependency trees, as originally done byEisner and Smith (2005) for monolingual dependency parsing.
+We use two simpleconstraints on the maximum length of a phrase dependency used during translation.One constrains the number of source words that are crossed from one aligned sourcephrase to the other aligned source phrase by the phrase dependency.
+The other con-strains the maximum number of target-side words crossed by any path from onetarget phrase to the other target phrase in a phrase dependency.
+During translation,we never build items that would require using dependency arcs that violate these378Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Featuresconstraints.
+In Section 7 we discuss the values we used in our primary experimentsand also compare translation quality and decoding speed for several values of thesehyperparameters.6.4 Interaction with LearningThe use of a coarse-to-fine decoding procedure affects how we learn the parametersof our model.
+We use two separate versions of the phrase-based feature weights: onefor lattice generation and one for lattice dependency parsing.
+This is common withcoarse-to-fine strategies?separate instances of coarser parameters are required for eachsubsequent pass.
+We first learn parameters for the coarse phrase-based model usedto generate phrase lattices.
+Then, after generating the lattices, we prune them (Sec-tion 6.3.2) and use a second round of tuning to learn parameters of the fine model, whichincludes all phrase-based and QPD feature weights.
+We initialized the phrase-basedfeature weights using the default Moses weights.
+For the QPD features, we initializedthe phrase dependency probability feature weights to 0.002 and the weights for all otherfeatures to 0.For tuning, we need the k-best outputs, for which efficient dynamic programmingalgorithms are available.
+We use Algorithm 3 from Huang and Chiang (2005), whichlazily finds the k best derivations efficiently.
+In preliminary testing, we found that thek-best lists tended to be dominated by repeated translations with different derivations,so we used the technique presented by Huang, Knight, and Joshi (2006), which finds aunique k-best list, returning the highest-scoring derivation for each of k unique transla-tions.
+This modification requires the maintenance of additional data structures to storeall of the previously found string yields for each item built during parsing.
+This incursadditional overhead but allows us to obtain a far more diverse k-best list given a fixedtime and memory budget.For the first round of tuning, we use RAMPION (Gimpel and Smith 2012b), whichperforms competitively with minimum error rate training (Och 2003) but is more stable.For training the fine model, however, we found that RAMPION did not lead to substan-tial improvements over the output of the coarse phrase-based model alone.
+We foundbetter performance by using a fine learner designed for the k-best reranking setting, inparticular the structured support vector machine reranker described by Yadollahpour,Batra, and Shakhnarovich (2013).
+Though we are doing lattice reranking rather thank-best reranking, the learning problem for our fine model is similar to that for k-bestreranking in that the decoder is exact (i.e., there is no pruning that could lead to differentpatterns of search error as the parameters change).
+That is, phrase lattice generation andpruning (described in Section 6.3.2) only depend on the coarse phrase-based featureweights and the maximum dependency length constraints (described in Section 6.3.3);they do not depend on the fine model parameters.We now briefly describe how we learn parameters for the fine model via latticereranking.
+For simplicity, we will only write the source sentence x and its translationy when describing the reranker and omit the additional input and output variables?x ,pi,?, ?
+?, and b, but they are always present and used for computing features.
+Weassume a tuning set with N source sentences: {xi}Ni=1.
+Let YRi be the set of referencetranslations for source sentence xi.
+Let Yi = {y(1)i .
+.
+.y(k)i } denote the set of k candidatetranslations (outputs of our lattice dependency parsing decoder) for xi.
+Let y?i denotethe highest-quality translation in the set, that is, y?i = argminy?Yi `(YRi ,y), where `(YRi ,y)is the negated BLEU+1 score (Lin and Och 2004) of y evaluated against references YRi .379Computational Linguistics Volume 40, Number 2We use the following cost function for sentence i and candidate translation y:L(YRi ,y) = `(YRi ,y)?
+`(YRi ,y?i ) (38)that is, the negated BLEU+1 score of translation yi relative to that of the best translation(y?i ) in the set.Yadollahpour, Batra, and Shakhnarovich (2013) formulate the reranking learningproblem as an L2-regularized slack-rescaled structured support vector machine (SSVM;Tsochantaridis et al.
+2005).
+The feature weights ?
+for the fine model are learned bysolving the following quadratic program:min?,?i||?||22 + ??i?
+[N]?i (39a)s.t.
+?>(h(xi,y?i )?
+h(xi,y))?
+1?
+?iL(YRi ,y)(39b)?i ?
+0, ?y ?
+Yi \ y?i , (39c)In Equation (39b), the violation in the margin ?i is scaled by the cost of the translation.Thus if in addition to y?i there are other good solutions in the set, the margin for suchsolutions will not be tightly enforced.
+On the other hand, the margin between y?i andbad solutions will be very strictly enforced.
+Equation (39) is solved via the 1-slackcutting-plane algorithm of Joachims, Finley, and Yu (2009).14 During the execution ofthe cutting-plane algorithm, we compute the tuning set BLEU score with all param-eter vector values that are considered.
+At convergence we return the parameters thatled to the highest tuning BLEU score.
+This helps to bridge the discrepancy betweenour use of sentence-level BLEU+1 in the loss function and corpus BLEU for finalevaluation.We alternate between generating k-best lists using our lattice parser and solvingEquation (39) on the fixed lists, each time pooling all previous iterations?
+lists.
+We repeatuntil the parameters do not change, up to a maximum of 15 iterations.
+We used k-bestlists of size 150 and a fixed, untuned value of ?
+= 0.1 for all experiments.6.5 Comparison to Earlier WorkThe decoder described above represents some advances over those presented in earlierpapers.
+Our original decoder was designed for a lexical dependency model; we usedlattice dependency parsing on lattices in which each edge contained a single source-target word pair (Gimpel and Smith 2009b).
+Inference was approximated using cubedecoding (Gimpel and Smith 2009a), an algorithm that incorporates non-local featuresin a way similar to cube pruning (Chiang 2007).
+After developing our QPD model,we moved to phrase lattices but still approximated inference using an agenda algo-rithm (Nederhof 2003; Eisner, Goldlust, and Smith 2005) with pre-pruning of depen-dency edges in a coarse pass (Gimpel and Smith 2011).14 We used OOQP (Gertz and Wright 2003) to solve the quadratic program in the inner loop, which usesHSL, a collection of Fortran codes for large-scale scientific computation (www.hsl.rl.ac.uk).380Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesAll decoders used lattice dependency parsing, but our current decoder uses an exactalgorithm once two simple approximations are made: the pruning of the lattice and theuse of maximum dependency length constraints.
+Hyperparameters control the severityof these two approximations and the use of an exact parsing algorithm allows us tomeasure their effects on runtime and accuracy.7.
+Experiments and AnalysisWe now present experimental results using our QPD model.
+Because our model extendsphrase-based translation models with features on source- and target-side syntacticstructures, we can conduct experiments that simulate phrase-based, string-to-tree, andtree-to-tree translation, merely by specifying which feature sets to include.
+This suggestsan additional benefit of using a quasi-synchronous approach for machine translation.
+Byusing features rather than constraints, we can simulate a range of translation systemsin a single framework, allowing clean experimental comparisons among modelingstrategies and combining strengths of diverse approaches.We describe our experimental setup in Section 7.1 and present our main results inSection 7.2.
+We measure the impact of using unsupervised parsing in Section 7.2.1 andinclude feature ablation experiments in Section 7.2.2.
+We present the results of a manualevaluation in Section 7.3 and give examples.
+We conclude in Section 7.4 with a runtimeanalysis of our decoder and show the impact of decoding constraints on speed andtranslation quality.7.1 Experimental SetupIn this section we describe details common to the experiments reported in this sec-tion.
+Details about decoding and learning were described in Section 6.
+Full detailsabout language pairs, data sets, and baseline systems are given in Appendix A andAppendix B.
+We repeat important details here.
+We use case-insensitive IBM BLEU(Papineni et al.
+2002) for evaluation.
+To measure significance, we use a paired bootstrap(Koehn 2004) with 100,000 samples (p ?
+0.05).7.1.1 Language Pairs.
+We consider German?English (DE?EN), Chinese?English(ZH?EN), Urdu?English (UR?EN), and English?Malagasy (EN?MG) translation.These four languages exhibit a range of syntactic divergence from English.
+They alsovary in the availability of resources like parallel data, monolingual target-language data,and treebanks.
+It is standard practice to evaluate unsupervised parsers on languagesthat do actually have treebanks, which are used for evaluation.
+We consider this caseas well, comparing supervised parsers for English and Chinese to our unsupervisedparsers, but we also want to evaluate our ability to exploit unsupervised parsing forlanguages that have small or nonexistent treebanks, hence our inclusion of Urdu andMalagasy.7.1.2 Baselines.
+We compare our model to several baselines:r Moses, RAMPION, S = 200: This is a standard Moses phrase-based system,trained with RAMPION.
+The Moses default stack size S of 200 was usedduring tuning and testing.
+This is the result one would obtain with anoff-the-shelf Moses phrase-based system on these data sets (and trainedusing RAMPION).381Computational Linguistics Volume 40, Number 2r Moses, RAMPION, S = 500: This baseline trains a model in the same way asthe previous using S = 200, but then uses a larger stack size (S = 500)when decoding the test sets.
+This larger stack size was used for generatingphrase lattices for lattice reranking, so it provides a more appropriatebaseline for comparing to our model.r Moses, SSVM reranking: Using phrase lattices generated with thepreceding configuration, this baseline uses the SSVM reranker fromSection 6.4 on the phrase lattices with only the Moses phrase-based features,that is, without any QPD features.
+This baseline helps to separate out thegains achieved through SSVM reranking and the addition of QPD features.r Hiero, RAMPION: This is a standard hierarchical phrase-basedsystem (Chiang 2007), as implemented in the Moses toolkit and trainedusing RAMPION.We see the three Moses systems as our primary baselines because Moses was usedto generate phrase lattices for our system.
+Our model adds new syntactic structures andfeatures to Moses, but because our decoder use Moses?
+phrase lattices, our approachcan be viewed as rescoring Moses?
+search space.
+There are pros and cons to this choice.It lets us build on a strong baseline rather than building a system from scratch.
+Also, bycomparing the third baseline (?Moses, SSVM reranking?)
+to our model, we are able tocleanly measure the contribution of our QPD features.
+However, Hiero has been shownto perform better than phrase-based systems for certain language pairs (Chiang 2007;Zollmann et al.
+2008; Birch, Blunsom, and Osborne 2009), and in these cases Hieroproves to be a strong baseline for our model to beat as well.
+We note that our QPDfeatures could also be used to rescore Hiero?s search space to potentially yield furtherimprovements, but we leave this to future work.7.1.3 Parsers.
+Our full QPD model requires parsers for both source and target languages.For each language pair, the target-language parser is only used to parse the target sideof the parallel corpus and the source-language parser is only used to parse the sourceside of the tuning and test sets.We have access to supervised parsers for Chinese, German, and English, which weused for our experiments.
+In particular, we used the Stanford parser (Levy and Manning2003; Rafferty and Manning 2008) for Chinese and German and TurboParser (Martinset al.
+2010) for English (see Appendix A for details).
+The Stanford parser is fundamen-tally a phrase-structure parser and generates dependency trees via head rules, but wechose it for our experiments for its ease of use and compatibility with the tokenizationwe used, particularly the Chinese segmentation which we obtained from the StanfordChinese segmenter.15For Urdu and Malagasy, we turn to unsupervised parsing.
+To measure the impactof using unsupervised parsers, we also performed experiments in which we replacedsupervised parsers for Chinese and English with unsupervised counterparts.
+We nowdescribe how we trained unsupervised parsers for these four languages.15 More dependency parsers have been made available by the research community since we began thisresearch and would be natural choices for further experimentation, such as ParZu (Sennrich et al.
+2009)for German, the parser model from Bohnet (2010) adapted for German by Seeker and Kuhn (2012), andDuDuPlus (Chen et al.
+2012) for Chinese.382Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesThe most common approach to unsupervised parsing is to train models on sen-tences from treebanks (without using the annotated trees, of course) along with theirgold standard POS tags.
+This practice must be changed if we wish to use unsupervisedparsing for machine translation, because we do not have gold standard POS tags forour data.
+Fortunately, Smith (2006) and Spitkovsky et al.
+(2011) have shown that usingautomatic POS tags for dependency grammar induction can work as well as or betterthan gold standard POS tags.
+For syntax-based translation, Zollmann and Vogel (2011)showed that unsupervised tags could work as well as those from a supervised POStagger.For Urdu and Malagasy, we use fully unsupervised POS tagging, using the ap-proach from Berg-Kirkpatrick et al.
+(2010) with 40 tags.
+We use the ?direct gradient?version optimized by L-BFGS (Liu and Nocedal 1989).
+For Chinese and English, weuse the gold standard POS tags from their respective treebanks for training the parser,then use the Stanford POS tagger (Toutanova et al.
+2003) to tag the parallel data, tuning,and test sets.
+As our dependency parsing model, we use the dependency model withvalence (Klein and Manning 2004) initialized with a convex initializer (Gimpel andSmith 2012a).
+The training procedure is described in Gimpel (2012).
+Our Chinese andEnglish unsupervised parsers are roughly 30 percentage points worse than supervisedparsers in dependency attachment accuracy on standard treebank test sets.We also compared the supervised and unsupervised parsers to a uniform-at-randomparser.
+Well-known algorithms exist for sampling derivations under a context-freegrammar for a sentence (Johnson, Griffiths, and Goldwater 2007).
+These algorithms canbe used to sample projective dependency trees by representing a projective dependencygrammar using a context-free grammar (Smith 2006; Johnson 2007).
+We used cdec (Dyeret al.
+2010) to sample projective dependency trees uniformly at random for eachsentence.16We only compared the random parser for source-side parsing.
+Swapping parsers forthe target language requires parsing the target side of the parallel corpus, rerunningrule extraction and feature computation with the new parses, and finally re-tuning tolearn new feature weights.
+By contrast, changing the source-side parser only requiresre-parsing the source side of the tuning and test sets and re-tuning.7.2 ResultsWe now present our main results, shown in Tables 6?9.
+We see that enlarging thesearch space results in gains in BLEU, as Moses with stack size 500 typically out-performs Moses with stack size 200.
+For DE?EN (Table 6), SSVM reranking im-proves performance even without adding any more features, pushing the numbersclose to that of Hiero; and adding our QPD features does not provide any additionalimprovement.For the other language pairs, however, we do see significant gains over the Mosesbaselines.
+For ZH?EN (Table 7), we see an average gain of 0.5 BLEU over the bestMoses baseline when using target syntactic features (TGTTREE), and a total average gainof 0.7 BLEU with the full QPD model (TGTTREE + TREETOTREE).
+The QPD numbersstill lag behind the Hiero results on average, but are statistically indistinguishable fromHiero on two of the three test sets.
+Our QPD features are able to mostly close the16 We thank Chris Dyer for implementing this feature in cdec for us.383Computational Linguistics Volume 40, Number 2Table 6%BLEU on tune and test sets for DE?EN translation, comparing the baselines to our QPD modelwith target syntactic features (TGTTREE) and then also with source syntax (+ TREETOTREE).Here, merely using the additional round of tuning with the SSVM reranker improves the BLEUscore to 19.9, which is statistically indistinguishable from the two QPD feature sets.
+Differencesbetween Hiero and the three 19.9 numbers are at the border of statistical significance; the firsttwo are statistically indistinguishable from Hiero but the third is different at p = 0.04.German?Englishmodel notes tune testMoses RAMPION, S = 200 16.2 19.0RAMPION, S = 500 16.2 19.2SSVM reranking 16.9 19.9QPD TGTTREE 17.2 19.9TGTTREE + TREETOTREE 17.1 19.9Hiero RAMPION 17.1 20.1Table 7%BLEU on tune and test sets for ZH?EN translation, showing the contribution of feature sets inour QPD model.
+Both QPD models are significantly better than the best Moses numbers on testsets 1 and 2, but not on test set 3.
+The full QPD model is significantly better than the version withonly TGTTREE features on test set 1 but statistically indistinguishable on the other two test sets.Hiero is significantly better than the full QPD model on test set 2 but not on the other two.Chinese?Englishmodel notes tune test 1 test 2 test 3 test avg.Moses RAMPION, S = 200 36.0 35.5 34.3 31.3 33.7RAMPION, S = 500 36.2 36.1 34.6 31.8 34.2SSVM reranking 36.3 36.1 34.6 31.8 34.2QPD TGTTREE 37.1 36.8 35.3 32.0 34.7TGTTREE + TREETOTREE 37.3 37.2 35.5 31.9 34.9Hiero RAMPION 37.3 37.4 36.1 32.1 35.2performance gap between Moses and Hiero, suggesting that the Moses search space(and even our heavily pruned Moses phrase lattices) has the potential for significantimprovements when using the right features.Results for UR?EN translation are shown in Table 8.
+Here we only have a super-vised parser for English, so the TREETOTREE features are incorporated using our unsu-pervised Urdu parser.
+All QPD results are significantly better than all Moses baselineresults, but there is no significant difference between the two QPD feature sets.
+Thismay be due to our use of unsupervised parsing; perhaps the Urdu parses are too noisyfor us to see any benefit from the TREETOTREE features.
+In Section 7.2.1 we measure theimpact of using unsupervised parsing for ZH?EN translation.
+Hiero still significantlyoutperforms the QPD model, although we have halfway closed the gap between Mosesand Hiero.384Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesTable 8%BLEU on tune and test sets for UR?EN translation, using our unsupervised Urdu parser toincorporate source syntactic features.
+The two QPD rows are statistically indistinguishable onboth test sets.
+Both are significantly better than all Moses results, but Hiero is significantly betterthan all others.Urdu?Englishmodel notes tune test 1 test 2 test avg.Moses RAMPION, S = 200 24.6 24.6 24.5 24.5RAMPION, S = 500 24.7 24.8 24.9 24.8SSVM reranking 24.9 24.4 24.7 24.6QPD TGTTREE 25.8 25.4 25.5 25.4TGTTREE + (unsup.)
+TREETOTREE 25.8 25.4 25.6 25.5Hiero RAMPION 25.7 26.4 26.7 26.6Table 9%BLEU on tune and test sets for EN?MG translation, using a supervised English parser and anunsupervised Malagasy parser.
+The 15.6 BLEU reached by the full QPD model is statisticallysignificantly better than all other results on the test set.
+All other test set numbers are statisticallyindistinguishable.English?Malagasymodel notes tune testMoses RAMPION, S = 200 17.6 15.1RAMPION, S = 500 17.8 15.1SSVM reranking 17.8 15.1QPD (unsup.)
+TGTTREE 17.6 15.2(unsup.)
+TGTTREE + TREETOTREE 17.9 15.6Hiero RAMPION 17.4 15.0For EN?MG translation (Table 9), we see significant gains in BLEU over bothMoses and Hiero when using the full QPD model.17 We used unsupervised parsingto incorporate TGTTREE features but we only see a statistically significant improvementwhen we add TREETOTREE features, which use a supervised English parser.7.2.1 Impact of Unsupervised Parsing.
+Table 10 shows results when comparing parsersfor ZH?EN translation.
+We pair supervised and unsupervised parsers for English andChinese.
+The final row shows the Moses BLEU scores for comparison.17 For the EN?MG experiments, we modified our initialization procedure for the QPD feature weights.When using the same initialization as the other language pairs (setting QPD probability feature weightsto 0.002 and all other QPD weights to 0), we found that SSVM reranking did not find any higher BLEUscore in the initial k-best lists than the 1-best translations for all sentences.
+So we multiplied the initialQPD weights by 10 in an effort to inject more diversity in the initial k-best lists.385Computational Linguistics Volume 40, Number 2Table 10%BLEU on tune and test sets when comparing parsers for ZH?EN translation.
+QPD uses allfeatures, including TGTTREE and TREETOTREE.
+The table first pairs supervised English parsingwith supervised, unsupervised, and random Chinese parsing, then pairs unsupervised Englishparsing with supervised and unsupervised Chinese parsing.
+?
+= significantly better thansup/sup, ?
+= significantly worse than sup/sup.EN parser ZH parser tune test 1 test 2 test 3 avg.
+test%BLEU %BLEU %BLEU %BLEU %BLEUQPD sup.sup.
+37.3 37.2 35.5 31.9 34.9unsup.
+37.2 37.0 35.8?
+31.8 34.9random 37.1 36.5?
+35.2 31.6?
+34.4unsup.
+sup.
+37.2 37.1 35.3 31.7?
+34.7unsup.
+37.2 36.8?
+35.3 31.5?
+34.5Moses, RAMPION, S = 500 36.2 36.1?
+34.6?
+31.8 34.2When using supervised English parsing, we find that using our unsupervisedChinese parser in place of the Stanford parser leads to the same average test set BLEUscore.
+When instead using random Chinese parses, we see a significant drop on two ofthe three test sets and an average decrease of 0.5 BLEU.
+When pairing unsupervisedEnglish parsing with supervised Chinese parsing, we see an average drop of just 0.2BLEU compared to the fully supervised case.
+When both parsers are unsupervised,BLEU scores drop further but are still above the best Moses baseline on average.One idea that we have not explored is to parse our parallel corpus using eachparser (unsupervised and supervised), then extract rules consistent with any of theparses.
+This might give us some of the benefits of forest-based rule extraction, which hasfrequently been shown to improve translation quality (Liu et al.
+2007; Mi, Huang, andLiu 2008; Mi and Huang 2008).
+Similarly, because we train systems for several languagepairs, we could pool the rules extracted from all parallel corpora for computing target-syntactic features.
+For example, adding the English phrase dependency rules from theDE?EN corpus could improve performance of our ZH?EN and UR?EN systems.Moving beyond translation, we could use the pool of extracted rules from all systems(and using all parsers) to build monolingual phrase dependency parsers for use in otherapplications (Wu et al.
+2009).7.2.2 Feature Ablation.
+We performed feature ablation experiments for UR?EN transla-tion, shown in Table 11.
+Starting with TGTTREE features, which consist of word (WORD),cluster (CLUST), and configuration (CFG) feature sets, we alternately removed each ofthe three.
+We find only a small (and statistically insignificant) drop in BLEU whenomitting word features, but a larger drop when omitting word cluster features.
+Thismay be due to the small size of our training data for UR?EN (approximately 1 millionwords of parallel text).
+With limited training data, it is not surprising that unlexicalizedfeatures like the cluster and configuration features would show a stronger effect thanthe lexicalized features.7.3 Human EvaluationWe focused on UR?EN and ZH?EN translation for our manual evaluation, as theselanguage pairs showed the largest gains in BLEU when using our QPD model.
+We386Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesTable 11Feature ablation experiments for UR?EN translation with string-to-tree features, showing thedrop in BLEU when separately removing word (WORD), cluster (CLUST), and configuration(CFG) feature sets.
+?
+= significantly worse than TGTTREE.
+Removing word features causes nosignificant difference.
+Removing cluster features results in a significant difference on both testsets, and removing configuration features results in a significant difference on test 2 only.Urdu?Englishmodel notes tune test 1 test 2 test avg.
+(?
+)Moses SSVM reranking 24.9 24.4 24.7 24.6QPD TGTTREE = WORD + CLUST + CFG 25.8 25.4 25.5 25.4TGTTREE ?
+WORD 25.6 25.0 25.5 25.2 (?0.2)TGTTREE ?
+CLUST 25.4 24.8?
+24.9?
+24.9 (?0.5)TGTTREE ?
+CFG 25.1 25.1 25.0?
+25.0 (?0.4)began by performing a human evaluation using Amazon Mechanical Turk (MTurk)in order to validate the BLEU differences against human preference judgments and toidentify translations that were consistently judged better under each model for follow-up manual evaluation.7.3.1 Procedure.
+We first removed sentences with unknown words, as we feared theywould only confuse judges.18 We then randomly selected 500 sentences from UR?ENtest 2 and 500 from the concatenation of ZH?EN test 1 and test 2.
+For each of the 1,000sentences, we chose a single reference translation from among the four references toshow to judges.19 All text was detokenized.
+Judges were shown the reference transla-tion, the translation from the Moses system with SSVM reranking, and the translationfrom our QPD system with the full feature set.
+We randomized the order in which thetwo machine translations were presented.
+Judges were asked to select which translationwas closer in meaning to the reference; alternatively, they could indicate that they wereof the same quality.
+We obtained judgments like these from three judges for each of the1,000 sentences.7.3.2 Results and Analysis.
+Table 12 shows the results of our MTurk experiments.
+If asentence was judged to be translated better by one system more often than the other,it was counted as a victory for that system.
+The QPD translations for 40?43% of thesentences were preferred over Moses, but for 28?33% of the sentences, the reverse wastrue.We can use these judgments to study when and how our system improves overMoses, and also when Moses still performs better.
+For a follow-up manual evaluation,we looked at ZH?EN sentences for which all three judges selected either Moses orthe QPD model; these should be the clearest examples of success for each system.
+In18 Although this filtering step may introduce bias, we confirmed that the system differences in BLEU weresimilar whether looking at sentences with unknown words, those without unknown words, or allsentences.19 For UR?EN test 2 and ZH?EN test 2, we chose the first reference set from the four provided.
+ForZH?EN test 1, we instead chose the second reference set because its average length was closer to theaverage across the four reference sets.387Computational Linguistics Volume 40, Number 2Table 12Results of human evaluation performed via Amazon Mechanical Turk.
+The percentagesrepresent the portion of sentences for which one system had more preference judgmentsthan the other system.
+If a sentence had an equal number of judgments for the two systems,it was counted in the final row (?neither preferred?
+).% of sentences preferredZH?EN UR?ENMoses, SSVM reranking 33.4% 28.6%QPD, TGTTREE + TREETOTREE 40.6% 42.8%neither preferred 26.0% 28.6%looking at these sentences, we attempted to categorize the primary reasons why all threejudges would have preferred one system?s output over the other.
+We began with twobroad categories of improvement: word choice and word order.
+We divided word choiceimprovements into two subcategories: those involving verbs and those involving wordsother than verbs.
+The reason we made this distinction is because some differences innon-verb translation are not as crucial for understanding a sentence as differences inverb translation or word order.
+Anecdotally, we observed that when one sentence hasa better verb translation and the other has a better preposition translation, judges tendto prefer the translation with the better verb.
+We noted some sentences that fit multiplecategories, but in our analysis we chose a single category that we deemed to be the mostimportant factor in the judges?
+decisions.Of the 26 sentences for which Moses output was preferred unanimously, we agreedwith the consensus on 25 and found that 19 of these improved due to better wordchoice, most frequently (13 out of 19) for words other than verbs.
+Only 6 of the 25were determined to be preferred due to word order.
+The top section of Table 13 showsrepresentative examples when Moses?
+translations were unanimously preferred.
+Moseshandles prepositions and other function words better than the QPD model in theseexamples.
+This may occur due to the reliance of phrase-based systems upon strongn-gram language models to ensure local fluency.
+The QPD model uses all of Moses?features, including the same n-gram language model, but it adds many other featuresthat score longer-distance word order and may be overwhelming the n-gram model incertain cases.For the 44 sentences for which QPD output was unanimously preferred, we agreedwith the judges on 42.
+Of these, we found that 15 had improved word order, 14 hadimprovements in verb word choice, and 13 had improved word choice for non-verbs.So the QPD model?s improvements were due to word order on 36% of unanimoussentences, compared with Moses?
+24%, suggesting that the QPD model?s strength isin improving word order.
+The lower section of Table 13 shows representative examples.Consider the final example in the table.
+The Moses translation has better local fluency,but mixes words across clauses, confusing the meaning.
+The QPD translation has twolocal disfluencies (?because law-abiding citizen hopes to?
+and ?don?t need to fear willattack?
+), but has no erroneous word reordering across clause boundaries.7.4 Decoding SpeedSo far we have reported BLEU scores for various feature sets and parsers, but wehave not discussed decoding speed.
+BLEU improvements may not be worth substantial388Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Featuresreductions in translation speed.
+In this section we report decoding speeds and BLEUscores for UR?EN translation as pruning thresholds are varied.
+Our lattice dependencyparsing decoding algorithm is exact, but two pruning stages precede lattice parsing, asdiscussed in Section 6.3: (1) pruning the phrase lattices based on the phrase-based modelTable 13Examples from manual evaluation of ZH?EN output, selected from sentences with unanimouspreference judgments for Moses (top) and our QPD model (bottom).
+R = reference; M = Moses,SSVM reranking; Q = QPD, TGTTREE + TREETOTREE.Moses preferred:R the purpose of cheney?s trip is to win supports of middle east countries in case of a u.s.attack on iraq.M cheney?s trip is to lobby the middle east countries to support the us attack on iraq.Q cheney?s trip was to lobby the middle east countries support us attacks on iraq.R he said, "after this conference, our position is clear to all.
+"M he said: "this time after the talks, our position is well known.
+"Q he said: "this round of talks, our position is well known.
+"R ukraine condemned us for interfering its internal affairs.M ukraine condemned the united states for interfering in its internal affairs.Q ukraine condemned the united states of interfering in its internal affairs.R former serbian interior minister, vlajko stojiljkovic, attempts to commit suicide.M yugoslavia, a former serbian interior minister tried to commit suicide.Q interior minister tried to commit suicide before the serbian republic of yugoslavia.R arafat died in a french hospital of an unknown illness on november 11.M arafat died in a french hospital on nov. 11, due to an unidentified disease.Q arafat died on nov. 11 in a french hospital, an unidentified disease.QPD preferred:R bush: nato must forge a new relationship with russiaM bush said that the establishment of a new type of relationship between russia and natomustQ bush says nato must build new relations with russiaR that would portend increased flows of glacial ice from antarctica and a rise in global sealevels, endangering low-lying land areas.M this bodes well for the antarctica ice flow will increase, the global sea level will rise in thelowlands, will cause harm to the region.Q this indicates that the antarctica?s ice flow will increase, global sea level will rise, and willcause harm to the lowlands region.R this is the first sandstorm in north korea since spring this year.M this is the first since the spring of this year the sandstorms.Q this is the first sandstorm of the korean experience since spring this year.R "we really have to tackle the problem of street-crime.
+law-abiding citizens want to feel safewhen they walk on the street.
+they want a peaceful life and untroubled by attack," he said.M he said: "we really should rectify the order because of law-abiding citizens, in the hope ofpeace and security on the streets and on the living, not to be afraid of attacks.
+"Q he said: "we really should rectify the order in the streets, because law-abiding citizen hopesto secure a safe life on the streets, and don?t need to fear will attack.
+"389Computational Linguistics Volume 40, Number 2scores, and (2) pruning the search space deterministically based on source- and target-side limits on dependency lengths.
+In this section, we measure the impact of the lattertype of pruning only.20We vary maximum dependency lengths and we report BLEU scores and decodingspeeds.
+We find that we can set these limits to be relatively strict and get similar BLEUscores in less time.
+In all previous experiments, we used a source-side limit ?x of 15and a target-side limit ?y of 20.
+That is, all target-side phrase dependencies may covera maximum of 20 words in the target sentence, and the number of words between thealigned source phrases can be at most 15.
+We often use a larger value of ?y becauseit is constraining an upper bound on the number of words crossed in the translation,whereas?x constraints the exact number of source words crossed by a dependency (seeSection 6.3.3 for details).For timing experiments, we ran a single decoding thread on a Sun Fire X2200 M2 x64server with two 2.6-GHz dual-core CPUs.
+Decoding during tuning is time-consuming,because we generate unique 150-best lists for each iteration, so we only use two maxdependency length settings for tuning.
+But given trained models, finding the 1-bestoutput on the test data is much faster.
+So we experimented with more pruning settingsfor decoding.
+Table 14 shows our results.
+The upper table reminds us of the baselineBLEU scores.
+The lower table shows what happens when we train with two pruningsettings: (?x = 10,?y = 15) and (?x = 15,?y = 20), and test with many others.The times reported only include the time required for running the Floyd-Warshallalgorithm on the lattice and performing lattice dependency parsing.
+We use the Mosesdecoder for lattice generation; this typically takes only slightly longer than ordinarydecoding, which is generally in the range of a couple seconds per sentence, dependingon how the phrase table and language model are accessed.
+The average time requiredto run the Floyd-Warshall algorithm on the lattices is approximately 0.8 seconds persentence, so it begins to dominate the total time as the pruning thresholds go below(5, 5).
+The earlier numbers in this section used (?x = 15,?y = 20) for both tuning andtesting, which causes test-time decoding to take approximately 6 seconds per sentence,as shown in the table.
+We can see that we can use stricter constraints during test-time decoding only (e.g., (?x = 5,?y = 10)) and speed this up by a factor of 3 whileonly losing 0.1 BLEU.
+The only severe drops in BLEU appear when using thresholdsbelow (5, 5).8.
+Conclusion and Future WorkWe presented a new approach to machine translation that combines phrases, depen-dency syntax, and quasi-synchronous tree-to-tree relationships.
+We introduced severalcategories of features for dependency-based translation, including string-to-tree andtree-to-tree features.
+We proposed lattice dependency parsing to solve the decodingproblem and presented ways to speed up the search and prune the search space.
+Wepresented experimental results on seven test sets across four language pairs, findingstatistically significant improvements over strong phrase-based baselines on five of theseven.
+Manual inspection reveals improvement in the translation of verbs, an importantcomponent in preserving the meaning of the source text.
+We showed that unsupervised20 Ideally we could also measure the impact of pruning the phrase lattices to various sizes, but this wouldrequire the time-consuming process of filtering our phrase dependency tables for each lattice size, so wehave not yet tested the effect of this pruning systematically.390Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesTable 14%BLEU on tune and test sets for UR?EN translation, comparing several settings for maximumdependency lengths in the decoder (?x is for the source side and?y is for the target side).
+Theupper table shows Moses BLEU scores for comparison.
+The lower table compares two maxdependency length settings during tuning, and several for decoding on the test sets, showingboth BLEU scores and average decoding times per sentence.
+See text for discussion.tune%BLEUtest 1%BLEUtest 2%BLEUavg.
+test%BLEUMoses, SSVM reranking 24.9 24.4 24.7 24.6tune(?x ,?y )tune%BLEUtest(?x ,?y )test 1%BLEUtest 2%BLEUavg.
+test%BLEUtime(sec./sent.
+)QPD(10, 15) 25.9(3, 3) 21.7 22.3 22.0 1.11(3, 5) 23.2 23.5 23.3 1.28(5, 5) 24.9 24.7 24.8 1.41(5, 10) 25.2 25.0 25.1 2.09(10, 10) 25.4 25.3 25.3 3.01(10, 15) 25.3 25.4 25.4 4.00(15, 20) 25.5 25.5 25.5 6.15(20, 20) 25.6 25.5 25.6 7.18(20, 25) 25.5 25.5 25.5 7.83(15, 20) 25.8(3, 3) 22.2 22.8 22.5 1.11(3, 5) 23.2 24.0 23.6 1.28(5, 5) 25.2 25.2 25.2 1.41(5, 10) 25.3 25.4 25.4 2.08(10, 10) 25.2 25.5 25.4 3.01(10, 15) 25.4 25.6 25.5 4.02(15, 20) 25.4 25.6 25.5 6.07(20, 20) 25.4 25.6 25.5 7.16(20, 25) 25.4 25.6 25.5 7.96dependency parsing can be used effectively within a tree-to-tree translation system,enabling the use of our system for low-resource languages like Urdu and Malagasy.
+Thisresult offers promise for researchers to apply syntactic translation models to languagesfor which we do not have manually annotated corpora.There are many directions for future work.
+Unsupervised learning of syntax can beimproved if parallel text is available and we have a parser for one of the languages: Theparallel text can be word-aligned and the annotations can be projected across the wordalignments (Yarowsky and Ngai 2001; Yarowsky, Ngai, and Wicentoswki 2001).
+Theprojected parses can be improved by applying manually written rules (Hwa et al.
+2005)or modeling the noisy projection process (Ganchev, Gillenwater, and Taskar 2009; Smithand Eisner 2009).
+If we do not have parsers for either language, grammar inductionmodels have been developed to exploit parallel text without using any annotationson either side (Kuhn 2004; Snyder, Naseem, and Barzilay 2009).
+Techniques are alsoavailable for grammar induction using treebanks in different languages that are notbuilt on parallel data (Cohen, Das, and Smith 2011).Researchers have recently begun to target learning of parsers specifically for ap-plications like machine translation.
+Hall et al.
+(2011) developed a framework to trainsupervised parsers for use in particular applications by optimizing arbitrary evaluationmetrics; Katz-Brown et al.
+(2011) used this framework to train a parser for reordering391Computational Linguistics Volume 40, Number 2in machine translation.
+Relatedly, DeNero and Uszkoreit (2011) tailored unsupervisedlearning of syntactic structure in parallel text to target reordering phenomena.In addition, we may not need full monolingual syntactic parses to obtain thebenefits of syntax-based translation modeling.
+Indeed, the widely used hierarchicalphrase-based model of Chiang (2005) induces a synchronous grammar from paralleltext without any linguistic annotations.
+Zollmann and Vogel (2011) and Zollmann (2011)showed that using a supervised POS tagger to label these synchronous rules can im-prove performance up to the level of a model that uses a supervised full syntactic parser.They further showed that unsupervised POS taggers could be effectively used in placeof supervised taggers.
+These results suggest that it may be fruitful to explore the use ofsimpler annotation tools such as POS taggers, whether supervised or unsupervised, inorder to apply syntax-based translation to new language pairs.Appendix A.
+Language PairsWe consider four language pairs in this article, two for which large amounts of par-allel data are available and two involving low-resource languages.
+The large-datalanguage pairs we consider are Chinese?English (ZH?EN) and German?English(DE?EN).
+The two low-resource language pairs are Urdu?English (UR?EN) andEnglish?Malagasy (EN?MG).For all language pairs, English text was parsed using TurboParser version 0.1(Martins et al.
+2010).
+We used a second-order model with sibling and grandparentfeatures that was trained to maximize conditional log-likelihood.The following sections describe the procedures used to prepare the data for eachlanguage pair.
+The line and token counts are summarized in Tables A.1?A.3.Chinese?English.
+For ZH?EN, we used 303k sentence pairs from the FBIS corpus(LDC2003E14).
+We segmented the Chinese data using the Stanford Chinese seg-menter (Chang, Galley, and Manning 2008) in ?CTB?
+mode, giving us 7.9M ChineseTable A.1Statistics of data used for rule extraction and feature computation.lines source tokens target tokensZH?EN 302,996 7,984,637 9,350,506DE?EN 1,010,466 23,154,642 24,044,528UR?EN 165,159 1,169,367 1,083,807EN?MG 83,670 1,500,922 1,686,022Table A.2Statistics of data used for tuning.
+The numbers of target tokens are averages across fourreference translations for ZH?EN and UR?EN, rounded to the nearest token.lines source tokens target tokensZH?EN 919 24,152 28,870DE?EN 1,300 29,791 31,318UR?EN 882 18,004 16,606EN?MG 1,359 28,408 32,682392Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesTable A.3Test data statistics.
+The numbers of target tokens are averages across four reference translationsfor ZH?EN and UR?EN, rounded to the nearest token.test 1 test 2 test 3lines source target lines source target lines source targettokens tokens tokens tokens tokens tokensZH?EN 878 22,708 26,877 1,082 29,956 35,227 1,664 38,787 48,169DE?EN 2,525 62,699 65,595 N/A N/AUR?EN 883 21,659 19,575 1,792 42,082 39,889 N/AEN?MG 1,133 24,362 28,301 N/A N/Atokens and 9.4M English tokens.
+For tuning and testing, we used MT03 (?tune?
+), MT02(?test 1?
+), MT05 (?test 2?
+), and MT06 (?test 3?).
+The Chinese text was parsed using theStanford parser (Levy and Manning 2003).German?English.
+We started with the Europarl corpus provided for the WMT12 sharedtask.
+We tokenized both sides, filtered sentences with more than 50 words, and down-cased the text.
+We then discarded every other sentence, beginning with the second,leaving half of the corpus remaining.
+We did this to speed our experiment cycle.
+Thecorpus still has about 850k sentence pairs.
+We did the same processing with the newscommentary corpus, but did not discard half of the sentences.
+There were about 150knews commentary sentences, giving us a total of about 1M lines of DE?EN paralleltraining data.
+For tuning, we used the first 1,300 sentences from the 2008 2,051-sentencetest set (?tune?).
+For testing, we used the 2009 test set (?test 1?).
+The tuning/test sets arefrom the newswire domain.
+The German text was parsed using the factored model inthe Stanford parser (Rafferty and Manning 2008).Urdu?English.
+For UR?EN, we used parallel data from the NIST MT08 evaluation.Although there are 165,159 lines of parallel data, there are many dictionary andotherwise short entries, so it is close to an order of magnitude smaller than ZH?EN.We used half of the documents (882 sentences) from the MT08 test set for tuning(?tune?).
+We used the remaining half for one test set (?test 1?)
+and MT09 as a secondtest set (?test 2?).
+The Urdu text was parsed using an unsupervised dependency parseras described in Section 7.1.3.English?Malagasy.
+For EN?MG translation, we used data obtained from the GlobalVoices weblogging community (http://globalvoicesonline.org), prepared by VictorChahuneau.21 We used release 12.06 along with its recommended training, development(tuning), and test set.
+Like Urdu, the Malagasy text was parsed using an unsuperviseddependency parser as described in Section 7.1.3.Appendix B.
+Experimental DetailsAppendix A contains details about the data sets used in our experiments.
+Other experi-mental details are given here.21 The data are publicly available at http://www.ark.cs.cmu.edu/global-voices/.393Computational Linguistics Volume 40, Number 2Translation Models.
+For phrase-based models, we used the Moses machine translationtoolkit (Koehn et al.
+2007).
+We mostly used default settings and features, includ-ing the default lexicalized reordering model.
+Word alignment was performed usingGIZA++ (Och and Ney 2003) in both directions, the grow-diag-final-and heuristicwas used to symmetrize the alignments, and a max phrase length of 7 was used forphrase extraction.
+The only exception to the defaults was setting the distortion limit to10 in all experiments.Language Models.
+Language models were trained using the target side of the parallelcorpus in each case augmented with 24,760,743 lines (601,052,087 tokens) of randomlyselected sentences from the Gigaword v4 corpus (excluding the New York Times and LosAngeles Times).
+The minimum count cutoff for unigrams, bigrams, and trigrams was oneand the cutoff for fourgrams and fivegrams was three.
+Language models were estimatedusing the SRI Language Modeling toolkit (Stolcke 2002) with modified Kneser-Neysmoothing (Chen and Goodman 1998).
+Language model inference was performed usingKenLM (Heafield 2011) within Moses.For EN?MG, we estimated a 5-gram language model using only the target sideof the parallel corpus, which contained 89,107 lines with 2,031,814 tokens.
+We did notuse any additional Malagasy data for estimating the EN?MG language models inorder to explore a scenario in which target-language text is limited or expensive toobtain.Word Clustering.
+Brown clusters (Brown et al.
+1992) were generated using code providedby Liang (2005).
+For each language pair, 100 word clusters were generated for the targetlanguage.
+The implementation allows the use of a token count cutoff, which causes thealgorithm to only cluster words appearing more times than the cutoff.
+When the clustersare used, all words with counts below the cutoff are assigned a special ?unknown word?cluster.
+So in practice, if a clustering with 100 clusters is generated, there are 101 clustersused when the clusters are applied.For ZH?EN, DE?EN, and UR?EN, the target side of the parallel data was usedalong with 412,000 lines of randomly selected Gigaword data comprising 10,001,839words.
+This data was a subset of the Gigaword data used for language modeling.
+Thecount cutoff was 2.
+For EN?MG, only the target side of the parallel corpus was used.The count cutoff was 1.
+In all cases, the data was tokenized and downcased prior tocluster generation.AcknowledgmentsWe thank the anonymous reviewers as wellas Dhruv Batra, Jaime Carbonell, DavidChiang, Shay Cohen, Dipanjan Das, ChrisDyer, Jason Eisner, Alon Lavie, Andre?Martins, Greg Shakhnarovich, David Smith,Stephan Vogel, and Eric Xing.
+This researchwas supported in part by the NationalScience Foundation through grantIIS-0844507, the U.S. Army ResearchLaboratory and the U.S. Army ResearchOffice under contract/grant numberW911NF-10-1-0533, and Sandia NationalLaboratories (fellowship to K. Gimpel).ReferencesAho, A. V. and J. D. Ullman.
+1969.
+Syntaxdirected translations and the pushdownassembler.
+Journal of Computer and SystemSciences, 3(1):37?56.Ambati, V. and A. Lavie.
+2008.
+Improvingsyntax driven translation modelsby re-structuring divergent andnon-isomorphic parse tree structures.
+InProceedings of the Eighth Conference of theAssociation for Machine Translation in theAmericas, pages 235?244, Waikiki, HI.Berg-Kirkpatrick, T., A. Bouchard-Co?te?,J.
+DeNero, and D. Klein.
+2010.
+Painless394Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Featuresunsupervised learning with features.In Human Language Technologies: The 2010Annual Conference of the North AmericanChapter of the Association for ComputationalLinguistics (NAACL), pages 582?590,Los Angeles, CA.Birch, A., P. Blunsom, and M. Osborne.
+2009.A quantitative analysis of reorderingphenomena.
+In Proceedings of the FourthWorkshop on Statistical Machine Translation,pages 197?205, Athens.Blunsom, P. and T. Cohn.
+2010.
+Unsupervisedinduction of tree substitution grammarsfor dependency parsing.
+In Proceedingsof the 2010 Conference on EmpiricalMethods in Natural Language Processing,pages 1,204?1,213, Cambridge, MA.Bohnet, B.
+2010.
+Top accuracy andfast dependency parsing is not acontradiction.
+In Proceedings of the 23rdInternational Conference on ComputationalLinguistics (Coling 2010), pages 89?97,Beijing.Brown, P. F., P. V. deSouza, R. L. Mercer,V.
+J. Della Pietra, and J. C. Lai.
+1992.Class-based n-gram models of naturallanguage.
+Computational Linguistics,18(4):467?479.Buchholz, S. and E. Marsi.
+2006.
+CoNLL-Xshared task on multilingual dependencyparsing.
+In Proceedings of the TenthConference on Computational NaturalLanguage Learning (CoNLL-X),pages 149?164, New York City.Carreras, X. and M. Collins.
+2009.Non-projective parsing for statisticalmachine translation.
+In Proceedingsof the 2009 Conference on EmpiricalMethods in Natural Language Processing,pages 200?209, Singapore.Chang, P., M. Galley, and C. Manning.
+2008.Optimizing Chinese word segmentationfor machine translation performance.In Proceedings of the Third Workshopon Statistical Machine Translation,pages 224?232, Columbus, OH.Charniak, E. and M. Johnson.
+2005.Coarse-to-fine n-best parsing and maxentdiscriminative reranking.
+In Proceedings ofthe 43rd Annual Meeting of the Associationfor Computational Linguistics (ACL?05),pages 173?180, Ann Arbor, MI.Chen, S. and J. Goodman.
+1998.
+An empiricalstudy of smoothing techniques forlanguage modeling.
+Technical report 10-98,Harvard University.Chen, W., J. Kazama, K. Uchimoto, andK.
+Torisawa.
+2012.
+Exploiting subtrees inauto-parsed data to improve dependencyparsing.
+Computational Intelligence,28(3):426?451.Chiang, D. 2005.
+A hierarchical phrase-basedmodel for statistical machine translation.In Proceedings of the 43rd Annual Meeting ofthe Association for Computational Linguistics(ACL?05), pages 263?270, Ann Arbor, MI.Chiang, D. 2007.
+Hierarchical phrase-basedtranslation.
+Computational Linguistics,33(2):201?228.Chiang, D. 2010.
+Learning to translate withsource and target syntax.
+In Proceedingsof the 48th Annual Meeting of theAssociation for Computational Linguistics,pages 1,443?1,452, Uppsala.Christodoulopoulos, C., S. Goldwater, andM.
+Steedman.
+2010.
+Two decades ofunsupervised POS induction: How farhave we come?
+In Proceedings of the 2010Conference on Empirical Methods in NaturalLanguage Processing, pages 575?584,Cambridge, MA.Cohen, S. B.
+2011.
+Computational Learning ofProbabilistic Grammars in the UnsupervisedSetting.
+Ph.D. thesis, Carnegie MellonUniversity, Pittsburgh, PA.Cohen, S. B., D. Das, and N. A. Smith.
+2011.Unsupervised structure prediction withnon-parallel multilingual guidance.In Proceedings of the 2011 Conference onEmpirical Methods in Natural LanguageProcessing, pages 50?61, Edinburgh.Cowan, B., I.
+Kuc?erova?, and M. Collins.
+2006.A discriminative model for tree-to-treetranslation.
+In Proceedings of the 2006Conference on Empirical Methods in NaturalLanguage Processing, pages 232?241,Sydney.Crego, J. M. and F. Yvon.
+2009.
+Gappytranslation units under left-to-right SMTdecoding.
+In Proceedings of the Meeting of theEuropean Association for Machine Translation(EAMT), pages 66?73, Barcelona.Das, D. and N. A. Smith.
+2009.
+Paraphraseidentification as probabilisticquasi-synchronous recognition.In Proceedings of the Joint Conference of the47th Annual Meeting of the ACL and the 4thInternational Joint Conference on NaturalLanguage Processing of the AFNLP,pages 468?476, Suntec.DeNero, J. and J. Uszkoreit.
+2011.
+Inducingsentence structure from parallel corporafor reordering.
+In Proceedings of the 2011Conference on Empirical Methods in NaturalLanguage Processing, pages 193?203,Edinburgh.Ding, Y. and M. Palmer.
+2005.
+Machinetranslation using probabilistic395Computational Linguistics Volume 40, Number 2synchronous dependency insertiongrammars.
+In Proceedings of the 43rd AnnualMeeting of the Association for ComputationalLinguistics (ACL?05), pages 541?548,Ann Arbor, MI.Dorr, B. J.
+1994.
+Machine translationdivergences: a formal description andproposed solution.
+ComputationalLinguistics, 20(4):597?633.Dyer, C., A. Lopez, J. Ganitkevitch, J. Weese,F.
+Ture, P. Blunsom, H. Setiawan,V.
+Eidelman, and P. Resnik.
+2010. cdec:A decoder, alignment, and learningframework for finite-state and context-freetranslation models.
+In Proceedings of theACL 2010 System Demonstrations,pages 7?12, Uppsala.Eisner, J.
+1996.
+Three new probabilisticmodels for dependency parsing: Anexploration.
+In Proceedings of the 16thConference on Computational Linguistics(COLING-96), pages 340?345, Copenhagen.Eisner, J.
+2003.
+Learning non-isomorphic treemappings for machine translation.In Proceedings of ACL, pages 205?208,Sapporo.Eisner, J., E. Goldlust, and N. A. Smith.
+2005.Compiling Comp Ling: Practical weighteddynamic programming and the Dynalanguage.
+In Proceedings of Human LanguageTechnology Conference and Conference onEmpirical Methods in Natural LanguageProcessing, pages 281?290, Vancouver.Eisner, J. and N. A. Smith.
+2005.
+Parsing withsoft and hard constraints on dependencylength.
+In Proceedings of IWPT,pages 30?41, Vancouver.Floyd, R. W. 1962.
+Algorithm 97: Shortestpath.
+Communications of the ACM, 5(6):345.Fox, H. J.
+2002.
+Phrasal cohesion andstatistical machine translation.In Proceedings of the 2002 Conferenceon Empirical Methods in NaturalLanguage Processing, pages 304?311,Philadelphia, PA.Galley, M. and C. D. Manning.
+2009.Quadratic-time dependency parsing formachine translation.
+In Proceedings of theJoint Conference of the 47th Annual Meetingof the ACL and the 4th International JointConference on Natural Language Processingof the AFNLP, pages 773?781, Suntec.Galley, M. and C. D. Manning.
+2010.Accurate non-hierarchical phrase-basedtranslation.
+In Human LanguageTechnologies: The 2010 Annual Conferenceof the North American Chapter of theAssociation for Computational Linguistics,pages 966?974, Los Angeles, CA.Ganchev, K., J. Gillenwater, and B. Taskar.2009.
+Dependency grammar induction viabitext projection constraints.
+In Proceedingsof the Joint Conference of the 47th AnnualMeeting of the ACL and the 4th InternationalJoint Conference on Natural LanguageProcessing of the AFNLP, pages 369?377,Suntec.Gao, Y., P. Koehn, and A. Birch.
+2011.
+Softdependency constraints for reordering inhierarchical phrase-based translation.In Proceedings of the 2011 Conference onEmpirical Methods in Natural LanguageProcessing, pages 857?868, Edinburgh.Gertz, E. M. and S. J. Wright.
+2003.Object-oriented software for quadraticprogramming.
+ACM Transactions onMathematical Software, 29(1):58?81.Gildea, D. 2003.
+Loosely tree-basedalignment for machine translation.In Proceedings of the 41st Annual Meetingof the Association for ComputationalLinguistics, pages 80?87, Sapporo.Gimpel, K. 2012.
+Discriminative Feature-RichModeling for Syntax-Based MachineTranslation.
+Ph.D. thesis, CarnegieMellon University, Pittsburgh, PA.Gimpel, K. and N. A. Smith.
+2008.
+Richsource-side context for statistical machinetranslation.
+In Proceedings of the ThirdWorkshop on Statistical Machine Translation,pages 9?17, Columbus, OH.Gimpel, K. and N. A. Smith.
+2009a.
+Cubesumming, approximate inference withnon-local features, and dynamicprogramming without semirings.
+InProceedings of the 12th Conference of theEuropean Chapter of the ACL (EACL 2009),pages 318?326, Athens.Gimpel, K. and N. A. Smith.
+2009b.Feature-rich translation byquasi-synchronous lattice parsing.
+InProceedings of the 2009 Conference onEmpirical Methods in Natural LanguageProcessing, pages 219?228, Singapore.Gimpel, K. and N. A. Smith.
+2011.Quasi-synchronous phrase dependencygrammars for machine translation.
+InProceedings of the 2011 Conference onEmpirical Methods in Natural LanguageProcessing, pages 474?485, Edinburgh.Gimpel, K. and N. A. Smith.
+2012a.Concavity and initialization forunsupervised dependency parsing.In Proceedings of the 2012 Conference of theNorth American Chapter of the Associationfor Computational Linguistics: HumanLanguage Technologies, pages 577?581,Montre?al.396Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesGimpel, K. and N. A. Smith.
+2012b.Structured ramp loss minimization formachine translation.
+In Proceedings of the2012 Conference of the North AmericanChapter of the Association for ComputationalLinguistics: Human Language Technologies,pages 221?231, Montre?al.Hall, K., R. McDonald, J. Katz-Brown, andM.
+Ringgaard.
+2011.
+Training dependencyparsers by jointly optimizing multipleobjectives.
+In Proceedings of the 2011Conference on Empirical Methods in NaturalLanguage Processing, pages 1,489?1,499,Edinburgh.Hanneman, G. and A. Lavie.
+2011.Automatic category label coarsening forsyntax-based machine translation.
+InProceedings of Fifth Workshop on Syntax,Semantics and Structure in StatisticalTranslation, pages 98?106, Portland, OR.Heafield, K. 2011.
+KenLM: Faster and smallerlanguage model queries.
+In Proceedings ofthe Sixth Workshop on Statistical MachineTranslation, pages 187?197, Edinburgh.Huang, L. 2008.
+Forest reranking:Discriminative parsing with non-localfeatures.
+In Proceedings of ACL-08: HLT,pages 586?594, Columbus, OH.Huang, L. and D. Chiang.
+2005.
+Betterk-best parsing.
+In Proceedings of the NinthInternational Workshop on ParsingTechnology, pages 53?64, Vancouver.Huang, L., K. Knight, and A. Joshi.
+2006.Statistical syntax-directed translation withextended domain of locality.
+In Proceedingsof the Association for Machine Translation inthe Americas, pages 66?73, Cambridge, MA.Hunter, T. and P. Resnik.
+2010.
+Exploitingsyntactic relationships in a phrase-baseddecoder: An exploration.
+MachineTranslation, 24(2):123?140.Hwa, R., P. Resnik, A. Weinberg, C. Cabezas,and O. Kolak.
+2005.
+Bootstrapping parsersvia syntactic projection across paralleltexts.
+Journal of Natural LanguageEngineering, 11(3):311?25.Joachims, T., T. Finley, and Chun-Nam Yu.2009.
+Cutting-plane training of structuralSVMs.
+Machine Learning, 77(1):27?59.Johnson, M. 2007.
+Transforming projectivebilexical dependency grammars intoefficiently-parsable CFGs with unfold-fold.In Proceedings of the 45th Annual Meeting ofthe Association of Computational Linguistics,pages 168?175, Prague.Johnson, M., T. Griffiths, and S. Goldwater.2007.
+Bayesian inference for PCFGs viaMarkov chain Monte Carlo.
+In HumanLanguage Technologies 2007: The Conferenceof the North American Chapter of theAssociation for Computational Linguistics;Proceedings of the Main Conference,pages 139?146, Rochester, NY.Katz-Brown, J., S. Petrov, R. McDonald,F.
+Och, D. Talbot, H. Ichikawa, M. Seno,and H. Kazawa.
+2011.
+Training a parserfor machine translation reordering.In Proceedings of the 2011 Conference onEmpirical Methods in Natural LanguageProcessing, pages 183?192, Edinburgh.Klein, D. and C. D. Manning.
+2002.
+Agenerative constituent-context modelfor improved grammar induction.In Proceedings of the 40th Annual Meeting ofthe Association for Computational Linguistics,pages 128?135, Philadelphia, PA.Klein, D. and C. D. Manning.
+2003.
+Fast exactinference with a factored model for naturallanguage parsing.
+In Advances in NeuralInformation Processing Systems 15 (NIPS),pages 3?10, Vancouver.Klein, D. and C. D. Manning.
+2004.Corpus-based induction of syntacticstructure: Models of dependency andconstituency.
+In Proceedings of the 42ndMeeting of the Association for ComputationalLinguistics (ACL?04), Main Volume,pages 478?485, Barcelona.Koehn, P. 2004.
+Statistical significance testsfor machine translation evaluation.In Proceedings of EMNLP 2004,pages 388?395, Barcelona.Koehn, P., H. Hoang, A. Birch,C.
+Callison-Burch, M. Federico,N.
+Bertoldi, B. Cowan, W. Shen, C. Moran,R.
+Zens, C. Dyer, O. Bojar, A. Constantin,and E. Herbst.
+2007.
+Moses: Open sourcetoolkit for statistical machine translation.In Proceedings of the 45th Annual Meeting ofthe Association for Computational LinguisticsCompanion Volume Proceedings of the Demoand Poster Sessions, pages 177?180, Prague.Koehn, P., F. J. Och, and D. Marcu.
+2003.Statistical phrase-based translation.In Proceedings of HLT-NAACL,pages 48?54, Edmonton.Ku?bler, S., R. McDonald, and J. Nivre.
+2009.Dependency Parsing.
+Synthesis Lectures onHuman Language Technologies.
+Morgan& Claypool.Kuhn, J.
+2004.
+Experiments in parallel-textbased grammar induction.
+In Proceedingsof the 42nd Meeting of the Association forComputational Linguistics (ACL?04), MainVolume, pages 470?477, Barcelona.Levy, R. and C. D. Manning.
+2003.
+Is it harderto parse Chinese, or the Chinese treebank?In Proceedings of the 41st Annual Meeting of397Computational Linguistics Volume 40, Number 2the Association for Computational Linguistics,pages 439?446, Sapporo.Li, Z. and S. Khudanpur.
+2008.
+A scalabledecoder for parsing-based machinetranslation with equivalent languagemodel state maintenance.
+In Proceedings ofthe ACL-08: HLT Second Workshop on Syntaxand Structure in Statistical Translation(SSST-2), pages 10?18, Columbus, OH.Li, Z., T. Liu, and W. Che.
+2012.
+Exploitingmultiple treebanks for parsing withquasi-synchronous grammars.
+InProceedings of the 50th Annual Meeting of theAssociation for Computational Linguistics(Volume 1: Long Papers), pages 675?684,Jeju Island.Liang, P. 2005.
+Semi-supervised learningfor natural language.
+Master?s thesis,Massachusetts Institute of Technology,Cambridge, MA.Lin, C. and F. J. Och.
+2004.
+Orange: A methodfor evaluating automatic evaluationmetrics for machine translation.
+InProceedings of Coling 2004, pages 501?507,Geneva.Lin, D. 2004.
+A path-based transfer model formachine translation.
+In Proceedings ofColing 2004, pages 625?630, Geneva.Liu, D. C. and J. Nocedal.
+1989.
+On thelimited memory BFGS method for largescale optimization.
+MathematicalProgramming, 45:503?528.Liu, Y., Y. Huang, Q. Liu, and S. Lin.
+2007.Forest-to-string statistical translation rules.In Proceedings of the 45th Annual Meeting ofthe Association of Computational Linguistics,pages 704?711, Prague.Liu, Y., Y.
+Lu?, and Q. Liu.
+2009.
+Improvingtree-to-tree translation with packed forests.In Proceedings of the Joint Conference of the47th Annual Meeting of the ACL and the 4thInternational Joint Conference on NaturalLanguage Processing of the AFNLP,pages 558?566, Suntec.Marcus, M. P., B. Santorini, and M. A.Marcinkiewicz.
+1993.
+Building a largeannotated corpus of English: The PennTreebank.
+Computational Linguistics,19:313?330.Martins, A. F. T., N. A. Smith, and E. P. Xing.2009.
+Concise integer linear programmingformulations for dependency parsing.In Proceedings of the Joint Conference of the47th Annual Meeting of the ACL and the 4thInternational Joint Conference on NaturalLanguage Processing of the AFNLP,pages 342?350, Suntec.Martins, A. F. T., N. A. Smith, E. P. Xing,P.
+M. Q. Aguiar, and M. A. T. Figueiredo.2010.
+Turbo parsers: Dependency parsingby approximate variational inference.In Proceedings of the 2010 Conference onEmpirical Methods in Natural LanguageProcessing, pages 34?44, Cambridge, MA.Melamed, I. D. 2003.
+Multitext grammarsand synchronous parsers.
+In Proceedings ofthe 2003 Conference of the North AmericanChapter of the Association for ComputationalLinguistics on Human Language Technology -Volume 1, pages 79?86, Edmonton.Mi, H. and L. Huang.
+2008.
+Forest-basedtranslation rule extraction.
+In Proceedingsof the 2008 Conference on EmpiricalMethods in Natural Language Processing,pages 206?214, Honolulu, HI.Mi, H., L. Huang, and Q. Liu.
+2008.Forest-based translation.
+In Proceedingsof ACL-08: HLT, pages 192?199,Columbus, OH.Naseem, T., H. Chen, R. Barzilay, andM.
+Johnson.
+2010.
+Using universallinguistic knowledge to guide grammarinduction.
+In Proceedings of the 2010Conference on Empirical Methods in NaturalLanguage Processing, pages 1,234?1,244,Cambridge, MA.Nederhof, M.-J.
+2003.
+Weighted deductiveparsing and Knuth?s algorithm.Computational Linguistics, 29(1):135?143.Nivre, J., J.
+Hall, S. Ku?bler, R. McDonald,J.
+Nilsson, S. Riedel, and D. Yuret.2007.
+The CoNLL 2007 shared task ondependency parsing.
+In Proceedingsof the CoNLL Shared Task Session ofEMNLP-CoNLL 2007, pages 915?932,Prague.Och, F. J.
+2003.
+Minimum error rate trainingin statistical machine translation.In Proceedings of the 41st Annual Meetingof the Association for ComputationalLinguistics, pages 160?167, Sapporo.Och, F. J. and H. Ney.
+2003.
+A systematiccomparison of various statisticalalignment models.
+ComputationalLinguistics, 29(1):19?51.Papineni, K., S. Roukos, T. Ward, andW.
+J. Zhu.
+2002.
+BLEU: A method forautomatic evaluation of machinetranslation.
+In Proceedings of the 40thAnnual Meeting of the Association forComputational Linguistics, pages 311?318,Philadelphia, PA.Park, J. H., W. B. Croft, and D. A. Smith.2011.
+A quasi-synchronous dependencemodel for information retrieval.
+InProceedings of the 20th ACM InternationalConference on Information and KnowledgeManagement, pages 17?26, Glasgow.398Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree FeaturesPetrov, S. 2009.
+Coarse-to-Fine NaturalLanguage Processing.
+Ph.D. thesis,University of California at Berkeley.Quirk, C., A. Menezes, and C. Cherry.2005.
+Dependency treelet translation:Syntactically informed phrasal SMT.In Proceedings of the 43rd Annual Meetingof the Association for ComputationalLinguistics (ACL?05), pages 271?279,Ann Arbor, MI.Rafferty, A. N. and C. D. Manning.
+2008.Parsing three German treebanks:Lexicalized and unlexicalized baselines.In Proceedings of the Workshop on ParsingGerman, pages 40?46, Columbus, OH.Riezler, S. and J. T. Maxwell III.
+2006.Grammatical machine translation.In Proceedings of the Human LanguageTechnology Conference of the NAACL,Main Conference, pages 248?255,New York City.Seeker, W. and J. Kuhn.
+2012.
+Making ellipsesexplicit in dependency conversion for aGerman treebank.
+In Proceedings of theEight International Conference on LanguageResources and Evaluation (LREC?12),pages 3,132?3,139, Istanbul.Sennrich, R., G. Schneider, M. Volk, andM.
+Warin.
+2009.
+A new hybrid dependencyparser for German.
+In Proceedings of theGerman Society for Computational Linguisticsand Language Technology (GSCL),pages 115?124, Potsdam.Shen, L., J. Xu, and R. Weischedel.
+2008.A new string-to-dependency machinetranslation algorithm with a targetdependency language model.In Proceedings of ACL-08: HLT,pages 577?585, Columbus, OH.Shieber, S. M. and Y. Schabes.
+1990.Synchronous tree-adjoining grammars.In Proceedings of the 13th InternationalConference on Computational Linguistics,pages 253?258, Helsinki.Simard, M., N. Cancedda, B. Cavestro,M.
+Dymetman, E. Gaussier, C. Goutte,K.
+Yamada, P. Langlais, and A. Mauser.
+2005.Translating with non-contiguous phrases.In Proceedings of the Human LanguageTechnology Conference and Conference onEmpirical Methods in Natural LanguageProcessing, pages 755?762, Vancouver.Sixtus, A. and S. Ortmanns.
+1999.High quality word graphs usingforward-backward pruning.
+In Proceedingsof the IEEE International ConferenceAcoustics, Speech, and Signal Processing,1999 - Volume 02, pages 593?596,Phoenix, AZ.Skut, W., B. Krenn, T. Brants, andH.
+Uszkoreit.
+1997.
+An annotationscheme for free word order languages.In Proceedings of the Fifth Conference onApplied Natural Language Processing,pages 88?95, Washington, DC.Smith, D. A. and J. Eisner.
+2006.Quasi-synchronous grammars:Alignment by soft projection of syntacticdependencies.
+In Proceedings of theWorkshop on Statistical Machine Translation,pages 23?30, New York City.Smith, D. A. and J. Eisner.
+2009.
+Parseradaptation and projection withquasi-synchronous grammar features.In Proceedings of the 2009 Conference onEmpirical Methods in Natural LanguageProcessing, pages 822?831, Singapore.Smith, N. A.
+2006.
+Novel Estimation Methodsfor Unsupervised Discovery of LatentStructure in Natural Language Text.Ph.D.
+thesis, Johns Hopkins University,Baltimore, MD.Snyder, B., T. Naseem, and R. Barzilay.
+2009.Unsupervised multilingual grammarinduction.
+In Proceedings of the JointConference of the 47th Annual Meetingof the ACL and the 4th International JointConference on Natural Language Processingof the AFNLP, pages 73?81, Suntec.S?gaard, A. and J. Kuhn.
+2009.
+Empiricallower bounds on alignment error ratesin syntax-based machine translation.In Proceedings of the Third Workshop onSyntax and Structure in StatisticalTranslation (SSST-3) at NAACL HLT 2009,pages 19?27, Boulder, CO.Spitkovsky, V. I., H. Alshawi, A. X. Chang,and D. Jurafsky.
+2011.
+Unsuperviseddependency parsing without goldpart-of-speech tags.
+In Proceedings of the2011 Conference on Empirical Methodsin Natural Language Processing,pages 1,281?1,290, Edinburgh.Spitkovsky, V. I., H. Alshawi, and D. Jurafsky.2010.
+From baby steps to leapfrog:How ?less is More?
+in unsuperviseddependency parsing.
+In Human LanguageTechnologies: The 2010 Annual Conferenceof the North American Chapter of theAssociation for Computational Linguistics,pages 751?759, Los Angeles, CA.Stolcke, A.
+2002.
+SRILM?An extensiblelanguage modeling toolkit.
+In Proceedingsof the 7th International Conference on SpokenLanguage Processing, pages 901?904,Denver, CO.Su, J., Y. Liu, H. Mi, H. Zhao, Y.
+Lu?, andQ.
+Liu.
+2010.
+Dependency-based399Computational Linguistics Volume 40, Number 2bracketing transduction grammar forstatistical machine translation.
+In Coling2010: Posters, pages 1,185?1,193, Beijing.Tesnie`re, L. 1959.
+E?le?ment de SyntaxeStructurale.
+Klincksieck.Toutanova, K., D. Klein, C. D. Manning, andY.
+Singer.
+2003.
+Feature-rich part-of-speechtagging with a cyclic dependency network.In Proceedings of the 2003 Conference of theNorth American Chapter of the Associationfor Computational Linguistics on HumanLanguage Technology - Volume 1,pages 173?180, Edmonton.Tromble, R., S. Kumar, F. Och, andW.
+Macherey.
+2008.
+Lattice minimumBayes-risk decoding for statistical machinetranslation.
+In Proceedings of the 2008Conference on Empirical Methods in NaturalLanguage Processing, pages 620?629,Honolulu, HI.Tsochantaridis, I., T. Joachims, T. Hofmann,and Y. Altun.
+2005.
+Large margin methodsfor structured and interdependent outputvariables.
+Journal of Machine LearningResearch, 6:1453?1484.Tu, Z., Y. Liu, Y. Hwang, Q. Liu, and S. Lin.2010.
+Dependency forest for statisticalmachine translation.
+In Proceedingsof the 23rd International Conference onComputational Linguistics (Coling 2010),pages 1,092?1,100, Beijing.Ueffing, N., F. J. Och, and H. Ney.
+2002.Generation of word graphs in statisticalmachine translation.
+In Proceedings of theACL-02 Conference on Empirical Methods inNatural Language Processing - Volume 10,pages 156?163, Philadelphia, PA.Wang, M., N. A. Smith, and T. Mitamura.2007.
+What is the Jeopardy model?
+Aquasi-synchronous grammar for QA.In Proceedings of the 2007 Joint Conferenceon Empirical Methods in Natural LanguageProcessing and Computational NaturalLanguage Learning (EMNLP-CoNLL),pages 22?32, Prague.Weiss, D., B. Sapp, and B. Taskar.
+2010.Sidestepping intractable inferencewith structured ensemble cascades.In Advances in Neural InformationProcessing Systems (NIPS),pages 2,415?2,423, Vancouver.Wellington, B., S. Waxmonsky, andI.
+D. Melamed.
+2006.
+Empirical lowerbounds on the complexity of translationalequivalence.
+In Proceedings of the 21stInternational Conference on ComputationalLinguistics and 44th Annual Meeting of theAssociation for Computational Linguistics,pages 977?984, Sydney.Woodsend, K., Y. Feng, and M. Lapata.
+2010.Title generation with quasi-synchronousgrammar.
+In Proceedings of the 2010Conference on Empirical Methods in NaturalLanguage Processing, pages 513?523,Cambridge, MA.Woodsend, K. and M. Lapata.
+2011.Learning to simplify sentences withquasi-synchronous grammar and integerprogramming.
+In Proceedings of the 2011Conference on Empirical Methods in NaturalLanguage Processing, pages 409?420,Edinburgh.Wu, D. 1997.
+Stochastic inversiontransduction grammars and bilingualparsing of parallel corpora.
+ComputationalLinguistics, 23(3):377?404.Wu, Y., Q. Zhang, X. Huang, and L. Wu.
+2009.Phrase dependency parsing for opinionmining.
+In Proceedings of the 2009 Conferenceon Empirical Methods in Natural LanguageProcessing, pages 1,533?1,541, Singapore.Xie, J., H. Mi, and Q. Liu.
+2011.
+A noveldependency-to-string model for statisticalmachine translation.
+In Proceedings of the2011 Conference on Empirical Methodsin Natural Language Processing,pages 216?226, Edinburgh.Xiong, D., Q. Liu, and S. Lin.
+2007.A dependency treelet stringcorrespondence model for statisticalmachine translation.
+In Proceedings of theSecond Workshop on Statistical MachineTranslation, pages 40?47, Prague.Yadollahpour, P., D. Batra, andG.
+Shakhnarovich.
+2013.
+Discriminativere-ranking of diverse segmentations.In Proceedings of IEEE Conference onComputer Vision and Pattern Recognition(CVPR), pages 1,923?1,930, Portland, OR.Yamada, H. and Y. Matsumoto.
+2003.Statistical dependency analysis withsupport vector machines.
+In Proceedingsof IWPT, pages 195?206, Nancy, France.Yamada, K. and K. Knight.
+2001.A syntax-based statistical translationmodel.
+In Proceedings of the 39th AnnualMeeting of the Association for ComputationalLinguistics, pages 523?530, Toulouse.Yarowsky, D. and G. Ngai.
+2001.
+Inducingmultilingual POS taggers and NPbracketers via robust projection acrossaligned corpora.
+In Proceedings of theSecond Meeting of the North AmericanChapter of the Association for ComputationalLinguistics on Language Technologies,pages 1?8, Pittsburgh, PA.Yarowsky, D., G. Ngai, and R. Wicentoswki.2001.
+Inducing multilingual text analysis400Gimpel and Smith Phrase Dependency MT with Quasi-Synchronous Tree-to-Tree Featurestools via robust projection acrossaligned corpora.
+In Proceedings of the FirstInternational Conference on HumanLanguage Technology Research, pages 1?8,San Diego, CA.Zhang, J., F. Zhai, and C. Zong.
+2011.Augmenting string-to-tree translationmodels with fuzzy use of source-sidesyntax.
+In Proceedings of the 2011 Conferenceon Empirical Methods in Natural LanguageProcessing, pages 204?215, Edinburgh.Zhang, Y.
+2009.
+Structured Language Modelsfor Statistical Machine Translation.
+Ph.D.thesis, Carnegie Mellon University,Pittsburgh, PA.Zollmann, A.
+2011.
+LearningMultiple-Nonterminal SynchronousGrammars for Statistical Machine Translation.Ph.D.
+thesis, Carnegie Mellon University,Pittsburgh, PA.Zollmann, A. and A. Venugopal.
+2006.Syntax augmented machine translationvia chart parsing.
+In Proceedings on theWorkshop on Statistical Machine Translation,pages 138?141, New York City.Zollmann, A., A. Venugopal, F. J. Och, andJ.
+Ponte.
+2008.
+A systematic comparisonof phrase-based, hierarchical andsyntax-augmented statistical MT.In Proceedings of the 22nd InternationalConference on Computational Linguistics(Coling 2008), pages 1,145?1,152,Manchester.Zollmann, A. and S. Vogel.
+2011.A word-class approach to labelingPSCFG rules for machine translation.In Proceedings of the 49th Annual Meeting ofthe Association for Computational Linguistics:Human Language Technologies, pages 1?11,Portland, OR.401402

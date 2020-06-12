@@ -1,0 +1,544 @@
+Efficient Inference and Structured Learningfor Semantic Role LabelingOscar T?ckstr?mGoogleNew Yorkoscart@google.comKuzman GanchevGoogleNew Yorkkuzman@google.comDipanjan DasGoogleNew Yorkdipanjand@google.comAbstractWe present a dynamic programming algorithmfor efficient constrained inference in semanticrole labeling.
+The algorithm tractably capturesa majority of the structural constraints exam-ined by prior work in this area, which has re-sorted to either approximate methods or off-the-shelf integer linear programming solvers.
+In ad-dition, it allows training a globally-normalizedlog-linear model with respect to constrainedconditional likelihood.
+We show that the dy-namic program is several times faster than anoff-the-shelf integer linear programming solver,while reaching the same solution.
+Furthermore,we show that our structured model results insignificant improvements over its local counter-part, achieving state-of-the-art results on bothPropBank- and FrameNet-annotated corpora.1 IntroductionSemantic role labeling (henceforth, SRL) is the taskof identifying the semantic arguments of predicatesin natural language text.
+Pioneered by Gildea andJurafsky (2002), this task has been widely investi-gated by the NLP community.
+There have been twoshared tasks at CoNLL 2004 and 2005 focusing onthis problem, using PropBank conventions to identifythe phrasal arguments of verbal predicates (Palmer etal., 2005; Carreras and M?rquez, 2004, 2005).
+Sincethen, there has been work on SRL for nominal pred-icates (Meyers et al., 2004; Gerber and Chai, 2010)and variants that investigated the prediction of se-mantic dependencies rather than phrasal arguments(Surdeanu et al., 2008; Hajic?
+et al., 2009).Here, we present an inference method for SRL,addressing the problem of phrasal argument structureprediction (as opposed to semantic dependencies).
+Incontrast to most prior semantic role labeling workfocusing on PropBank conventions, barring notableexceptions such as Meza-Ruiz and Riedel (2009), ourframework first performs frame identification, thesubtask of disambiguating the predicate frame; thismakes our analysis more interpretable.
+The focus ofthis paper, however, is the subtask of semantic rolelabeling, wherein we take a set of (potentially over-lapping) candidate sentential phrases and identify andlabel them with the semantic roles associated with thepredicted frame.
+This treatment is commonly used inframe semantic parsing (Das et al., 2014; Hermannet al., 2014) and our two-stage framework is able tomodel both PropBank and FrameNet conventions.Previous work focusing on semantic role labelingimposed several structural constraints warranted bythe annotation conventions of the task and other lin-guistic considerations, such as avoiding overlappingarguments and repeated core roles in the final predic-tion.
+Such global inference often leads to improvedresults and more meaningful predictions compared tolocal unconstrained methods (M?rquez et al., 2008).A popular framework for imposing these constraintshas been integer linear programming (ILP), whereinthe inference problem is specified declaratively (Pun-yakanok et al., 2008).
+However, ILP-based inferencemethods often rely on generic off-the-shelf solversthat fail to exploit problem-specific structure (Martinset al., 2011).
+Instead, we present a dynamic program(DP) that exactly enforces most of the constraintsexamined by Punyakanok et al.
+(2008); remainingconstraints are enforced by reverting to k-best infer-ence if needed.
+We show that this technique solvesthe inference problem more than four times fasterthan a state-of-the-art off-the-shelf ILP solver, while29Transactions of the Association for Computational Linguistics, vol.
+3, pp.
+29?41, 2015.
+Action Editor: Kristina Toutanova.Submission batch: 9/2014; Revision batch 1/2015; Published 1/2015.
+c?2015 Association for Computational Linguistics.I want to hold your hand .want.01(wanter)A0 (thing wanted)A1I want to hold your hand .hold.01A0(holder)A1(thing held)Figure 1: Example semantic role annotations for thetwo verbs in the sentence ?I want to hold your hand.
+?,according to PropBank.
+The annotations on top show theframe structure corresponding to want, while the onesbelow reflect the annotations for hold.
+Note that the agentrole (A0) is realized as the same word (?I?
+), but with themeaning wanter in one case and holder in the other.being guaranteed to achieve identical results.In addition to being relatively slow, ILP-basedmethods only solve the maximum a posteriori (MAP)inference problem, which prevents the computationof marginals and feature expectations.
+The proposedDP, on the other hand, allows us to train a globally-normalized log-linear model, enforcing the structuralconstraints during training.
+Empirically, we showthat such a structured model consistently performsbetter than training separate classifiers and incorpo-rating the constraints only at inference time.
+Wepresent results on the Wall Street Journal develop-ment and test sets, as well as the Brown test set fromthe CoNLL 2005 shared task for verbal SRL; theseshow that our structured model ?
+which uses a singledependency parse and no model averaging or rerank-ing ?
+outperforms other strong single-model sys-tems and rivals state-of-the-art ensemble-based meth-ods.
+We further present results on the OntoNotes 5.0corpora annotated with semantic roles for both verbaland nominal predicates (Weischedel et al., 2011) andstrongly outperform the prior state of the art (Pradhanet al., 2013).
+Finally, we present results on FrameNet1.5 data, again achieving state-of-the-art results.2 Task OverviewWe seek to predict the semantic argument structureof predicates in text.
+For brevity and practical rea-sons, the exposition and empirical study is primarilyfocused on PropBank-style annotations (Palmer etal., 2005).
+However, our approach applies directlyto FrameNet-style annotations as well (Baker et al.,1998) and as shown empirically in ?6, a similar trendIt is expected to rain .expect.01(thing expected)A1 C-A1The spy who knew me .know.01A0(knower)R-A0 A1(thing knownor thought)Figure 2: Examples showing continuation and referenceroles according to PropBank.
+The role prefix C- indicatescontinuation of an argument, while the prefix R- indicatesreference to another overt argument of the same predicate.holds across both types of annotation.In both cases, we are provided with a frame lexiconthat contains type-level information for lexical units(a lemma conjoined with a coarse-grained part-of-speech tag).1 For each lexical unit, a list of senses,or frames, are provided, where each frame comeswith a set of semantic roles that constitute the variousparticipants in the frame.
+These roles can be eithercore or non-core to the frame.In PropBank, a set of seven generic core role labelsare defined (A0-A5 and AA) that take on differentsemantics for each frame; each frame associates witha subset of these core roles.
+In addition there are21 non-core role labels that serve as adjuncts, suchas the temporal role AM-TMP and the locative roleAM-LOC; these are shared across frames and assumesimilar meaning.FrameNet similarly specifies a set of frames androles, with two key differences.
+First, the semanticsof the small set of core role labels in PropBank arelocal to each frame.
+In contrast, the several hundredrole labels in FrameNet are shared across frames andthey take on similar semantics in the frames in whichthey participate.
+Second, while frames in PropBankare just coarse-grained lemma-specific senses, theframe repository in FrameNet is shared across lem-mas.
+See Hermann et al.
+(2014) for examples of thesedifferences.Both PropBank- and FrameNet annotated data con-sist of sentence-level annotations that instantiate therespective frame lexicon with each predicate disam-biguated to its frame, as well as the phrasal argu-ments of each predicate labeled with their semanticroles.
+Figure 1 shows an example sentence with twoverbs annotated according to PropBank conventions.1The CoNLL 2005 dataset is restricted to verbal predicates.30In addition to such basic semantic role annotation,the PropBank-annotated data sets from the CoNLL2004 and 2005 shared tasks and OntoNotes 5.0, repre-sent discontiguous arguments across multiple spans.These are annotated such that the first span is labeledwith one of the 28 semantic role labels, while subse-quent spans have the continuation prefix C- attachedto the role.
+The first sentence in Figure 2 shows suchan annotation.
+Moreover, these data sets feature refer-ence roles for arguments, primarily relative pronouns,that refer to other overt arguments of the predicate.These roles are annotated by attaching the prefix R-to the role of the co-referent argument.
+For exam-ple, in the second sentence of Figure 2, the relativepronoun who refers to the argument The spy and islabeled R-A0.
+FrameNet annotations, on the otherhand, contain neither continuation or reference rolesaccording to conventions adopted by prior work.3 ModelBefore delving into the details of the structural con-straints enforced in the SRL task, we describe its twosubtasks.
+Akin to most previous work, these subtasksare solved as separate steps in a cascaded fashion.3.1 Classifier CascadeTo predict annotations such as those described in theprevious section, we take a preprocessed sentenceand first attempt to disambiguate the frame of eachpredicate (frame identification).
+In this work, as partof preprocessing, we use a part-of-speech tagger anda dependency parser to syntactically analyze the sen-tence; this diverges from most prior work on seman-tic argument prediction, which rely on constituencyparses.
+Next, we take each disambiguated frame andlook up the core and non-core (or adjunct) roles thatcan associate with the frame.
+Given the predicatetoken, we (over-)generate a set of candidate spans inthe sentence, that are then labeled with roles fromthe set of core roles, from the set of adjunct roles,or with the null role ?
+(role labeling).2 Our systemthus comprises a cascade of two statistical models.Note that most prior work on PropBank data onlyconsidered the latter task, remaining agnostic to the2This setup differs from the related line of work that onlypredicts semantic dependencies between the predicate and thehead words of semantic arguments; the latter task is arguablymore straightforward (Surdeanu et al., 2008; Hajic?
+et al., 2009).frame.
+Moreover, the semantic role labeling step hastypically been divided into two stages: first identify-ing the spans that serve as semantic arguments andthen labeling them with their roles (M?rquez et al.,2008).
+In contrast, we approach the semantic rolelabeling subproblem using a single statistical model.3.2 Frame IdentificationGiven a preprocessed sentence x and a marked pred-icate t with lemma `, we seek to predict the framef instantiated by the predicate.
+To this end, we usedifferent models in the PropBank and FrameNet set-tings.
+In case of PropBank, we define the probabilityof a frame f under a conditional log-linear model:p(f | x, t, `) ?
+exp (?
+?
+h(f, x, t, `)) ,where ?
+denotes the model parameters and h(?)
+isthe feature function (see Table 1 for details on thefeatures employed).
+The model?s partition functionsums over all frames for the lemma ` in the lexiconand we estimate the model parameters by maximizingregularized conditional log-likelihood.In the case of FrameNet, to make our results di-rectly comparable to the recent state-of-the-art re-sults of Hermann et al.
+(2014), we instead use theirembeddings-based WSABIE model (Weston et al.,2011) for the frame identification step.3.3 Unconstrained Semantic Role LabelingGiven an identified frame f in a sentence x of nwords (w1, .
+.
+.
+, wn), we seek to predict a set of ar-gument spans labeled with their semantic roles.
+Weassume that there is a set of candidate spans S thatcould potentially serve as arguments of t. Specifi-cally, we derive S with a high-recall rule-based algo-rithm that looks at the (dependency) syntactic contextof the predicate word t, as described in ?6.3.Let one candidate span be s ?
+S. The set ofpossible rolesR is composed of core rolesRC asso-ciating with f , adjunct rolesRA and the null role ?.In addition, in the PropBank setting, we have a set ofcontinuation rolesRN and reference rolesRR; thus,R = RC ?
+RA ?
+RN ?
+RR ?
+{?}.
+We assume amodel that assigns a real-valued compatibility scoreg(s, r) to each pair of span and role (s, r) ?
+S ?R;the precise nature of the model and its estimationis described in ?5.
+With no consistency constraints31between the span-role pairs, prediction amounts toselecting the optimal role for each span.
+This givesus a global score which is a sum over all spans:?s?Smaxr?Rg(s, r) , (1)with the solution being the corresponding argmax.3.4 Semantic Role Labeling as an ILPWe can represent any prediction for the individualclassifiers with a set of indicator variables z = {zs,r}with one variable for each span s and role r. Anequivalent formulation to Equation (1) is then:maxz?s?S?r?Rzs,r ?
+g(s, r)s.t.
+z ?
+{0, 1}|S||R|?r?Rzs,r = 1 ?s ?
+S ,(2)where we have constrained the indicator variables totake on binary values, and required that we chooseexactly one role (including the ?
+role) for each span.To further guide the inference, we add the followingconstraints to the ILP in Equation (2), as originallyproposed by Punyakanok et al.
+(2008):3No Span Overlap Let Si be the set of spans cover-ing token wi.
+We want to ensure that at most one ofthe spans in Si have an overt role assignment:?i ?
+[1, n] ,?s?Si?r 6=?zs,r ?
+1 .Unique Core Roles Each core role r ?
+RC can beovert in at most one of the spans in S:?r ?
+RC ,?s?Szs,r ?
+1 .Continuation Roles A continuation role, may onlybe assigned if the corresponding base (i.e.
+non-continuation, non-reference) role is assigned to anearlier span.
+To express this, we define s ?
+s?
+tomean that s starts before s?.
+For a continuation roler ?
+RN , let base(r) ?
+RC ?RA be the correspond-ing base role.
+Then the constraint is:?r ?
+RN , ?s ?
+S , zs,r ??s?
+?szs?,base(r) .3Note that the continuation roles and reference roles con-straints below are only applicable to PropBank annotations, asthese roles are not present in FrameNet annotations.Reference Roles Similar to continuation roles, aspan can only be labeled with a reference role r ?RR if another span is labeled with the correspondingbase role, base(r) ?
+RC ?RA:?r ?
+RR , ?s ?
+S , zs,r ??s?
+?Szs?,base(r) .4 Dynamic Program FormulationAn advantage of the formulation in the previous sec-tion is that the constrained MAP inference problemcan be solved with an off-the-shelf ILP solver.
+Un-fortunately, these solvers typically fail to exploit theproblem-specific structure of the set of admissiblesolutions, which often leads to slow inference.
+Asan alternative, we propose a dynamic program thattakes advantage of the sequential and local nature ofthe problem, while directly enforcing all but the non-core continuation roles constraint and the referenceroles constraint; the remaining constraints can be ef-ficiently enforced by a straightforward search overthe k-best solutions of the dynamic program.
+Theresulting inference procedure is guaranteed to findthe same optimal solution as the corresponding ILP(modulo rounding and tie breaking), while being sub-stantially faster.
+In addition, the forward-backwardalgorithm can be applied to compute marginals overthe indicator variables, taking the constraints intoaccount.
+This facilitates computation of confidencescores, as well as learning with a constrained globallynormalized log-linear model, as described in ?5.We encode the dynamic program as a weightedlattice G = (V, E), where V is the set of vertices andE is the set of (weighted) edges, such that the shortestpath through the lattice corresponds to the optimalILP solution.
+The core of the lattice is the encoding ofthe no span overlap constraint; additional constraintsare later added on top of this backbone.4.1 No Span OverlapWe first describe the structure and then the weightsof the dynamic program lattice.
+For ease of exposi-tion, Figure 3 shows an example sentence with threeargument candidates corresponding to ?It?, ?to rain?and ?rain?, with the possible span-role assignments:?It?
+:A1/?, ?to rain?:A0/C-A1/?
+and ?rain?
+:A0/?.Our goal is to construct a dynamic program such thatthe length of the optimal path is equal to the score32It is expected to rain .expected.01A1 A0/C-A1A0A1?
+?C-A1?
+??
+?
+?A0A0Figure 3: Lattice corresponding to the dynamic programfor the no span overlap constraint.
+The path of the correctargument assignment is indicated with dashed edges.of mapping ?It?
+to A1, ?to rain?
+to C-A1 and ?rain?to ?.
+The dynamic program needs to ensure that re-gardless of the scores, either ?to rain?
+or ?rain?
+mustbe labeled with ?
+since they overlap in the sentence.We satisfy the latter by using a semi-Markov modelformally described below.
+In order to ensure that the?
+role assignment scores are included correctly, theyare given a special treatment in the scoring function.4Lattice Structure The set of vertices V = {vj :j ?
+[0, n+ 1]} contains a vertex between every pairof consecutive words.
+The edges E are divided intonull edges (between consecutive vertices) and argu-ment edges (which connect the vertices correspond-ing to the argument span endpoints).
+We will use thenotation ej,j+1,?
+for the null edge from vj to vj+1.For each span and non-null role pair (s, r), r 6= ?,we add an argument edge es,r between vi?1 and vjwhere the span s is from word i to j.
+Figure 3 illus-trates the structure of the lattice.
+In this example, weassume that there are two possible roles (A0/C-A1)for the phrase ?to rain?
+; consequently, there are twoargument edges corresponding to this phrase.A path through the lattice corresponds to a globalassignment of roles to spans by assigning role r tospan s for every edge es,r in the path, and assigningthe ?
+role to all other spans.
+The length of a path isgiven by the sum of the weights of its edges.Lattice Weights The idea behind our weightingscheme is to include all the null scores g(s,?)
+at thestart, and then subtract them whenever we assign arole to a candidate span.
+Let us augment the lattice4The resulting lattice corresponds to that of an aggressivelypruned semi-Markov sequence model, modulo the special caregiven to the ?
+role in our case.described above with a special node v?1 and a specialedge e?,?
+between v?1 and v0.
+Set the weight of e?,?to c??
+=?s?S g(s,?).
+We then set the weight ofthe null edges ej,j+1,?
+to 0 and the weight of theargument edges es,r to crs = g(s, r)?
+g(s,?
+).Proposition 1.
+There is a one-to-one correspon-dence between paths in the lattice and global roleassignments with non-overlapping arguments.
+Fur-thermore, the length of a path is equivalent to theILP score of the corresponding assignment.Proof Sketch We already described how to con-struct an assignment from any path through the lat-tice.
+For any role assignment without overlaps wecan include all these edges in a single left-to-rightpath, and complete the path with null edges.
+Sincethere are no overlaps, we will not need to includeincompatible edges.
+So there is a one-to-one corre-spondence between paths and valid assignments.
+Tosee that the score is the same as the path length, wecan use induction on the number of non-null edgesin the path.
+Base case: If there are no selected argu-ments, then the length of the path is just c??
+whichis exactly the ILP score.
+Inductive step: We add anovert argument to the solution.
+In the path, we re-place a sequence of null edges with an edge es,r.
+Thechange in path length is crs = g(s, r) ?
+g(s,?).
+Inthe assignment, we need to change zs,?
+from 1 to 0and zs,r from 0 to 1.
+Thus, the change in ILP scoreis also g(s, r)?
+g(s,?
+).The above construction can be further simplified.Note that while the special edge e?,?
+is needed for thedirect correspondence with the ILP score, its weightis constant across variable assignments.
+Thus, thisedge only adds a constant offset of c??
+to the ILPsolution.
+For the same reason, its presence has noinfluence on the argmax or marginal computationsand we therefore drop it in our implementation.4.2 Unique Core RolesTo incorporate the unique core roles constraint, weadd state signatures to the vertices in the lattice andrestrict the edges accordingly.
+This increases the sizeof the lattice by O(2|RC |), where RC is the set ofcore roles.
+Our approach is similar to that of Trombleand Eisner (2006), but whereas they suggest incorpo-rating the uniqueness constraints incrementally, weapply them all at once.
+This is necessary since we33seek to train a structured probabilistic model, whichrequires the marginals with respect to the full set ofconstraints.5 While the number of signatures is expo-nential in |RC |, in practice this is a modest constantas each frame only has a small number of possiblecore roles (two or three for many frames).6 Further-more, since many of the potential edges are prunedby the constraints, as described below, the addedcomputational complexity is further reduced.Lattice Structure The set of vertices are now V ={v0, vn+1, vkj : j ?
+[1, n] , k ?
+{0, 1}|RC |}, wherev0 and vn+1 are the start and end vertices.
+The re-maining vertices vkj are analogous to the ones in ?4.1but are annotated with a bit vector encoding the sub-set of core roles that have been used so far.
+The rthbit in the superscript k is set iff the rth core role hasbeen assigned at vkj .
+The null edges ekj,j+1,?
+connecteach node vkj to its successor vkj+1.
+Since a null edgedoes not affect the core role assignment, the signaturek remains unchanged between vkj and vkj+1.Figure 4 shows an example lattice, which in ad-dition to the no span overlap and unique core rolesconstraints encodes the core continuation roles con-straint (see ?4.3).
+For efficiency, we exclude verticesand edges not on any path from v0 to vn+1.
+For exam-ple, vk1 exist only for |k| ?
+1, since v0 corresponds tono core roles being selected and a single span can addat most one core role.
+Argument edges eks,r connect-ing vertices vki?1 and vk?j corresponds to assigningrole r to the span s = wi, .
+.
+.
+, wj .
+If r ?
+RC thenk 6= k?, otherwise k = k?.
+The edge is only includedif the role r is non-core, or if kr 6= 1, to guaranteeuniqueness of core roles.
+By this construction, oncea core role has been assigned at a vertex vkj , it cannotbe assigned on any future path reachable from vkj .Lattice Weights The edges are weighted in thesame way as in ?4.1.
+It is easy to verify that thestructure enforces unique core roles, but is otherwiseequivalent to that in ?4.1.
+Since the weights are iden-tical, the proof of Proposition 1 carries over directly.5We note that the approach of Riedel and Smith (2010) couldpotentially be used to compute the marginals in an incrementalfashion similar to Tromble and Eisner (2006).6 In the OntoNotes 5.0 development set, there are on average10.4 core-role combinations per predicate frame.0,0It0,0is0,0expected0,0to0,0rain0,0.0,0 0,00,1 0,11,0 1,0 1,0 1,0 1,0 1,01,1 1,1A1?
+?C-A1??
+??
+?
+?
+???
+?
+?A0A0A0A0Figure 4: Lattice corresponding to the no span overlap,unique core roles and core continuation roles constraints.Each vertex is labeled with its signature k ?
+{0, 1}|RC |;in this example, ?0, 1?
+equals {A0}.
+This represents thesubset of core-roles assigned on the path up to and includ-ing the vertex.
+Dashed edges indicate the correct path.4.3 Core Continuation RolesRecall that the constraint for continuation roles isthat they must occur after their corresponding baserole.
+We enforce this constraint for core roles by notincluding argument edges eks,r with r ?
+RN from aconfiguration k which does not have the correspond-ing base role set (kbase(r) 6= 1).
+Figure 4 shows anexample; here the edge corresponding to ?to rain?with label C-A1 is included since the vertex signaturek = {1, 0} has kA1 = 1, but there is no correspond-ing edge for k?
+= {0, 0} since k?A1 = 0.4.4 Remaining ConstraintsUnfortunately, enforcing the reference roles con-straint, and the continuation roles constraint for non-core roles, directly in the dynamic program is notpractical, due to combinatorial explosion.
+First, whilethe continuation roles constraint almost only appliesto core roles,7 every role in RC ?
+RA may have acorresponding reference role.
+Second, even if werestrict the constraints to core reference roles, thelack of ordering between the spans in the constraintmeans that we would have to represent all subsets ofRC ?
+{r | r ?
+RR ,base(r) ?
+RC}.However, these constraints are rarely violated inpractice.
+As we will see in ?6, these remaining con-straints can be enforced efficiently with k-best in-ference in the constrained dynamic program from7Less than 2% of continuation roles correspond to non-coreroles in the OntoNotes 5.0 development set.34Frame identification features?
+the predicate t ?
+tag of t?
+the lemma ` ?
+children words of t?
+tag of t?s children ?
+tag of t?s parent?
+parent word of t ?
+subcat.
+frame of t?
+dep.
+label of t ?
+dep.
+labels of t?s children?
+word to the left of t ?
+word to the right of t?
+tag to the left of t ?
+tag to the right of t?
+word cluster of t ?word clusters of t?s childrenTable 1: Frame identification features.
+By subcategoriza-tion frame, we refer to the sequence of dependency labelsof t?s children in the dependency tree.the previous section, using the algorithm of Huangand Chiang (2005) and picking the best solution thatsatisfies all the constraints.5 Local and Structured LearningTo train our models, we assume a training set whereeach predicate t (with lemma `) in sentence x hasbeen identified and labeled with its semantic framef , as well as with each candidate span and role pair(s, r) ?
+S ?R.
+We first consider a local log-linearmodel.
+Let the local score of span s and role r begiven by g(s, r) = ?
+?
+f(r, s, x, t, `, f), where ?
+de-notes the vector of model parameters and f(?)
+thefeature function (see Table 2 for the specific featuresemployed).
+We treat the local scores as the poten-tials in a multiclass logistic regression model, suchthat p(r | s, x, t, `, f) ?
+exp (g(s, r)), and estimatethe parameters by maximizing the regularized condi-tional likelihood of the training set.A downside of estimating the parameters locallyis that it ?wastes?
+model capacity, in the sense thatthe learning seeks to move probability mass awayfrom annotations that violate structural constraintsbut can never be predicted at inference time.
+Withthe dynamic program formulation from the previoussection, we can instead use a globally normalizedprobabilistic model that takes the constraints from?4.1-?4.3 into account during learning.
+To achievethis, we model the probability of a joint assignmentFeatures additionally conjoined with the frame?
+starting word of s ?
+tag of the starting word of s?
+ending word of s ?
+tag of the ending word of s?
+head word of s ?
+tag of the head word of s?
+bag of words in s ?
+bag of tags in s?
+a bias feature ?
+cluster of s?s head?
+dependency path between s?s head and t?
+the set of dependency labels of t?s children?
+dependency path conjoined with the tag of s?s head?
+dep.
+path conjoined with the cluster of s?s head?
+position of s w.r.t.
+t (before, after, overlap or same)?
+position conjoined with distance from s to t?
+subcategorization frame of s?
+predicate use voice (active, passive, or unknown)?whether the subject of t is missing (missingsubj)?
+missingsubj, conjoined with the dependency pathbetween s?s head and t?
+missingsubj, conjoined with the dependency pathbetween s?s head and the verb dominating tFeatures only conjoined with the role?
+cluster of s?s head conjoined with cluster of t?
+dep.
+path conjoined with the cluster of the head of s?word of s?s head conj.
+with words of its children?
+tag of s?s head conj.
+with words of its children?
+cluster of s?s head conj.
+with cluster of its children?
+cluster of t?s head conj.
+with cluster of s?s head?
+word, tag, dependency label and cluster of the wordsimmediately to the left and right of s?
+six features that each conjoin position and distancewith one of the following:tag, dependency label and cluster of s?s head,tag, dependency label and cluster of t?s headTable 2: Semantic role labeling features.
+The argumentspan is denoted by s, while t denotes the predicate token.All features are conjoined with the role r. Features in thetop part have two versions, one conjoined with the role rand one conjoined with both the role r and the frame f .z, subject to the constraints, asp(z | x, t, `, f) ?
+exp(?s?S?r?Rg(s, r)?
+zs,r)s.t.
+z ?
+{0, 1}|S||R| , Az ?
+b ,where Az ?
+b encodes the subset of linear con-straints from ?3.4 that can be tractably enforced inthe dynamic program.
+In effect, p(z | x, t, `, f) = 0for any z that violates the constraints.
+We estimatethe parameters of this globally normalized model bymaximizing the regularized conditional likelihood of35the training set, using the standard forward-backwardalgorithm on the dynamic program lattice to computethe required normalizer and feature expectations.There have been several studies of the use of con-strained MAP inference for semantic role labelingon top of the predictions of local classifiers (Trombleand Eisner, 2006; Punyakanok et al., 2008; Das etal., 2012), as well as on ensembles for combining thepredictions of separate systems using integer linearprogramming (Surdeanu et al., 2007; Punyakanoket al., 2008).8 Meza-Ruiz and Riedel (2009) fur-ther used a Markov Logic Network formulation toincorporate a subset of these constraints during learn-ing.
+Another popular approach has been to apply areranking model, which can incorporate soft struc-tural constraints in the form of features, on top ofthe k-best output of local classifiers (Toutanova etal., 2008; Johansson and Nugues, 2008).
+However,none of these methods provide any means to performefficient marginal inference and this work is the firstto use a globally normalized probabilistic model withstructural constraints for this task.6 Empirical StudyWe next present our experimental setup, datasetsused, preprocessing details and empirical results.6.1 Datasets and EvaluationWe measure experimental results on three datasets.First, we use the CoNLL 2005 shared task data an-notated according to PropBank conventions with thestandard training, development and test splits (Car-reras and M?rquez, 2005).
+These were originallyconstructed from sections 02-21, section 24 and sec-tion 23 of the Wall Street Journal (WSJ) portion ofthe Penn Treebank (Marcus et al., 1993).
+The Prop-Bank I resource was used to construct the verb framelexicon for the CoNLL 2005 experiments.Second, we perform experiments on a substan-tially larger data set annotated according to PropBankconventions, using the recent OntoNotes 5.0 corpus(Weischedel et al., 2011), with the CoNLL 2012 train-ing, development and test splits from Pradhan et al.(2013).
+The frame lexicon for these experiments is8While the dynamic program in ?4 could be used to effi-ciently implement such ensembles, since it solves the equivalentILP, our focus in this work is on learning a single accurate model.derived from the OntoNotes frame files.
+This corpusconsists of nominal predicate-argument structure an-notations in addition to verbs.
+Specifically, we useversion 12 downloaded from http://cemantix.org/data/ontonotes.html, for which someerrors from the initial release used by Pradhan et al.
+(2013) have been corrected.Finally, we present results on FrameNet-annotateddata, where our setup mirrors that of Hermann etal.
+(2014), who used the full-text annotations of theFrameNet 1.5 release.9 We use the same training,development and test splits as Hermann et al., whichconsists of 39, 16 and 23 documents, respectively.For evaluation on PropBank, we use the scriptfrom the CoNLL 2005 shared task that measures rolelabeling precision, recall and F1-score, as well as thefull argument structure accuracy.10 In the FrameNetsetting, we use a reimplementation of the SemEval2007 shared task evaluation script that measures jointframe-argument precision, recall and F1-score (Bakeret al., 2007).
+For consistency, we use a stricter mea-sure of full structure accuracy than with PropBankthat gives credit only when both the predicted frameand all of its arguments are correct.The statistical significance of the observed differ-ences between our different models is assessed witha paired bootstrap test (Efron and Tibshirani, 1994),using 1000 bootstrap samples.
+For brevity, we onlyprovide the p-values for the difference between ourbest and second best models on the test set, as wellas between our second and third best models.6.2 PreprocessingAll corpora were preprocessed with a part-of-speechtagger and a syntactic dependency parser, both ofwhich were trained on the CoNLL 2012 training splitextracted from OntoNotes 5.0 (Pradhan et al., 2013);this training data has no overlap with any of the de-velopment or test corpora used in our experiments.The constituency trees in OntoNotes were convertedto Stanford dependencies before training our parser(de Marneffe and Manning, 2013).The part-of-speech tagger employs a second-orderconditional random field (Lafferty et al., 2001) withthe following features.
+Emission features: bias, the9http://framenet.icsi.berkeley.edu.10http://www.lsi.upc.edu/~srlconll/srl-eval.pl36word, the cluster of the word, suffixes of lengths 1 to4, the capitalization shape of the word, whether theword contains a hyphen and the identity of the lastword in the sentence.
+Transition features: the tagbigram, the tag bigram conjoined with, respectively,the clusters of the current and the previous words,the tag trigram and the tag trigram conjoined with,respectively, the clusters of the current and previousword, as well as with the word two positions back.For syntactic dependencies, we use the parser andfeatures described by Zhang and McDonald (2014),which exploits structural diversity in cube-pruningto improve higher-order graph-based inference.
+Onthe WSJ development set (section 22), the labeledattachment score of the parser is 90.9% while thepart-of-speech tagger achieves an accuracy of 97.2%on the same dataset.
+On the OntoNotes developmentset, the corresponding scores are 90.2% and 97.3%.Both the tagger and the parser, as well as the frameidentification and role labeling models (see Tables 1and 2), have features based on word clusters.
+Specifi-cally, we use the clusters with 1000 classes describedby Turian et al.
+(2010), which are induced with theBrown algorithm (Brown et al., 1992).6.3 Candidate Argument ExtractionWe use a rule-based heuristic to extract candidatearguments for role labeling.
+Most prior work onPropBank-style semantic role labeling have relied onconstituency syntax for candidate argument extrac-tion.
+Instead, we rely on dependency syntax, whichallows faster preprocessing and potential extensionto the many languages for which only dependencyannotations are available.
+To this end, we adapt theconstituency-based candidate argument extractionmethod of Xue and Palmer (2004) to dependencies.In gold PropBank annotations, syntactic con-stituents serve as arguments in all constructions.However, extracting constituents from a dependencytree is not straightforward.
+The full dependency sub-tree under a particular head word often merges syn-tactic constituents.
+For example, in the tree fragmentThe man who knew too muchrootdetrcmodnsubjdobjadvmodthe dependency tree has the full clause as the subtreeheaded by man, making it non-trivial to extract apartial subtree underneath it that could serve as avalid argument (for example, The man).In our candidate argument extraction algorithm,first, we select all the children subtrees of a givenpredicate as potential arguments; if a child wordis connected via the conj (conjunction) or the prep(preposition) label, we also select the correspondinggrand-children subtrees.
+Next, we climb up to thepredicate?s syntactic parent and add any partial sub-trees headed by it that could serve as constituents inthe corresponding phrase-structure tree.
+To capturesuch constructions, we select partial subtrees for ahead word by first adding the head word, then addingcontiguous child subtrees from the head word?s right-most left child towards the leftmost left child until weeither reach the predicate word or an offensive depen-dency label.11 This procedure is then symmetricallyapplied to the head word?s right children.
+Once a par-tial subtree has been added, we add the parent word?schildren subtrees ?
+and potentially grandchildrensubtrees in case of children labeled as conj or prep ?to the candidate list, akin to the first step.
+We applythis parent operation recursively for all the ancestorsof the predicate.
+Finally, we consider the predicate?ssyntactic parent word as a candidate argument if thepredicate is connected to it via the amod label.The candidates are further filtered to only keepthose where the role of the argument, conjoined withthe path from its head to the predicate, has been ob-served in the training data.
+This algorithm obtains anunlabeled argument recall of 88.2% on the OntoNotes5.0 development data, with a precision of 38.2%.For FrameNet, we use the extraction method ofHermann et al.
+(2014, ?5.4), which is also inspired byXue and Palmer (2004).
+On the FrameNet develop-ment data, this method obtains an unlabeled argumentrecall of 72.6%, with a precision of 25.1%.126.4 Baseline SystemsWe compare our local and structured models to thetop performing constituency-based systems from the11All but the following labels are treated as offensive: advmod,amod, appos, aux, auxpass, cc, conj, dep, det, mwe, neg, nn,npadvmod, num, number, poss, preconj, predet, prep, prt, ps,quantmod and tmod.12The low recall on FrameNet suggests that a deeper analysisof missed arguments is necessary.
+However, to allow a faircomparison with prior work, we leave this for future work.37Development WSJ Test Brown TestMethod Prec.
+Recall F1 Comp.
+Prec.
+Recall F1 Comp.
+Prec.
+Recall F1 Comp.Local/Local 80.0 75.2 77.5 51.5 81.6 76.6 79.0 53.1 73.7 68.1 70.8??
+39.1Local/DP 81.3 74.8 77.9 52.4 82.6 76.4 79.3?
+54.3?
+74.0 66.8 70.2 38.4Structured/DP 81.2 76.2 78.6 54.4 82.3 77.6 79.9?
+56.0?
+74.3 68.6 71.3 39.8Prior work Prec.
+Recall F1 Comp.
+Prec.
+Recall F1 Comp.
+Prec.
+Recall F1 Comp.Surdeanu ?
+?
+?
+?
+79.7 74.9 77.2 52.0 ?
+?
+?
+?Punyakanok ?
+?
+?
+?
+77.1 75.5 76.3 ?
+?
+?
+?
+?Toutanova ?
+?
+77.9 57.2 ?
+?
+79.7 58.7 ?
+?
+67.8 39.4Ensembles Prec.
+Recall F1 Comp.
+Prec.
+Recall F1 Comp.
+Prec.
+Recall F1 Comp.Surdeanu ?
+?
+?
+?
+87.5 74.7 80.6 51.7 81.8 61.3 70.1 34.3Punyakanok 80.1 74.8 77.4 50.7 82.3 76.8 79.4 53.8 73.4 62.9 67.8 32.3Toutanova ?
+?
+78.6 58.7 81.9 78.8 80.3 60.1 ?
+?
+68.8 40.8Table 3: Semantic role labeling results on the CoNLL 2005 data set.
+The method labels are training/inference.
+Forexample, Local/DP means training with the local model, but inference with the dynamic program.
+Bold font indicatesthe best system using a single model and a single parse, while the best scores among all systems are underlined.Statistical significance was assessed for F1 and Comp.
+on the WSJ and Brown test sets with p < 0.01?
+and p < 0.05?
+?.literature on the CoNLL 2005 datasets.
+To facilitatea more nuanced comparison, we distinguish betweenprior work based on single systems, which use asingle input parse and no model combination, andensemble-based systems.
+For single systems, ourfirst baseline is the strongest non-ensemble systempresented by Surdeanu et al.
+(2007) that treats theSRL problem as a sequential tagging task (see ?4.1 ofthe cited paper).
+Next, we consider the non-ensemblesystem presented by Punyakanok et al.
+(2008) thattrains local classifiers and uses an ILP to satisfy thestructural constraints; this system is most similar toour approach, but is trained locally.
+Finally, our thirdsingle system baseline is the model of Toutanova etal.
+(2008) that uses a tree structured dynamic pro-gram that assumes that all candidate spans are nested;this system relies on global features in a rerankingframework (see row 2 of Figure 19 of the cited paper).These authors also report ensemble-based variantsthat combine the outputs of multiple SRL systems invarious ways; as observed in other NLP problems, theensemble systems outperformed the single-systemcounterparts, and are state of the art.
+To situate ourmodels with these ensemble-based approaches, weinclude them in Table 3.For the OntoNotes datasets, we compare our mod-els to Pradhan et al.
+(2013), who report results with avariant of the (non-ensemble) ASSERT system (Prad-han et al., 2005).
+These are the only previously re-ported results for the SRL problem on this dataset.Finally, for the FrameNet experiments, our base-line is the state-of-the-art system of Hermann et al.
+(2014), which combines a frame-identification modelbased on WSABIE (Weston et al., 2011) with a log-linear role labeling model.6.5 HyperparametersThe l1 and l2 regularization weights for the frameidentification and role labeling models for all experi-ments were tuned on the OntoNotes developmentdata.
+For frame identification, the regularizationweights are set to 0 and 0.1, while for semantic rolelabeling they are set to 0.1 and 1.0, respectively.6.6 ResultsTable 3 shows our results on the CoNLL 2005 de-velopment set as well as the WSJ and Brown testsets.13 Our structured model achieves the highestF1-score among the non-ensemble systems, outper-forming even the ensemble systems on the Brown13We also experimented with a parser trained only on the WSJtraining set.
+This results in a drop in role labeling F1-score of0.3% (absolute) averaged across models on the CoNLL 2005development set.
+The corresponding drop for the structuredmodel is 0.6%, which suggests that it benefits more from parserimprovements compared to the local models.38DevelopmentMethod Prec.
+Recall F1 Comp.Local/Local 79.5 77.0 78.2 57.4Local/DP 80.6 77.1 78.8 59.0Structured/DP 80.5 77.8 79.1 60.1CoNLL 2012 TestMethod Prec.
+Recall F1 Comp.Local/Local 79.8 77.7 78.7 59.5Local/DP 80.9 77.7 79.2?
+60.9?Structured/DP 80.6 78.2 79.4?
+61.8?Pradhan 81.3 70.5 75.5 51.7Pradhan (revised) 78.5 76.6 77.5 55.8Table 4: Semantic role labeling results on the OntoNotes5.0 development and test sets from CoNLL 2012.
+?Prad-han?
+is the Overall results from Table 5 of Pradhan et al.(2013).
+?Pradhan (revised)?
+are corrected results from per-sonal communication with Pradhan et al.
+(see footnote 14for details).
+Statistical significance was assessed for F1and Comp.
+on the test set with p < 0.01?.test set, while performing at par on the developmentset.
+Overall, using structured learning improves re-call at a slight expense of precision when comparedto local learning.
+This leads to a higher F1-score anda substantial increase in complete argument structureaccuracy (Comp.
+in the tables).
+The increase in recallis to be expected, since during training the structuredmodel can rely on the constraints to eliminate somehypotheses.
+This has the effect of alleviating some ofthe label imbalance seen in the training data (recallthat the model encounters roughly four times as manynull roles as non-null role assignments).
+While theresults on the WSJ test set are highly statistically sig-nificant, the small size of the Brown test set give riseto a larger variance; results here are only significantat a level of p ?
+0.1 for F1 and p ?
+0.2 for Comp.Table 4 shows the semantic role labeling results onthe OntoNotes data.
+We observe the same trend as wedid on the CoNLL 2005 data from Table 3.
+Addingconstraints at inference time notably improves pre-cision at virtually no cost to recall.
+Structured learn-ing additionally increases recall at a small cost toprecision and yields the best results both in termsof F1- and complete analysis scores.
+These resultsare all highly statistically significant.
+Compared tothe results of Pradhan et al.
+(2013), our structuredDevelopmentMethod Prec.
+Recall F1 Comp.Local/Local 80.5 62.7 70.5 31.3Local/DP 80.7 62.9 70.7 31.2Structured/DP 79.6 64.1 71.0 32.6Hermann 78.3 64.5 70.8 ?TestMethod Prec.
+Recall F1 Comp.Local/Local 75.9 64.5 69.7 32.8Local/DP 76.1 64.9 70.1?
+33.0Structured/DP 75.4 65.8 70.3??
+33.8??
+?Hermann 74.3 66.0 69.9 ?Table 5: Full structure prediction results (joint frameidentification and semantic role labeling performance)for FrameNet.
+All systems use the WSABIE model fromHermann et al.
+(2014) for the frame identification step.?Hermann?
+is the Wsabie Embedding results from Table3 of Hermann et al.
+(2014).
+Statistical significance wasassessed for F1 and Comp.
+on the test set with p < 0.01?,p < 0.05??
+and p < 0.075??
+?.model yields a 15% relative error reduction in termsof F1-score and a 20% reduction in terms of com-plete analysis score.14 The frame identification accu-racies on the OntoNotes development and test set are94.5% and 94.9%, respectively, whereas Pradhan etal.
+(2013) report an accuracy of 92.8% on the test set;this represents almost a 30% relative error reduction.Finally, Table 5 shows the results on the FrameNetdata.
+While structured learning helps less here com-pared to the PropBank setting, our model outper-forms the prior state-of-the-art model of Hermannet al.
+(2014) and we obtain a modest improvementin complete analysis score compared to local train-ing.
+Due to the small size of the FrameNet test set,similarly to the Brown test set, we observe a largervariance across bootstrap samples, but in this case theresults are statistically significant to a larger degree.Table 6 relates the speed of the various inferencealgorithms to the number of constraint violations.The time is relative to local inference; it excludes the14Unfortunately, these results are not strictly comparable, dueto errors in the original release of the data that was used byPradhan et al.
+(2013).
+Results with Pradhan et al.
+?s system on thecorrected release, obtained from personal communication withPradhan et al., are included in Table 4 as ?Pradhan (revised)?.39time of feature extraction and computation of g(s, r),which is the same across inference methods.
+Similarto Tromble and Eisner (2006), for all algorithms, wefirst use the local solution without constraints andonly apply the constraints in the case of a violation.Removing this optimization results in a slowdownacross the board by a factor of about 5 and doesnot change the ranking of the methods.
+Since thestructured model has identical parameterization tothe local model, optimality is guaranteed even whenusing this scheme with the former.
+We report the re-sults of two ILP solvers: SCIP15 and Gurobi.16 SCIPis a factor of 8 slower than Gurobi for this problem,while Gurobi is a further factor of about 4 slowerthan our dynamic program.
+The penultimate line ofTable 6 shows the result of using an LP-relaxation in-stead of the ILP.
+This does not come with optimalityguarantees, but is included for completeness.Finally, when using k-best inference to satisfy thereference roles and non-core continuation roles con-straints in the dynamic program (?4.4), the maximumvalue of k is 80 on the OntoNotes development set.Across data points for which such k-best inferenceis necessary, the average k is found to be 1.8.
+If weallow ourselves to ignore these constraints, we canavoid k-best inference and achieve a further speedup,as shown in the last line of Table 6.
+The heuristics ofToutanova et al.
+(2008) could potentially be used asan alternative way of satisfying these constraints.7 ConclusionsWe described a dynamic program for constrainedinference in semantic role labeling that efficientlyenforces a majority of structural constraints, givenpotentially overlapping candidate arguments.
+The dy-namic program provably finds the optimal solutionsof a corresponding ILP and in practice requires a frac-tion of the computational cost compared to an highlyoptimized off-the-shelf ILP solver, which has typi-cally been used for this problem.
+Furthermore, thedynamic program facilitates learning with a globallynormalized log-linear model and provides a proba-bilistic measure of confidence in predictions.
+Empir-ically, we showed a four-fold speedup in inferencetime compared to a state-of-the-art ILP solver and15http://scip.zib.de/16http://www.gurobi.com/Number of constraint violationsMethod Time overlap unique cont.
+ref.ILP-SCIP 198.7 0 0 0 0ILP-Gurobi 25.0 0 0 0 0DP k-best 6.2 0 0 0 0Local 1.0 162 1725 63 297LP-Gurobi 23.0 6 0 0 0DP no k-best 4.0 0 0 0 272Table 6: Speed and constraint violation results on theOntoNotes 5.0 development set.
+Exact and approximatemethods are shown above and below the line, respectively.by using structured learning our model outperformsall comparable non-ensemble baselines on both Prop-Bank and FrameNet data sets.AcknowledgmentsWe thank Ryan McDonald, Emily Pitler, Slav Petrovand Fernando Pereira for their detailed comments.
+Inparticular, Ryan pointed out a simplification that im-proved on our original dynamic program formulation.We also thank Sameer Pradhan for his corrections tothe OntoNotes data.
+Finally, we thank Andr?
+Mar-tins for numerous discussions on this subject and theanonymous reviewers for their insightful comments.ReferencesCollin F. Baker, Charles J. Fillmore, and John B. Lowe.1998.
+The Berkeley FrameNet project.
+In Proceedingsof ACL.Collin Baker, Michael Ellsworth, and Katrin Erk.
+2007.Semeval-2007 task 19: Frame semantic structure ex-traction.
+In Proceedings of SemEval.Peter F. Brown, Peter V. deSouza, Robert L. Mercer, Vin-cent J. Della Pietra, and Jenifer C. Lai.
+1992.
+Class-based n-gram models of natural language.
+Computa-tional Linguistics, 18(4).Xavier Carreras and Llu?s M?rquez.
+2004.
+Introduction tothe CoNLL-2004 shared task: Semantic role labeling.In Proceedings of CoNLL.Xavier Carreras and Llu?s M?rquez.
+2005.
+Introduction tothe CoNLL-2005 shared task: Semantic role labeling.In Proceedings of CoNLL.Dipanjan Das, Andr?
+F. T. Martins, and Noah A. Smith.2012.
+An exact dual decomposition algorithm for shal-low semantic parsing with constraints.
+In Proceedingsof *SEM.40Dipanjan Das, Desai Chen, Andr?
+F. T. Martins, NathanSchneider, and Noah A. Smith.
+2014.
+Frame-semanticparsing.
+Computational Linguistics, 40(1):9?56.Marie-Catherine de Marneffe and Christopher D. Man-ning, 2013.
+Stanford typed dependencies manual.Bradley Efron and Robert J Tibshirani.
+1994.
+An intro-duction to the bootstrap.
+CRC press.Matthew Gerber and Joyce Y. Chai.
+2010.
+Beyond Nom-Bank: A study of implicit arguments for nominal predi-cates.
+In Proceedings of ACL.Daniel Gildea and Daniel Jurafsky.
+2002.
+Automaticlabeling of semantic roles.
+Computational Linguistics,28(3):245?288.Jan Hajic?, Massimiliano Ciaramita, Richard Johans-son, Daisuke Kawahara, Maria Ant?nia Mart?, Llu?sM?rquez, Adam Meyers, Joakim Nivre, Sebastian Pad?,Jan ?te?p?nek, Pavel Stran?
+?k, Mihai Surdeanu, NianwenXue, and Yi Zhang.
+2009.
+The CoNLL-2009 sharedtask: Syntactic and semantic dependencies in multiplelanguages.
+In Proceedings of CoNLL.Karl Moritz Hermann, Dipanjan Das, Jason Weston, andKuzman Ganchev.
+2014.
+Semantic frame identificationwith distributed word representations.
+In Proceedingsof ACL.Liang Huang and David Chiang.
+2005.
+Better k-bestparsing.
+In Proceedings of IWPT.Richard Johansson and Pierre Nugues.
+2008.Dependency-based semantic role labeling of PropBank.In Proceedings of EMNLP.John Lafferty, Andrew McCallum, and Fernando Pereira.2001.
+Conditional random fields: Probabilistic modelsfor segmenting and labeling sequence data.
+In Proceed-ings of ICML.Mitchell P. Marcus, Mary Ann Marcinkiewicz, and Beat-rice Santorini.
+1993.
+Building a large annotated corpusof English: the Penn treebank.
+Computational Linguis-tics, 19(2):313?330.Llu?s M?rquez, Xavier Carreras, Kenneth C. Litkowski,and Suzanne Stevenson.
+2008.
+Semantic role labeling:An introduction to the special issue.
+ComputationalLinguistics, 34(2):145?159.Andr?
+F. T. Martins, Noah A. Smith, Pedro M. Q. Aguiar,and M?rio A. T. Figueiredo.
+2011.
+Dual decompositionwith many overlapping components.
+In Proceedings ofEMNLP.Adam Meyers, Ruth Reeves, Catherine Macleod, RachelSzekely, Veronika Zielinska, Brian Young, and RalphGrishman.
+2004.
+The NomBank project: An interimreport.
+In Proceedings of NAACL/HLT Workshop onFrontiers in Corpus Annotation.Ivan Meza-Ruiz and Sebastian Riedel.
+2009.
+Jointly iden-tifying predicates, arguments and senses using MarkovLogic.
+In Proceedings of NAACL-HLT.Martha Palmer, Daniel Gildea, and Paul Kingsbury.
+2005.The Proposition bank: An annotated corpus of semanticroles.
+Computational Linguistics, 31(1):71?106.Sameer Pradhan, Kadri Hacioglu, Valerie Krugler, WayneWard, James H. Martin, and Daniel Jurafsky.
+2005.Support vector learning for semantic argument classifi-cation.
+Machine Learning, 60(1-3):11?39.Sameer Pradhan, Alessandro Moschitti, Nianwen Xue,Tou Hwee Ng, Anders Bj?rkelund, Olga Uryupina,Yuchen Zhang, and Zhi Zhong.
+2013.
+Towards robustlinguistic analysis using OntoNotes.
+In Proceedings ofCoNLL.Vasin Punyakanok, Dan Roth, and Wen-tau Yih.
+2008.The importance of syntactic parsing and inference insemantic role labeling.
+Computational Linguistics,34(2):257?287.Sebastian Riedel and David A. Smith.
+2010.
+Relaxedmarginal inference and its application to dependencyparsing.
+In Proceedings of NAACL-HLT.Mihai Surdeanu, Llu?s M?rquez, Xavier Carreras, andPere R. Comas.
+2007.
+Combination strategies forsemantic role labeling.
+Journal of Artificial IntelligenceResearch, 29(1):105?151.Mihai Surdeanu, Richard Johansson, Adam Meyers, Llu?sM?rquez, and Joakim Nivre.
+2008.
+The CoNLL 2008shared task on joint parsing of syntactic and semanticdependencies.
+In Proceedings of CoNLL.Kristina Toutanova, Aria Haghighi, and Christopher D.Manning.
+2008.
+A global joint model for semantic rolelabeling.
+Computational Linguistics, 34(2):161?191.Roy W. Tromble and Jason Eisner.
+2006.
+A fast finite-state relaxation method for enforcing global constraintson sequence decoding.
+In Proceedings of NAACL-HLT.Joseph Turian, Lev Ratinov, and Yoshua Bengio.
+2010.Word representations: A simple and general method forsemi-supervised learning.
+In Proceedings of ACL.Ralph Weischedel, Eduard Hovy, Martha Palmer, MitchMarcus, Robert Belvin, Sameer Pradhan, LanceRamshaw, and Nianwen Xue.
+2011.
+OntoNotes: Alarge training corpus for enhanced processing.
+InJ.
+Olive, C. Christianson, and J. McCary, editors, Hand-book of Natural Language Processing and MachineTranslation.
+Springer.Jason Weston, Samy Bengio, and Nicolas Usunier.
+2011.WSABIE: Scaling up to large vocabulary image anno-tation.
+In Proceedings of IJCAI.Nianwen Xue and Martha Palmer.
+2004.
+Calibratingfeatures for semantic role labeling.
+In Proceedings ofEMNLP.Hao Zhang and Ryan McDonald.
+2014.
+Enforcing struc-tural diversity in cube-pruned dependency parsing.
+InProceedings of ACL.4142

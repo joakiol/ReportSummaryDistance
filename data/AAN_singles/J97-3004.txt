@@ -1,0 +1,636 @@
+An Efficient Implementation of theHead-Corner ParserGert jan van  Noord"Rijksuniversiteit GroningenThis paper describes an efficient and robust implementation f a bidirectional, head-driven parserfor constraint-based grammars.
+This parser is developed for the OVIS system: a Dutch spokendialogue system in which information about public transport can be obtained by telephone.After a review of the motivation for head-driven parsing strategies, and head-corner parsingin particular, a nondeterministic version of the head-corner parser is presented.
+A memorizationtechnique is applied to obtain a fast parser.
+A goal-weakening technique is introduced, whichgreatly improves average case efficiency, both in terms of speed and space requirements.I argue in favor of such a memorization strategy with goal-weakening in comparison withordinary chart parsers because such a strategy can be applied selectively and therefore enormouslyreduces the space requirements ofthe parser, while no practical oss in time-efficiency is observed.On the contrary, experiments are described in which head-corner and left-corner parsers imple-mented with selective memorization and goal weakening outperform "standard" chart parsers.The experiments include the grammar of the OV/S system and the Alvey NL Tools grammar.Head-corner parsing is a mix of bottom-up and top-down processing.
+Certain approaches torobust parsing require purely bottom-up processing.
+Therefore, it seems that head-corner parsingis unsuitable for such robust parsing techniques.
+However, it is shown how underspecification(which arises very naturally in a logic programming environment) can be used in the head-cornerparser to allow such robust parsing techniques.
+A particular obust parsing model, implementedin OVIS, is described.1.
+MotivationIn this paper I discuss in full detail the implementation f the head-corner parser.But first I describe the motivations for this approach.
+I will start with considerationsthat lead to the choice of a head-driven parser; I will then argue for Prolog as anappropriate language for the implementation f the head-corner parser.1.1 Head-driven ProcessingLexicalist grammar formalisms, such as Head-driven Phrase Structure Grammar(HPSG), have two characteristic properties: (1) lexical elements and phrases are as-sociated with categories that have considerable internal structure, and (2) instead ofconstruction-specific rules, a small set of generic rule schemata is used.
+Consequently,the set of constituent structures defined by a grammar cannot be read off the ruleset directly, but is defined by the interaction of the rule schemata and the lexical cate-gories.
+Applying standard parsing algorithms to such grammars i unsatisfactory for anumber of reasons.
+Earley parsing is intractable in general, as the rule set is simply toogeneral.
+For some grammars, naive top-down prediction may even fail to terminate.Alfa-informatica & BCN.
+E-mail: vannoord@let.rug.nl(~ 1997 Association for Computational LinguisticsComputational Linguistics Volume 23, Number 3Shieber (1985) therefore proposes a modified version of the Earley parser, using re-stricted top-down prediction.
+While this modification often leads to better terminationproperties of the parsing method, in practice it easily leads to a complete trivializationof the top-down prediction step, thus leading to inferior performance.Bottom-up arsing is far more attractive for lexicalist formalisms, as it is drivenby the syntactic information associated with lexical elements, but certain inadequaciesremain.
+Most importantly, the selection of rules to be considered for application maynot be very efficient.
+Consider, for instance, the following Definite Clause Grammar(DCG) rule:s(\[\] ,Sem) --> Arg, vp(\[Arg\] ,Sem).
+(1)A parser in which application of a rule is driven by the left-most daughter, as it is forinstance in a standard bottom-up active chart parser, will consider the application ofthis rule each time an arbitrary constituent Arg is derived.
+For a bottom-up active chartparser, for instance, this may lead to the introduction of large numbers of active items.Most of these items will be useless.
+For instance, if a determiner is derived, there is noneed to invoke the rule, as there are simply no VP's selecting a determiner as subject.Parsers in which the application of a rule is driven by the right-most daughter, suchas shift-reduce and inactive bottom-up chart parsers, encounter a similar problem forrules such as:vp(As,Sem) --> vp(\[ArgIAs\],Sem), Arg.
+(2)Each time an arbitrary constituent Arg is derived, the parser will consider applyingthis rule, and a search for a matching VP-constituent will be carried out.
+Again, inmany cases (if Arg is instantiated as a determiner or preposition, for instance) thissearch is doomed to fail, as a VP subcategorizing for a category Arg may simply notbe derivable by the grammar.
+The problem may seem less acute than that posed byuninstantiated left-most daughters for an active chart parser, as only a search of thechart is carried out and no additional items are added to it.
+Note, however, that theamount of search required may grow exponentially, if more than one uninstantiateddaughter is present:vp(As) --> vp(\[AI,A21As\]), AI, A2.
+(3)or if the number of daughters i not specified by the rule:vp(\[AO\]) --> vp(\[AO ..... An\]), A1 ..... An.
+(4)as appears to be the case for some of the rule-schemata used in HPSG.Several authors have suggested parsing algorithms that may be more suitable forlexicalist grammars.
+Kay (1989) discusses the concept of head-driven parsing.
+Thekey idea is that the linguistic oncept head can be used to obtain parsing algorithmsthat are better suited for typical natural language grammars.
+Most linguistic theoriesassume that among the daughters introduced by a rule there is one daughter that canbe identified as the head of that rule.
+There are several criteria for deciding whichdaughter is the head, two of which seem relevant for parsing.
+First of all, the head ofa rule determines to a large extent what other daughters may or must be present, asthe head selects the other daughters.
+Second, the syntactic ategory and morphologicalproperties of the mother node are, in the default case, identical to the category andmorphological properties of the head daughter.
+These two properties uggest hat itmay be possible to design a parsing strategy in which one first identifies a potentialhead of a rule, before starting to parse the nonhead aughters.
+By starting with the426van Noord Efficient Head-Corner Parsinghead, important information about the remaining daughters i  obtained.
+Furthermore,since the head is to a large extent identical to the mother category, effective top-downidentification of a potential head should be possible.In Kay (1989) two different head-driven parsers are presented.
+First, a head-drivenshift-reduce parser is presented, which differs from a standard shift-reduce parserin that it considers the application of a rule (i.e., a reduce step) only if a categorymatching the head of the rule has been found.
+Furthermore, it may shift onto theparse-stack elements that are similar to the active items (or "dotted rules") of activechart parsers.
+By using the head of a rule to determine whether a rule is applicable, thehead-driven shift-reduce parser avoids the disadvantages of parsers in which eitherthe left-most or right-most daughter is used to drive the selection of rules.
+Kay alsopresents a head-corner parser.
+The striking property of this parser is that it doesnot parse a phrase from left to right, but instead operates bidirectionally.
+It starts bylocating a potential head of the phrase and then proceeds by parsing the daughtersto the left and the right of the head.
+Again, this strategy avoids the disadvantagesof parsers in which rule selection is uniformly driven by either the left-most or right-most daughter.
+Furthermore, by selecting potential heads on the basis of a head-cornertable (comparable to the left-corner table of a left-corner parser) it may use top-downfiltering to minimize the search-space.
+This head-corner parser generalizes the left-corner parser.
+Kay's presentation is reminiscent of the left-corner parser as presentedby Pereira and Shieber (1987), which itself is a version without memorization of theBUP parser (Matsumoto et al 1983).Head-corner parsing has also been considered elsewhere.
+In Satta and Stock (1989),Sikkel and op den Akker (1992, 1993), and Sikkel (1993), chart-based head-cornerparsing for context-free grammar is considered.
+It is shown that, in spite of the factthat bidirectional parsing seemingly leads to more overhead than left-to-right parsing,the worst-case complexity of a head-corner parser does not exceed that of an Earleyparser.
+Some further variations are discussed in Nederhof and Satta (1994).In van Noord (1991, 1993) I argue that head-corner parsing is especially usefulfor parsing with nonconcatenative grammar formalisms.
+In Lavelli and Satta (1991)and van Noord (1994) head-driven parsing strategies for Lexicalized Tree AdjoiningGrammars are presented.The head-corner parser is closely related to the semantic-head-driven generationalgorithm (see Shieber et al \[1990\] and references cited there), especially in its purelybottom-up incarnation.1.2 Selective MemorizationThe head-corner parser is in many respects different from traditional chart parsers.
+Animportant difference follows from the fact that in the head-corner parser only largerchunks of computation are memorized.
+Backtracking still plays an important role forthe implementation of search.This may come as a surprise at first.
+Common wisdom is that although smallgrammars may be successfully treated with a backtracking parser, larger grammarsfor natural anguages always require the use of a data structure such as a chart or atable of items to make sure that each computation is only performed once.
+In the caseof constraint-based grammars, however, the cost associated with maintaining such achart should not be underestimated.
+The memory requirements for an implementationof the Earley parser for a constraint-based grammar are often outrageous.
+Similarly,in an Earley deduction system too much effort may be spent on small portions ofcomputation, which are inexpensive to (re-)compute anyway.For this reason, I will argue for an implementation of the head-corner parser in427Computational Linguistics Volume 23, Number 3which only large chunks of computation are memorized.
+In linguistic terms, I will ar-gue for a model in which only maximal projections are memorized.
+The computationthat is carried out in order to obtain such a chunk uses a depth-first backtrack searchprocedure.
+This solution dramatically improves upon the (average case) memory re-quirements of a parser; moreover it also leads to an increase in (average case) timeefficiency, especially in combination with goal weakening, because of the reducedoverhead associated with the administration of the chart.
+In each of the experimentsdiscussed in Section 7, the use of selective memorization with goal weakening out-performs tandard chart-parsers.1.3 Why PrologProlog is a particularly useful anguage for the implementation f a head-corner parserfor constraint-based grammars because:?
+Prolog provides a built-in unification operation.?
+Prolog provides a built-in backtrack search procedure; memorization canbe applied selectively.?
+Underspecification can be exploited to obtain results required by certaintechniques for robust parsing.?
+Prolog is a high-level language; this enables the application of partialevaluation techniques.The first consideration does not deserve much further attention.
+We want to exploitthe fact that the primary data structures of constraint-based grammars and the cor-responding information-combining operation can be modeled by Prolog's first orderterms and unification.As was argued above, Prolog backtracking is not used to simulate an iterativeprocedure to build up a chart via side-effects.
+On the contrary, Prolog backtracking isused truly for search.
+Of course, in order to make this approach feasible, certain well-chosen search goals are memorized.
+This is clean and logically well-defined (consider,for example, Warren \[1992\]), even if our implementation i Prolog uses extra-logicalpredicates.The third consideration is relevant only for robust parsing.
+In certain methods inrobust parsing, we are interested in the partial results obtained by the parser.
+To makesure that a parser is complete with respect o such partial results, it is often assumedthat a parser must be applied that works exclusively bottom-up.
+In Section 6 it will beshown that the head-corner parser, which uses a mixture of bottom-up and top-downprocessing, can be applied in a similar fashion by using underspecification in the topgoal.
+Clearly, underspecification is a concept hat arises naturally in Prolog.The fact that Prolog is a high-level language has a number of practical advantagesrelated to the speed of development.
+A further advantage is obtained because tech-niques such as partial evaluation can be applied.
+For example, I have successfullyapplied the Mixtus partial evaluator (Sahlin 1991) to the head-corner parser discussedbelow, to obtain an additional 20% speed increase.
+In languages uch as C, partialevaluation does not seem to be possible because the low-levelness of the languagemakes it impossible to recognize the concepts that are required.1.4 Left-Corner Parsing and Head-Corner ParsingAs the names suggest, there are many parallels between left-corner and head-cornerparsing.
+In fact, head-corner parsing is a generalization of left-corner parsing.
+Many428van Noord Efficient Head-Corner Parsingof the techniques that will be described in the following sections can be applied to aleft-corner parser as well.A head-corner parser for a grammar in which for each rule the left-most daughteris considered to be the head, will effectively function as a left-corner parser.
+In suchcases, the head-corner parser can be said to run in left-corner mode.
+Of course, in a left-corner parser, certain simplifications are possible.
+Based on the experiments discussedin Section 7, it can be concluded that a specialized left-corner parser is only about 10%faster than a head-corner parser running in left-corner mode.
+This is an interestingresult: a head-corner parser performs at least almost as well as a left-corner parser,and, as some of the experiments indicate, often better.1.5 Practical Relevance of Head-Corner Parsing: Efficiency and RobustnessThe head-corner parser is one of the parsers that is being developed as part of theNWO Priority Programme on Language and Speech Technology.
+An overview of theProgramme can be found in Boves et al (1995).
+An important goal of the Programmeis the implementation f a spoken dialogue system for public transport information(the OVIS system).
+The language of the system is Dutch.In the context of the OVIS system, it is important that the parser can deal withinput from the speech recognizer.
+The interface between the speech recognizer andthe parser consists of word-graphs.
+In Section 5, I show how the head-corner parseris generalized to deal with word-graphs.Moreover, the nature of the application also dictates that the parser proceeds in arobust way.
+In Section 6, I discuss the OVIS Robustness component, and I show thatthe use of a parser that includes top-down prediction is not an obstacle to robustness.In Section 7, I compare the head-corner parser with the other parsers implementedin the Programme for the OVIS application and show that the head-corner parser op-erates much faster than implementations of a bottom-up Earley parser and relatedchart-based parsers.
+Moreover, the space requirements are far more modest.
+The dif-ference with a left-corner parser, which was derived from the head-corner parser, issmall.We performed similar experiments for the Alvey NL Tools grammar of English(Grover, Carroll, and Briscoe 1993), and the English grammar of the MiMo2 system(van Noord et al 1991).
+From these experiments it can be concluded that selectivememorization with goal-weakening (as applied to head-corner and left-corner parsing)is substantially more efficient han conventional chart parsing.
+We conclude that atleast for some grammars, head-corner parsing is a good option.2.
+A Specification of the Head-Corner ParserHead-corner parsing is a radical approach to head-driven parsing in that it gives up theidea that parsing should proceed from left to right.
+Rather, processing in a head-cornerparser is bidirectional, starting from a head outward (island-driven).
+A head-cornerparser can be thought of as a generalization f the left-corner parser (Rosenkrantz andLewis 1970; Matsumoto et al 1983; Pereira and Shieber 1987).
+As in the left-cornerparser, the flow of information in a head-corner parser is both bottom-up and top-down.In order to explain the parser, I first introduce some terminology.
+I assume thatgrammars are defined in the Definite Clause Grammar formalism (Pereira and Warren1980).
+Without any loss of generality I assume that no external Prolog calls (the onesthat are defined within { and }) are used, and that all lexical material is introducedin rules that have no other right-hand-side members (these rules are called lexical429Computational Linguistics Volume 23, Number 3goal.lexFigure 1The head-corner parser.g?
+l goalentries).
+The grammar thus consists of a set of rules and a set of lexical entries?
+Foreach rule an element of the right-hand side is identified as the head of that rule.
+Thehead-relation of two categories h,m holds with respect o a grammar iff the grammarcontains a rule with left-hand side m and head daughter h. The relation head-corneris the reflexive and transitive closure of the head relation.The basic idea of the head-corner parser is illustrated in Figure 1.
+The parser selectsa word (1), and proves that the category associated with this word is the head-cornerof the goal.
+To this end, a rule is selected of which this category is the head daughter?Then the other daughters of the rule are parsed recursively in a bidirectional fashion:the daughters left of the head are parsed from right to left (starting from the head),and the daughters right of the head are parsed from left to right (starting from thehead).
+The result is a slightly larger head-corner (2).
+This process repeats itself until ahead-corner is constructed that dominates the whole string (3).Note that a rule is triggered only with a fully instantiated head daughter.
+Thegenerate-and-test behavior discussed in the previous section (examples 1 and 2) isavoided in a head-corner parser, because in the cases discussed there, the rule wouldbe applied only if the VP is found, and hence arg is instantiated.
+For example if arg= np(sg3, \[\] ,Subj), the parser continues to search for a singular NP, and need notconsider other categories?To make the definition of the parser easier, and to make sure that rules are indexedappropriately, grammar rules are represented by the predicate headod_rulo/4 in whichthe first argument is the head of the rule, the second argument is the mother node ofthe rule, the third argument is the reversed list of daughters left of the head, and thefourth argument is the list of the daughters right of the head.
+1This representation fa grammar will in practice be compiled from a friendlier notation?As an example, the DCG rulex(A,E) --> a(A), b(B,A), x(C,B), d(C,D), e(D,E).of which the third daughter constitutes the head, is represented now as:headed_rule(x(C,B), x(A,E), \[b(B,A), a(A)\], \[d(C,D), e(D,E)\]).It is assumed furthermore that lexical lookup has been performed already by an-other module.
+This module has asserted clauses for the predicate lexieal_analysis/3where the first two arguments are the string positions and the third argument is the1 Later we will also allow the use of rules with an empty right-hand side.
+These will simply berepresented by the predicate gap/1.430van Noord Efficient Head-Comer Parsing% parse(?Cat,+PO,+P)% there is a category Cat from PO to Pparse(Cat,PO,P) :- parse(Cat,PO,P,PO,P).% parse(?Cat,?PO,?P,+E0,+E)% there is a category Cat from PO to P within the interval E0-Eparse(Cat,P0,P,E0,E) :-predict(Cat,PO,P,E0,E,SmallCat,Q0,Q),head_corner(SmallCat,QO,~,Cat,PO,P,EO,E).% head_corner(?Small,+QO,+Q,?Cat,?PO,?P,+EO,+E)Small from QO-Q is a head-corner of Cat from PO-Pwhere PO-P occurs within EO-Ehead_corner(Cat,PO,P,Cat,PO,P .... ).head_corner(Small,QO,Q,Cat,PO,P,EO,E) :-headed_rule(Small,Mother,RevLeftDs,RightDs),head_link(Cat,PO,P,Mother,QL,QR),parse_left_ds(RevLeftDs,QL,QO,EO), parse_right_ds(RightDs,Q,QR,E),head_corner(Mother,QL,QR,Cat,PO,P,EO,E).% parse_left_ds(+RevLeftDs,-Q0,+Q,+E0)% there are categories LeftDs from QO to Qs.t.
+RevLeftDs is reverse of LeftDs, and E0=<~0.parse left_ds(\[\],Q,Q,_).parse left_ds(\[HIT\],QO,Q,EO) "-parse(H,QI,Q,E0,Q), parse_left_ds(T,Q0,QI,E0).% parse_right_ds(+RightDs,+Q0,-Q,+E)% there are categories RightDs from Q0 to Q s.t.
+Q =< E.parse_right_ds(\[\],Q,Q,_).parse right_ds(\[HIT\],Q0,Q,E) "-parse(H,QO,Ql,@0,E), parse_right ds(T,QI,Q,E).% predict(+Cat,?PO,?P,+EO,+E,-Small,-QO,-Q)% Small from QO-Q (within EO-E) is a lexical category and possible% head-corner for Cat from PO-P.predict(Cat,PO,P,EO,E,Small,QO,Q) :-lex_head_link(Cat,PO,P,Small,QO,Q),lexical_analysis(QO,Q,Small),smaller_equal(EO,QO),smaller_equal(Q,E).Figure 2Definite clause specification ofthe head-corner parser.
+(lexical) category.
+For an input sentence Timeyqies like an arrow this module may producethe following set of clauses:lexical_analysis  (0, I, verb).
+(5)lexical_analysis  (0,2 ,noun).lexieal_analysis  (i, 2, verb).lexical_analysis  (2,3, verb).lexical_analysis  (4,5, noun).A simple definite-clause pecification ofthe head-corner parser is given in Figure 2.The predicate visible to the rest of the world will be the predicate parse/3.
+Thislex ical_analys is(O, l ,noun).lexical_analysis(1,2,noun).lexical_analysis(2,3,prep).lexical_analysis(3,4,det) .431Computational Linguistics Volume 23, Number 3predicate is defined in terms of the parse /5  predicate.
+The extra arguments introducea pair of indices representing the extreme positions between which a parse should befound.
+This will be explained in more detail below.
+A goal category can be parsed ifa predicted lexical category can be shown to be a head-corner of that goal.
+The head-corner predicate constructs (in a bottom-up fashion) larger and larger head-corners.To parse a list of daughter categories, each daughter category is parsed in turn.
+Apredicted category must be a lexical category that lies somewhere between the extremepositions.
+The predicate smal le r_equa l  is true if the first argument is a smaller orequal integer than the second.
+The use of the predicates head_link and lex_head_linkis explained below.Note that unlike the left-corner parser, the head-corner parser may need to con-sider alternative words as a possible head-corner of a phrase, for example, whenparsing a sentence that contains everal verbs.
+This is a source of inefficiency if it isdifficult to determine what the appropriate l xical head for a given goal category is.This problem is somewhat reduced because of:?
+the use of extremes?
+the use of top-down information2.1 The Use of ExtremesThe main difference between the head-corner parser in the previous paragraph andthe left-corner parser is--apart from the head-driven selection of rules--the use oftwo pairs of indices, to implement the bidirectional way in which the parser proceedsthrough the string.Observe that each parse-goal in the left-corner parser is provided with a categoryand a left-most position.
+In the head-corner parser, a parse-goal is provided eitherwith a begin or end position (depending on whether we parse from the head to theleft or to the right) but also with the extreme positions between which the categoryshould be found.
+In general, the parse predicate is thus provided with a category andtwo pairs of indices.
+The first pair indicates the begin and end position of the category,the second pair indicates the extreme positions between which the first pair shouldlie.
+In Figure 3 the motivation for this technique is illustrated with an example.2.2 Adding Top-Down Filtering2.2.1 Category Information.
+As in the left-corner parser, a linking table is maintained,which represents important aspects of the head-corner relation.
+For some grammars,this table simply represents he fact that the HEAD features of a category and its head-corner are shared.
+Typically, such a table makes it possible to predict hat in order toparse a finite sentence, the parser should start with a finite verb; to parse a singularnoun-phrase the parser should start with a singular noun, etc.The table is defined by a number of clauses for the predicate head_link/2 wherethe first argument is a category for which the second argument is a possible head-corner.
+A sample linking table may be:head_link(s,verb).head_link( s, vp).head_link(pp,prep).head_link( X, X).head_link( vp, verb).head_link( np, noun).head_link(sbar, comp).
+(6)432van Noord Efficient Head-Corner Parsingvpv np5 6 7 8Figure 3This example illustrates how the use of two pairs of string positions reduces the number ofpossible lexical head-corners for a given goal.
+Suppose the parser predicted (for a goalcategory s) a category v from position 5 to 6.
+In order to construct a complete tree s for thishead-corner, a rule is selected that dictates that a category np should be parsed to the right,starting from position 6.
+To parse np, the category n from 7 to 8 is predicted.
+Supposefurthermore that in order to connect n to np a rule is selected that requires a category adjp tothe left of n. It will be clear that this category adjp should end in position 7, but can neverstart before position 6.
+Hence the only candidate head-corner of this phrase is to be foundbetween 6 and 7.2.2.2 String Position Information.
+The head-corner table also includes informationabout begin and end positions, following an idea in Sikkel (1993).
+For example, if thegoal is to parse a phrase with category sbar  from position 7, and within positions 7 and12, then for some grammars  it can be concluded that the only possible lexical head-corner for this goal should be a complementizer starting at position 7.
+Such informationis represented in the table as well.
+This can be done by defining the head relation as arelation between two triples, where each triple consists of a category and two indices(representing the begin and end position).
+The head relation ((Cm, pm, qm), (Ch, ph, qh))holds iff there is a grammar  ule with mother Cm and head Ch.
+Moreover, if the list ofdaughters left of the head of that rule is empty, then the begin positions are identical,i.e., Ph = Pro.
+Similarly, if the list of daughters right of the head is empty, then qh = qm.As before, the head-corner relation is the reflexive and transitive closure of the headrelation.The previous example now becomes:head_link( s ..... verb .... ).head_link( s,_,P, vp,_,P).head_link(pp,P,_, prep,P,_).head_link( X,P,Q, X,P,Q).head_link( vp,P,_, verb,P,_).head_link( np ..... noun .... ).head_link(sbar,P,_, comp,P,_).
+(7)Obviously, the nature of the grammar  determines whether it is useful to representsuch information.
+In order to be able to run a head-corner parser in left-corner mode,this technique is crucial.
+On the other hand, for grammars  in which this technique doesnot provide any useful top-down information o extra costs are introduced either.433Computational Linguistics Volume 23, Number 32.2.3 Integrating the Head-Corner Table.
+The linking table information is used torestrict which lexical entries are examined as candidate heads during prediction, andto check whether a rule that is selected can in fact be used to reach the current goal.To distinguish the two uses, we use the relation lex_head_link, which is a subsetof the head_l ink relation in which the head category is a possible lexical category.An example might be the following (where we assume that the category vp is neverassigned to a lexical entry), which is a subset of the table in 7.lex_head_link( s .....lex_head link( np .....lex_head link(sbar,P,_,verb .... ).noun,_,_).comp,P,_).lex_head_link(vp,P,_, verb,P,_).lex_head_link(pp,P,_, prep,P,_).lex_head_link( X,P,Q, X,P,Q).
+(8)A few potential problems arise in connection with the use of linking tables.
+Firstly,for constraint-based grammars of the type assumed here the number of possible non-terminals is infinite.
+Therefore, we generally cannot use all information available inthe grammar but rather we should compute a "weakened" version of the linking table.This can be accomplished, for example, by replacing all terms beyond a certain depthby anonymous variables, or by other restrictors (Shieber 1985).Secondly, the use of a linking table may give rise to spurious ambiguities.
+Considerthe case in which the category we are trying to parse can be matched against twodifferent items in the linking table, but in which case the predicted head-category mayturn out to be the same.Fortunately, the memorization technique discussed in Section 3 takes care of thisproblem.
+Another possibility is to use the linking table only as a check, but not as asource of information, by encapsulating the call within a double negation.
+2The solution implemented in the head-corner parser is to use, for each pair offunctors of categories, the generalization of the head-corner relation.
+Such functorstypically are major and minor syntactic ategory labels such as NP, VP, S, S-bar, verb,.
+.
+.
+.
+As a result there will always be at most one matching clause in the linking tablefor a given goal category and a given head category (thus there is no risk of obtainingspurious ambiguities).
+Moreover, this approach allows a very efficient implementationtechnique, as described below.2.2.4 Indexing of the Head-Corner Table.
+In the implementation of the head-cornerparser, we use an efficient implementation of the head-corner relation by exploitingProlog's first argument indexing.
+This technique nsures that the lookup of the head-corner table can be done in (essentially) constant ime.
+The implementation consistsof two steps.
+In the first step, the head-corner table is weakened such that for a givengoal category and a given head category at most a single matching clause exists.
+In thesecond step, this table is encoded in such a way that first argument indexing ensuresthat table lookup is efficient.As a first step we modify the head-corner relation to make sure that for all pairsof functors of categories, there will be at most one matching clause in the head-cornertable.
+This is illustrated with an example.
+Suppose a hypothetical head-corner table2 This approach also solves another potential problem: the linking table may give rise to (undesired)cyclic terms due to the absence of the occur check.
+The double negation also takes care of this potentialproblem.434van Noord Efficient Head-Corner Parsingcontains the following two clauses relating categories with functor x/4 and y/4:head_l ink (x (A, B .... ) ..... y(A,B .... ) .... ).head_l ink(x(_,B,C,_) ..... y(_,B,C,_) .... ).In this case, the modified head-corner relation table will consist of a single clauserelating x/4 and y/4 by taking the generalization (or "anti-unification") of the twoclauses:head_l ink(x(_ ,B .... ) ..... y(_ ,B .... ) .... ).As  a result, for a given goal and head category, table lookup is deterministic.In the second and final step of the modification we re-arrange the information inthe table such that for each possible goal category functor g/n, there will be a clause:head_l ink(g(Al.
+.An) ,Pg,Qg,Head,Ph,Qh) :-head_l ink_G_N (Head, Ph, Qh, g (AI.. An), Pg, Qg).Moreover, all the relations head_link_G_N now contain the relevant information fromthe head-comer table.
+Thus, for clauses of the form:head_l ink (x (_, B .... ) ..... y(_,B .... ) .... ) .we  now have:head_l ink_x 4(y(_,B .... ) ..... x(_,B .... ) .... ).First argument indexing now ensures that table lookup is efficient.The same technique is applied for the lex_head_link relation.
+This technique sig-nificantly improves the practical time efficiency of the parser (especially if the resultingcode is compiled).2.3 Dealing with Epsilon RulesIn the preceding paragraphs we have said nothing about empty productions (epsilonrules).
+A possible approach is to compile the grammar into an equivalent grammar inwhich no such epsilon rules are defined.
+It is also possible to deal with epsilon rulesin the head-corner parser directly.
+For example, we could assert empty productionsas possible lexical analyses.
+In such an approach, the result of lexical analysis maycontain clauses uch as those in (9), in case there is a rule np/np --+ \[\].lexical_analysis (0, O, np/np), lexical_analysis (i, I, np/np) .
+(9)lexical_analysis (2,2, np/np), lexical_analysis (3,3,np/np).lexical_analysis (4,4, np/np).There are two objections to this approach.
+The first objection may be that this is atask that can hardly be expected from a lexical lookup procedure.
+The second, moreimportant, objection is that empty categories are hypothesized essentially everywhere.In the general version of the head-corner parser, gaps are inserted by a specialclause for the predict /8  predicate (10), where shared variables are used to indicate thecorresponding string positions.
+The gap_head_link relation is a subset of the head_linkrelation in which the head category is a possible gap.predict (Cat, PO, P, _EO, _E, Small, Q, Q) ?
+- (10)gap_head_l ink (Cat, PO, P, Small, Q, 6)),gap(Small).435Computational Linguistics Volume 23, Number 3For this approach to work, other predicates must expect string positions that arenot instantiated.
+For example, Prolog's built-in comparison operator cannot be used,since that operator equires that its arguments are ground.
+The definition of thesmaller_equal predicate therefore reflects the possibility that a string position is avariable (in which case, calls to this predicate should succeed).For some grammars it turns out that a simplification is possible.
+If it is neverpossible that a gap can be used as the head of a rule, then we can omit this new clausefor the predict predicate, and instead use a new clause for the parse/S predicate, asfollows:parse (Small, Q, Q, _EO, _E) :-gap(Small).
+(11)This will typically be much more efficient because in this case gaps are hypothesizedin a purely top-down manner.It should be noted that the general version of the head-corner parser is not guaran-teed to terminate, ven if the grammar defines only a finite number of derivations forall input sentences.
+Thus, even though the head-corner parser proceeds in a bottom-updirection, it can run into left-recursion problems (just as the left-corner parser can).This is because it may be possible that an empty category is predicted as the head,after which trying to construct a larger projection of this head gives rise to a parse-goalfor which a similar empty category is a possible candidate head .
+.
+.
+.
+This problem issometimes called "hidden left-recursion" in the context of left-corner parsers.This problem can be solved in some cases by a good (but relatively expensive)implementation f the memorization technique, .g., along the lines of Warren (1992) orJohnson and DOrre (1995).
+The simplified (and more efficient) memorization techniquethat I use (see Section 3), however, does not solve this problem.A quite different solution, which is often applied for the same problem if a left-corner parser is used, is to compile the grammar into an equivalent grammar withoutgaps.
+For left-corner parsers, this can be achieved by partially evaluating all rulesthat can take gap(s) as their left-most daughter(s).
+Therefore, the parser only needsto consider gaps in non-left-most position, by a clause similar to the clause in (11).Obviously, the same compilation technique can be applied for the head-corner parser.However, there is a problem: it will be unclear what the heads of the newly createdrules will be.
+Moreover, and more importantly, the head-corner relation will typicallybecome much less predictive.
+For example, if there is a rule vp --> np verb whereverb can be realized as a gap, then after compilation, a rule of the form vp --> npwill exist.
+Therefore, an np will be a possible head-corner of vp.
+The effect will be thathead-corners are difficult to predict, and hence efficiency will decrease.Fortunately, experience suggests that grammars exhibiting hidden head-recursioncan often be avoided.
+For example, in the Alvey NL Tools grammar in only 3 rules (outof more than 700) the head of the rule could be gapped.
+These rules are of the formx --> not x. Arguably, in such rules the second daughter should not be gapped.In the MiMo2 grammar of English, no heads can be gapped.
+Finally, in the DutchOVIS grammar (in which verb-second is implemented by gap-threading) no hiddenhead-recursion ccurs, as long as the head-corner table includes information about hefeature vslash, which encodes whether or not a v-gap is expected.436van Noord Efficient Head-Corner Parsing3.
+Selective Memorization and Goal-Weakening3.1 Selective MemorizationThe basic idea behind memorization is simple: do not compute things twice.
+In Prolog,we can keep track of each goal that has already been searched and keep a list of thecorresponding solution(s).
+If the same goal needs to be solved later, then we can skipthe computation and simply do a table lookup.
+Maintaining a table and doing the tablelookup is rather expensive.
+Therefore, we should modify the slogan "do not computethings twice" to do not compute xpensive things twice.In the head-corner parser it turns out that the parse/5 predicate is a very goodcandidate for memorization.
+The other predicates are not.
+This implies that each max-imal projection is computed only once; partial projections of a head can be constructedduring a parse any number of times, as can sequences of categories (considered assisters to a head).
+Active chart parsers memo everything (including sequences of cat-egories); inactive chart parsers only memo categories, but not sequences of categories.In our proposal, we memo only those categories that are maximal projections, i.e., pro-jections of a head that unify with the top category (start symbol) or with a nonheaddaughter of a rule.The implementation f memorization uses Prolog's internal database to store thetables.
+The advantage of this technique is that we use Prolog's first argument indexingfor such tables.
+Moreover, during the consultation ofthe table we need not worry aboutmodifications to it (in contrast to an approach in which the table would be maintainedas the value of a Prolog variable).
+On the other hand, the use of the internal databasebrings about a certain overhead.
+Therefore, it may be worthwhile to experiment witha meta-interpreter along the lines of the XOLDT system (Warren 1992) in which thetable is maintained dynamically.Memorization is implemented by two different ables.
+The first table encodeswhich goals have already been searched.
+Items in the first table are called goal items.The second table represents all solved (i.e., instantiated) goals.
+Items in this secondtable are called result items.
+It might be tempting to use only the second table, butin that case, it would not be possible to tell the difference between a goal that hasalready been searched, but did not result in a solution ("fail-goal") and a goal that hasnot been searched at all.
+If we have two tables, then we can also immediately stopworking on branches in the search-space for which it has already been shown thatthere is no solution.
+The distinction between these two kinds of item is inherited fromBUP (Matsumoto et al 1983).
+The memorized version of the parse predicate can bedefined as in (12).parse(Cat,PO,P,EO,E) :-( in_tablel(Cat,PO,P,E0,E)-> true; (assert_table2(Cat,P0,P),fail; assert_tablel(Cat,PO,P,E0,E)) ),in_table2(Cat,P0,P,EO,E).done before?then don't searchpredict(Cat,PO,P,E0,E,SmCat,Q0,Q), ~ otherwise find allhead_corner(SmCat,Q0,Q,Cat,PO,P,EO,E), ~ results and asserttheseZ goal is now donepick a solution(12)437Computational Linguistics Volume 23, Number 3The first table is represented by the predicate 'GOAL_ITEM'.
+This predicate sim-ply consists of a number of unit-clauses indicating all goals that have been searchedcompletely.
+Thus, before we try to attempt o solve Goal, we first check whether agoal item for that goal already exists.
+Given the fact that Goal may contain vari-ables, we should be a bit careful here.
+Unification is clearly not appropriate, sinceit may result in a situation in which a more general goal is not searched because amore specific variant of that goal had been solved.
+We want exactly the opposite: ifa more general version of Goal is included in the goal table, then we can continueto look for a solution in the result table.
+It is useful to consider the fact that if wehad previously solved, for example, the goal parse (s,  3, X, 3,12),  then if we later en-counter the goal parse(s ,3 ,Y ,3 ,10) ,  we can also use the second table immediately:the way in which the extreme positions are used ensures that the former is more gen-eral than the latter.
+The predicates for the maintenance of the goal table are definedin (13).in_tablel (Cat, P0, P, E0, E) ?
+- (13)'GOAL_ITEM'(Cat_d,P0_d,P_d,E0_d,E_d), Z goal exists which issubsumes chk((Cat_d,P0_d,P_d), (Cat,P0,P)), Z more general and withinsmaller_equal(E0_d,E0), ?h a larger intervalsmaller_equal (E, E_d).assert_tablel(Cat,PO,P,EO,E) :- assertz('GOAL_ITEM'(Cat,PO,P,EO,E)).The second table is represented by the predicate 'RESULT_ITEM'.
+It is defined byunit-clauses that each represent an instantiated goal (i.e., a solution).
+Each time a resultis found, the table is checked to see whether that result is already available.
+If it is,the newer result is ignored.
+If no (more general version of the) result exists, then theresult is added to the table.
+Moreover, more specific results that may have been puton the table previously are marked.
+These results need not be used anymore.
+3 This isnot strictly necessary but is often useful because it decreases the size of the tables; inthis approach, tables are redundancy free and hence minimal.
+Moreover, no furtherwork will be done based on those results.
+Note that result items do not keep trackof the extreme positions.
+This implies that in order to see whether a result item isapplicable, we check whether the interval covered by the result item lies within theextreme positions of the current goal.
+The predicates dealing with the result table aredefined in (14).in_table2(Cat,P0,P,E0,E) "-clause('RESULT_ITEM'(Cat,P0,P),Ref),\+ 'REPLACED_ITEM'(Ref,_),smaller_equal(EO,PO), smaller_equal(P,E).
+(14)result exists, notreplaced by generalresultwithin desired interval3 Note that such items are not removed, because in that case the item reference becomes available forlater items, which is unsound.438van Noord Efficient Head-Corner Parsingassert_table2(Cat,P0,P):-( 'RESULT_ITEM'(Cat_d,P0_d,P_d),subsumes_chk((Cat_d,P0_d,P_d),(Cat,P0,P)-> true; assertz('RESULT_ITEM'(Cat,P0,P),Ref),mark_item('RESULT_ITEM'(Cat,P0,P),Ref)).% if resu l t  ex i s ts% wh ich  is more  genera lthen  oko therwise  asser t  it ,  andmark  more  spec i f i c  i temsmark_ i tem(Cat ,NewRef )  "-( c lause(Spec i f i c , _ ,Re f ) ,\+ Ref=NewRef ,subsumes_chk(Cat ,Spec i f i c ) ,asser tz ( 'REPLACED_ ITEM' (Ref ,NewRef ) ) ,fa i l; t rue).% item existsnot the one just addedand it's more specificthen mark it% do this for all such% itemsThe implementation uses a faster implementation f memorizating in which bothgoal items and result items are indexed by the functor of the category and the stringpositions.In the head-corner parser, parse-goals are memorized.
+Note that nothing wouldprevent us from memoing other predicates as well, but experience suggests that thecost of maintaining tables for the head_corner relation, for example, is (much) higherthan the associated profit.
+The use of memorization for only the parse/5 goals impliesthat the memory requirements of the head-corner parser in terms of the number ofitems being recorded is much smaller than in ordinary chart parsers.
+Not only dowe refrain from asserting so-called active items, but we also refrain from assertinginactive items for nonmaximal projections of heads.
+In practice the difference in spacerequirements can be enormous.
+This difference is a significant reason for the practicalefficiency of the head-corner parser.3.2 The Occur CheckIt turns out that the use of tables defined in the previous ubsection can lead to aproblem with cyclic unifications.
+If we assume that Prolog's unification includes theoccur check then no problem would arise.
+But since most versions of Prolog do notimplement the occur check it is worthwhile investigating this potential problem.The problem arises because cyclic solutions can be constructed that would not havebeen constructed by ordinary SLD-resolution.
+Furthermore, these cyclic structures leadto practical problems because items containing such a cyclic structure may have to beput in the table.
+In SICStus Prolog, this results in a crash.An example may clarify the problem.
+Suppose we have a very simple programcontaining the following unit clause:x(A,B).439Computational Linguistics Volume 23, Number 3Furthermore suppose that in the course of the computation a goal of the form?- x(f(x) ,x)is attempted.
+This clearly succeeds.
+Furthermore an item of that form is added to thetable.
+Later on it may be the case that a goal of the form7- x(Y,Y)is attempted.
+Clearly this is not a more specific goal than we solved before, so weneed to solve this goal afresh.
+This succeeds too.
+Now we can continue by picking upa solution from the second table.
+However, if we  pick the first solution then a cyclicterm results.A possible approach to deal with this situation is to index the items of the secondtable with the item of the first table from which the solution was obtained.
+In otherwords, if you want to select a solution from the second table, it must not only be thecase that the solution matches your goal, but also that the corresponding goal of thesolution is more general than your current goal.
+This strategy works, but turns out tobe considerably slower than the original version given above.
+The reason seems to bethat the size of the second table is increased quite drastically, because solutions maynow be added to the table more than once (for all goals that could give rise to thatsolution).An improvement of the head-corner parser using a goal-weakening technique of-ten eliminates this occur check problem.
+Goal weakening is discussed in the followingsubsection.3.3 Goal WeakeningThe insight behind goal weakening (or abstraction \[Johnson and D6rre 1995\]) in thecontext of memorization is that we may combine a number of slightly different goalsinto a single, more general, goal.
+Very often it is much cheaper to solve this single(but more general) goal than to solve each of the specific goals in turn.
+Moreover,the goal table will be smaller (both in terms of number of items, and the size ofindividual items), which can have a positive effect on the amount of memory andCPU-time required for the administration f the table.
+Clearly, one must be careful notto remove essential information from the goal (in the worst case, this may even leadto nontermination f otherwise well-behaved programs).Depending on the properties of a particular grammar, it may, for example, beworthwhile to restrict a given category to its syntactic features before attempting tosolve the parse-goal of that category.
+Shieber's (1985) restriction operator can be usedhere.
+Thus we essentially throw some information away before an attempt is made tosolve a (memorized) goal.
+For example, the categoryx(A, B, f (A, B), g(A,h(B, i (C)) ) )may be weakened into:x(A,B,f (_,_) ,g(_,_))If we assume that the predicate weaken/2 relates a term t to a weakened version tw,such that tw subsumes t, then (15) is the improved version of the parse predicate:parse_with_weakening (Cat, P0, P, E0, E) ?
+- (15)weaken(Cat,WeakenedCat),parse(WeakenedCat,P0,P,E0,E),Cat=WeakenedCat.440van Noord Efficient Head-Corner ParsingNote that goal weakening is sound.
+An answer a to a weakened goal g is onlyconsidered if a and g unify.
+Also note that goal weakening is complete in the sensethat for an answer a to a goal g there will always be an answer a t to the weakeningof g such that a t subsumes a.For practical implementations the use of goal weakening can be extremely im-portant.
+It is my experience that a well-chosen goal-weakening operator may reduceparsing times by an order of magnitude.The goal-weakening technique can also be used to eliminate typical instances of theproblems concerning the occur check (discussed in the previous ubsection).
+Comingback to the example in the previous ubsection, if our first goalx(f (x) ,x)were weakened intox(f (_) ,_)then the problem would not occur.
+If we want to guarantee that no cyclic structurescan be formed, then we would need to define goal weakening in such a way that novariable sharing occurs in the weakened goal.An important question is how to come up with a good goal-weakening operator.For the experiments discussed in the final section all goal-weakening operators werechosen by hand, based on small experiments and inspection of the goal table and itemtable.
+Even if goal weakening is reminiscent of Shieber's (1985) restriction operator,the rules of the game are quite different: in the case of goal weakening, as much infor-mation as possible is removed without risking nontermination f the parser, whereasin the case of Shieber's restriction operator, information is removed until the resultingparser terminates.
+For the current version of the grammar of OVIS, weakening the goalcategory in such a way that all information below a depth of 6 is replaced by freshvariables eliminates the problem caused by the absence of the occur check; moreover,this goal-weakening operator reduces parsing times substantially.
+In the latest version,we use different goal-weakening operators for each different functor.An interesting special case of goal weakening is constituted by a goal-weakeningoperator that ignores all feature constraints, and hence only leaves the functor foreach goal category.
+In this case the administration f the goal table can be simplifiedconsiderably (the table consists of ground facts, hence no subsumption checks arerequired).
+This technique is used in the MiMo2 grammar and the Alvey NL Toolsgrammar, both discussed in Section 7.4.
+Compact Representation of Parse TreesOften a distinction is made between recognition and parsing.
+Recognition checkswhether a given sentence can be generated by a grammar.
+Usually recognizers can beadapted to be able to recover the possible parse trees of that sentence (if any).In the context of Definite Clause Grammar this distinction is often blurred becauseit is possible to build up the parse tree as part of the complex nonterminal symbols.Thus the parse tree of a sentence may be constructed as a side effect of the recognitionphase.
+If we are interested in logical forms rather than in parse trees, a similar trickmay be used.
+The result of this, however, is that as early as the recognition phase,ambiguities will result in a (possibly exponential) increase of processing time.For this reason we will assume that parse trees are not built by the grammar, butrather are the responsibility of the parser.
+This allows the use of efficient packing441Computational Linguistics Volume 23, Number 3112:s-adv-s / \46 s-np-vp/ \87 vp-vp-np-ppvp-v 121 125give22Figure 4Example of a partial derivation tree projected by a history item.techniques.
+The result of the parser will be a parse forest: a compact representationof all possible parse trees rather than an enumeration of all parse trees.The structure of the parse forest in the head-corner parser is rather unusual, andtherefore we will take some time to explain it.
+Because the head-corner parser usesselective memorization, conventional approaches to constructing parse forests (Billotand Lang 1989) are not applicable.
+The head-corner parser maintains a table of partialderivation trees, each of which represents a successful path from a lexical head (orgap) up to a goal category.
+The table consisting of such partial parse trees is called thehistory table; its items are history items.More specifically, each history item is a triple consisting of a result item reference,a rule name, and a list of triples.
+The rule name is always the name of a rule withoutdaughters (i.e., a lexical entry or a gap): the (lexical) head.
+Each triple in the list oftriples represents a local tree.
+It consists of the rule name, and two lists of result itemreferences (representing the list of daughters left of the head in reverse, and the list ofdaughters right of the head).
+An example will clarify this.
+Suppose we have a historyitem:' H ISTORY_ ITEM ' ( 112, g ive22 ,\ [rule (vp_v,  \[\] , \[\] ) ,ru le  ( s_np_vp ,  \[87\] , \[\] ) ,ru le  (vp_vp_np_pp ,  \[\] , \ [121,125\ ]  ),ru le  ( s_adv_s ,  \[46\] , \[\] )\] ).
+(16)This item indicates that there is a possible derivation of the category defined in resultitem 112 of the form illustrated in Figure 4.
+In this figure, the labels of the interiornodes are rule names, and the labels of the leaves are references to result items.
+Thehead-corner leaf is special: it is a reference to either a lexical entry or an epsilon rule.The root node is special too: it has both an associated rule name and a reference to aresult item.
+The latter indicates how this partial derivation tree combines with otherpartial trees.The history table is a lexicalized tree substitution grammar, in which all nodes(except substitution odes) are associated with a rule identifier (of the original gram-mar).
+This grammar derives exactly all derivation trees of the input.
+4 As an example,4 The tree substitution grammar is lexicalized inthe sense that each of the trees has an associated anchor,442van Noord Efficient Head-Corner Parsingnt5:I nt0:a ntl:4 nt2:3/ \  rntO man homent3:6 / \at nt2nt4:5 nt6:l/\ /\4 nt3 nt5 7 /\ /\nt0 man see nt4nt6:2 / \1 nt3 / \nt5 7 / \see nt lFigure 5Tree substitution grammar that derives each of the two derivation trees of the sentence I see aman at home, for the grammar of Billot and Lang (1989).
+The start symbol of this grammar isnt6.
+Note that all nodes, except for substitution odes, are associated with a rule (or lexicalentry) of the original grammar.
+Root nodes have a nonterminal symbol before the colon, andthe corresponding rule identifier after the colon.
+The set of derived trees for this treesubstitution grammar equals the set of derivation trees of the parse (ignoring the nonterminalsymbols of the tree substitution grammar).consider the grammar  used by Tomita (1987) and Billot and Lang (1989), given herein (17) and (18).
+(I) s --> np, vp.
+(2) s --> s, pp.
+(3) np --> n.(4) np --> det, n. (5) np --> rip, pp.
+(6) pp --> prep,  rip.
+(7) vp --> v, rip.
+(17)n --> \['I'\] .
+n --> \[man\] .
+v - -> \[see\] .
+(18)p rep- -> \[at\].
+det - ->  \[a\].
+n - ->  \[home\].The sentence I see a man at home has two derivations, according to this grammar.
+Thelexicalized tree substitution grammar  in Figure 5, which is constructed by the head-corner parser, derives exactly these two derivations.Note that the item references are used in the same manner as the computer gener-ated names of nonterminals in the approach of Billot and Lang (1989).
+Because we usechunks of parse trees, less packing is possible than in their approach.
+Correspondingly,the theoretical worst-case space requirements are also worse.
+In practice, however, thisdoes not seem to be problematic: in our experiments, the size of the history table isalways much smaller than the size of the other tables (this is expected because thelatter tables have to record complex category information).Let us now look at how the parser of the previous ection can be adapted to be ableto assert history items.
+First, we add an (output-) argument to the parse  predicate.
+Thissixth argument is the reference to the result item that was actually used.
+The predicatesto parse a list of daughters are augmented with a list of such references.
+This enablesthe construction of a term for each local tree in the head_corner predicate consistingof the name of the rule that was applied and the list of references of the result itemswhich is a pointer to either a lexical entry or a gap.443Computational Linguistics Volume 23, Number 3used for the left and right daughters of that rule.
+Such a local tree representation isan element of a list that is maintained for each lexical head upward to its goal.
+Sucha list thus represents in a bottom-up fashion all rules and result items that were usedto show that that lexical entry indeed was a head-corner of the goal.
+If a parse goalhas been solved then this list containing the history information is asserted in a newkind of table: the 'HISTORY_ITEM'/3 table.
+5We already argued above that parse trees should not be explicitly defined in thegrammar.
+Logical forms often implicitly represent the derivational history of a cate-gory.
+Therefore, the common use of logical forms as part of the categories will implythat you will hardly ever find two different analyses for a single category, because twodifferent analyses will also have two different logical forms.
+Therefore, no packing ispossible and the recognizer will behave as if it is enumerating all parse trees.
+Thesolution to this problem is to delay the evaluation of semantic onstraints.
+During thefirst phase, all constraints referring to logical forms are ignored.
+Only if a parse treeis recovered from the parse forest we add the logical form constraints.
+This is similarto the approach worked out in CLE (Alshawi 1992).This approach may lead to a situation in which the second phase actually filtersout some otherwise possible derivations, in case the construction of logical forms isnot compositional in the appropriate sense.
+In such cases, the first phase may be saidto be unsound in that it allows ungrammatical derivations.
+The first phase combinedwith the second phase is of course still sound.
+Furthermore, if this situation arose veryoften, then the first phase would tend to be useless, and all work would have to bedone during the recovery phase.
+The present architecture of the head-corner parserembodies the assumption that such cases are rare, and that the construction of logicalforms is (grosso modo) compositional.The distinction between semantic and syntactic information is compiled into thegrammar rules on the basis of a user declaration.
+We simply assume that in the firstphase the parser only refers to syntactic information, whereas in the second phaseboth syntactic and semantic information is taken into account.If we assume that the grammar constructs logical forms, then it is not clear that weare interested in parse trees at all.
+A simplified version of the recover predicate maybe defined in which we only recover the semantic information of the root category,but in which we do not build parse trees.
+The simplified version may be regardedas the run-time version, whereas parse trees will still be very useful for grammardevelopment.5.
+Parsing Word-Graphs with ProbabilitiesThe head-corner parser is one of the parsers developed within the NWO PriorityProgramme on Language and Speech Technology.
+In this program a spoken dialogsystem is developed for public transportation information (Boves et al 1995).In this system the input for the parser is not a simple list of words, as we haveassumed up to now, but rather a word-graph: a directed, acyclic graph where thestates are points in time and the edges are labeled with word hypotheses and theircorresponding acoustic score.
+Thus, such word-graphs are acyclic weighted finite-stateautomata.In Lang (1989) a framework for processing ill-formed input is described in which5 A complication is needed for those cases where items are removed later because a more general itemhas been found.444van Noord Efficient Head-Corner Parsingcertain common errors are modeled as (weighted) finite-state transducers.
+The compo-sition of an input sentence with these transducers produces a (weighted) finite-stateautomaton, which is then input for the parser.
+In such an approach, the need to gen-eralize from input strings to input finite-state automata is also clear.The generalization from strings to weighted acyclic finite-state automata intro-duces essentially two complications: we cannot use string indices anymore and weneed to keep track of the acoustic scores of the words used in a certain derivation.5.1 From String Positions to State NamesParsing on the basis of a finite-state automaton can be seen as the computation ofthe intersection of that automaton with the grammar.
+If the definite clause grammaris off-line parsable, and if the finite-state automaton is acyclic, then this computationcan be guaranteed to terminate (van Noord 1995).
+This is obvious because an acyclicfinite-state automaton defines a finite number of strings.
+More importantly, existingtechniques for parsing based on strings can be generalized easily by using the namesof states in the automaton instead of the usual string indices.In the head-corner parser, this leads to an alternative to the predicate smaller_equal/2.
+Rather than a simple integer comparison, we now need to check that aderivation from P0 to P can be extended to a derivation from E0 to E by checking thatthere are paths in the word-graph from E0 to P0 and from P to E.The predicate connect ion/2  is true if there is a path in the word-graph from thefirst argument o the second argument.
+It is assumed that state names are integers;to rule out cyclic word-graphs we also require that, for all transitions from P0 to P, itis the case that P0 < P. Transitions in the word-graph are represented by clauses ofthe form wordgraph:trans (P0, Sym, P, Score),  which indicate that there is a transitionfrom state P0 to P with symbol Sym and acoustic score Score.
+The connection predicatecan be specified simply as the reflexive and transitive closure of the transition relationbetween states:connect ion (A, A) .
+(19)connection(AO,A) "-wordgraph : trans (AO, _, A i, _),connect ion (AI, A).The implementation allows for the possibility that state names are not instantiated (asrequired by the treatment of gaps).
+Moreover it uses memorization, and it ensures thatthe predicate succeeds at most once:connect ion(A,B) : -( var(A) -> true; var(B) -> true; A=:=B -> true; B < A -> fail; ok_conn(A,B) -> true; fa i l_conn(A,B) -> fail; wordgraph:trans(A,_ ,X,_) ,connection(X,B)% word-graphs are acycl ic-> assertz(ok_conn(A,B))(20)445Computational Linguistics Volume 23, Number 3; assertz(fai l_conn(A,B)),fail.A somewhat different approach that may turn out to be more efficient is to use theordinary comparison operator that we used in the original definition of the head-cornerparser.
+The possible extra cost of allowing impossible partial analyses is worthwhileif the more precise check would be more expensive.
+If, for typical input word-graphs,the number of transitions per state is high (such that almost all pairs of states areconnected), then this may be an option.5.2 Accounting for Word-Graph ScoresTo account for the acoustic score of a derivation (defined as the sum of the acousticscores associated with all transitions from the word-graph involved in the derivation),we assume that the predicate lexical_analys is  represents the acoustic score of thepiece of the word-graph that it covers by an extra argument.
+During the first phase,acoustic scores are ignored.
+During the second phase (when a particular derivation isconstructed), the acoustic scores are combined.6.
+Head-Corner Parsing and RobustnessCertain approaches towards robust parsing use the partial results of the parser.
+It isassumed in such approaches that even if no full parse for the input could be con-structed, the discovery of other phrases in the input might still be useful.
+It is alsooften assumed that a bottom-up arser is essential for such approaches towork: parsersthat use top-down information (such as the head-corner parser) may fail to recognizerelevant subparses in the context of an ungrammaticality.In the application for which the head-corner parser was developed, robust pro-cessing is essential.
+In a spoken dialogue system it is often impossible to parse a fullsentence, but in such cases the recognition of other phrases, such as temporal expres-sions, might still be very useful.
+Therefore, a robust processing technique that collectsthe remnants of the parsing process in a meaningful way seems desirable.In this subsection, we show how the head-corner parser can be used in suchcircumstances.
+The parser is modified in such a way that it finds all derivations of thestart symbol anywhere in the input.
+Furthermore, the start symbol should be defined insuch a way that it includes all categories considered useful for the application.6.1 Underspecification of the PositionsNormally the head-corner parser will be called as follows, for example:?- parse(s(Sem) ,0,12) .indicating that we want to parse a sentence from position zero to twelve with cate-gory s (Sere) (a sentence with a semantic representation that is yet to be discovered).Suppose, however, that a specific robustness module is interested in all maximal pro-jections anywhere in the sentence.
+Such a maximal projection may be represented bya term xp (Sere).
+Furthermore there may be unary grammar rules rewriting such an xpinto appropriate categories, for example:xp(Sem) --> np(Sem), xp(Sem) --> s(Sem).
+(21)xp(Sem) --> pp(Sem), xp(Sem) --> advp(Sem).446van Noord Efficient Head-Corner ParsingIf we want to recognize all maximal projections at all positions in the input, then wecan simply give the following parse-goah?- parse(xp(Sem)  .... ).
+(22)Now one might expect hat such an underspecified goal will dramatically slow downthe head-corner parser, but this turns out to be false.
+In actual fact we have experiencedan increase of efficiency using underspecification.
+This can only be understood in thelight of the use of memorization.
+Even though we now have a much more generalgoal, the number of different goals that we need to solve is much smaller.Also note that even though the first call to the parse predicate has variable xtremepositions, this does not imply that all power of top-down prediction is lost by thismove; recursive calls to the parse predicate may still have instantiated left and/or ightextreme positions.
+The same applies with even more force for top-down informationon categories.6.2 The Robustness Component in OVISIn an attempt to obtain a robust natural language understanding component, we haveexperimented in OVIS with the techniques mentioned in the preceding paragraph.
+Thetop category (start symbol) of the OVIS grammar is defined as the category max (gem).Moreover there are unary rules such as max(gem) --* np(Sem,.. ) for NP, S, PP, AdvP.In the first phase, the parser finds all occurrences of the top category in the inputword-graph.
+Thus, we obtain items for all possible maximal projections anywhere inthe input graph.
+In the second phase, the robustness component selects a sequenceof such maximal projections.
+The robustness procedure consists of a best-first searchfrom the beginning of the graph to the end of the graph.
+A path in the input graphcan be constructed by taking steps of two types.
+To move from position P to Q youcan either:?
+use a maximal projection from P to Q (as constructed by the parser), or?
+use a transition from P to Q.
+In this case we say that we skip thattransition.In order to compare paths in the best-first search method, we have experimentedwith score functions that include some or all of the following factors:?
+the number of skips.
+We prefer paths with a smaller number of suchskips.?
+the number of maximal projections.
+We prefer paths with a smallernumber of such projections.?
+the combined acoustic score as defined in the word-graph.?
+the appropriateness of the semantic representation given the dialoguecontext?
+the bigram score.If bigram scores are not included, then this best-first search method can be im-plemented efficiently because for each state in the word-graph we only have to keeptrack of the best path to that state.447Computational Linguistics Volume 23, Number 3The resulting best path in general consists of a number of maximal projections.
+Inthe OVIS application, these are often simple time or place expressions.
+The pragmaticmodule is able to deal with such unconnected pieces of information and will performbetter if given such partial parse results.To evaluate the appropriate combination of the factors determining the scoringfunction, and to evaluate this approach with respect o other approaches, we use acorpus of word-graphs for which we know the corresponding actual utterances.
+Wecompare the sentence associated with the best path in the word-graph with the sen-tence that was actually spoken.
+Clearly, the more often the robustness componentuses the information that was actually uttered, the more confidence we have in thatcomponent.
+This notion of word accuracy is an approximation of semantic accuracy(or "concept accuracy").
+The string comparison is defined by the minimal number ofdeletions and insertions that is required to turn the first string into the second (Lev-enshtein distance), although it may be worthwhile to investigate other measures.
+Forexample, it seems likely that for our application it is much less problematic to "miss"information than to "hallucinate".
+This could be formalized by a scoring function inwhich insertion (into analysis result) is cheaper than deletion.Currently, the best results are obtained with a scoring function in which bigramscores, acoustic scores, and the number of skips are included.
+We have also imple-mented a version of the system in which acoustic scores and bigram scores are usedto select the best path through the word-graph.
+This path is then sent to the parserand the robustness component.
+In this "best-l-mode" the system performs omewhatworse in terms of word accuracy, but much faster, as seen in the experiments in thenext section.7.
+Practical ExperienceThere does not exist a generally agreed-upon method to measure the efficiency ofparsers for grammars of the kind we assume here, i.e., constraint-based grammars fornatural anguage understanding.
+Therefore, I will present he results of the parser forthe current version of the OVIS grammar in comparison with a number of other parsersthat have been developed in the same project (by my colleagues and myself).
+Moreover,a similar experiment was performed with two other grammars: the English MiMo2grammar (van Noord et al 1991), and the English Alvey NL Tools grammar (Grover,Carroll, and Briscoe 1993).
+6 It should be clear that the results to be presented shouldnot be taken as a formal evaluation, but are presented solely to give an impressionof the practical feasibility of the parser, at least for its present purpose.
+The followingresults should be understood with these reservations in mind.7.1 Other ParsersThe head-corner parser was compared with a number of other parsers.
+The parsersare described in further detail in van Noord, Bouma, Koeling, and Nederhof (1996)6 The material used to perform the experiments with the MiMo2 grammar and the Alvey NL Toolsgrammar, including several versions of the head-corner parser, is available via anonymous ftp at:f tp  : / / f tp .
+le t .
+rug.
+nllpublprolog-app/CL97/and the world-wide-web at:http://www, le t .
+rug.
+nl/~vannoord/CL97/.
+The material is ready to be plugged into the Hdrugenvironment available from the same site.448van Noord Efficient Head-Comer Parsingand van Noord, Nederhof, Koeling, and Bouma (1996).
+The last two parsers of thefollowing list were implemented by Mark-Jan Nederhof.?
+lc.
+Left-corner parser.
+This parser is derived from the head-corner parser.It therefore uses many of the ideas presented above.
+Most importantly, ituses selective memorization with goal weakening and packing.
+Theparser is closely related to the BUP parser (Matsumoto et al 1983).?
+bu- inact ive .
+Inactive chart parser.
+This is a bottom-up arser thatrecords only inactive edges.
+It uses packing.
+It uses a precompiledversion of the grammar in which no empty productions are present.?
+bu-ear ley.
+Bottom-up Earley parser.
+This is a bottom-up chart parserthat records both active and inactive items.
+It operates in two phases anduses packing.
+It uses a precompiled version of the grammar in which noempty productions are present.?
+bu-act ive .
+Bottom-up Earley parser without packing.
+This is a chartparser that constructs only active items (except for categories that unifywith the top category).
+It uses a precompiled version of the grammar inwhich no empty productions are present.?
+l r .
+LR parser.
+This is an experimental implementation of a generalizationfor Definite Clause Grammars of the parser described in Nederhof andSatta (1996).
+It proceeds in a single phase and does not use packing.
+Ituses a table to maintain partial analyses.
+It was not possible to performall the experiments with this parser due to memory problems during theconstruction of the LR table.Note that we have experimented with a number of different versions of each ofthese parsers.
+We will report only on the most efficient version.
+The experiments wereperformed on a 125Mhz HP-UX 735 machine with 240 Megabytes of memory.
+Timingsmeasure CPU-time and should be independent of the load on the machine.
+77.2 Experiment 1: OVISThe OVIS grammar (for Dutch) contains about 1,400 lexical entries (many of which arestation and city names) and 66 rules (a substantial fraction of which are concerned withtime and date expressions), including 7 epsilon rules.
+The most important epsilon ruleis part of a gap-threading implementation f verb-second.
+The grammar is documentedin detail in van Noord, Nederhof, Koeling, and Bouma (1996).
+The head-corner tablecontains 128 pairs, the lexical head-corner table contains 93 pairs, the gap-head-cornertable contains 14 pairs.
+The left-corner table contains 156 pairs, the lexical left-cornertable contains 114 pairs, the gap-left-corner table contains 20 pairs.
+The precompiledgrammar, which is used by the chart parsers, contains 92 rules.The input for the parser consists of a test set of 5,000 word-graphs, randomly takenfrom a corpus of more than 25,000 word-graphs.
+These word-graphs are the latestword-graphs that were available to us; they are "real" output of the current version ofthe speech recognizer as developed by our project partners.
+In this application, typical7 Experiments suggest that the load on the machine in fact does influence the timings omewhat.However, the experiments were performed at times when the load of the machine was low.
+It isbelieved, therefore, that no such artifacts are present in the numbers given here.449Computational Linguistics Volume 23, Number 3Table 1The left-most table gives information concerning thenumber of transitions per word-graph of the test set forthe OVIS grammar.
+As can be seen from this table, morethan half of the corpus consists of word-graphs with atmost five transitions.
+In the right-most table, the numberof words per utterance is given.
+Many utterances consistsof less than five words.Number of Number of Number of Number ofTransitions Word-Graphs Words Utterances0-5 2,825 1-2 2,4656-10 850 3-4 1,44811-15 408 5-6 54316-20 246 7-8 31921-30 237 9-10 11831-40 146 11-12 5641-50 83 13-14 2651-75 112 15-16 2076-100 44 17-18 5101-150 36151-200 12263 1utterances are short.
+As a consequence, the typical size of word-graphs is rather smalltoo, as can be seen in Table 1.We report on three different experiments with the OVIS grammar and these word-graphs.
+In the first experiment, the system runs in best-l-mode: the best path is selectedfrom the word-graph using bigram scores and the acoustic scores (present in the word-graph).
+This best path is then sent to the parser and robustness component.
+In thesecond experiment, he parser is given the utterance as it was actually spoken (tosimulate a situation in which speech recognition is perfect).
+In the third experiment,the parser takes the full word-graph as its input.
+The results are then passed on tothe robustness component.
+As explained in the previous section on robustness, eachof the parsers finds all derivations of the start symbol anywhere in the input (this isthe case in each of the OVIS experiments).For the current version of the OVIS system, parsing on the basis of the best path inthe word-graph gives results in terms of word accuracy that are similar to the resultsobtained with full word-graphs.
+Results for concept accuracy are not yet available.Details can be found in van Noord, Bouma, Koeling, and Nederhof (1996).7.2.1 Parsing Best Path Only.
+In Table 2, the CPU-time requirements and the maxi-mum space requirements of the different parsers are listed.
+In the table we list, respec-tively, the total number of milliseconds CPU-time required for all 5,000 word-graphs(timings include lexical lookup, parsing, and the robustness component), the averagenumber of milliseconds per word-graph, and the maximum number of millisecondsfor a word-graph.
+The final column lists the maximum amount of space requirements(per word-graph, in Kbytes).
+88 These sizes are obtained using the SICStus prolog built-in predicate s ta t i s t i cs  (program~pace,X) .This only measures the size of the internal database, but not the size of the stacks.
+The size of stackshas never been a problem for any of the parsers; the size of the internal database has occasionally led450van Noord Efficient Head-Corner ParsingTable 2Total and average CPU-time and maximal space requirements for a test set of 5,000 bestpaths through word-graphs (OVIS grammar).Parser Total (msec) msec/Sentence Maximum Maximum Spacehc 169,370 34 530 163lc 180,160 36 530 171bu-active 291,870 58 4,220 1,627bu-inactive 545,060 109 13,050 784bu-earley 961,760 192 24,470 2,526lr 1,088,940 218 416,000 4,412Table 3Total and average CPU-time and maximum space requirements for a test set of 5,000utterances (OVIS grammar).Parser Total (msec) msec/Sentence Maximum Maximum Spacehc 126,930 25 510 137lc 137,090 27 490 174bu-active 257,390 51 4,030 1,438bu-inactive 546,650 109 15,170 1,056bu-earley 934,810 187 25,490 3,558lr 957,980 192 417,580 4,435Table 4Total and average CPU-time and maximum space requirements for a test set of 5,000word-graphs (OVIS grammar).Parser Total (msec) msec/Word-Graph Maximum Maximum Spacelc 410,670 82 15,360 4,455hc 435,320 87 16,230 4,1747.2.2 Parsing Sentences.
+The differences in CPU-time for the corpus of 5,000 word-graphs are similar to differences we have found for other test sets.
+The results are alsovery similar to the results we obtain if we parse the utterances actually spoken.
+Table 3lists the results of parsing the set of 5,000 utterances from which the word-graphs werederived.7.2.3 Parsing Word-Graphs.
+Obviously, parsing word-graphs is more difficult thanparsing only the best path through a word-graph, or parsing an ordinary sentence.In Table 4, we list the results for the same set of 5,000 word-graphs.
+This experimentcould only be performed for the head-corner and the left-corner parser.
+The otherparsers ran into memory problems for some very large word-graphs.In order to compare the other parsers too, I performed the experiment with atime-out of 5,000 msec (the memory problems only occur for word-graphs that takelonger to process).
+In Table 5 the percentage of word-graphs that can be treated withina certain amount of CPU-time are listed.From the experiments with the OVIS grammar and corpus, it can be concludedto problems for the bottom-up chart parsers.451Computational Linguistics Volume 23, Number 3Table 5Percentage of word-graphs that can be treated within time limit (OVIS grammar).Parser 500 1,000 2,000 3,000 4,000 5,000 Time-Outslc 97.72 99.28 99.78 99.92 99.92 99.92 4hc 97.42 98.94 99.60 99.84 99.92 99.92 4lr 91.44 94.42 96.30 96.98 97.34 97.70 115bu-active 91.84 94.76 96.04 96.84 97.30 97.60 120bu-inactive 82.36 88.64 92.24 94.10 95.14 95.86 207bu-earley 77.10 84.26 89.04 91.42 92.64 93.50 325that the head-corner and left-corner parsers (implemented with selective memorizationand goal weakening) are much more efficient han the other parsers.
+In the case ofword-graphs, the left-corner parser is about 5% faster than the head-corner parser; forstrings, the head-corner parser is about 6% to 8% faster than the left-corner parser.7.3 Experiment 2:MiMo2Another experiment was carried out for the English grammar of the MiMo2 system.This grammar is a unification-based grammar that is compiled into a DCG.
+The gram-mar contains 525 lexical entries, 63 rules including 13 gaps.
+The head-corner relationcontains 33 pairs and the lexical head-corner relation contains 18 pairs.
+The left-cornerparser runs into hidden left-recursion problems on the original grammar, so it usesa version of the grammar in which left-most gaps are compiled out.
+This compiledgrammar has 69 rules.
+The left-corner relation contains 80 pairs; the lexical eft-cornerrelation contains 62 pairs.
+As a result, the left-corner parser only hypothesizes gapsfor non-left-most daughters.
+Because the grammar never allows gaps as head, thehead-corner parser can be optimized in a similar fashion.
+Both the left-corner andhead-corner parser use a goal-weakening operator that only leaves the functor sym-bol.
+This simplifies the way in which the goal table is maintained.For this experiment we have no notion of typical input, but instead made up a setof 25 sentences of various lengths and levels of difficulty, with a total of 338 readings.In order to be able to complete the experiment, a time-out of 60 seconds of CPU-timewas used.
+Timings include lexical lookup and parse tree recovery.The original parser implemented in the MiMo2 system (a left-corner parser with-out packing) took 294 seconds of CPU-time to complete the experiment (with threetime-outs).
+Because the test environment was (only slightly) different, we have indi-cated the latter results in italics.
+Average CPU-time is only given for those parsersthat completed each of the sentences within the time limit.
+The results are given inTable 6.The bottom-up active chart parser performs better on smaller sentences with asmall number of readings.
+For longer and more ambiguous sentences, the head-cornerparser is (much) more efficient.
+The other parsers are consistently much less efficient.7.4 Experiment 3: Alvey NL ToolsA final set of experiments was performed for the Alvey NL Tools grammar (Grover,Carroll, and Briscoe 1993), similar to the experiments discussed in Carroll (1994).
+Fora longer description of the grammar and the test sets we refer the reader to thispublication.
+The grammar contains 2,363 lexical entries, and 780 rules (8 of whichare gaps).
+The left-corner relation contains 440 pairs; the lexical left-corner relation452van Noord Efficient Head-Corner ParsingTable 6Total and average CPU-time and maximum space requirements for a set of 25 sentences(MiMo2 grammar).
+Italicized items are offered for cautious comparison.Parser Total (msec) msec/Sentence Maximum Space Time-Outshc 52,670 2,107 2,062 0bu-active 52,990 2,120 30,392 0lc 109,750 4,390 8,570 0mimo2-lc 294,000 3bu-earley 439,050 12,910 4bu-inactive 498,610 7,236 5Table 7Total and average CPU-time and maximum space requirements for a setof 129 short sentences (Alvey NL Tools grammar).
+Italicized items areoffered for cautious comparison.Parser msec msec/Sentence Maximum Kbytesbu-active 18250 141 1276lc 21900 170 137Carroll BU-LC 21500 167hc (lc mode) 23690 184 165bu-earley 27670 214 758hc 68880 534 140bu-inactive 83690 649 170contains 254 pairs.
+No gaps are possible as left-most elements of the right-hand sideof a rule.To use the head-corner parser, it must  be determined for each of the rules whichelement on the right-hand side constitutes the head of the rule.
+The head-corner re-lation contains 352 pairs; the lexical head-corner relation contains 180 pairs.
+We alsoreport on experiments in which, for each rule, the left-most member  of the right-handside was selected as the head.
+The goal-weakening operator used for the left-cornerand head-corner parser removes all features (only leaving the functor symbol of eachcategory); again this simplifies the maintenance of the goal table considerably.The bottom-up chart parsers use a version of the grammar  in which all epsilonrules are compiled out.
+The resulting grammar  has 1,015 rules.The first test set consists of 129 short sentences (mean length 6.7 words).
+Our resultswere obtained with a newer version of the Alvey NL Tools grammar.
+In Table 7 welist the results for the same grammar  and test set for Carroll's bottom-up left-cornerparser (BU-LC).
+Carroll performed this experiment on a SUN UltraSparc 1/140.
+It wasestimated by Carroll and the author that this machine is about 1.62 times faster thanthe HP-UX 735 on which the other experiments were performed.
+9 In Table 7, we havemultipl ied the 13.3 seconds of CPU-time (obtained by Carroll) with this factor in orderto compare his results with our results.
+Clearly, these numbers should be taken withextreme caution, because many factors in the test environment differ (hardware, LISPversus Prolog).
+For this reason we use italics in Table 7.The second test set consists of 100 longer and much more complex sentences.
+Thelength of the sentences is distributed uniformly between 13 and 30 words (sentences9 The SPECINT92 figures for the Ultra 1/140 and HP 735/125 confirm this: 215 and 136 respectively.453Computational Linguistics Volume 23, Number 3Table 8Total and average CPU-time and maximum space requirements for set of100 longer sentences (Alvey NL Tools grammar).
+Italicized items areoffered for cautious comparison.Parser msec msec/Sentence Maximum Kbyteslc 195,850 1,959hc (lc mode) 216,180 2,162Carroll BU-LC 333,000 3,330bu-earley 1,219,120 12,191hc 3,053,910 30,539bu-inactive 3,578,370 35,784bu-active >>10,95510,96918,2327,91516,936> 65,000created by Carroll).
+Many of the sentences have many parses: the maximum numberof parses is 2,736 for one 29-word sentence.
+Average number of readings is about 100readings per sentence.Again, we list the results Carroll obtained with the BU-LC parser.
+It took 205.7seconds on the SUN UltraSparc 1/140.1?
+The bottom-up active chart parser ran intomemory problems for some very ambiguous entences and was very slow on manyof the other sentences (due to the lack of packing).
+The results are summarized inTable 8.The implementation of the left-corner parser based on selective memorization andgoal weakening seems to be substantially more efficient han the chart-based imple-mentation of Carroll.
+The head-corner parser running in left-corner mode is almostas fast as this specialized left-corner parser.
+This suggests that the use of selectivememorization with goal weakening is on the right track.From these experiments, it can be concluded that the head-corner parser is notsuitable for the Alvey NL Tools grammar.
+The reason seems to be that for this gram-mar the amount of top-down information available through the head-corner table isof limited value--typically, too many different lexical head-corners are available forparsing a given goal category.
+For example, for parsing a sentence, possible head-corners include auxiliaries, verbs, adverbs, complementizers, pronouns, prepositions,determiners, nouns, and conjunctions.
+(In contrast, in the MiMo2 grammar, only verbscan function as the head-corners of sentences.)
+As a result, the prediction step intro-duces too much nondeterminism.
+A related reason for the poor performance for thisgrammar might be the large amount of lexical ambiguity.
+The grammar and lexiconused in the experiment is compiled from a compact user notation.
+In the compiled for-mat, all disjunctions are spelled out in different rules and lexical entries.
+As a result,many words have a large number of (only slightly different) readings.
+It may be thatthe head-corner parser is less suitable in such circumstances.
+This could also explainthe fact that the head-corner parser performs better on strings then on word-graphs:in many respects the generalization to word-graphs is similar to an increase in lexicalambiguity.
+This suggests that the design of the head-corner parser could be improvedin the prediction step.10 Note that Carroll reports on recognition times only, whereas our results include the construction fallindividual parse trees.
+For this experiment the left-corner parser used about 163 seconds onrecognition.
+In the recognition phase, however, the parser ignores anumber of syntactic features,therefore, this number cannot be compared fairly with Carroll's number either.454van Noord Efficient Head-Corner ParsingAcknowledgmentsSome of the introductory material of thisarticle is a modified and extended versionof the introduction of Bouma and vanNoord (1993).
+Gosse Bouma, John Carroll,Rob Koeling, Mark-Jan Nederhof, JohnNerbonne and three anonymous ACLreviewers provided useful feedback.
+Thegrammar used in the OVIS experiments iwritten by Gosse Bouma, Rob Koeling andmyself.
+Mark-Jan Nederhof implementedthe bottom-up active chart parser and theexperimental LR parser.
+The MiMo2grammar was written by Joke Dorrepaal,Pim van der Eijk, and myself.
+I am verygrateful to John Carroll for his help inmaking the experiments with the Alvey NLTools grammar possible.
+This research wascarried out within the framework of thePriority Programme Language and SpeechTechnology (TST).
+The TST-Programme issponsored by NWO (Dutch Organizationfor Scientific Research).ReferencesAlshawi, Hiyan, editor.
+1992.
+The CoreLanguage Engine.
+ACL-MIT press.Billot, S. and B. Lang.
+1989.
+The structure ofshared parse forests in ambiguousparsing.
+In Proceedings ofthe 27th AnnualMeeting, pages 143-151, Vancouver.Association for ComputationalLinguistics.Bouma, Gosse and Gertjan van Noord.
+1993.Head-driven parsing for lexicalistgrammars: Experimental results.
+InProceedings ofthe Sixth Conference oftheEuropean Chapter of the Association forComputational Linguistics, Utrecht.Available fromhttp: //www.let.rug.nl / ~vannoord /papers/.Boves, Lou, Jan Landsbergen, Remko Scha,and Gertjan van Noord.
+1995.
+Languageand Speech Technology.
+NWO Den Haag.Project plan for the NWO PriorityProgramme 'Language and SpeechTechnology'.
+Available fromhttp://odur.let.rug.nl:4321/.Carroll, John.
+1994.
+Relating complexity topractical performance in parsing withwide-coverage unification grammars.
+InProceedings ofthe 32th Annual Meeting,pages 287-294, Las Cruces, NM.Association for ComputationalLinguistics.Grover, Claire, John Carroll, and TedBriscoe.
+1993.
+The Alvey natural anguagetools grammar (4th release).
+TechnicalReport 284, Computer Laboratory,Cambridge University, UK.Johnson, Mark and Jochen D6rre.
+1995.Memorization of coroutined constraints.In Proceedings ofthe 33th Annual Meeting,pages 100-107, Boston, MA.
+Associationfor Computational Linguistics.Kay, Martin.
+1989.
+Head driven parsing.
+InProceedings ofthe Workshop on ParsingTechnologies, Pittsburg, PA.Lang, Bernard.
+1989.
+A generative view ofill-formed input processing.
+In Proceedingsof the ATR Symposium on Basic Research forTelephone Interpretation (ASTI), Kyoto,Japan.Lavelli, Alberto and Giorgio Satta.
+1991.Bidirectional parsing of lexicalized treeadjoining grammar.
+In Proceedings oftheFifth Conference ofthe European Chapter of theAssociation for Computational Linguistics,Berlin.Matsumoto, Y., H. Tanaka, H. Hirakawa,H.
+Miyoshi, and H. Yasukawa.
+1983.
+BUP:A bottom up parser embedded in Prolog.New Generation Computing, 1(2).Nederhof, Mark-Jan and Giorgio Satta.
+1994.An extended theory of head-drivenparsing.
+In Proceedings ofthe 32th AnnualMeeting, Las Cruces, NM.
+Association forComputational Linguistics.Nederhof, Mark-Jan and Giorgio Satta.
+1996.Efficient abular LR parsing.
+In Proceedingsof the 34th Annual Meeting, pages 239-246,Santa Cruz, CA.
+Association forComputational Linguistics.Pereira, Fernando C.N.
+and Stuart M.Shieber.
+1987.
+Prolog and Natural LanguageAnalysis.
+Center for the Study ofLanguage and Information, Stanford.Pereira, Eernando C.N.
+and David Warren.1980.
+Definite clause grammars forlanguage analysis--a survey of theformalism and a comparison withaugmented transition etworks.
+ArtificialIntelligence, 13.Rosenkrantz, D.J.
+and P.M. Lewis II.
+1970.Deterministic left corner parsing.
+InProceedings ofthe IEEE Conference ofthe 11thAnnual Symposium on Switching andAutomata Theory, pages 139-152.Sahlin, Dan.
+1991.
+An Automatic PartialEvaluator for Full Prolog.
+Ph.D. thesis, TheRoyal Institute of Technology (KTH)Stockholm, Sweden.
+SICS DissertationSeries 04.Satta, Giorgio and Oliviero Stock.
+1989.Head-driven bidirectional parsing.
+Atabular method.
+In Proceedings oftheWorkshop on Parsing Technologies, pages455Computational Linguistics Volume 23, Number 343-51, Pittsburg, PA.Shieber, Stuart M. 1985.
+Using restriction toextend parsing algorithms forcomplex-feature-based formalisms.
+InProceedings ofthe 23th Annual Meeting,Chicago, IL.
+Association forComputational Linguistics.Shieber, Stuart M., Gertjan van Noord,Robert C. Moore, and Fernando C.N.Pereira.
+1990.
+Semantic-head-drivengeneration.
+Computational Linguistics,16(1).
+Available fromhttp: / / www.
+let.
+rug .nl / ~ vannoord / pap ers/.Sikkel, Klaas.
+1993.
+Parsing Schemata.
+Ph.D.thesis, Twente University, Enschede.
+(Published in Texts in TheoreticalComputer Science, An EATCS Series.Springer Verlag, 1997.
+)Sikkel, Klaas and Rieks op den Akker.
+1992.Head-corner chart parsing.
+In Proceedingsof Computer Science in the Netherlands (CSN'92), Utrecht.Sikkel, Klaas and Rieks op den Akker.
+1993.Predictive head-comer chart parsing.
+InIWPT 3, Third International Workshop onParsing Technologies, pages 267-276,Tilburg/Durbuy.Tomita, M. 1987.
+An efficient augmentedcontext-free parsing algorithm.Computational Linguistics, 13(1-2):31-46.van Noord, Gertjan.
+1991.
+Head cornerparsing for discontinuous constituency.
+InProceedings ofthe 29th Annual Meeting,Berkeley, CA.
+Association forComputational Linguistics.
+Available fromhttp://www.let.rug.nl/~vannoord/papers/.van Noord, Gertjan.
+1993.
+Reversibility inNatural Language Processing.
+Ph.D. thesis,University of Utrecht.
+Available fromhttp: //www.let.rug.nl/~vannoord/papers/.van Noord, Gerljan.
+1994.
+Head comerparsing for TAG.
+ComputationalIntelligence, 10(4).
+Available fromhttp://www.let.rug.nl/~vannoord/papers/.van Noord, Gertjan.
+1995.
+The intersectionof finite state automata nd definiteclause grammars.
+In Proceedings ofthe 33thAnnual Meeting, Boston, MA.
+Associationfor Computational Linguistics.
+Availablefromhttp://www.let.rug.nl / ~vannoord/papers/.van Noord, Gertjan, Gosse Bouma, RobKoeling, and Mark-Jan Nederhof.
+1996.Conventional natural language processingin the NWO Priority Programme onLanguage and Speech Technology.October 1996 Deliverables.
+TechnicalReport 28, NWO Priority ProgrammeLanguage and Speech Technology.Avaiable fromhttp://odur.let.rug.nl:4321/.van Noord, Gertjan, Joke Dorrepaal, Pimvan der Eijk, Maria Florenza, HerbertRuessink, and Louis des Tombe.
+1991.
+Anoverview of MiMo2.
+Machine Translation,6:201-214.
+Available fromhttp: / / www.let, rug .nl / ~ vannoord /papers/.van Noord, Gertjan, Mark-Jan Nederhof,Rob Koeling, and Gosse Bouma.
+1996.Conventional natural language processingin the NWO Priority Programme onLanguage and Speech Technology.January 1996 Deliverables.
+TechnicalReport 22, NWO Priority ProgrammeLanguage and Speech Technology.Available fromhttp://odur.let.rug.nl:4321/.Warren, David S. 1992.
+Memoing for logicprograms.
+Communications of the ACM,35(3):94-111.456

@@ -1,0 +1,305 @@
+Proceedings of ACL-08: HLT, pages 959?967,Columbus, Ohio, USA, June 2008. c?2008 Association for Computational LinguisticsEfficient, Feature-based, Conditional Random Field ParsingJenny Rose Finkel, Alex Kleeman, Christopher D. ManningDepartment of Computer ScienceStanford UniversityStanford, CA 94305jrfinkel@cs.stanford.edu, akleeman@stanford.edu, manning@cs.stanford.eduAbstractDiscriminative feature-based methods arewidely used in natural language processing,but sentence parsing is still dominated by gen-erative methods.
+While prior feature-baseddynamic programming parsers have restrictedtraining and evaluation to artificially short sen-tences, we present the first general, feature-rich discriminative parser, based on a condi-tional random field model, which has beensuccessfully scaled to the full WSJ parsingdata.
+Our efficiency is primarily due to theuse of stochastic optimization techniques, aswell as parallelization and chart prefiltering.On WSJ15, we attain a state-of-the-art F-scoreof 90.9%, a 14% relative reduction in errorover previous models, while being two ordersof magnitude faster.
+On sentences of length40, our system achieves an F-score of 89.0%,a 36% relative reduction in error over a gener-ative baseline.1 IntroductionOver the past decade, feature-based discriminativemodels have become the tool of choice for manynatural language processing tasks.
+Although theytake much longer to train than generative models,they typically produce higher performing systems,in large part due to the ability to incorporate ar-bitrary, potentially overlapping features.
+However,constituency parsing remains an area dominated bygenerative methods, due to the computational com-plexity of the problem.
+Previous work on discrim-inative parsing falls under one of three approaches.One approach does discriminative reranking of then-best list of a generative parser, still usually de-pending highly on the generative parser score asa feature (Collins, 2000; Charniak and Johnson,2005).
+A second group of papers does parsing by asequence of independent, discriminative decisions,either greedily or with use of a small beam (Ratna-parkhi, 1997; Henderson, 2004).
+This paper extendsthe third thread of work, where joint inference viadynamic programming algorithms is used to trainmodels and to attempt to find the globally best parse.Work in this context has mainly been limited to useof artificially short sentences due to exorbitant train-ing and inference times.
+One exception is the re-cent work of Petrov et al (2007), who discrimina-tively train a grammar with latent variables and donot restrict themselves to short sentences.
+Howevertheir model, like the discriminative parser of John-son (2001), makes no use of features, and effectivelyignores the largest advantage of discriminative train-ing.
+It has been shown on other NLP tasks that mod-eling improvements, such as the switch from gen-erative training to discriminative training, usuallyprovide much smaller performance gains than thegains possible from good feature engineering.
+Forexample, in (Lafferty et al, 2001), when switchingfrom a generatively trained hidden Markov model(HMM) to a discriminatively trained, linear chain,conditional random field (CRF) for part-of-speechtagging, their error drops from 5.7% to 5.6%.
+Whenthey add in only a small set of orthographic fea-tures, their CRF error rate drops considerably moreto 4.3%, and their out-of-vocabulary error rate dropsby more than half.
+This is further supported by John-son (2001), who saw no parsing gains when switch-959ing from generative to discriminative training, andby Petrov et al (2007) who saw only small gains ofaround 0.7% for their final model when switchingtraining methods.In this work, we provide just such a framework fortraining a feature-rich discriminative parser.
+Unlikeprevious work, we do not restrict ourselves to shortsentences, but we do provide results both for trainingand testing on sentences of length ?
+15 (WSJ15) andfor training and testing on sentences of length ?
+40,allowing previous WSJ15 results to be put in contextwith respect to most modern parsing literature.
+Ourmodel is a conditional random field based model.For a rule application, we allow arbitrary featuresto be defined over the rule categories, span and splitpoint indices, and the words of the sentence.
+It iswell known that constituent length influences parseprobability, but PCFGs cannot easily take this infor-mation into account.
+Another benefit of our featurebased model is that it effortlessly allows smooth-ing over previously unseen rules.
+While the rulemay be novel, it will likely contain features whichare not.
+Practicality comes from three sources.
+Wemade use of stochastic optimization methods whichallow us to find optimal model parameters with veryfew passes through the data.
+We found no differ-ence in parser performance between using stochasticgradient descent (SGD), and the more common, butsignificantly slower, L-BFGS.
+We also used limitedparallelization, and prefiltering of the chart to avoidscoring rules which cannot tile into complete parsesof the sentence.
+This speed-up does not come with aperformance cost; we attain an F-score of 90.9%, a14% relative reduction in errors over previous workon WSJ15.2 The Model2.1 A Conditional Random Field Context FreeGrammar (CRF-CFG)Our parsing model is based on a conditional ran-dom field model, however, unlike previous TreeCRFwork, e.g., (Cohn and Blunsom, 2005; Jousse et al,2006), we do not assume a particular tree structure,and instead find the most likely structure and la-beling.
+This is similar to conventional probabilis-tic context-free grammar (PCFG) parsing, with twoexceptions: (a) we maximize conditional likelihoodof the parse tree, given the sentence, not joint like-lihood of the tree and sentence; and (b) probabil-ities are normalized globally instead of locally ?the graphical models depiction of our trees is undi-rected.Formally, we have a CFG G, which consists of(Manning and Schu?tze, 1999): (i) a set of termi-nals {wk},k = 1, .
+.
+.
+,V ; (ii) a set of nonterminals{Nk},k = 1, .
+.
+.
+,n; (iii) a designated start symbolROOT ; and (iv) a set of rules, {?
+= N i ?
+?
+j}, where?
+j is a sequence of terminals and nonterminals.
+APCFG additionally assigns probabilities to each rule?
+such that ?i?
+j P(N i ?
+?
+j) = 1.
+Our conditionalrandom field CFG (CRF-CFG) instead defines localclique potentials ?(r|s;?
+), where s is the sentence,and r contains a one-level subtree of a tree t, corre-sponding to a rule ?
+, along with relevant informationabout the span of words which it encompasses, and,if applicable, the split position (see Figure 1).
+Thesepotentials are relative to the sentence, unlike a PCFGwhere rule scores do not have access to words at theleaves of the tree, or even how many words theydominate.
+We then define a conditional probabil-ity distribution over entire trees, using the standardCRF distribution, shown in (1).
+There is, however,an important subtlety lurking in how we define thepartition function.
+The partition function Zs, whichmakes the probability of all possible parses sum tounity, is defined over all structures as well as all la-belings of those structures.
+We define ?
+(s) to be theset of all possible parse trees for the given sentencelicensed by the grammar G.P(t|s;?)
+= 1Zs ?r?t ?(r|s;?)
+(1)whereZs = ?t??
+(s) ?r?t ?
+?(r|s;?
+)The above model is not well-defined over allCFGs.
+Unary rules of the form N i ?
+N j can formcycles, leading to infinite unary chains with infinitemass.
+However, it is standard in the parsing liter-ature to transform grammars into a restricted classof CFGs so as to permit efficient parsing.
+Binariza-tion of rules (Earley, 1970) is necessary to obtaincubic parsing time, and closure of unary chains is re-quired for finding total probability mass (rather thanjust best parses) (Stolcke, 1995).
+To address this is-sue, we define our model over a restricted class of960SNPNNFactoryNNSpayrollsVPVBDfellPPINinNNSeptemberPhrasal rulesr1 = S0,5 ?
+NP0,2 VP2,5 | Factory payrolls fell in Septemberr3 = VP2,5 ?
+VBD2,3 PP3,5 | Factory payrolls fell in September.
+.
+.Lexicon rulesr5 = NN0,1 ?
+Factory | Factory payrolls fell in Septemberr6 = NNS1,2 ?
+payrolls | Factory payrolls fell in September.
+.
+.
+(a) PCFG Structure (b) Rules rFigure 1: A parse tree and the corresponding rules over which potentials and features are defined.CFGs which limits unary chains to not have any re-peated states.
+This was done by collapsing all al-lowed unary chains to single unary rules, and dis-allowing multiple unary rule applications over thesame span.1 We give the details of our binarizationscheme in Section 5.
+Note that there exists a gram-mar in this class which is weakly equivalent with anyarbitrary CFG.2.2 Computing the Objective FunctionOur clique potentials take an exponential form.
+Wehave a feature function, represented by f (r,s), whichreturns a vector with the value for each feature.
+Wedenote the value of feature fi by fi(r,s) and ourmodel has a corresponding parameter ?i for eachfeature.
+The clique potential function is then:?(r|s;?)
+= exp?i ?i fi(r,s) (2)The log conditional likelihood of the training dataD , with an additional L2 regularization term, is then:L (D ;?)
+=(?
+(t,s)?D(?r?t?i?i fi(r,s))?Zs)+?i?2i2?
+2(3)And the partial derivatives of the log likelihood, withrespect to the model weights are, as usual, the dif-ference between the empirical counts and the modelexpectations:?L??i=(?(t,s)?D(?r?tfi(r,s))?E?
+[ fi|s])+ ?i?
+2(4)1In our implementation of the inside-outside algorithm, wethen need to keep two inside and outside scores for each span:one from before and one from after the application of unaryrules.The partition function Zs and the partial derivativescan be efficiently computed with the help of theinside-outside algorithm.2 Zs is equal to the in-side score of ROOT over the span of the entire sen-tence.
+To compute the partial derivatives, we walkthrough each rule, and span/split, and add the out-side log-score of the parent, the inside log-score(s)of the child(ren), and the log-score for that rule andspan/split.
+Zs is subtracted from this value to get thenormalized log probability of that rule in that posi-tion.
+Using the probabilities of each rule applica-tion, over each span/split, we can compute the ex-pected feature values (the second term in Equation4), by multiplying this probability by the value ofthe feature corresponding to the weight for which weare computing the partial derivative.
+The process isanalogous to the computation of partial derivativesin linear chain CRFs.
+The complexity of the algo-rithm for a particular sentence is O(n3), where n isthe length of the sentence.2.3 ParallelizationUnlike (Taskar et al, 2004), our algorithm has theadvantage of being easily parallelized (see footnote7 in their paper).
+Because the computation of boththe log likelihood and the partial derivatives involvessumming over each tree individually, the compu-tation can be parallelized by having many clientswhich each do the computation for one tree, and onecentral server which aggregates the information tocompute the relevant information for a set of trees.Because we use a stochastic optimization method,as discussed in Section 3, we compute the objec-tive for only a small portion of the training data ata time, typically between 15 and 30 sentences.
+In2In our case the values in the chart are the clique potentialswhich are non-negative numbers, but not probabilities.961this case the gains from adding additional clientsdecrease rapidly, because the computation time isdominated by the longest sentences in the batch.2.4 Chart PrefilteringTraining is also sped up by prefiltering the chart.
+Onthe inside pass of the algorithm one will see manyrules which cannot actually be tiled into completeparses.
+In standard PCFG parsing it is not worth fig-uring out which rules are viable at a particular chartposition and which are not.
+In our case however thiscan make a big difference.We are not just lookingup a score for the rule, but must compute all the fea-tures, and dot product them with the feature weights,which is far more time consuming.
+We also have todo an outside pass as well as an inside one, whichis sped up by not considering impossible rule appli-cations.
+Lastly, we iterate through the data multi-ple times, so if we can compute this information justonce, we will save time on all subsequent iterationson that sentence.
+We do this by doing an inside-outside pass that is just boolean valued to determinewhich rules are possible at which positions in thechart.
+We simultaneously compute the features forthe possible rules and then save the entire data struc-ture to disk.
+For all but the shortest of sentences,the disk I/O is easily worth the time compared to re-computation.
+The first time we see a sentence thismethod is still about one third faster than if we didnot do the prefiltering, and on subsequent iterationsthe improvement is closer to tenfold.3 Stochastic Optimization MethodsStochastic optimization methods have proven to beextremely efficient for the training of models involv-ing computationally expensive objective functionslike those encountered with our task (Vishwanathanet al, 2006) and, in fact, the on-line backpropagationlearning used in the neural network parser of Hen-derson (2004) is a form of stochastic gradient de-scent.
+Standard deterministic optimization routinessuch as L-BFGS (Liu and Nocedal, 1989) make littleprogress in the initial iterations, often requiring sev-eral passes through the data in order to satisfy suffi-cient descent conditions placed on line searches.
+Inour experiments SGD converged to a lower objectivefunction value than L-BFGS, however it required far0 5 10 15 20 25 30 35 40 45 50?3.5?3?2.5?2?1.5?1?0.50 x 105PassesLogLikelihoodSGDL?BFGSFigure 2: WSJ15 objective value for L-BFGS and SGDversus passes through the data.
+SGD ultimately con-verges to a lower objective value, but does equally wellon test data.fewer iterations (see Figure 2) and achieved compa-rable test set performance to L-BFGS in a fraction ofthe time.
+One early experiment on WSJ15 showed aseven time speed up.3.1 Stochastic Function EvaluationUtilization of stochastic optimization routines re-quires the implementation of a stochastic objectivefunction.
+This function, ?L is designed to approx-imate the true function L based off a small subsetof the training data represented by Db.
+Here b, thebatch size, means that Db is created by drawing btraining examples, with replacement, from the train-ing set D .
+With this notation we can express thestochastic evaluation of the function as ?L (Db;?
+).This stochastic function must be designed to ensurethat:E[?ni ?L (D(i)b ;?
+)]= L (D ;?
+)Note that this property is satisfied, without scaling,for objective functions that sum over the trainingdata, as it is in our case, but any priors must bescaled down by a factor of b/ |D |.
+The stochasticgradient, ?L (D(i)b ;?
+), is then simply the derivativeof the stochastic function value.3.2 Stochastic Gradient DescentSGD was implemented using the standard update:?k+1 = ?k ?
+?k?L (D(k)b ;?k)962And employed a gain schedule in the form?k = ?0??
++ kwhere parameter ?
+was adjusted such that the gain ishalved after five passes through the data.
+We foundthat an initial gain of ?0 = 0.1 and batch size be-tween 15 and 30 was optimal for this application.4 FeaturesAs discussed in Section 5 we performed experi-ments on both sentences of length ?
+15 and length?
+40.
+All feature development was done on thelength 15 corpus, due to the substantially fastertrain and test times.
+This has the unfortunate effectthat our features are optimized for shorter sentencesand less training data, but we found developmenton the longer sentences to be infeasible.
+Our fea-tures are divided into two types: lexicon features,which are over words and tags, and grammar fea-tures which are over the local subtrees and corre-sponding span/split (both have access to the entiresentence).
+We ran two kinds of experiments: a dis-criminatively trained model, which used only therules and no other grammar features, and a feature-based model which did make use of grammar fea-tures.
+Both models had access to the lexicon fea-tures.
+We viewed this as equivalent to the moreelaborate, smoothed unknown word models that arecommon in many PCFG parsers, such as (Klein andManning, 2003; Petrov et al, 2006).We preprocessed the words in the sentences to ob-tain two extra pieces of information.
+Firstly, eachword is annotated with a distributional similarity tag,from a distributional similarity model (Clark, 2000)trained on 100 million words from the British Na-tional Corpus and English Gigaword corpus.
+Sec-ondly, we compute a class for each word based onthe unknown word model of Klein and Manning(2003); this model takes into account capitaliza-tion, digits, dashes, and other character-level fea-tures.
+The full set of features, along with an expla-nation of our notation, is listed in Table 1.5 ExperimentsFor all experiments, we trained and tested on thePenn treebank (PTB) (Marcus et al, 1993).
+We usedBinary UnaryModel States Rules RulesWSJ15 1,428 5,818 423WSJ15 relaxed 1,428 22,376 613WSJ40 7,613 28,240 823Table 2: Grammar size for each of our models.the standard splits, training on sections 2 to 21, test-ing on section 23 and doing development on section22.
+Previous work on (non-reranking) discrimina-tive parsing has given results on sentences of length?
+15, but most parsing literature gives results on ei-ther sentences of length ?
+40, or all sentences.
+Toproperly situate this work with respect to both setsof literature we trained models on both length ?15 (WSJ15) and length ?
+40 (WSJ40), and we alsotested on all sentences using the WSJ40 models.
+Ourresults also provide a context for interpreting previ-ous work which used WSJ15 and not WSJ40.We used a relatively simple grammar with few ad-ditional annotations.
+Starting with the grammar readoff of the training set, we added parent annotationsonto each state, including the POS tags, resulting inrules such as S-ROOT ?
+NP-S VP-S. We also addedhead tag annotations to VPs, in the same manner as(Klein and Manning, 2003).
+Lastly, for the WSJ40runs we used a simple, right branching binarizationwhere each active state is annotated with its previoussibling and first child.
+This is equivalent to childrenof a state being produced by a second order Markovprocess.
+For the WSJ15 runs, each active state wasannotated with only its first child, which is equiva-lent to a first order Markov process.
+See Table 5 forthe number of states and rules produced.5.1 ExperimentsFor both WSJ15 and WSJ40, we trained a genera-tive model; a discriminative model, which used lexi-con features, but no grammar features other than therules themselves; and a feature-based model whichhad access to all features.
+For the length 15 data wealso did experiments in which we relaxed the gram-mar.
+By this we mean that we added (previously un-seen) rules to the grammar, as a means of smoothing.We chose which rules to add by taking existing rulesand modifying the parent annotation on the parentof the rule.
+We used stochastic gradient descent for963Table 1: Lexicon and grammar features.
+w is the word and t the tag.
+r represents a particular rule along with span/splitinformation; ?
+is the rule itself, rp is the parent of the rule; wb, ws, and we are the first, first after the split (for binaryrules) and last word that a rule spans in a particular context.
+All states, including the POS tags, are annotated withparent information; b(s) represents the base label for a state s and p(s) represents the parent annotation on state s.ds(w) represents the distributional similarity cluster, and lc(w) the lower cased version of the word, and unk(w) theunknown word class.Lexicon Features Grammar Featurest Binary-specific featuresb(t) ??t,w?
+?b(p(rp)),ds(ws)?
+?b(p(rp)),ds(ws?1,dsws)?
+?t, lc(w)?
+?b(p(rp)),ds(we)?
+PP feature:?b(t),w?
+unary?
+if right child is a PP then ?r,ws?
+?b(t), lc(w)?
+simplified rule: VP features:?t,ds(w)?
+base labels of states if some child is a verb tag, then rule,?t,ds(w?1)?
+dist sim bigrams: with that child replaced by the word?t,ds(w+1)?
+all dist.
+sim.
+bigrams below?b(t),ds(w)?
+rule, and base parent state Unaries which span one word:?b(t),ds(w?1)?
+dist sim bigrams:?b(t),ds(w+1)?
+same as above, but trigrams ?r,w??p(t),w?
+heavy feature: ?r,ds(w)??t,unk(w)?
+whether the constituent is ?big?
+?b(p(r)),w??b(t),unk(w)?
+as described in (Johnson, 2001) ?b(p(r)),ds(w)?these experiments; the length 15 models had a batchsize of 15 and we allowed twenty passes throughthe data.3 The length 40 models had a batch sizeof 30 and we allowed ten passes through the data.We used development data to decide when the mod-els had converged.
+Additionally, we provide gener-ative numbers for training on the entire PTB to givea sense of how much performance suffered from thereduced training data (generative-all in Table 4).The full results for WSJ15 are shown in Table 3and for WSJ40 are shown in Table 4.
+The WSJ15models were each trained on a single Dual-CoreAMD OpteronTM using three gigabytes of RAM andno parallelization.
+The discriminatively trained gen-erative model (discriminative in Table 3) took ap-proximately 12 minutes per pass through the data,while the feature-based model (feature-based in Ta-ble 3) took 35 minutes per pass through the data.The feature-based model with the relaxed grammar(relaxed in Table 3) took about four times as longas the regular feature-based model.
+The discrimina-3Technically we did not make passes through the data, be-cause we sampled with replacement to get our batches.
+By thiswe mean having seen as many sentences as are in the data, de-spite having seen some sentences multiple times and some notat all.tively trained generative WSJ40 model (discrimina-tive in Table 4) was trained using two of the samemachines, with 16 gigabytes of RAM each for theclients.4 It took about one day per pass throughthe data.
+The feature-based WSJ40 model (feature-based in Table 4) was trained using four of thesemachines, also with 16 gigabytes of RAM each forthe clients.
+It took about three days per pass throughthe data.5.2 DiscussionThe results clearly show that gains came from boththe switch from generative to discriminative train-ing, and from the extensive use of features.
+In Fig-ure 3 we show for an example from section 22 theparse trees produced by our generative model andour feature-based discriminative model, and the cor-rect parse.
+The parse from the feature-based modelbetter exhibits the right branching tendencies of En-glish.
+This is likely due to the heavy feature, whichencourages long constituents at the end of the sen-tence.
+It is difficult for a standard PCFG to learn thisaspect of the English language, because the score itassigns to a rule does not take its span into account.4The server does almost no computation.964Model P R F1 Exact Avg CB 0 CB P R F1 Exact Avg CB 0 CBdevelopment set ?
+length ?
+15 test set ?
+length ?
+15Taskar 2004 89.7 90.2 90.0 ?
+?
+?
+89.1 89.1 89.1 ?
+?
+?Turian 2007 ?
+?
+?
+?
+?
+?
+89.6 89.3 89.4 ?
+?
+?generative 86.9 85.8 86.4 46.2 0.34 81.2 87.6 85.8 86.7 49.2 0.33 81.9discriminative 89.1 88.6 88.9 55.5 0.26 85.5 88.9 88.0 88.5 56.6 0.32 85.0feature-based 90.4 89.3 89.9 59.5 0.24 88.3 91.1 90.2 90.6 61.3 0.24 86.8relaxed 91.2 90.3 90.7 62.1 0.24 88.1 91.4 90.4 90.9 62.0 0.22 87.9Table 3: Development and test set results, training and testing on sentences of length ?
+15 from the Penn treebank.Model P R F1 Exact Avg CB 0 CB P R F1 Exact Avg CB 0 CBtest set ?
+length ?
+40 test set ?
+all sentencesPetrov 2007 ?
+?
+88.8 ?
+?
+?
+?
+?
+88.3 ?
+?
+?generative 83.5 82.0 82.8 25.5 1.57 53.4 82.8 81.2 82.0 23.8 1.83 50.4generative-all 83.6 82.1 82.8 25.2 1.56 53.3 ?
+?
+?
+?
+?
+?discriminative 85.1 84.5 84.8 29.7 1.41 55.8 84.2 83.7 83.9 27.8 1.67 52.8feature-based 89.2 88.8 89.0 37.3 0.92 65.1 88.2 87.8 88.0 35.1 1.15 62.3Table 4: Test set results, training on sentences of length ?
+40 from the Penn treebank.
+The generative-all results weretrained on all sentences regardless of length6 Comparison With Related WorkThe most similar related work is (Johnson, 2001),which did discriminative training of a generativePCFG.
+The model was quite similar to ours, exceptthat it did not incorporate any features and it re-quired the parameters (which were just scores forrules) to be locally normalized, as with a genera-tively trained model.
+Due to training time, they usedthe ATIS treebank corpus , which is much smallerthan even WSJ15, with only 1,088 training sen-tences, 294 testing sentences, and an average sen-tence length of around 11.
+They found no signif-icant difference in performance between their gen-eratively and discriminatively trained parsers.
+Thereare two probable reasons for this result.
+The trainingset is very small, and it is a known fact that gener-ative models tend to work better for small datasetsand discriminative models tend to work better forlarger datasets (Ng and Jordan, 2002).
+Additionally,they made no use of features, one of the primarybenefits of discriminative learning.Taskar et al (2004) took a large margin approachto discriminative learning, but achieved only smallgains.
+We suspect that this is in part due to the gram-mar that they chose ?
+the grammar of (Klein andManning, 2003), which was hand annotated with theintent of optimizing performance of a PCFG.
+Thisgrammar is fairly sparse ?
+for any particular statethere are, on average, only a few rules with that stateas a parent ?
+so the learning algorithm may have suf-fered because there were few options to discriminatebetween.
+Starting with this grammar we found it dif-ficult to achieve gains as well.
+Additionally, theirlong training time (several months for WSJ15, ac-cording to (Turian and Melamed, 2006)) made fea-ture engineering difficult; they were unable to reallyexplore the space of possible features.More recent is the work of (Turian and Melamed,2006; Turian et al, 2007), which improved both thetraining time and accuracy of (Taskar et al, 2004).They define a simple linear model, use boosted de-cision trees to select feature conjunctions, and a linesearch to optimize the parameters.
+They use anagenda parser, and define their atomic features, fromwhich the decision trees are constructed, over the en-tire state being considered.
+While they make exten-sive use of features, their setup is much more com-plex than ours and takes substantially longer to train?
+up to 5 days on WSJ15 ?
+while achieving onlysmall gains over (Taskar et al, 2004).The most recent similar research is (Petrov et al,2007).
+They also do discriminative parsing of length40 sentences, but with a substantially different setup.Following up on their previous work (Petrov et al,2006) on grammar splitting, they do discriminative965SSNPPRPHeVPVBZaddsNPDTThisVPVBZisRBn?tNPNPCD1987VPVBNrevisitedSNPPRPHeVPVBZaddsSNPDTThisVPVBZisRBn?tNPCD1987VPVBNrevisitedSNPPRPHeVPVBZaddsSNPDTThisVPVBZisRBn?tNPNPCD1987VPVBNrevisited(a) generative output (b) feature-based discriminative output (c) gold parseFigure 3: Example output from our generative and feature-based discriminative models, along with the correct parse.parsing with latent variables, which requires themto optimize a non-convex function.
+Instead of us-ing a stochastic optimization technique, they use L-BFGS, but do coarse-to-fine pruning to approximatetheir gradients and log likelihood.
+Because theywere focusing on grammar splitting they, like (John-son, 2001), did not employ any features, and, like(Taskar et al, 2004), they saw only small gains fromswitching from generative to discriminative training.7 ConclusionsWe have presented a new, feature-rich, dynamic pro-gramming based discriminative parser which is sim-pler, more effective, and faster to train and test thanprevious work, giving us new state-of-the-art per-formance when training and testing on sentences oflength ?
+15 and the first results for such a parsertrained and tested on sentences of length ?
+40.
+Wealso show that the use of SGD for training CRFs per-forms as well as L-BFGS in a fraction of the time.Other recent work on discriminative parsing has ne-glected the use of features, despite their being one ofthe main advantages of discriminative training meth-ods.
+Looking at how other tasks, such as namedentity recognition and part-of-speech tagging, haveevolved over time, it is clear that greater gains are tobe gotten from developing better features than frombetter models.
+We have provided just such a frame-work for improving parsing performance.AcknowledgmentsMany thanks to Teg Grenager and Paul Heymannfor their advice (and their general awesomeness),and to our anonymous reviewers for helpful com-ments.This paper is based on work funded in part bythe Defense Advanced Research Projects Agencythrough IBM, by the Disruptive Technology Office(DTO) Phase III Program for Advanced QuestionAnswering for Intelligence (AQUAINT) throughBroad Agency Announcement (BAA) N61339-06-R-0034, and by a Scottish Enterprise Edinburgh-Stanford Link grant (R37588), as part of the EASIEproject.ReferencesEugene Charniak and Mark Johnson.
+2005.
+Coarse-to-fine n-best parsing and maxent discriminative rerank-ing.
+In ACL 43, pages 173?180.Alexander Clark.
+2000.
+Inducing syntactic categories bycontext distribution clustering.
+In Proc.
+of Conferenceon Computational Natural Language Learning, pages91?94, Lisbon, Portugal.Trevor Cohn and Philip Blunsom.
+2005.
+Semanticrole labelling with tree conditional random fields.
+InCoNLL 2005.Michael Collins.
+2000.
+Discriminative reranking for nat-ural language parsing.
+In ICML 17, pages 175?182.Jay Earley.
+1970.
+An efficient context-free parsing algo-rithm.
+Communications of the ACM, 6(8):451?455.James Henderson.
+2004.
+Discriminative training of aneural network statistical parser.
+In ACL 42, pages 96?103.Mark Johnson.
+2001.
+Joint and conditional estimation oftagging and parsing models.
+In Meeting of the Associ-ation for Computational Linguistics, pages 314?321.Florent Jousse, Re?mi Gilleron, Isabelle Tellier, and MarcTommasi.
+2006.
+Conditional Random Fields for XML966trees.
+In ECML Workshop on Mining and Learning inGraphs.Dan Klein and Christopher D. Manning.
+2003.
+Accurateunlexicalized parsing.
+In Proceedings of the Associa-tion of Computational Linguistics (ACL).John Lafferty, Andrew McCallum, and Fernando Pereira.2001.
+Conditional Random Fields: Probabilistic mod-els for segmenting and labeling sequence data.
+InICML 2001, pages 282?289.
+Morgan Kaufmann, SanFrancisco, CA.Dong C. Liu and Jorge Nocedal.
+1989.
+On the limitedmemory BFGS method for large scale optimization.Math.
+Programming, 45(3, (Ser.
+B)):503?528.Christopher D. Manning and Hinrich Schu?tze.
+1999.Foundations of Statistical Natural Language Process-ing.
+The MIT Press, Cambridge, Massachusetts.Mitchell P. Marcus, Beatrice Santorini, and Mary AnnMarcinkiewicz.
+1993.
+Building a large annotated cor-pus of English: The Penn Treebank.
+ComputationalLinguistics, 19(2):313?330.Andrew Ng and Michael Jordan.
+2002.
+On discrimina-tive vs. generative classifiers: A comparison of logisticregression and naive bayes.
+In Advances in Neural In-formation Processing Systems (NIPS).Slav Petrov, Leon Barrett, Romain Thibaux, and DanKlein.
+2006.
+Learning accurate, compact, and in-terpretable tree annotation.
+In ACL 44/COLING 21,pages 433?440.Slav Petrov, Adam Pauls, and Dan Klein.
+2007.
+Dis-criminative log-linear grammars with latent variables.In NIPS.Adwait Ratnaparkhi.
+1997.
+A linear observed time sta-tistical parser based on maximum entropy models.
+InEMNLP 2, pages 1?10.Andreas Stolcke.
+1995.
+An efficient probabilisticcontext-free parsing algorithm that computes prefixprobabilities.
+Computational Linguistics, 21:165?202.Ben Taskar, Dan Klein, Michael Collins, Daphne Koller,and Christopher D. Manning.
+2004.
+Max-marginparsing.
+In Proceedings of the Conference on Em-pirical Methods in Natural Language Processing(EMNLP).Joseph Turian and I. Dan Melamed.
+2006.
+Advances indiscriminative parsing.
+In ACL 44, pages 873?880.Joseph Turian, Ben Wellington, and I. Dan Melamed.2007.
+Scalable discriminative learning for natural lan-guage parsing and translation.
+In Advances in NeuralInformation Processing Systems 19, pages 1409?1416.MIT Press.S.
+V. N. Vishwanathan, Nichol N. Schraudolph, Mark W.Schmidt, and Kevin P. Murphy.
+2006.
+Acceleratedtraining of conditional random fields with stochasticgradient methods.
+In ICML 23, pages 969?976.967

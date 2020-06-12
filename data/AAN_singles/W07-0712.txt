@@ -1,0 +1,199 @@
+Proceedings of the Second Workshop on Statistical Machine Translation, pages 88?95,Prague, June 2007. c?2007 Association for Computational LinguisticsEfficient Handling of N -gram Language Modelsfor Statistical Machine TranslationMarcello FedericoFondazione Bruno Kessler - IRSTI-38050 Trento, Italyfederico@itc.itMauro CettoloFondazione Bruno Kessler - IRSTI-38050 Trento, Italycettolo@itc.itAbstractStatistical machine translation, as well asother areas of human language processing,have recently pushed toward the use of largescale n-gram language models.
+This paperpresents efficient algorithmic and architec-tural solutions which have been tested withinthe Moses decoder, an open source toolkitfor statistical machine translation.
+Exper-iments are reported with a high perform-ing baseline, trained on the Chinese-EnglishNIST 2006 Evaluation task and running ona standard Linux 64-bit PC architecture.Comparative tests show that our representa-tion halves the memory required by SRI LMToolkit, at the cost of 44% slower translationspeed.
+However, as it can take advantageof memory mapping on disk, the proposedimplementation seems to scale-up much bet-ter to very large language models: decodingwith a 289-million 5-gram language modelruns in 2.1Gb of RAM.1 IntroductionIn recent years, we have seen an increasing interesttoward the application of n-gram Language Mod-els (LMs) in several areas of computational lin-guistics (Lapata and Keller, 2006), such as ma-chine translation, word sense disambiguation, texttagging, named entity recognition, etc.
+The origi-nal framework of n-gram LMs was principally au-tomatic speech recognition, under which most ofthe standard LM estimation techniques (Chen andGoodman, 1999) were developed.
+Nowadays, theavailability of larger and larger text corpora is stress-ing the need for efficient data structures and algo-rithms to estimate, store and access LMs.
+Unfortu-nately, the rate of progress in computer technologyseems for the moment below the space requirementsof such huge LMs, at least by considering standardlab equipment.Statistical machine translation (SMT) is todayone of the research areas that, together with speechrecognition, is pushing mostly toward the use ofhuge n-gram LMs.
+In the 2006 NIST MachineTranslation Workshop (NIST, 2006), best perform-ing systems employed 5-grams LMs estimated on atleast 1.3 billion-word texts.
+In particular, GoogleInc.
+presented SMT results with LMs trained on8 trillion-word texts, and announced the availabil-ity of n-gram statistics extracted from one trillionof words.
+The n-gram Google collection is nowpublicly available through LDC, but their effectiveuse requires either to significantly expand computermemory, in order to use existing tools (Stolcke,2002), or to develop new ones.This work presents novel algorithms and datastructures suitable to estimate, store, and accessvery large LMs.
+The software has been integratedinto a popular open source SMT decoder calledMoses.1 Experimental results are reported on theChinese-English NIST task, starting from a quitewell-performing baseline, that exploits a large 5-gram LM.This paper is organized as follows.
+Section 2presents techniques for the estimation and represen-1http://www.statmt.org/moses/88tation in memory of n-gram LMs that try to optimizespace requirements.
+Section 3 describes methodsimplemented in order to efficiently access the LMat run time, namely by the Moses SMT decoder.Section 4 presents a list of experiments addressingspecific questions on the presented implementation.2 Language Model EstimationLM estimation starts with the collection of n-gramsand their frequency counters.
+Then, smoothing pa-rameters are estimated (Chen and Goodman, 1999)for each n-gram level; infrequent n-grams are possi-bly pruned and, finally, a LM file is created contain-ing n-grams with probabilities and back-off weights.2.1 N -gram CollectionClearly, a first bottleneck of the process might occurif all n-grams have to be loaded in memory.
+Thisproblem is overcome by splitting the collection of n-grams statistics into independent steps and by mak-ing use of an efficient data-structure to collect andstore n-grams.
+Hence, first the dictionary of the cor-pus is extracted and split into K word lists, balancedwith respect to the frequency of the words.
+Then,for each list, only n-grams whose first word belongsto the list are extracted from the corpus.
+The valueof K is determined empirically and should be suffi-ciently large to permit to fit the partial n-grams intomemory.
+The collection of each subset of n-gramsexploits a dynamic prefix-tree data structure shownin Figure 1.
+It features a table with all collected 1-grams, each of which points to its 2-gram succes-sors, namely the 2-grams sharing the same 1-gramprefix.
+All 2-gram entries point to all their 3-gramsuccessors, and so on.
+Successor lists are storedin memory blocks allocated on demand through amemory pool.
+Blocks might contain different num-ber of entries and use 1 to 6 bytes to encode fre-quencies.
+In this way, a minimal encoding is usedin order to represent the highest frequency entry ofeach block.
+This strategy permits to cope well withthe high sparseness of n-grams and with the pres-ence of relatively few highly-frequent n-grams, thatrequire counters encoded with 6 bytes.The proposed data structure differs from other im-plementations mainly in the use of dynamic alloca-tion of memory required to store frequencies of n-3w | fr | succ | ptr | flags6 3  8  13w | fr11-gr2-gr3-grFigure 1: Dynamic data structure for storing n-grams.
+Blocks of successors are allocated on de-mand and might vary in the number of entries(depth) and bytes used to store counters (width).Size in bytes is shown to encode words (w), frequen-cies (fr), and number of (succ), pointer to (ptr) andtable type of (flags) successors.grams.
+In the structure proposed by (Wessel et al,1997) counters of n-grams occurring more than onceare stored into 4-byte integers, while singleton n-grams are stored in a special table with no counters.This solution permits to save memory at the cost ofcomputational overhead during the collection of n-grams.
+Moreover, for historical reasons, this workignores the issue with huge counts.
+In the SRILMtoolkit (Stolcke, 2002), n-gram counts are accessedthrough a special class type.
+Counts are all repre-sented as 4-byte integers by applying the followingtrick: counts below a given threshold are representedas unsigned integers, while those above the thresh-old, which are typically very sparse, correspond in-deed to indexes of a table storing their actual value.To our opinion, this solution is ingenious but lessgeneral than ours, which does not make any assump-tion about the number of different high order counts.2.2 LM SmoothingFor the estimation of the LM, a standard interpo-lation scheme (Chen and Goodman, 1999) is ap-plied in combination with a well-established andsimple smoothing technique, namely the Witten-Bell linear discounting method (Witten and Bell,1991).
+Smoothing of probabilities up from 2-gramsis performed separately on each subset of n-grams.89For example, smoothing statistics for a 5-gram(v, w, x, y, z) are computed by means of statisticsthat are local to the subset of n-grams starting withv.
+Namely, they are the counters N(v, w, x, y, z),N(v, w, x, y), and the number D(v, w, x, y) of dif-ferent words observed in context (v, w, x, y).Finally, K LM files are created, by just read-ing through the n-gram files, which are indeed notloaded in memory.
+During this phase pruning of in-frequent n-grams is also permitted.
+Finally, all LMfiles are joined, global 1-gram probabilities are com-puted and added, and a single large LM file, in thestandard ARPA format (Stolcke, 2002), is generated.We are well aware that the implemented smooth-ing method is below the state-of-the-art.
+However,from one side, experience tells that the gap in per-formance between simple and sophisticated smooth-ing techniques shrinks when very large corpora areused; from the other, the chosen smoothing methodis very suited to the kind of decomposition we areapplying to the n-gram statistics.
+In the future, wewill nevertheless address the impact of more sophis-ticated LM smoothing on translation performance.2.3 LM CompilationThe final textual LM can be compiled into a binaryformat to be efficiently loaded and accessed at run-time.
+Our implementation follows the one adoptedby the CMU-Cambridge LM Toolkit (Clarkson andRosenfeld, 1997) and well analyzed in (Whittakerand Raj, 2001).
+Briefly, n-grams are stored ina data structure which privileges memory savingrather than access time.
+In particular, single com-ponents of each n-gram are searched, via binarysearch, into blocks of successors stored contigu-ously (Figure 2).
+Further improvements in mem-ory savings are obtained by quantizing both back-offweights and probabilities.2.4 LM QuantizationQuantization provides an effective way of reducingthe number of bits needed to store floating pointvariables.
+(Federico and Bertoldi, 2006) showed thatbest results were achieved with the so-called binningmethod.
+This method partitions data points into uni-formly populated intervals or bins.
+Bins are filled inin a greedy manner, starting from the lowest value.The center of each bin corresponds to the mean value1-gr 2-gr 3-gr3w   | bo | pr | idx1 1  4w  | pr3  1Figure 2: Static data structure for LMs.
+Number ofbytes are shown used to encode single words (w),quantized back-off weights (bo) and probabilities(pr), and start index of successors (idx).of all its points.
+Quantization is applied separatelyat each n-gram level and distinctly to probabilitiesor back-off weights.
+The chosen level of quantiza-tion is 8 bits (1 byte), that experimentally showed tointroduce negligible loss in translation performance.The quantization algorithm can be applied to anyLM represented with the ARPA format.
+QuantizedLMs can also be converted into a binary format thatcan be efficiently uploaded at decoding time.3 Language Model AccessOne motivation of this work is the assumption thatefficiency, both in time and space, can be gained byexploiting peculiarities of the way the LM is usedby the hosting program, i.e.
+the SMT decoder.
+Ananalysis of the interaction between the decoder andthe LM was carried out, that revealed some impor-tant properties.
+The main result is shown in Figure 3,which plots all calls to a 3-gram LM by Moses dur-ing the translation from German to English of thefollowing text, taken from the Europarl task:ich bin kein christdemokrat undglaube daher nicht an wunder .doch ich mo?chte dem europa?ischenparlament , so wie es gegenwu?rtigbeschaffen ist , fu?r seinengrossen beitrag zu diesen arbeitendanken.Translation of the above text requires about 1.7 mil-lion calls of LM probabilities, that however involveonly 120,000 different 3-grams.
+The plot shows typ-ical locality phenomena, that is the decoder tends to90Figure 3: LM calls during translation of a Germantext: each point corresponds to a specific 3-gram.access the LM n-grams in nonuniform, highly local-ized patterns.
+Locality is mainly temporal, namelythe first call of an n-gram is easily followed byother calls of the same n-gram.
+This property sug-gests that gains in access speed can be achieved byexploiting a cache memory in which to store al-ready called n-grams.
+Moreover, the relatively smallamount of involved n-grams makes viable the accessof the LM from disk on demand.
+Both techniquesare briefly described.3.1 Caching of probabilitiesIn order to speed-up access time of LM probabilitiesdifferent cache memories have been implementedthrough the use of hash tables.
+Cache memories areused to store all final n-gram probabilities requestedby the decoder, LM states used to recombine theo-ries, as well as all partial n-gram statistics computedby accessing the LM structure.
+In this way, the needof performing binary searches, at every level of theLM tables, is reduced at a minimum.All cache memories are reset before decodingeach single input set.3.2 Memory MappingSince a limited collection of all n-grams is neededto decode an input sentence, the LM is loaded ondemand from disk.
+The data structure shown in Fig-ure 2 permits indeed to efficiently exploit the so-called memory mapped file access.2 Memory map-ping basically permits to include a file in the address2POSIX-compliant operating systems and Windows supportsome form of memory-mapped file access.Memory1-gr 2-gr 3-grDisk fileFigure 4: Memory mapping of the LM on disk.Only the memory pages (grey blocks) of the LM thatare accessed while decoding the input sentence areloaded in memory.space of a process, whose access is managed as vir-tual memory (see Figure 4).During decoding of a sentence, only those n-grams, or better memory pages, of the LM that areactually accessed are loaded into memory, which re-sults in a significant reduction of the resident mem-ory space required by the process.
+Once the decod-ing of the input sentence is completed, all loadedpages are released, so that resident memory is avail-able for the n-gram probabilities of the followingsentence.
+A remarkable feature is that memory-mapping also permits to share the same addressspace among multiple processes, so that the sameLM can be accessed by several decoding processes(running on the same machine).4 ExperimentsIn order to assess the quality of our implementa-tion, henceforth named IRSTLM, we have designeda suite of experiments with a twofold goal: fromone side the comparison of IRSTLM against a pop-ular LM library, namely the SRILM toolkit (Stol-cke, 2002); from the other, to measure the actualimpact of the implementation solution discussed inprevious sections.
+Experiments were performed on acommon statistical MT platform, namely Moses, inwhich both the IRSTLM and SRILM toolkits havebeen integrated.The following subsection lists the questions91set type |W|source targetlarge parallel 83.1M 87.6Mgiga monolingual - 1.76GNIST 02 dev 23.7K 26.4KNIST 03 test 25.6K 28.5KNIST 04 test 51.0K 58.9KNIST 05 test 31.2K 34.6KNIST 06 nw test 18.5K 22.8KNIST 06 ng test 9.4K 11.1KNIST 06 bn test 12.0K 13.3KTable 1: Statistics of training, dev.
+and test sets.Evaluation sets of NIST campaigns include 4 ref-erences: in table, average lenghts are provided.which our experiments aim to answer.Assessing Questions1.
+Is LM estimation feasible for large amounts ofdata?2.
+How does IRSTLM compare with SRILMw.r.t.
+:(a) decoding speed?
+(b) memory requirements?
+(c) translation performance?3.
+How does LM quantization impact in terms of(a) memory consumption?
+(b) decoding speed?
+(c) translation performance?
+(d) tuning of decoding parameters?4.
+What is the impact of caching on decodingspeed?5.
+What are the advantages of memory mapping?Task and Experimental SetupThe task chosen for our experiments is the transla-tion of news from Chinese to English, as proposedby the NIST MT Evaluation Workshop of 2006.3A translation system was trained according to thelarge-data condition.
+In particular, all the allowedbilingual corpora have been used for estimating thephrase-table.
+The target side of these texts was alsoemployed for the estimation of three 5-gram LMs,henceforth named large.
+In particular, two LMs3www.nist.gov/speech/tests/mt/were estimated with the SRILM toolkit by prun-ing singletons events and by employing the Witten-Bell and the absolute discounting (Kneser and Ney,1995) smoothing methods; the shorthand for thesetwo LMs will be ?lrg-sri-wb?
+and ?lrg-sri-kn?, re-spectively.
+Another large LM was estimated with theIRSTLM toolkit, by employing the only smoothingmethod available in the package (Witten-Bell) andby pruning singletons n-grams; its shorthand will be?lrg?.
+An additional, much larger, 5-gram LM wasinstead trained with the IRSTLM toolkit on the so-called English Gigaword corpus, one of the allowedmonolingual resources for this task.Automatic translation was performed by means ofMoses which, among other things, permits the con-temporary use of more LMs, feature we exploited inour experiments as specified later.Optimal interpolation weights for the log-linearmodel were estimated by running a minimum errortraining algorithm, available in the Moses toolkit,on the evaluation set of the NIST 2002 campaign.Tests were performed on the evaluation sets of thesuccessive campaigns (2003 to 2006).
+Concern-ing the NIST 2006 evaluation set, results are givenseparately for three different types of texts, namelynewswire (nw) and newsgroup (ng) texts, and broad-cast news transcripts (bn).Table 1 gives figures about training, developmentand test corpora, while Table 2 provides main statis-tics of the estimated LMs.LM millions of1-gr 2-gr 3-gr 4-gr 5-grlrg-sri-kn 0.3 5.2 5.9 7.1 6.8lrg-sri-wb 0.3 5.2 6.4 7.8 6.8lrg 0.3 5.3 6.6 8.4 8.0giga 4.5 64.4 127.5 228.8 288.6Table 2: Statistics of LMs.MT performance are provided in terms of case-insensitive BLEU and NIST scores, as computedwith the NIST scoring tool.
+For time reasons,the decoder run with monotone search; prelimi-nary experiments showed that this choice does notaffect comparison of LMs.
+Reported decodingspeed is the elapsed real time measured with theLinux/UNIX time command divided by the num-ber of source words to be translated.
+dual Intel/Xeon92CPU 3.20GHz with 8Gb RAM.
+Experiments run ondual Intel/Xeon CPUs 3.20GHz/8Gb RAM.4.1 LM estimationFirst of all, let us answer the question (number 1)on the feasibility of the procedure for the estima-tion of huge LMs.
+Given the amount of training dataemployed, it is worth to provide some details aboutthe estimation process of the ?giga?
+LM.
+Accordingto the steps listed in Section 2.1, the whole dictio-nary was split into K = 14 frequency balanced lists.Then, 5-grams beginning with words from each listwere extracted and stored.
+Table 3 shows some fig-ures about these dictionaries and 5-gram collections.Note that the dictionary size increases with the listindex: this means only that more frequent wordswere used first.
+This stage run in few hours with1-2Gb parallel processes.list dictionary number of 5-grams:index size observed distinct non-singletons0 4 217M 44.9M 16.2M1 11 164M 65.4M 20.7M2 8 208M 85.1M 27.0M3 44 191M 83.0M 26.0M4 64 143M 56.6M 17.8M5 137 142M 62.3M 19.1M6 190 142M 64.0M 19.5M7 548 142M 66.0M 20.1M8 783 142M 63.3M 19.2M9 1.3K 141M 67.4M 20.2M10 2.5K 141M 69.7M 20.5M11 6.1K 141M 71.8M 20.8M12 25.4K 141M 74.5M 20.9M13 4.51M 141M 77.4M 20.6Mtotal 4.55M 2.2G 951M 289MTable 3: Estimation of the ?giga?
+LM: dictionaryand 5-gram statistics (K = 14).The actual estimation of the LM was performedwith the scheme presented in Section 2.2.
+For eachcollection of non-singletons 5-grams, a sub-LM wasbuilt by computing smoothed n-gram (n = 1 ?
+?
+?
+5)probabilities and interpolation parameters.
+Again,by exploiting parallel processing, this phase tookonly few hours on standard HW resources.
+Finally,sub-LMs were joined in a single LM, which can bestored in two formats: (i) the standard textual ARPALM format quantization file sizelrg-sri-kn textual n 893Mblrg-sri-wb textual n 952Mblrg textual n 1088Mby 789Mbbinary n 368Mby 220Mbgiga textual n 28.0Gby 21.0Gbbinary n 8.5Gby 5.1GbTable 4: Figures of LM files.format, and (ii) the binary format of Section 2.3.
+Inaddition, LM probabilities can be quantized accord-ing to the procedure of Section 2.4.The estimation of the ?lrg-sri?
+LMs, performedby means of the SRILM toolkit, took about 15 min-utes requiring 5Gb of memory.
+The ?lrg?
+LM wasestimated as the ?giga?
+LM in about half an hourdemanding only few hundreds of Mb of memory.Table 4 lists the size of files storing various ver-sions of the ?large?
+and ?giga?
+LMs which differ informat and/or type.4.2 LM run-time usageTables 5 and 6 shows BLEU and NIST scores, re-spectively, measured on test sets for each specificLM configuration.
+The first two rows of the two ta-bles regards runs of Moses with the SRILM, thatuses ?lrg-sri?
+LMs.
+The other rows refer to runs ofMoses with IRSTLM, either using LM ?lrg?
+only,or both LMs, ?lrg?
+and ?giga?.
+LM quantization ismarked by a ?q?.Finally, in Table 7 figures about the decoding pro-cesses are recorded.
+For each LM configuration, theprocess size, both virtual and resident, is providedtogether with the average time required for translat-ing a source word with/without the activation of thecaching mechanism described in Section 3.1.
+It isto worth noticing that the ?giga?
+LM (both originaland quantized) is loaded through the memory map-ping service presented in Section 3.2.Table 7 includes most of the answers to questionnumber 2:2.a Under the same conditions, Moses runningwith SRILM permits almost double faster93LM NIST test set03 04 05 06 06 06nw ng bnlrg-sri-kn 28.74 30.52 26.99 29.28 23.47 27.27lrg-sri-wb 28.05 29.86 26.52 28.37 23.13 26.37lrg 28.49 29.84 26.97 28.69 23.28 26.70q-lrg 28.05 29.66 26.48 28.58 22.64 26.05lrg+giga 30.77 31.93 29.09 29.74 24.39 28.50q-lrg+q-giga 30.42 31.47 28.62 29.76 24.28 28.23Table 5: BLEU scores on NIST evaluation sets fordifferent LM configurations.LM NIST test set03 04 05 06 06 06nw ng bnlrg-sri-kn 8.73 9.29 8.47 8.98 7.81 8.52lrg-sri-wb 8.52 9.14 8.27 8.96 7.90 8.34lrg 8.73 9.21 8.45 8.95 7.82 8.47q-lrg 8.60 9.11 8.32 8.88 7.73 8.31lrg+giga 9.08 9.49 8.80 8.92 7.86 8.66q-lrg+q-giga 8.93 9.38 8.65 9.05 7.99 8.60Table 6: NIST scores on NIST evaluation sets fordifferent LM configurations.translation than IRSTLM (13.33 vs. 6.80words/s).
+Anyway, IRSTLM can be sped-up to7.52 words/s by applying caching.2.b IRSTLM requires about half memory thanSRILM for storing an equivalent LM duringdecoding.
+If the LM is quantized, the gain iseven larger.
+Concerning file sizes (Table 4), thesize of IRSTLM binary files is about 30% ofthe corresponding textual versions.
+Quantiza-tion further reduces the size to 20% of the orig-inal textual format.2.c Performance of IRSTLM and SRILM on thelarge LMs smoothed with the same method arecomparable, as expected (see entries ?lrg-sri-wb?
+and ?lrg?
+of Tables 5 and 6).
+The smalldifferences are due to different probability val-ues assigned by the two libraries to out-of-vocabulary words.Concerning quantization, gains in terms of memoryspace (question 3.a) have already been highlighted(see answer 2.b).
+For the remaining points:3.b comparing ?lrg?
+vs. ?q-lrg?
+rows andLM process size caching dec. speedvirtual resident (src w/s)lrg-sri-kn/wb 1.2Gb 1.2Gb - 13.33lrg 750Mb 690Mb n 6.80y 7.42q-lrg 600Mb 540Mb n 6.99y 7.52lrg+giga 9.9Gb 2.1Gb n 3.52y 4.28q-lrg+q-giga 6.8Gb 2.1Gb n 3.64y 4.35Table 7: Process size and decoding speed with/wocaching for different LM configurations.?lrg+giga?
+vs. ?q-lrg+q-giga?
+rows of Ta-ble 7, it results that quantization allows only amarginal decoding time reduction (1-3%)3.c comparing the same rows of Tables 5 and 6, itcan be claimed that quantization doesn?t affecttranslation performance in a significant way3.d no specific training of decoder weights is re-quired since the original LM and its quan-tized version are equivalent.
+For example,by translating the NIST 05 test set with theweights estimated on the ?lrg+giga?
+configu-ration, the following BLEU/NIST scores aregot: 28.99/8.79 with the ?q-lrg+q-giga?
+LMs,29.09/8.80 with the ?lrg+giga?
+LMs (the latterscores are also given in Tables 5 and 6).
+Em-ploying weights estimated on ?q-lrg+q-giga?scores are: 28.58/8.66 with ?lrg+giga?
+LMs,28.62/8.65 with ?q-lrg+q-giga?
+LMs (againalso in Tables 5 and 6).
+Also on other test setsdifferences are negligible.Table 7 answers the question number 4 oncaching, by reporting the decoding speed-up due tothis mechanism: a gain of 8-9% is observed on ?lrg?and ?q-lrg?
+configurations, of 20-21% in case also?giga/q-giga?
+LMs are employed.The answer to the last question is that thanks tothe memory mapping mechanism it is possible runMoses with huge LMs, which is expected to im-prove performance.
+Tables 5 and 6 provide quan-titative support to the statement.
+In fact, a gain of1-2 absolute BLEU was measured on different testsets when ?giga?
+LM was employed in addition to94NIST test set03 04 05 06 06 06nw ng bnBLEUci 33.62 35.04 31.92 32.74 26.18 32.43cs 31.44 32.99 29.95 30.49 24.35 31.10NISTci 9.27 9.75 9.00 9.24 8.00 8.97cs 8.88 9.40 8.64 8.82 7.69 8.77Table 8: Case insensitive (ci) and sensitive (cs)scores of the best performing system.?lrg?
+LM.
+The SRILM-based decoder would requirea process of about 30Gb to load the ?giga?
+LM; onthe contrary, the virtual size of the IRSTLM-baseddecoder is 6.8Gb, while the actual resident memoryis only 2.1Gb.4.3 Best Performing SystemExperimental results discussed so far are not the bestwe are able to get.
+In fact, the adopted setup fixedthe monotone search and the use of no reorderingmodel.
+Then, in order to allow a fair comparisonof the IRSTLM-based Moses system with the onesparticipating to the NIST MT evaluation campaigns,we have (i) set the maximum reordering distance to6 and (ii) estimated a lexicalized reordering modelon the large parallel data by means of the trainingoption ?orientation-bidirectional-fe?.Table 8 shows BLEU/NIST scores measured ontest sets by employing the IRSTLM-based Moseswith this setting and employing ?q-lrg+q-giga?LMs.
+It ranks at the top 5 systems (out of 24) withrespect to the results of the NIST 06 evaluation cam-paign.5 ConclusionsWe have presented a method for efficiently estimat-ing and handling large scale n-gram LMs for thesake of statistical machine translation.
+LM estima-tion is performed by splitting the task with respectto the initial word of the n-grams, and by mergingthe resulting sub-LMs.
+Estimated LMs can be quan-tized and compiled in a compact data structure.
+Dur-ing the search, LM probabilities are cached and onlythe portion of effectively used LM n-grams is loadedin memory from disk.
+This method permits indeedto exploit locality phenomena shown by the searchalgorithm when accessing LM probabilities.
+Resultsshow an halving of memory requirements, at the costof 44% slower decoding speed.
+In addition, loadingthe LM on demand permits to keep the size of mem-ory allocated to the decoder nicely under control.Future work will investigate the way for includ-ing more sophisticated LM smoothing methods inour scheme and will compare IRSTLM and SRILMtoolkits on increasing size training corpora.6 AcknowledgmentsThis work has been funded by the European Unionunder the integrated project TC-STAR - Technol-ogy and Corpora for Speech-to-Speech Translation- (IST-2002-FP6-506738, http://www.tc-star.org).ReferencesS.F.
+Chen and J. Goodman.
+1999.
+An empirical study ofsmoothing techniques for language modeling.
+ComputerSpeech and Language, 4(13):359?393.P.
+Clarkson and R. Rosenfeld.
+1997.
+Statistical language mod-eling using the CMU?cambridge toolkit.
+In Proc.
+of Eu-rospeech, pages 2707?2710, Rhodes, Greece.M.
+Federico and N. Bertoldi.
+2006.
+How many bits are neededto store probabilities for phrase-based translation?
+In Proc.of the Workshop on Statistical Machine Translation, pages94?101, New York City, June.
+Association for Computa-tional Linguistics.R.
+Kneser and H. Ney.
+1995.
+Improved backing-off for m-gramlanguage modeling.
+In Proc.
+of ICASSP, volume 1, pages181?184, Detroit, MI.M.
+Lapata and F. Keller.
+2006.
+Web-based models for natu-ral language processing.
+ACM Transactions on Speech andLanguage Processing, 1(2):1?31.NIST.
+2006.
+Proc.
+of the NIST MT Workshop.
+Washington,DC.
+NIST.A.
+Stolcke.
+2002.
+SRILM - an extensible language modelingtoolkit.
+In Proc.
+of ICSLP, Denver, Colorado.F.
+Wessel, S. Ortmanns, and H. Ney.
+1997.
+Implementationof word based statistical language models.
+In Proc.
+SQELWorkshop on Multi-Lingual Information Retrieval Dialogs,pages 55?59, Pilsen, Czech Republic.E.
+W. D. Whittaker and B. Raj.
+2001.
+Quantization-based Lan-guage Model Compression.
+In Proc.
+of Eurospeech, pages33?36, Aalborg.I.
+H. Witten and T. C. Bell.
+1991.
+The zero-frequency problem:Estimating the probabilities of novel events in adaptive textcompression.
+IEEE Trans.
+Inform.
+Theory, IT-37(4):1085?1094.95

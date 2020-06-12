@@ -1,0 +1,890 @@
+Semantic Role Labeling of ImplicitArguments for Nominal PredicatesMatthew Gerber?University of VirginiaJoyce Y.
+Chai?
+?Michigan State UniversityNominal predicates often carry implicit arguments.
+Recent work on semantic role labeling hasfocused on identifying arguments within the local context of a predicate; implicit arguments,however, have not been systematically examined.
+To address this limitation, we have manuallyannotated a corpus of implicit arguments for ten predicates from NomBank.
+Through analysisof this corpus, we find that implicit arguments add 71% to the argument structures that arepresent in NomBank.
+Using the corpus, we train a discriminative model that is able to identifyimplicit arguments with an F1 score of 50%, significantly outperforming an informed baselinemodel.
+This article describes our investigation, explores a wide variety of features important forthe task, and discusses future directions for work on implicit argument identification.1.
+IntroductionRecent work has shown that semantic role labeling (SRL) can be applied to nominalpredicates in much the same way as verbal predicates (Liu and Ng 2007; Johansson andNugues 2008; Gerber, Chai, and Meyers 2009).
+In general, the nominal SRL problemis formulated as follows: Given a predicate that is annotated in NomBank as bear-ing arguments, identify these arguments within the clause or sentence that containsthe predicate.
+As shown in our previous work (Gerber, Chai, and Meyers 2009), thisproblem definition ignores the important fact that many nominal predicates do notbear arguments in the local context.
+Such predicates need to be addressed in orderfor nominal SRL to be used by downstream applications such as automatic questionanswering, information extraction, and statistical machine translation.Gerber, Chai, and Meyers (2009) showed that it is possible to accurately identifynominal predicates that bear arguments in the local context.
+This makes the nominalSRL system applicable to text that does not contain annotated predicates.
+The systemdoes not address a fundamental question regarding arguments of nominal predicates,however: If an argument is missing from the local context of a predicate, might theargument be located somewhere in the wider discourse?
+Most prior work on nominal?
+151 Engineer?s Way, University of Virginia, Charlottesville, VA 22904.E-mail: matt.gerber@virginia.edu.??
+3115 Engineering Building, Michigan State University, East Lansing, MI 48824.E-mail: jchai@cse.msu.edu.Submission received: 4 August 2011; revised version received: 23 December 2011; accepted for publication:7 February 2012.?
+2012 Association for Computational LinguisticsComputational Linguistics Volume 38, Number 4and verbal SRL has stopped short of answering this question, opting instead for anapproach that only labels local arguments and thus ignores predicates whose argumentsare entirely non-local.
+This article directly addresses the issue of non-local (or implicit)argument identification for nominal predicates.As an initial example, consider the following sentence, which is taken from the PennTreeBank (Marcus, Santorini, and Marcinkiewicz 1993):(1) A SEC proposal to ease [arg1 reporting] [predicate requirements] [arg2for some company executives] would undermine the usefulness ofinformation on insider trades, professional money managers contend.The NomBank (Meyers 2007) role set for requirement is shown here:Frame for requirement, role set 1:arg0: the entity that is requiring somethingarg1: the entity that is requiredarg2: the entity of which something is being requiredIn Example (1), the predicate has been annotated with the local argument labels pro-vided by NomBank.
+As shown, NomBank does not annotate an arg0 for this instance ofthe requirement predicate; a reasonable interpretation of the sentence, however, is thatSEC is the entity that is requiring something.1 This article refers to arguments such asSEC in Example (1) as implicit.
+In this work, the notion of implicit argument covers anyargument that is not annotated by NomBank.2Building on Example (1), consider the following sentence, which directly followsExample (1) in the corresponding TreeBank document:(2) Money managers make the argument in letters to the agency about[arg1 rule] [predicate changes] proposed this past summer.The NomBank role set for change is as follows:Frame for change, role set 1:arg0: the entity that initiates the changearg1: the entity that is changedarg2: the initial state of the changed entityarg3: the final state of the changed entitySimilarly to the previous example, Example (2) shows the local argument labels pro-vided by NomBank.
+These labels only indicate that rules have been changed.
+For afull interpretation, Example (2) requires an understanding of Example (1).
+Without1 The Securities and Exchange Commission (SEC) is responsible for enforcing investment laws in theUnited States.2 NomBank annotates arguments in the noun phrase headed by the predicate as well as argumentsbrought in by so-called support verb structures.
+See Meyers (2007) for details.756Gerber and Chai SRL of Implicit Arguments for Nominal Predicatesthe sentence from Example 1, the reader has no way of knowing that the agency inExample (2) actually refers to the same entity as SEC in Example (1).
+As part of thereader?s comprehension process, this entity is identified as the filler for the arg0 role inExample (2).
+This identification must occur in order for these two sentences to form acoherent discourse.From these examples, it is clear that the scope of implicit arguments quite naturallyspans sentence boundaries.
+Thus, if one wishes to recover implicit arguments as part ofthe SRL process, the argument search space must be expanded beyond the traditional,single-sentence window used in virtually all prior SRL research.
+What can we hopeto gain from such a fundamental modification of the problem?
+Consider the followingquestion, which targets Examples (1) and (2):(3) Who changed the rules regarding reporting requirements?Question (3) is a factoid question, meaning it has a short, unambiguous answer in thetargeted text.
+This type of question has been studied extensively in the Text RetrievalConference Question Answering (QA) Track (Dang, Kelly, and Lin 2007).
+Using theevaluation data from this track, Pizzato and Molla?
+(2008) showed that SRL can improvethe accuracy of a QA system; a traditional SRL system alone, however, is not enoughto recover the implied answer to Question (3): SEC or the agency.
+Successful implicitargument identification provides the answer in this case.This article presents an in-depth study of implicit arguments for nominal predi-cates.3 The following section surveys research related to implicit argument identifica-tion.
+Section 3 describes the study?s implicit argument annotation process and the datait produced.
+The implicit argument identification model is formulated in Section 4 andevaluated in Section 5.
+Discussion of results is provided in Section 6, and the articleconcludes in Section 7.2.
+Related WorkThe research presented in this article is related to a wide range of topics in cognitivescience, linguistics, and natural language processing (NLP).
+This is partly due to thediscourse-based nature of the problem.
+In single-sentence SRL, one can ignore the dis-course aspect of language and still obtain high marks in an evaluation (for examples, seeCarreras and Ma`rquez 2005 and Surdeanu et al 2008); implicit argumentation, however,forces one to consider the discourse context in which a sentence exists.
+Much has beensaid about the importance of discourse to language understanding, and this sectionwill identify the points most relevant to implicit argumentation.2.1 Discourse Comprehension in Cognitive ScienceThe traditional view of sentence-level semantics has been that meaning is composi-tional.
+That is, one can derive the meaning of a sentence by carefully composing themeanings of its constituent parts (Heim and Kratzer 1998).
+There are counterexamplesto a compositional theory of semantics (e.g., idioms), but those are more the exceptionthan the rule.
+Things change, however, when one starts to group sentences together3 This article builds on our previous work (Gerber and Chai 2010).757Computational Linguistics Volume 38, Number 4to form coherent textual discourses.
+Consider the following examples, borrowed fromSanford (1981, page 5):(4) Jill came bouncing down the stairs.
+(5) Harry rushed off to get the doctor.Examples (4) and (5) describe three events: bounce, rush, and get.
+These events areintricately related.
+One cannot simply create a conjunction of the propositions bounce,rush, and get and expect to arrive at the author?s intended meaning, which presumablyinvolves Jill?s becoming injured by her fall and Harry?s actions to help her.
+The mutualdependence of these sentences can be further shown by considering a variant of thesituation described in Examples (4) and (5):(6) Jill came bouncing down the stairs.
+(7) Harry rushed over to kiss her.The interpretation of Example (6) is vastly different from the interpretation of Exam-ple (4).
+In Example (4), Jill becomes injured whereas in Example (6) she is quite happy.Examples (4?7) demonstrate the fact that sentences do not have a fixed, compo-sitional interpretation; rather, a sentence?s interpretation depends on the surroundingcontext.
+The standard compositional theory of sentential semantics largely ignores con-textual information provided by other sentences.
+The single-sentence approach to SRLoperates similarly.
+In both of these methods, the current sentence provides all of thesemantic information.
+In contrast to these methods?and aligned with the precedingdiscussion?this article presents methods that rely heavily on surrounding sentencesto provide additional semantic information.
+This information is used to interpret thecurrent sentence in a more complete fashion.Examples (4?7) also show that the reader?s knowledge plays a key role in discoursecomprehension.
+Researchers in cognitive science have proposed many models of readerknowledge.
+Schank and Abelson (1977) proposed stereotypical event sequences calledscripts as a basis for discourse comprehension.
+In this approach, readers fill in a dis-course?s semantic gaps with knowledge of how a typical event sequence might unfold.In Examples (4) and (5), the reader knows that people typically call on a doctor onlyif someone is hurt.
+Thus, the reader automatically fills the semantic gap caused by theambiguous predicate bounce with information about doctors and what they do.
+Similarobservations have been made by van Dijk (1977, page 4), van Dijk and Kintsch (1983,page 303), Graesser and Clark (1985, page 14), and Carpenter, Miyake, and Just (1995).Inspired by these ideas, the model developed in this article relies partly on large textcorpora, which are treated as repositories of typical event sequences.
+The model usesinformation extracted from these event sequences to identify implicit arguments.2.2 Automatic Relation DiscoveryExamples (4) and (5) in the previous section show that understanding the relationshipsbetween predicates is a key part of understanding a textual discourse.
+In this section, wereview work on automatic predicate relationship discovery, which attempts to extractthese relationships automatically.758Gerber and Chai SRL of Implicit Arguments for Nominal PredicatesLin and Pantel (2001) proposed a system that automatically identifies relationshipssimilar to the following:(8) X eats Y ?
+X likes YThis relationship creates a mapping between the participants of the two predicates.One can imagine using such a mapping to fill in the semantic gaps of a discourse thatdescribes a typical set of events in a restaurant.
+In such a discourse, the author probablywill not state directly that X likes Y; the reader might need to infer this in order to makesense of the fact that X left a large tip for the waiter, however.Lin and Pantel (2001) created mappings such as the one in Example (8) using avariation of the so-called ?distributional hypothesis?
+posited by Harris (1985), whichstates that words occurring in similar contexts tend to have similar meanings.
+Lin andPantel applied the same notion of similarity to dependency paths.
+For example, theinference rule in Example 8 is identified by examining the sets of words in the two Xpositions and the sets of words in the two Y positions.
+When the two pairs of sets aresimilar, it is implied that the two dependency paths from X to Y are similar as well.
+InExample (8), the two dependency paths are as follows:Xsubject????
+eats object????
+YXsubject????
+likes object????
+YOne drawback of this method is that it assumes the implication is symmetric.
+Althoughthis assumption is correct in many cases, it often leads to invalid inferences.
+In Exam-ple 8, it is not always true that if X likes Y then X will eat Y.
+The opposite?that X eatingY implies X likes Y?is more plausible but not certain.Bhagat, Pantel, and Hovy (2007) extended the work of Lin and Pantel (2001) tohandle cases of asymmetric relationships.
+The basic idea proposed by Bhagat, Pantel,and Hovy is that, when considering a relationship of the form ?x, p1, y?
+?
+?x, p2, y?, if p1occurs in significantly more contexts (i.e., has more options for x and y) than p2, then p2is likely to imply p1 but not vice versa.
+Returning to Example 8, we see that the correctimplication will be derived if likes occurs in significantly more contexts than eats.
+Theintuition is that the more general concept (i.e., like) will be associated with more contextsand is more likely to be implied by the specific concept (i.e., eat).
+As shown by Bhagat,Pantel, and Hovy, the system built around this intuition is able to effectively identifythe directionality of many inference rules.Zanzotto, Pennacchiotti, and Pazienza (2006) presented another study aimed atidentifying asymmetric relationships between verbs.
+For example, the asymmetric en-tailment relationship X wins ??
+X plays holds, but the opposite (X plays ??
+X wins) doesnot.
+This is because not all those who play a game actually win.
+To find evidence forthis automatically, the authors examined constructions such as the following (adaptedfrom Zanzotto, Pennacchiotti, and Pazienza [2006]):(9) The more experienced tennis player won the match.The underlying idea behind the authors?
+approach is that asymmetric relationships suchas X wins ??
+X plays are often entailed by constructions involving agentive, nominalizedverbs as the logical subjects of the main verb.
+In Example (9), the agentive nominal759Computational Linguistics Volume 38, Number 4?player?
+is logical subject to ?won?, the combination of which entails the asymmetricrelationship of interest.
+Thus, to validate such an asymmetric relationship, Zanzotto,Pennacchiotti, and Pazienza (2006) examined the frequency of the ?player win?
+colloca-tion using Google hit counts as a proxy for actual corpus statistics.A number of other studies (e.g., Szpektor et al 2004, Pantel et al 2007) have beenconducted that are similar to that work.
+In general, such work focuses on the automaticacquisition of entailment relationships between verbs.
+Although this work has oftenbeen motivated by the need for lexical?semantic information in tasks such as automaticquestion answering, it is also relevant to the task of implicit argument identificationbecause the derived relationships implicitly encode a participant role mapping betweentwo predicates.
+For example, given a missing arg0 for a like predicate and an explicitarg0 = John for an eat predicate in the preceding discourse, inference rule (8) wouldhelp identify the implicit arg0 = John for the like predicate.The missing link between previous work on verb relationship identification and thetask of implicit argument identification is that previous verb relations are not definedin terms of the argn positions used by NomBank.
+Rather, positions like subject and objectare used.
+In order to identify implicit arguments in NomBank, one needs inference rulesbetween specific argument positions (e.g., eat:arg0 and like:arg0).
+In the current article,we propose methods of automatically acquiring these fine-grained relationships forverbal and nominal predicates using existing corpora.
+We also propose a method ofusing these relationships to recover implicit arguments.2.3 Coreference ResolutionThe referent of a linguistic expression is the real or imagined entity to which the expres-sion refers.
+Coreference, therefore, is the condition of two linguistic expressions havingthe same referent.
+In the following examples from the Penn TreeBank, the underlinedspans of text are coreferential:(10) ?Carpet King sales are up 4% this year,?
+said owner Richard Rippe.
+(11) He added that the company has been manufacturing carpet since 1967.Non-trivial instances of coreference (e.g., Carpet King and the company) allow the authorto repeatedly mention the same entity without introducing redundancy into the dis-course.
+Pronominal anaphora is a subset of coreference in which one of the referringexpressions is a pronoun.
+For example, he in Example (11) refers to the same entity asRichard Rippe in Example (10).
+These examples demonstrate noun phrase coreference.Events, indicated by either verbal or nominal predicates, can also be coreferential whenmentioned multiple times in a document (Wilson 1974; Chen and Ji 2009).For many years, the Automatic Content Extraction (ACE) series of large-scale eval-uations (NIST 2008) has provided a test environment for systems designed to identifythese and other coreference relations.
+Systems based on the ACE data sets typically takea supervised learning approach to coreference resolution in general (Versley et al 2008)and pronominal anaphor in particular (Yang, Su, and Tan 2008).A phenomenon similar to the implicit argument has been studied in the contextof Japanese anaphora resolution, where a missing case-marked constituent is viewedas a zero-anaphoric expression whose antecedent is treated as the implicit argumentof the predicate of interest.
+This behavior has been annotated manually by Iida et al(2007), and researchers have applied standard SRL techniques to this corpus, resulting760Gerber and Chai SRL of Implicit Arguments for Nominal Predicatesin systems that are able to identify missing case?marked expressions in the surroundingdiscourse (Imamura, Saito, and Izumi 2009).
+Sasano, Kawahara, and Kurohashi (2004)conducted similar work with Japanese indirect anaphora.
+The authors used automati-cally derived nominal case frames to identify antecedents.
+However, as noted by Iidaet al, grammatical cases do not stand in a one-to-one relationship with semantic rolesin Japanese (the same is true for English).Many other discourse-level phenomena interact with coreference.
+For example,Centering Theory (Grosz, Joshi, and Weinstein 1995) focuses on the ways in whichreferring expressions maintain (or break) coherence in a discourse.
+These so-called ?cen-tering shifts?
+result from a lack of coreference between salient noun phrases in adjacentsentences.
+Discourse Representation Theory (DRT) (Kamp and Reyle 1993) is anotherprominent treatment of referring expressions.
+DRT embeds a theory of coreference intoa first-order, compositional semantics of discourse.2.4 Identifying Implicit ArgumentsPast research on the actual task of implicit argument identification tends to be sparse.Palmer et al (1986) describe what appears to be the first computational treatment ofimplicit arguments.
+In that work, Palmer et al manually created a repository of knowl-edge concerning entities in the domain of electronic device failures.
+This knowledge,along with hand-coded syntactic and semantic processing rules, allowed the system toidentify implicit arguments across sentence boundaries.
+As a simple example, considerthe following two sentences (borrowed from Palmer et al [1986]):(12) Disk drive was down at 11/16-2305.
+(13) Has select lock.Example (13) does not specify precisely which entity has select lock.
+The domain knowl-edge, however, tells the system that only disk drive entities can have such a property.Using this knowledge, the system is able to search the local context and make explicitthe implied fact that the disk drive from Example (12) has select lock.A similar line of work was pursued by Whittemore, Macpherson, and Carlson(1991), who offer the following example of implicit argumentation (page 21):(14) Pete bought a car.
+(15) The salesman was a real jerk.In Example (14), the buy event is not associated with an entity representing the seller.This entity is introduced in Example (15) as the salesman, whose semantic propertiessatisfy the requirements of the buy event.
+Whittemore, Macpherson, and Carlson (1991)build up the event representation incrementally using a combination of semantic prop-erty constraints and DRT.The systems developed by Palmer et al (1986) and Whittemore, Macpherson,and Carlson (1991) are quite similar.
+They both make use of semantic constraints onarguments, otherwise known as selectional preferences.
+Selectional preferences havereceived a significant amount of attention over the years, with the work of Ritter,Mausam, and Etzioni (2010) being some of the most recent.
+The model developed in761Computational Linguistics Volume 38, Number 4the current article uses a variety of selectional preference measures to identify implicitarguments.The implicit argument identification systems described herein were not widely de-ployed due to their reliance on hand-coded, domain-specific knowledge that is difficultto create.
+Much of this knowledge targeted basic syntactic and semantic constructionsthat now have robust statistical models (e.g., those created by Charniak and Johnson[2005] for syntax and Punyakanok et al [2005] for semantics).
+With this informationaccounted for, it is easier to approach the problem of implicit argumentation.
+Subse-quently, we describe a series of recent investigations that have led to a surge of interestin statistical implicit argument identification.Fillmore and Baker (2001) provided a detailed case study of FrameNet frames as abasis for understanding written text.
+In their case study, Fillmore and Baker manuallybuild up a semantic discourse structure by hooking together frames from the varioussentences.
+In doing so, the authors resolve some implicit arguments found in the dis-course.
+This process is an interesting step forward; the authors did not provide concretemethods to perform the analysis automatically, however.Nielsen (2004) developed a system that is able to detect the occurrence of verbphrase ellipsis.
+Consider the following sentences:(16) John kicked the ball.
+(17) Bill [did], too.The bracketed text in Example (17) is a placeholder for the verb phrase kicked the ballin Example (16), which has been elided (i.e., left out).
+Thus, in Example (17), Bill canbe thought of as an implicit argument to some kicking event that is not mentioned.
+Ifone resolved the verb phrase ellipsis, then the implicit agent (Bill) would be recovered.4Nielsen (2004) created a system able to detect the presence of ellipses, producing thebracketing in Example (17).
+Ellipsis resolution (i.e., figuring out precisely which verbphrase is missing) was described by Nielsen (2005).
+Implicit argument identification fornominal predicates is complementary to verb phrase ellipsis resolution: Both work tomake implicit information explicit.Burchardt, Frank, and Pinkal (2005) suggested that frame elements from variousframes in a text could be linked to form a coherent discourse interpretation (this issimilar to the idea described by Fillmore and Baker [2001]).
+The linking operationcauses two frame elements to be viewed as coreferent.
+Burchardt, Frank, and Pinkal(2005) propose to learn frame element linking patterns from observed data; the authorsdid not implement and evaluate such a method, however.
+Building on the work ofBurchardt, Frank, and Pinkal, this article presents a model of implicit arguments thatuses a quantitative analysis of naturally occurring coreference patterns.In our previous work, we demonstrated the importance of filtering out nominalpredicates that take no local arguments (Gerber, Chai, and Meyers 2009).
+This approachleads to appreciable gains for certain nominals.
+The approach does not attempt toactually recover implicit arguments, however.4 Identification of the implicit patient in Example (17) (the ball) should be sensitive to the phenomenon ofsense anaphora.
+If Example (16) was changed to ?a ball,?
+then we would have no implicit patient inExample (17).762Gerber and Chai SRL of Implicit Arguments for Nominal PredicatesMost recently, Ruppenhofer et al (2009) proposed SemEval Task 10, ?LinkingEvents and Their Participants in Discourse,?
+which evaluated implicit argument iden-tification systems over a common test set.
+The task organizers annotated implicitarguments across entire passages, resulting in data that cover many distinct predi-cates, each associated with a small number of annotated instances.
+As described byRuppenhofer et al (2010), three submissions were made to the competition, with two ofthe submissions attempting the implicit argument identification part of the task.
+Chenet al (2010) extended a standard SRL system by widening the candidate window toinclude constituents from other sentences.
+A small number of features based on theFrameNet frame definitions were extracted for these candidates, and prediction wasperformed using a log-linear model.
+Tonelli and Delmonte (2010) also extended a stan-dard SRL system.
+Both of these systems achieved an implicit argument F1 score of lessthan 0.02.
+The organizers and participants appear to agree that training data sparsenesswas a significant problem.
+This is likely the result of the annotation methodology: Entiredocuments were annotated, causing each predicate to receive a very small number ofannotated examples.In contrast to the evaluation described by Ruppenhofer et al (2010), the studypresented in this article focused on a select group of nominal predicates.
+To help preventdata sparseness, the size of the group was small, and the predicates were carefullychosen to maximize the observed frequency of implicit argumentation.
+We annotated alarge number of implicit arguments for this group of predicates with the goal of trainingmodels that generalize well to the testing data.
+In the following section, we describethe implicit argument annotation process and resulting data set.3.
+Implicit Argument Annotation and AnalysisAs shown in the previous section, the existence of implicit arguments has been rec-ognized for quite some time.
+This type of information, however, was not formallyannotated until Ruppenhofer et al (2010) conducted their SemEval task on implicitargument identification.
+There are two reasons why we chose to create an independentdata set for implicit arguments.
+The first reason is the aforementioned sparsity of theSemEval data set.
+The second reason is that the SemEval data set is not built on top ofthe Penn TreeBank, which is the gold-standard syntactic base for all work in this article.Working on top of the Penn TreeBank makes the annotations immediately compatiblewith PropBank, NomBank, and a host of other resources that also build on the TreeBank.3.1 Data Annotation3.1.1 Predicate Selection.
+Implicit arguments are a relatively new subject of annotation inthe field.
+To effectively use our limited annotation resources and allow the observationof interesting behaviors, we decided to focus on a select group of nominal predicates.Predicates in this group were required to meet the following criteria:1.
+A selected predicate must have an unambiguous role set.
+This criterioncorresponds roughly to an unambiguous semantic sense and is motivatedby the need to separate the implicit argument behavior of a predicate fromits semantic meaning.2.
+A selected predicate must be derived from a verb.
+This article focusesprimarily on the event structure of texts.
+Nominal predicates derivedfrom verbs denote events, but there are other, non-eventive predicates in763Computational Linguistics Volume 38, Number 4NomBank (e.g., the partitive predicate indicated by the ?%?
+symbol).This criterion also implies that the annotated predicates have correlatesin PropBank with semantically compatible role sets.3.
+A selected predicate should have a high frequency in the Penn TreeBankcorpus.
+This criterion ensures that the evaluation results say as much aspossible about the event structure of the underlying corpus.
+We calculatedfrequency with basic counting over morphologically normalizedpredicates (i.e., bids and bid are counted as the same predicate).4.
+A selected predicate should express many implicit arguments.
+Of course,this can only be estimated ahead of time because no data exist to computeit.
+To estimate this value for a predicate p, we first calculated Np, theaverage number of roles expressed by p in NomBank.
+We then calculatedVp, the average number of roles expressed by the verb form of p inPropBank.
+We hypothesized that the difference Vp ?
+Np gives anindication of the number of implicit arguments that might be present inthe text for a nominal instance of p. The motivation for this hypothesis is asfollows.
+Most verbs must be explicitly accompanied by specific argumentsin order for the resulting sentence to be grammatical.
+The followingsentences are ungrammatical if the parenthesized portion is left out:(18) *John loaned (the money to Mary).
+(19) *John invested (his money).Examples (18) and (19) indicate that certain arguments must explicitlyaccompany loan and invest.
+In nominal form, these predicates can existwithout such arguments and still be grammatical:(20) John?s loan was not repaid.
+(21) John?s investment was huge.Note, however, that Examples (20) and (21) are not reasonable things towrite unless the missing arguments were previously mentioned in the text.This is precisely the type of noun that should be targeted for implicitargument annotation.
+The value of Vp ?
+Np thus quantifies the desiredbehavior.Predicates were filtered according to criteria 1 and 2 and ranked according to theproduct of criteria 3 and 4.
+We then selected the top ten, which are shown in the firstcolumn of Table 1.
+The role sets (i.e., argument definitions) for these predicates can befound in the Appendix on page 790.3.1.2 Annotation Procedure.
+We annotated implicit arguments for instances of the ten se-lected nominal predicates.
+The annotation process proceeded document-by-document.For a document d, we annotated implicit arguments as follows:1.
+Select from d all non-proper singular and non-proper plural nouns that aremorphologically related to the ten predicates in Table 1.764GerberandChaiSRLofImplicitArgumentsforNominalPredicatesTable 1Annotation data analysis.
+Columns are defined as follows: (1) the annotated predicate, (2) the number of predicate instances that were annotated,(3) the average number of implicit arguments per predicate instance, (4) of all roles for all predicate instances, the percentage filled by NomBankarguments, (5) the average number of NomBank arguments per predicate instance, (6) the average number of PropBank arguments per instance of theverb form of the predicate, (7) of all roles for all predicate instances, the percentage filled by either NomBank or implicit arguments, (8) the averagenumber of combined NomBank/implicit arguments per predicate instance.
+SD indicates the standard deviation with respect to an average.Pre-annotation Post-annotationRole avg.
+(SD)Pred.
+# Pred.
+# Imp./pred.
+Role coverage (%) Noun Verb Role coverage (%) Noun role avg.
+(SD)bid 88 1.4 26.9 0.8 (0.6) 2.2 (0.6) 73.9 2.2 (0.9)sale 184 1.0 24.2 1.2 (0.7) 2.0 (0.7) 44.0 2.2 (0.9)loan 84 1.0 22.1 1.1 (1.1) 2.5 (0.5) 41.7 2.1 (1.1)cost 101 0.9 26.2 1.0 (0.7) 2.3 (0.5) 47.5 1.9 (0.6)plan 100 0.8 30.8 1.2 (0.8) 1.8 (0.4) 50.0 2.0 (0.4)investor 160 0.7 35.0 1.1 (0.2) 2.0 (0.7) 57.5 1.7 (0.6)price 216 0.6 42.5 1.7 (0.5) 1.7 (0.5) 58.6 2.3 (0.6)loss 104 0.6 33.2 1.3 (0.9) 2.0 (0.6) 48.1 1.9 (0.7)investment 102 0.5 15.7 0.5 (0.7) 2.0 (0.7) 33.3 1.0 (1.0)fund 108 0.5 8.3 0.3 (0.7) 2.0 (0.3) 21.3 0.9 (1.2)Overall 1,247 0.8 28.0 1.1 (0.8) 2.0 (0.6) 47.8 1.9 (0.9)(1) (2) (3) (4) (5) (6) (7) (8)765Computational Linguistics Volume 38, Number 42.
+By design, each selected noun has an unambiguous role set.
+Thus,given the arguments supplied for a noun by NomBank, one can consultthe noun?s role set to determine which arguments are missing.53.
+For each missing argument position, search the current sentence andall preceding sentences for a suitable implicit argument.
+Annotate allsuitable implicit arguments in this window.4.
+When possible, match the textual bounds of an implicit argumentto the textual bounds of an argument given by either PropBank orNomBank.
+This was done to maintain compatibility with these andother resources.In the remainder of this article, we will use iargn to refer to an implicit argumentposition n. We will use argn to refer to an argument provided by PropBank or NomBank.We will use p to mark predicate instances.
+Example (22) provides a sample annotationfor an instance of the investment predicate:(22) [iarg0 Participants] will be able to transfer [iarg1 money] to [iarg2 otherinvestment funds].
+The [p investment] choices are limited to [iarg2 a stockfund and a money-market fund].NomBank does not associate this instance of investment with any arguments; one caneasily identify the investor (iarg0), the thing invested (iarg1), and two mentions of thething invested in (iarg2) within the surrounding discourse, however.Of course, not all implicit argument decisions are as easy as those in Example (22).Consider the following contrived example:(23) People in other countries could potentially consume large amounts of[iarg0?
+Coke].
+(24) Because of this, there are [p plans] to expand [iarg0 the company?s]international presence.Example (24) contains one mention of the iarg0 (the agentive planner).
+It might betempting to also mark Coke in Example (23) as an additional iarg0; the only reasonableinterpretation of Coke in 23 is as a consumable fluid, however.
+Fluids cannot plan things,so this annotation should not be performed.
+This is a case of sense ambiguity betweenCoke as a company and Coke as a drink.
+In all such cases, the annotator was asked toinfer the proper sense before applying an implicit argument label.Lastly, it should be noted that we placed no restrictions on embedded argu-ments.
+PropBank and NomBank do not allow argument extents to overlap.
+Tra-ditional SRL systems such as the one created by Punyakanok, Roth, and Yih(2008) model this constraint explicitly to arrive at the final label assignment; as the5 See Appendix A for the list of role sets used in this study.766Gerber and Chai SRL of Implicit Arguments for Nominal Predicatesfollowing example shows, however, this constraint should not be applied to implicitarguments:(25) Currently, the rules force [iarg0 executives, directors and other corporateinsiders] to report purchases and [p sales] [arg1 of [iarg0 their] companies?shares] within about a month after the transaction.Despite its embedded nature, the pronoun their in Example (25) is a perfectly reasonableimplicit argument (the seller) for the marked predicate.
+Systems should be required toidentify such arguments; thus, we included them in our annotations.3.1.3 Inter-annotator Agreement.
+Implicit argument annotation is a difficult task becauseit combines the complexities of traditional SRL annotation with those of coreferenceannotation.
+To assess the reliability of the annotation process described previously, wecompared our annotations to those provided by an undergraduate linguistics studentwho, after a brief training period, re-annotated a portion of the data set.
+For each miss-ing argument position, the student was asked to identify the textually closest acceptableimplicit argument within the current and preceding sentences.
+The argument positionwas left unfilled if no acceptable constituent could be found.
+For a missing argumentposition iargn, the student?s annotation agreed with our own if both identified the sameimplicit argument or both left iargn unfilled.
+The student annotated 480 of the 1,247predicate instances shown in Table 1.We computed Cohen?s chance-corrected kappa statistic for inter-annotator agree-ment (Cohen 1960), which is based on two quantities:po = observed probability of agreementpc = probability of agreement by chanceThe quantity 1 ?
+pc indicates the probability of a chance disagreement.
+The quantitypo ?
+pc indicates the probability of agreement that cannot be accounted for by chancealone.
+Finally, Cohen defines ?
+as follows:?
+=po ?
+pc1 ?
+pcCohen?s kappa thus gives the probability that a chance-expected disagreement will notoccur.
+When agreement is perfect, ?
+= 1.
+If the observed agreement is less than theexpected chance agreement, then ?
+will be negative.
+As noted by Di Eugenio and Glass(2004), researchers have devised different scales to assess ?.
+Many NLP researchers usethe scale created by Krippendorff (1980):?
+< 0.67 low agreement0.67 ?
+?
+< 0.8 moderate agreement?
+?
+0.8 strong agreementDi Eugenio and Glass (2004) note, however, that this scale has not been rigorouslydefended, even by Krippendorff (1980) himself.767Computational Linguistics Volume 38, Number 4For the implicit argument annotation data, observed and chance agreement aredefined as follows:po =?iargnagree(iargn)Npc =?iargnPA(n) ?
+PB(n) ?
+random agree(iargn) + (1 ?
+PA(n)) ?
+(1 ?
+PB(n))N (1)where N is the total number of missing argument positions that need to be annotated,agree is equal to 1 if the two annotators agreed on iargn and 0 otherwise, PA(n) and PB(n)are the observed prior probabilities that annotators A and B assign the argument label nto a filler, and random agree is equal to the probability that both annotators would selectthe same implicit argument for iargn when choosing randomly from the discourse.
+InEquation (1), terms to the right of + denote the probability that the two annotatorsagreed on iargn because they did not identify a filler for it.Using these values for po and pc, Cohen?s kappa indicated an agreement of 64.3%.According to the scale of Krippendorff (1980), this value is borderline between low andmoderate agreement.
+Possible causes for this low agreement include the brief trainingperiod for the linguistics student and the sheer complexity of the annotation task.
+If oneconsiders only those argument positions for which both annotators actually located animplicit filler, Cohen?s kappa indicates an agreement of 93.1%.
+This shows that muchof the disagreement concerned the question of whether a filler was present.
+Havingagreed that a filler was present, the annotators consistently selected the same filler.Subsequently, we demonstrate this situation with actual data.
+First, we present ourannotations for two sentences from the same document:(26) Shares of UAL, the parent of [iarg1 United Airlines], were extremely activeall day Friday, reacting to news and rumors about the proposed [iarg2 $6.79billion] buy-out of [iarg1 the airline] by an employee?management group.
+(27) And 10 minutes after the UAL trading halt came news that the UAL groupcouldn?t get financing for [arg0 its] [p bid].In Example (27), the predicate is marked along with the explicit arg0 argument.
+Ourtask is to locate the implicit iarg1 (the entity bid for) and the implicit iarg2 (the amountof the bid).
+We were able to locate these entities in a previous sentence (Example (26)).Next, we present the second annotator?s (i.e., the student?s) annotations for the sametwo sentences:(28) Shares of UAL, the parent of [iarg1 United Airlines], were extremely activeall day Friday, reacting to news and rumors about the proposed $6.79billion buy-out of [iarg1 the airline] by an employee?management group.
+(29) And 10 minutes after the UAL trading halt came news that the UAL groupcouldn?t get financing for [arg0 its] [p bid].768Gerber and Chai SRL of Implicit Arguments for Nominal PredicatesAs shown in Example (28), the second annotator agreed with our identification of theiarg1; the second annotator did not mark an implicit iarg2, however, despite the fact thatit can be inferred.
+We believe this type of error can be addressed with additional train-ing.
+The student?s annotations were only used to compute agreement.
+We performedall training and evaluation using randomized cross-validation over the annotations wecreated.3.2 Annotation AnalysisWe carried out this annotation process on the standard training (2?21), development(24), and testing (23) sections of the Penn TreeBank.
+Table 1 summarizes the results.
+Inthis section, we highlight key pieces of information found in this table.3.2.1 Implicit Arguments are Frequent.
+Column (3) of Table 1 shows that most predicateinstances are associated with at least one implicit argument.
+Implicit arguments varyacross predicates, with bid exhibiting (on average) more than one implicit argumentper instance versus the 0.5 implicit arguments per instance of the investment and fundpredicates.
+It turned out that the latter two predicates have unique senses that precludeimplicit argumentation (more on this in Section 6).3.2.2 Implicit Arguments Create Fuller Event Descriptions.
+Role coverage for a predicateinstance is equal to the number of filled roles divided by the number of roles in thepredicate?s role set.
+Role coverage for the marked predicate in Example (22) is 0/3 forNomBank-only arguments and 3/3 when the annotated implicit arguments are alsoconsidered.
+Returning to Table 1, the fourth column gives role coverage percentagesfor NomBank-only arguments.
+The seventh column gives role coverage percentageswhen both NomBank arguments and the annotated implicit arguments are considered.Overall, the addition of implicit arguments created a 71% relative (20-point absolute)gain in role coverage across the 1,247 predicate instances that we annotated.3.2.3 The Vp ?
+Np Predicate Selection Metric Behaves as Desired.
+The predicate selectionmethod used the Vp ?
+Np metric to identify predicates whose instances are likely to takeimplicit arguments.
+Column (5) in Table 1 shows that (on average) nominal predicateshave 1.1 arguments in NomBank; this compared to the 2.0 arguments per verbal formof the predicates in PropBank (compare columns (5) and (6)).
+We hypothesized thatthis difference might indicate the presence of approximately one implicit argument perpredicate instance.
+This hypothesis is confirmed by comparing columns (6) and (8):When considering implicit arguments, many nominal predicates express approximatelythe same number of arguments on average as their verbal counterparts.3.2.4 Most Implicit Arguments Are Nearby.
+In addition to these analyses, we examined thelocation of implicit arguments in the discourse.
+Figure 1 shows that approximately 56%of the implicit arguments in our data can be resolved within the sentence containingthe predicate.
+Approximately 90% are found within the previous three sentences.
+Theremaining implicit arguments require up to 4?6 sentences for resolution.
+These obser-vations are important; they show that searching too far back in the discourse is likely to769Computational Linguistics Volume 38, Number 4Figure 1Location of implicit arguments.
+Of all implicitly filled argument positions, the y-axis indicatesthe percentage that are filled at least once within the number of sentences indicated by the x-axis(multiple fillers may exist for the same position).produce many false positives without a significant increase in recall.
+Section 6 discussesadditional implications of this skewed distribution.4.
+Implicit Argument Model4.1 Model FormulationGiven a nominal predicate instance p with a missing argument position iargn, the taskis to search the surrounding discourse for a constituent c that fills iargn.
+The implicitargument model conducts this search over all constituents that are marked with a coreargument label (arg0, arg1, etc.)
+associated with a NomBank or PropBank predicate.Thus, the model assumes a pipeline organization in which a document is initiallyanalyzed by traditional verbal and nominal SRL systems.
+The core arguments fromthis stage then become candidates for implicit argumentation.
+Adjunct arguments areexcluded.A candidate constituent c will often form a coreference chain with other constituentsin the discourse.
+Consider the following abridged sentences, which are adjacent in theirPenn TreeBank document:(30) [Mexico] desperately needs investment.
+(31) Conservative Japanese investors are put off by [Mexico?s] investmentregulations.
+(32) Japan is the fourth largest investor in [c Mexico], with 5% of the total[p investments].NomBank does not associate the labeled instance of investment with any arguments, butit is clear from the surrounding discourse that constituent c (referring to Mexico) is thething being invested in (the iarg2).
+When determining whether c is the iarg2 of investment,770Gerber and Chai SRL of Implicit Arguments for Nominal PredicatesTable 2Primary feature groups used by the model.
+The third column gives the number of features in thegroup, and the final column gives the number of features from the group that were ranked in thetop 20 among all features.Feature group Resources used # Top 20(1) Textual semantics PropBank, NomBank 13 4(2) Ontologies FrameNet, VerbNet, WordNet 8 4(3) Filler-independent Penn TreeBank 35 7(4) Corpus statistics Gigaword, Verbal SRL, Nominal SRL 9 1(5) Textual discourse Penn Discourse Bank 1 0(6) Other Penn TreeBank 15 4one can draw evidence from other mentions in c?s coreference chain.
+Example (30) statesthat Mexico needs investment.
+Example (31) states that Mexico regulates investment.These propositions, which can be derived via traditional SRL analyses, should increaseour confidence that c is the iarg2 of investment in Example (32).Thus, the unit of classification for a candidate constituent c is the three-tuple?p, iargn, c?
+?, where c?
+is a coreference chain comprising c and its coreferent constituents.6We defined a binary classification function Pr(+| ?p, iargn, c??)
+that predicts the probabil-ity that the entity referred to by c fills the missing argument position iargn of predicateinstance p. In the remainder of this article, we will refer to c as the primary filler,differentiating it from other mentions in the coreference chain c?.
+This distinction isnecessary because our evaluation requires the model to select at most one filler (i.e., c)for each missing argument position.
+In the following section, we present the featureset used to represent each three-tuple within the classification function.4.2 Model FeaturesAppendix Table B.1 lists all features used by the model described in the previoussection.
+For convenience, Table 2 presents a high-level grouping of the features andthe resources used to compute them.
+The broadest distinction to be made is whether afeature depends on elements of c?.
+Features in Group 3 do not, whereas all others do.The features in Group 3 characterize the predicate?argument position being filled (p andiargn), independently of the candidate filler.
+This group accounts for 43% of the featuresand 35% of those in the top 20.7 The remaining features depend on elements of c?
+in someway.
+Group 1 features characterize the tuple using the SRL propositions contained inthe text being evaluated.
+Group 2 features place the ?p, iargn, c??
+tuple into a manuallyconstructed ontology and compute a value based on the structure of that ontology.Group 4 features compute statistics of the tuple within a large corpus of semanticallyanalyzed text.
+Group 5 contains a single feature that captures the discourse structureproperties of the tuple.
+Group 6 contains all other features, most of which capturethe syntactic relationships between elements of c?
+and p. In the following sections, weprovide detailed examples of features from each group shown in Table 2.6 We used OpenNLP for coreference identification: http://opennlp.sourceforge.net.7 Features were ranked according to the order in which they were selected during feature selection(Section 5.3 for details).771Computational Linguistics Volume 38, Number 44.2.1 Group 1: Features Derived from the Semantic Content of the Text.
+Feature 1 was oftenselected first by the feature selection algorithm.
+This feature captures the semanticproperties of the candidate filler c?
+and the argument position being filled.
+Considerthe following Penn TreeBank sentences:(33) [arg0 The two companies] [p produce] [arg1 market pulp, containerboardand white paper].
+The goods could be manufactured closer to customers,saving [p shipping] costs.Here we are trying to fill the iarg0 of shipping.
+Let c?
+contain a single mention, The twocompanies, which is the arg0 of produce.
+Feature 1 takes a value of produce ?
+arg0 ?
+ship ?arg0.
+This value, which is derived from the text itself, asserts that producers are alsoshippers.
+To reduce data sparsity, we generalized the predicates to their WordNet synsetIDs (creating Feature 4).
+We also generalized the predicates and arguments to theirVerbNet thematic roles using SemLink (creating Feature 23).
+Although the generalizedfeatures rely on ontologies, they do so in a trivial way that does not take advantage ofthe detailed structure of the ontologies.
+Such structure is used by features in the nextgroup.4.2.2 Group 2: Features Derived from Manually Constructed Ontologies.
+Feature 9 capturesthe semantic relationship between predicate?argument positions by examining pathsbetween frame elements in FrameNet.
+SemLink8 maps PropBank argument positions totheir FrameNet frame elements.
+For example, the arg1 position of sell maps to the Goodsframe element of the Sell frame.
+NomBank argument positions (e.g., arg1 of sale) canbe mapped to FrameNet by first converting the nominal predicate to its verb form.
+Bymapping predicate?argument structures into FrameNet, one can take advantage of therich network of frame?frame relations provided by the resource.The value of Feature 9 has the following general form:(34) Frame1.FE1Rel1????
+Frame2.FE2Rel2????
+.
+.
+.Reln?1??????
+Framen.FEnThis path describes how the frame elements at either end are related.
+For example,consider the frame element path between the arg1 of sell and the arg1 of buy, both ofwhich denote the goods being transferred:(35) Sell.Goods Inherits?????
+Give.Theme Causes????
+Get.Theme Inherited by???????
+Buy.GoodsThis path can be paraphrased as follows: things that are sold (Sell.Goods) are part ofa more general give scenario (Give.Theme) that can also be viewed as a get scenario(Get.Theme) in which the buyer receives something (Buy.Goods).
+This complex worldknowledge is represented compactly using the relationships defined in FrameNet.
+Inour experiments, we searched all possible frame element paths of length five or lessthat use the following relationships: Causative?of8 http://verbs.colorado.edu/semlink.772Gerber and Chai SRL of Implicit Arguments for Nominal Predicates Inchoative?of Inherits Precedes Subframe?ofFeature 9 is helpful in situations such as the following (contrived):(36) Consumers bought many [c cars] this year at reduced prices.
+(37) [p Sales] are expected to drop when the discounts are eliminated.In Example (37) we are looking for the iarg1 (thing sold) of sale.
+The path shown inExample (35) indicates quite clearly that the candidate cars from Example (36), beingthe entity purchased, is a suitable filler for this position.
+Lastly, note that the valuefor Feature 9 is the actual path instead of a numeric value.
+When c?
+contains multiplecoreferential elements, this feature can be instantiated using multiple values (i.e., paths).Ultimately, these instantiations are binarized into the LibLinear input format, so theexistence of multiple feature values does not pose a problem.Feature 59 is similar to Feature 9 (the frame element path) except that it cap-tures the distance between predicate?argument positions within the VerbNet hierarchy.Consider the following VerbNet classes:13.2 lose, refer, relinquish, remit, resign, restore, gift, hand out, pass out, shell out13.5.1.1 earn, fetch, cash, gain, get, save, score, secure, stealThe path from earn to lose in the VerbNet hierarchy is as follows:(38) 13.5.1.1 ?
+13.5.1 ?
+13.5 ?
+13 ?
+13.2The path in Example (38) is four links long.
+Intuitively, earn and lose are related to eachother?they describe two possible outcomes of a financial transaction.
+The VerbNet pathquantifies this intuition, with shorter paths indicating closer relationships.
+This informa-tion can be used to identify implicit arguments in situations such as the following fromthe Penn TreeBank (abridged):(39) [c Monsanto Co.] is expected to continue reporting higher [p earnings].
+(40) The St. Louis-based company is expected to report that [p losses] arenarrowing.In Example (40) we are looking for the iarg0 (i.e., entity losing something) for the losspredicate.
+According to SemLink, this argument position maps to the 13.2.Agent role inVerbNet.
+In Example (39), we find the candidate implicit argument Monsanto Co., whichis the arg0 to the earning predicate in that sentence.
+This argument position maps tothe 13.5.1.1.Agent role in VerbNet.
+These two VerbNet roles are related according to theVerbNet path in Example (38), producing a value for Feature 59 of four.
+This relativelysmall value supports an inference of Monsanto Co. as the iarg0 for loss.
+It is important tonote that a VerbNet path only exists when the thematic roles are identical.
+For example, aVerbNet path would not exist between 13.5.1.1.Theme and 13.2.Agent because the roles773Computational Linguistics Volume 38, Number 4are not compatible.
+Lastly, recall that c?
+might contain multiple coreferential elements.In such a situation, the minimum path length is selected as the value for this feature.4.2.3 Group 3: Filler-independent Features.
+Many of the features used by the model do notdepend on elements of c?.
+These features are usually specific to a particular predicate.Consider the following example:(41) Statistics Canada reported that its [arg1 industrial?product] [p price] indexdropped 2% in September.The ?
+[p price] index?
+collocation is rarely associated with an arg0 in NomBank or withan iarg0 in the annotated data (both argument positions denote the seller).
+Feature 25accounts for this type of behavior by encoding the syntactic head of p?s right sibling.The value of Feature 25 for Example 41 is price:index.
+Contrast this with the following:(42) [iarg0 The company] is trying to prevent further [p price] drops.The value of Feature 25 for Example (42) is price:drop.
+This feature captures an importantdistinction between the two uses of price: the former cannot easily take an iarg0, whereasthe latter can.
+Many other features in Table B.1 depend only on the predicate and havevalues that take the form predicate:feature value.4.2.4 Group 4: Features Derived from Corpus Statistics.
+Feature 13 is inspired by the workof Chambers and Jurafsky (2008), who investigated unsupervised learning of narrativeevent sequences using pointwise mutual information (PMI) between syntactic positions.We extended this PMI score to semantic arguments instead of syntactic dependencies.Thus, the value for this feature is computed as follows:pmi(?p1, argi?
+,?p2, argj?)
+= logPcoref pmi(?p1, argi?
+,?p2, argj?
+)Pcoref pmi(?p1, argi?
+, ?
+)Pcoref pmi(?p2, argj?, ?
+)(2)We computed Equation (2) by applying verbal SRL (Punyakanok, Roth, and Yih2008), nominal SRL (Gerber, Chai, and Meyers 2009), and coreference identification(OpenNLP) to the Gigaword corpus (Graff 2003); because these tools are not fast enoughto process all 1,000,000 documents in the corpus, however, we selected subsets ofthe corpus for each p1/p2 combination observed in our implicit argument data.
+Wefirst indexed the Gigaword corpus using the Lucene search engine.9 We then queriedthis index using the simple boolean query ?p1 AND p2,?
+which retrieved documentsrelevant to the predicates considered in Equation (2).
+Assuming the resulting data haveN coreferential pairs of arguments, the numerator in Equation (2) is defined as follows:Pcoref pmi(?p1, argi?
+,?p2, argj?)
+=#coref (?p1, argi?
+,?p2, argj?
+)N (3)In Equation (3), #coref returns the number of times the given argument positionsare found to be coreferential.
+In order to penalize low-frequency observations with9 http://lucene.apache.org.774Gerber and Chai SRL of Implicit Arguments for Nominal Predicatesartificially high scores, we used the simple discounting method described by Panteland Ravichandran (2004) resulting in the following modification of Equation (3):x = #coref (?p1, argi?
+,?p2, argj?
+)Pcoref pmi(?p1, argi?
+,?p2, argj?)
+= xN ?xx + 1(4)Thus, if two argument positions are rarely observed as coreferent, the value xx+1 willbe small, reducing the PMI score.
+The denominator in Equation (2) is computed with asimilar discount factor:x1 = #coref (?p1, argi?
+, ?
+)x2 = #coref (?p2, argj?, ?
+)Pcoref pmi(?p1, argi?
+, ?
+)Pcoref pmi(?p2, argj?, ?)
+= x1x2(N2) min(x1,x2 )min(x1,x2 )+1(5)Thus, if either of the argument positions is rarely observed as coreferent with otherargument positions, the value min(x1,x2 )min(x1,x2 )+1 will be small, making the denominator ofEquation (2) large, reducing the PMI score.
+In general, the discount factors reduce thePMI score for argument positions that are not frequent in the corpus.We refer to Equation (2) as a targeted PMI score because it relies on data that havebeen chosen specifically for the calculation at hand.
+Table 3 shows a sample of targetedPMI scores between the arg1 of loss and other argument positions.
+There are two thingsto note about this data: First, the argument positions listed are all naturally related tothe arg1 of loss.
+Second, the discount factor changes the final ranking by moving theless frequent recoup predicate from a raw rank of 1 to a discounted rank of 3, preferringinstead the more common win predicate.The information in Table 3 is useful in situations such as the following (contrived):(43) Mary won [c the tennis match].
+(44) [arg0 John?s] [p loss] was not surprising.In Example (44) we are looking for the iarg1 of loss.
+The information in Table 3 stronglysuggests that the marked candidate c, being the arg1 of win, would be a suitable fillerTable 3Targeted PMI scores between the arg1 of loss and other argument positions.
+The second columngives the number of times that the argument position in the row is found to be coreferent withthe arg1 of the loss predicate.
+A higher value in this column results in a lower discount factor.See Equation (4) for the discount factor.Argument position #coref with loss.arg1 Raw PMI score Discounted PMI scorewin.arg1 37 5.68 5.52gain.arg1 10 5.13 4.64recoup.arg1 2 6.99 4.27steal.arg1 4 5.18 4.09possess.arg1 3 5.10 3.77775Computational Linguistics Volume 38, Number 4for this position.
+Lastly, note that if c were to form a coreference chain with otherconstituents, it would be possible to calculate multiple PMI scores.
+In such cases, thetargeted PMI feature uses the maximum of all scores.Feature 27 captures the selectional preference of a predicate p for the elements in c?with respect to argument position iargn.
+In general, selectional preference scores denotethe strength of attraction for a predicate?argument position to a particular word orclass of words.
+To calculate the value for this feature, we used the information?theoreticmodel proposed by Resnik (1996), which is defined as follows:Pref (p, argn, s ?
+WordNet) =Pr(s|p, argn)logPr(s|p, argn)Pr(s)Z (6)Z =?si?WordNetPr(si|p, argn)logPr(si|p, argn)Pr(si)In Equation (6), Pref calculates the preference for a WordNet synset s in the givenpredicate?argument position.
+Prior and posterior probabilities for s were calculated byexamining the arguments present in the Penn TreeBank combined with 20,000 docu-ments randomly selected from the Gigaword corpus.
+PropBank and NomBank suppliedarguments for the Penn TreeBank, and we used the aforementioned verbal and nominalSRL systems to extract arguments from Gigaword.
+The head word for each argumentwas mapped to its WordNet synsets, and counts for these synsets were updated assuggested by Resnik (1996).
+Note that a synset s that is not observed in the trainingdata will receive a score of zero because Pr(s|p, argn) will be zero.Equation (6) computes the preference of a predicate?argument position for a synset;a single word can map to multiple synsets if its sense is ambiguous, however.
+Given aword w and its synsets s1, s2, .
+.
+.
+, sn, the preference of a predicate?argument position forw is defined as follows:Pref (p, argn,w) =?si Pref (p, argn, si)n (7)That is, the preference for a word is computed as the average preference across all possi-ble synsets.
+The final value for Feature 27 is computed using the word-based preferencescore defined in Equation (7).
+Given a candidate implicit argument c?
+comprising theprimary filler c and its coreferent mentions, the following value is obtained:Pref (p, iargn, c?)
+= minf?c?Pref (p, argn, f ) (8)In Equation (8), each f is the syntactic head of a constituent from c?.
+The value ofEquation (8) is in (??,+?
+), with larger values indicating higher preference for c asthe implicit filler of position iargn.Feature 33 implements the suggestion of Burchardt, Frank, and Pinkal (2005) thatimplicit arguments might be identified using observed coreference patterns in a largecorpus of text.
+Our implementation of this feature uses the same data used for theprevious feature: arguments extracted from the Penn TreeBank and 20,000 documentsrandomly selected from Gigaword.
+Additionally, we identified coreferent argumentsin this corpus using OpenNLP.
+Using this information, we calculated the probabilityof coreference between any two argument positions.
+As with Feature 13, we used776Gerber and Chai SRL of Implicit Arguments for Nominal Predicatesdiscounting to penalize low?frequency observations, producing an estimate ofcoreference probability as follows:Corefjoint = #coref (?p1, argi?
+,?p2, argj?
+)Corefmarginal = #coref (?p1, argi?
+, ?
+)Pcoref (?p1, argi?
+,?p2, argj?)
+=CorefjointCorefmarginal?CorefjointCorefjoint + 1?CorefmarginalCorefmarginal + 1(9)In Equation (9), Pcoref should be read as ?the probability that ?p1, argi?
+is coref-erential with?p2, argj?given ?p1, argi?
+is coreferential with something.?
+For example,we observed that the arg1 for predicate reassess (the entity reassessed) is coreferentialwith six other constituents in the corpus.
+Table 4 lists the argument positions withwhich this argument is coreferential along with the raw and discounted probabilities.The discounted probabilities can help identify the implicit argument in the followingcontrived examples:(45) Senators must rethink [c their strategy for the upcoming election].
+(46) The [p reassessment] must begin soon.In Example (46) we are looking for the iarg1 of reassess.
+Table 4 tells us that the markedcandidate (an arg1 to rethink) is likely to fill this missing argument position.
+Whenc forms a coreference chain with other constituents, this feature uses the minimumcoreference probability between the implicit argument position and elements in thechain.4.2.5 Group 5: Features Derived from the Discourse Structure of the Text.
+Feature 67 identifiesthe discourse relation (if any) that holds between the candidate constituent c and thefilled predicate p. Consider the following example:(47) [iarg0 SFE Technologies] reported a net loss of $889,000 on sales of $23.4million.
+(48) That compared with an operating [p loss] of [arg1 $1.9 million] on sales of$27.4 million in the year?earlier period.In this case, a comparison discourse relation (signaled by the underlined text) holds be-tween the first and second sentence.
+The coherence provided by this relation encouragesTable 4Coreference probabilities between reassess.arg1 and other argument positions.
+See Equation (9)for details on the discount factor.Argument Raw coreference probability Discounted coreference probabilityrethink.arg1 3/6 = 0.5 0.32define.arg1 2/6 = 0.33 0.19redefine.arg1 1/6 = 0.17 0.07777Computational Linguistics Volume 38, Number 4an inference that identifies the marked iarg0 (the loser).
+The value for this feature is thename of the discourse relation (e.g., comparison) whose two discourse units cover thecandidate (iarg0 above) and filled predicate (p above).
+Throughout our investigation,we used gold-standard discourse relations provided by the Penn Discourse TreeBank(Prasad et al 2008).4.2.6 Group 6: Other Features.
+A few other features that were prominent according to ourfeature selection process are not contained in the groups described thus for.
+Feature 2encodes the sentence distance from c (the primary filler) to the predicate for which weare filling the implicit argument position.
+The prominent position of this feature agreeswith our previous observation that most implicit arguments can be resolved within afew sentences of the predicate (see Figure 1 on p. 770).
+Feature 3 is another simple yethighly ranked feature.
+This feature concatenates the head of an element of c?
+with pand iargn.
+For example, in sentences (45) and (46), this feature would have a value ofstrategy ?
+reassess ?
+arg1, asserting that strategies are reassessed.
+Feature 5 generalizesthis feature by replacing the head word with its WordNet synset.4.2.7 Comparison with Features for Traditional SRL.
+The features described thus far arequite different from those used in previous work to identify arguments in the traditionalnominal SRL setting (see the work of Gerber, Chai, and Meyers 2009).
+The most impor-tant feature used in traditional SRL?the syntactic parse tree path?is notably absent.This difference is due to the fact that syntactic information, although present, does notplay a central role in the implicit argument model.
+The most important features arethose that capture semantic properties of the implicit predicate?argument position andthe candidate filler for that position.4.3 Post-processing for Final Output SelectionWithout loss of generality, assume there exists a predicate instance p with two missingargument positions iarg0 and iarg1.
+Also assume that there are three candidate fillersc1, c2, and c3 within the candidate window.
+The discriminative model will calculate theprobability that each candidate fills each missing argument position.
+Graphically:iarg0 iarg1c1 0.3 0.4c2 0.1 0.05c3 0.6 0.3There exist two constraints on possible assignments of candidates to positions.
+First, acandidate may not be assigned to more than one missing argument position.
+To enforcethis constraint, only the top-scoring cell in each row is retained, leading to the following:iarg0 iarg1c1 - 0.4c2 0.1 -c3 0.6 -778Gerber and Chai SRL of Implicit Arguments for Nominal PredicatesSecond, a missing argument position can only be filled by a single candidate.
+To enforcethis constraint, only the top-scoring cell in each column is retained, leading to thefollowing:iarg0 iarg1c1 - 0.4c2 - -c3 0.6 -Having satisfied these constraints, a threshold t is imposed on the remaining cell prob-abilities.10 Cells with probabilities less than t are cleared.
+Assuming that t = 0.42, thefinal assignment would be as follows:iarg0 iarg1c1 - -c2 - -c3 0.6 -In this case, c3 fills iarg0 with probability 0.6 and iarg1 remains unfilled.
+The latteroutcome is desirable because not all argument positions have fillers that are presentin the discourse.5.
+Evaluation5.1 DataAll evaluations in this study were performed using a randomized cross-validationconfiguration.
+The 1,247 predicate instances were annotated document by document.In order to remove any confounding factors caused by specific documents, we firstrandomized the annotated predicate instances.
+Following this, we split the predicateinstances evenly into ten folds and used each fold as testing data for a model trained onthe instances outside the fold.
+This evaluation set-up is an improvement versus the onewe previously reported (Gerber and Chai 2010), in which fixed partitions were used fortraining, development, and testing.During training, the system was provided with annotated predicate instances.
+Thesystem identified missing argument positions and generated a set of candidates foreach such position.
+A candidate three-tuple ?p, iargn, c??
+was given a positive label if thecandidate implicit argument c (the primary filler) was annotated as filling the missingargument position; otherwise, the candidate three-tuple was given a negative label.During testing, the system was presented with each predicate instance and was requiredto identify all implicit arguments for the predicate.10 The threshold t is learned from the training data.
+The learning mechanism is explained in the followingsection.779Computational Linguistics Volume 38, Number 4Throughout the evaluation process we assumed the existence of gold-standardPropBank and NomBank information in all documents.
+This factored out errors fromtraditional SRL and affected the following stages of system operation: Missing argument identification.
+The system was required to figure outwhich argument positions were missing.
+Each of the ten predicates wasassociated with an unambiguous role set, so determining the missingargument positions amounted to comparing the existing local argumentswith the argument positions listed in the predicate?s role set.
+Becausegold-standard local NomBank arguments were used, this stage producedno errors. Candidate generation.
+As mentioned in Section 4.1, the set of candidatesfor a missing argument position contains constituents labeled with a core(e.g., arg0) PropBank or NomBank argument label.
+We used gold-standardPropBank and NomBank arguments; it is not the case that all annotatedimplicit arguments are given a core argument label by PropBank orNomBank, however.
+Thus, despite the gold-standard argument labels,this stage produced errors in which the system failed to generate atrue-positive candidate for an implicit argument position.
+Approximately96% of implicit argument positions are filled by gold-standard PropBankor NomBank arguments. Feature extraction.
+Many of the features described in Section 4.2 rely onunderlying PropBank and NomBank argument labels.
+For example, thetop-ranked Feature 1 relates the argument position of the candidate to themissing argument position.
+In our experiments, values for this featurecontained no errors because gold-standard PropBank and NomBank labelswere used.
+Note, however, that many features were derived from theoutput of an automatic SRL process that occasionally produced errors(e.g., Feature 13, which used PMI scores between automatically identifiedarguments).
+These errors were present in both the training and evaluationstages.We also assumed the existence of gold-standard syntactic structure when possible.This was done in order to focus our investigation on the semantic nature of implicitarguments.5.2 Scoring MetricsWe evaluated system performance using the methodology proposed by Ruppenhoferet al (2010).
+For each missing argument position of a predicate instance, the systemwas required to either (1) identify a single constituent that fills the missing argumentposition or (2) make no prediction and leave the missing argument position unfilled.
+Togive partial credit for inexact argument bounds, we scored predictions using the Dicecoefficient, which is defined as follows:Dice(Predicted,True) =2 ?
+|Predicted?True||Predicted|+ |True| (10)780Gerber and Chai SRL of Implicit Arguments for Nominal PredicatesPredicted contains the tokens that the model believes fill the implicit argument position.True is the set of tokens from a single annotated constituent that fills the missingargument position.
+The model?s prediction receives a score equal to the maximum Diceoverlap across any one of the annotated fillers (AF):Score(Predicted) = maxTrue?AFDice(Predicted,True) (11)Precision is equal to the summed prediction scores divided by the number of argumentpositions filled by the model.
+Recall is equal to the summed prediction scores dividedby the number of argument positions filled in the annotated data.
+Predictions not cover-ing the head of a true filler were assigned a score of zero.11 For example, considerthe following true and predicted labelings:(49) True labeling: [iarg0 Participants] will be able to transfer [iarg1 money] to[iarg2 other investment funds].
+The [p investment] choices are limited to[iarg2 a stock fund and a money-market fund].
+(50) Predicted labeling: Participants will be able to transfer [iarg1 money] toother [iarg2 investment funds].
+The [p investment] choices are limited to astock fund and a money-market fund.In the ground-truth (49) there are three implicit argument positions to fill.
+The hypo-thetical system has made predictions for two of the positions.
+The prediction scores are:Score(iarg1 money) = Dice(money,money) = 1Score(iarg2 investment funds) = max{Dice(investment funds, other investment funds),Dice(investment funds, a stock .
+.
+.
+money?market fund)}= max{0.8, 0} = 0.8Precision, recall, and F1 for the example predicate are calculated as follows:Precision = 1.82 = 0.9Recall = 1.83 = 0.6F1 =2 ?
+Precision ?
+RecallPrecision + Recall= 0.72We calculated the F1 score for the entire testing fold by aggregating the counts used inthe above precision and recall calculations.
+Similarly, we aggregated the counts acrossall folds to arrive at a single F1 score for the evaluated system.We used a bootstrap resampling technique similar to those developed by Efron andTibshirani (1993) to test the significance of the performance difference between varioussystems.
+Given a test pool comprising M missing argument positions iargn along with11 Our evaluation methodology differs slightly from that of Ruppenhofer et al (2010) in that we use theDice metric to compute precision and recall, whereas Ruppenhofer et al reported the Dice metricseparately from exact-match precision and recall.781Computational Linguistics Volume 38, Number 4the predictions by systems A and B for each iargn, we calculated the exact p-value of theperformance difference as follows:1.
+Create r random resamples from M with replacement.2.
+For each resample Ri, compute the system performance differencedRi = ARi ?
+BRi and store dri in D.3.
+Find the largest symmetric interval [min,max] around the mean of D thatdoes not include zero.4.
+The exact p-value equals the percentage of elements in D that are not in[min,max].Experiments have shown that this simple approach provides accurate estimates ofsignificance while making minimal assumptions about the underlying data distribution(Efron and Tibshirani 1993).
+Similar randomization tests have been used to evaluateinformation extraction systems (Chinchor, Lewis, and Hirschmant 1993).5.3 LibLinear Model ConfigurationGiven a testing fold Ftest and a training fold Ftrain, we performed floating forwardfeature subset selection using only the information contained in Ftrain.
+We used analgorithm similar to the one described by Pudil, Novovicova, and Kittler (1994).
+Aspart of the feature selection process, we conducted a grid search for the best c and wLibLinear parameters, which govern the per-class cost of mislabeling instances froma particular class (Fan et al 2008).
+Setting per-class costs helps counter the effects ofclass size imbalance, which is severe even when selecting candidates from the currentand previous few sentences (most candidates are negative).
+We ran the feature selectionand grid search processes independently for each Ftrain.
+As a result, the feature set andmodel parameters are slightly different for each fold.12 For all folds, we used LibLinear?slogistic regression solver and a candidate selection window of two sentences prior.
+Asshown in Figure 1, this window imposes a recall upper bound of approximately 85%.The post-processing prediction threshold t was learned using a brute-force search thatmaximized the system?s performance over the data in Ftrain.5.4 Baseline and Oracle ModelsWe compared the supervised model with the simple baseline heuristic defined below:Fill iargn for predicate instance p with the nearest constituent in the two-sentencecandidate window that fills argn for a different instance of p, where all nominalpredicates are normalized to their verbal forms.The normalization allows, for example, an existing arg0 for the verb invested to fill aniarg0 for the noun investment.
+This heuristic outperformed a more complicated heuristicthat relied on the PMI score described in Section 4.2.
+We also evaluated an oracle modelthat made gold-standard predictions for candidates within the two-sentence predictionwindow.12 See Appendix Table C.1 for a per-fold listing of features and model parameters.782Gerber and Chai SRL of Implicit Arguments for Nominal Predicates5.5 ResultsTable 5 presents the evaluation results for implicit argument identification.
+Overall,the discriminative model increased F1 performance by 21.4 percentage points (74.1%)compared to the baseline (p < 0.0001).
+Predicates with the highest number of implicitarguments (sale and price) showed F1 increases of 13.7 and 17.5 percentage points,respectively (p < 0.001 for both differences).
+As expected, oracle precision is 100% forall predictions, and the F1 difference between the discriminative and oracle systems issignificant at p < 0.0001 for all test sets.
+See the Appendix for a per-fold breakdown ofresults and a listing of features and model parameters used for each fold.We also measured human performance on this task by running the undergraduateassistant?s annotations against a small portion of the evaluation data comprising 275filled implicit arguments.
+The assistant achieved an overall F1 score of 56.0% using thesame two-sentence candidate window used by the baseline, discriminative, and oraclemodels.
+Using an infinite candidate window, the assistant increased F1 performanceto 64.2%.
+Although these results provide a general idea about the performance upperbound, they are not directly comparable to the cross-validated results shown in Table 5because the assistant did not annotate the entire data set.6.
+Discussion6.1 Training Set SizeAs described in Section 3.1, implicit argument annotation is an expensive process.Thus, it is important to understand whether additional annotation would benefit theten predicates considered.
+In order to estimate the potential benefits, we measured theeffect of training set size on system performance.
+We retrained the discriminative modelfor each evaluation fold using incrementally larger subsets of the complete training setfor the fold.
+Figure 2 shows the results, which indicate minimal gains beyond 80% ofthe training set.
+Based on these results, we feel that future work should emphasizefeature and model development over training data expansion, as gains appear to trailoff significantly.6.2 Feature AssessmentPreviously (Gerber and Chai 2010), we assessed the importance of various implicitargument feature groups by conducting feature ablation tests.
+In each test, the discrimi-native model was retrained and reevaluated without a particular group of features.
+Wesummarize the findings of this study in this section.6.2.1 Semantic Roles are Essential.
+We observed statistically significant losses when ex-cluding features that relate the semantic roles of elements in c?
+to the semantic role of themissing argument position.
+For example, Feature 1 appears as the top-ranked featurein eight out of ten fold evaluations (see Appendix Table C.1).
+This feature is formedby concatenating the filling predicate?argument position with the filled predicate?argument position, producing values such as invest.arg0-lose.arg0.
+This value indicatesthat the entity performing the investing is also the entity losing something.
+This type ofcommonsense knowledge is essential to the task of implicit argument identification.783ComputationalLinguisticsVolume38,Number4Table 5Overall evaluation results for implicit argument identification.
+The second column gives the number of ground?truth implicitly filled argumentpositions for the predicate instances.
+P, R, and F1 indicate precision, recall, and F?measure (?
+= 1), respectively.
+pexact is the bootstrapped exactp-value of the F1 difference between two systems, where the systems are (B)aseline, (D)iscriminative, and (O)racle.Baseline Discriminative Oracle# Imp.
+args.
+P R F1 P R F1 pexact(B,D) P R F1 pexact(D,O)sale 181 57.0 27.7 37.3 59.2 44.8 51.0 0.0003 100.0 72.4 84.0 <0.0001price 138 67.1 23.3 34.6 56.0 48.7 52.1 <0.0001 100.0 78.3 87.8 <0.0001bid 124 66.7 14.5 23.8 60.0 36.3 45.2 <0.0001 100.0 60.5 75.4 <0.0001investor 108 30.0 2.8 5.1 46.7 39.8 43.0 <0.0001 100.0 84.3 91.5 <0.0001cost 86 60.0 10.5 17.8 62.5 50.9 56.1 <0.0001 100.0 86.0 92.5 <0.0001loan 82 63.0 20.7 31.2 67.2 50.0 57.3 <0.0001 100.0 89.0 94.2 <0.0001plan 77 72.7 20.8 32.3 59.6 44.1 50.7 0.0032 100.0 87.0 93.1 <0.0001loss 62 78.8 41.9 54.7 72.5 59.7 65.5 0.0331 100.0 88.7 94.0 <0.0001fund 56 66.7 10.7 18.5 80.0 35.7 49.4 <0.0001 100.0 66.1 79.6 <0.0001investment 52 28.9 10.6 15.5 32.9 34.2 33.6 0.0043 100.0 80.8 89.4 <0.0001Overall 966 61.4 18.9 28.9 57.9 44.5 50.3 <0.0001 100.0 78.0 87.6 <0.0001784Gerber and Chai SRL of Implicit Arguments for Nominal PredicatesFigure 2Effect of training set size on performance of discriminative model.
+The x-axis indicates thepercentage of training data used, and the y-axis indicates the overall F1 score that results.6.2.2 Other Information is Important.
+Our 2010 study also found that semantic roles areonly one part of the solution.
+Using semantic roles in isolation also produced statisticallysignificant losses.
+This indicates that other features contribute useful information tothe task.6.2.3 Discourse Structure Is not Essential.
+We also tested the effect of removing discourserelations (Feature 67) from the model.
+Discourse structure has received a significantamount of attention in NLP; it remains a very challenging problem, however, withstate-of-the-art systems attaining F1 scores in the mid-40% range (Sagae 2009).
+Our 2010work as well as the updated work presented in this article used gold-standard discourserelations from the Penn Discourse TreeBank.
+As shown by Sagae (2009), these relationsare difficult to extract in a practical setting.
+In our 2010 work, we showed that removingdiscourse relations from the model did not have a statistically significant effect onperformance.
+Thus, this information should be removed in practical applications of themodel, at least until better uses for it can be identified.6.2.4 Relative Feature Importance.
+We extended earlier findings by assessing the relativeimportance of the features.
+We aggregated the feature rank information given in Ap-pendix Table C.1.
+For each evaluation fold, each feature received a point value equalto its reciprocal rank within the feature list.
+Thus, a feature appearing at rank 5 for afold would receive 15 = 0.2 points for that fold.
+We totaled these points across all folds,arriving at the values shown in the final column of Appendix Table B.1.
+The scoresconfirm the earlier findings.
+The highest scoring feature relates the semantic roles ofthe candidate argument to the missing argument position.
+Non-semantic informationsuch as the sentence distance (Feature 2) also plays a key role.
+Discourse structure isconsistently ranked near the bottom of the list (Feature 67).6.3 Error AnalysisTable 6 lists the errors made by the system and their frequencies.
+As shown, the singlemost common error (type 1) occurred when a true filler was classified but an incor-rect filler had a higher score.
+This occurred in approximately 31% of the error cases.785Computational Linguistics Volume 38, Number 4Table 6Implicit argument error analysis.
+The second column indicates the type of error that was madeand the third column gives the percentage of all errors that fall into each type.# Description %1 A true filler was classified but an incorrect filler scored higher 30.62 A true filler did not exist but a prediction was made 22.43 A true filler existed within the window but was not a candidate 21.14 A true filler scored highest but below the threshold 15.95 A true filler existed but not within the window 10.0Often, though, the system did not classify a true implicit argument because such acandidate was not generated.
+Without such a candidate, the system stood no chance ofmaking a correct prediction.
+Errors 3 and 5 combined (also 31%) describe this behavior.Type 3 errors resulted when implicit arguments were not core (i.e., argn) argumentsto other predicates.
+To reduce class imbalance, the system only used core argumentsas candidates; this came at the expense of increased type 3 errors, however.
+In manycases, the true implicit argument filled a non-core (i.e., adjunct) role within PropBankor NomBank.Type 5 errors resulted when the true implicit arguments for a predicate were outsidethe candidate window.
+Oracle recall (see Table 5) indicates the nominals that sufferedmost from windowing errors.
+For example, the sale predicate was associated with thehighest number of true implicit arguments, but only 72% of those could be resolvedwithin the two-sentence candidate window.
+Empirically, we found that extending thecandidate window uniformly for all predicates did not increase F1 performance becauseadditional false positives were identified.
+The oracle results suggest that predicate-specific window settings might offer some advantage for predicates such as fund andbid, which take arguments at longer ranges.Error types 2 and 4 are directly related to the prediction confidence threshold t.The former would be reduced by increasing t and thus filtering out bad predictions.The latter would be reduced by lowering t and allowing more true fillers into the finaloutput.
+It is unclear whether either of these actions would increase overall performance,however.6.4 The Investment and Fund PredicatesIn Section 4.2, we discussed the price predicate, which frequently occurs in the ?
+[p price]index?
+collocation.
+We observed that this collocation is rarely associated with either anovert arg0 or an implicit iarg0.
+Similar observations can be made for the investment andfund predicates.
+Although these two predicates are frequent, they are rarely associatedwith implicit arguments: investment takes only 52 implicit arguments and fund takesonly 56 implicit arguments (see Table 5).
+This behavior is due in large part to collocationssuch as ?
+[p investment] banker,?
+?stock [p fund],?
+and ?mutual [p fund],?
+which usepredicate senses that are not eventive and take no arguments.
+Such collocations alsoviolate the assumption that differences between the PropBank and NomBank argumentstructure for a predicate are indicative of implicit arguments (see Section 3.1 for thisassumption).Despite their lack of implicit arguments, it is important to account for predicatessuch as investment and fund because the incorrect prediction of implicit arguments for786Gerber and Chai SRL of Implicit Arguments for Nominal Predicatesthem can lower precision.
+This is precisely what happened for the investment predicate(P = 33%).
+The model incorrectly identified many implicit arguments for instances suchas ?
+[p investment] banker?
+and ?
+[p investment] professional,?
+which take no arguments.The right context of investment should help the model avoid this type of error; howeverin many cases this was not enough evidence to prevent a false positive prediction.It might be helpful to distinguish eventive nominals from non-eventive ones, giventhe observation that some non-eventive nominals rarely take arguments.
+Additionalinvestigation is needed to address this type of error.6.5 Improvements versus the BaselineThe baseline heuristic covers the simple case where identical predicates share argu-ments in the same position.
+Because the discriminative model also uses this information(see Feature 8), it is interesting to examine cases where the baseline heuristic failedbut the discriminative model succeeded.
+Such cases represent more difficult inferences.Consider the following sentence:(51) Mr. Rogers recommends that [p investors] sell [iarg2 takeover?relatedstock].Neither NomBank nor the baseline heuristic associate the marked predicate in Exam-ple (51) with any arguments; the feature-based model was able to correctly identifythe marked iarg2 as the entity being invested in, however.
+This inference relied on anumber of features that connect the invest event to the sell event (e.g., Features 1, 4,and 76).
+These features captured a tendency of investors to sell the things they haveinvested in.We conclude our discussion with an example of a complex extra-sentential implicitargument.
+Consider the following adjacent sentences:(52) [arg0 Olivetti] [p exported] $25 million in ?embargoed, state-of-the-art,flexible manufacturing systems to the Soviet aviation industry.?
+(53) [arg0 Olivetti] reportedly began [p shipping] these tools in 1984.
+(54) [iarg0 Olivetti] has denied that it violated the rules, asserting that theshipments were properly licensed.
+(55) However, the legality of these [p sales] is still an open question.In Example (55), we are looking for the iarg0 of sale.
+As shown, the discriminative modelwas able to correctly identify Olivetti from Example (54) as the implied filler of thisargument position.
+The inference involved two key steps.
+First, the model identifiedcoreferent mentions of Olivetti in Examples (52) and (53).
+In these sentences, Olivettiparticipates in the marked exporting and shipping events.
+Second, the model identifieda tendency for exporters and shippers to also be sellers (e.g., Features 1, 4, and 23 madelarge contributions to the prediction).
+Using this knowledge, the system extracted infor-mation that could not be extracted by the baseline heuristic or a traditional SRL system.787Computational Linguistics Volume 38, Number 46.6 Comparison with Previous ResultsIn a previous study, we reported initial results for the task of implicit argument identi-fication (Gerber and Chai 2010).
+This article presents two major advancements versusour prior work.
+First, this article presents a more rigorous evaluation set-up, which wasnot used in our previous study.
+Our previous study used fixed partitions of training,development, and testing data.
+As a result, feature and model parameter selectionsoverfit the development data; we observed a 23-point difference in F1 between thedevelopment (65%) and testing (42%) partitions.
+The small size of the testing set aloled to small sample sizes and large p-values during significance testing.
+The cross-validated approach reported in this article alleviated both problems.
+The F1 differencebetween training and testing was approximately 10 percentage points for all folds, andall of the data were used for testing, leading to more accurate p-values.
+It is not possibleto directly compare the evaluation scores in the two studies; the methodology in thecurrent article is preferable for the reasons mentioned, however.Second, this article presents a wider range of features compared with the featuresdescribed in our previous study.
+In particular, we experimented with corpus statisticsderived from sub-corpora that were specifically tailored to the predicate instance underconsideration.
+See, for example, Feature 13 in Appendix B, which computed PMI scoresbetween arguments found in a custom sub-corpus of text.
+This feature was rankedhighly by a few of the evaluation folds (see Appendix B for feature rankings).7.
+ConclusionsPrevious work provided a partial solution to the problem of nominals with implicitarguments (Gerber, Chai, and Meyers 2009).
+The model described in that work is ableto accurately identify nominals that take local arguments, thus filtering out predicateswhose arguments are entirely implicit.
+This increases standard nominal SRL perfor-mance by reducing the number of false positive argument predictions; all implicitarguments remain unidentified, however, leaving a large portion of the correspondingevent structures unrecognized.This article presents our investigation of implicit argument identification for nom-inal predicates.
+The study was based on a manually created corpus of implicit argu-ments, which is freely available for research purposes.
+Our results show that modelscan be trained by incorporating information from a variety of ontological and corpus-based sources.
+The study?s primary findings include the following:1.
+Implicit arguments are frequent.
+Given the predicates in a document,there exist a fixed number of possible arguments that can be filledaccording to NomBank?s predicate role sets.
+Role coverage is defined asthe fraction of these roles that are actually filled by constituents in the text.Using NomBank as a baseline, the study found that role coverageincreases by 71% when implicit arguments are taken into consideration.2.
+Implicit arguments can be automatically identified.
+Using the annotateddata, we constructed a feature-based supervised model that is able toautomatically identify implicit arguments.
+This model relies heavily onthe traditional, single-sentence SRL structure of both nominal and verbalpredicates.
+By unifying these sources of information, the implicit argument788Gerber and Chai SRL of Implicit Arguments for Nominal Predicatesmodel provides a more coherent picture of discourse semantics than istypical in most recent work (e.g., the evaluation conducted by Surdeanuet al [2008]).
+The model demonstrates substantial gains over an informedbaseline, reaching an overall F1 score of 50% and per-predicate scores inthe mid-50s and mid-60s.
+These results are among the first for this task.3.
+Much work remains.
+The study presented in the current article was veryfocused: Only ten different predicates were analyzed.
+The goal was tocarefully examine the underlying linguistic properties of implicitarguments.
+This examination produced many features that have not beenused in other SRL studies.
+The results are encouraging; a direct applicationof the model to all NomBank predicates will require a substantialannotation effort, however.
+This is because many of the most importantfeatures are lexicalized on the predicate being analyzed and thus cannot begeneralized to novel predicates.
+Additional information might beextracted from VerbNet, which groups related verbs together.
+Featuresfrom this resource might generalize better because they apply to entire setsof verbs (and verb-based nouns).
+Additionally, the model would benefitfrom a deeper understanding of the relationships that obtain betweenpredicates in close textual proximity.
+Often, predicates themselves headarguments to other predicates, and, as a result, borrow arguments fromthose predicates following certain patterns.
+The work of Blanco andMoldovan (2011) addresses this issue directly with the use of compositionrules.
+These rules would be helpful for implicit argument identification.Lastly, it should be noted that the prediction model described in this articleis quite simple.
+Each candidate is independently classified as fillingeach missing argument position, and a heuristic post-processing step isperformed to arrive at the final labeling.
+This approach ignores the jointbehavior of semantic arguments.
+We have performed a preliminaryinvestigation of joint implicit argument structures (Gerber, Chai, and Bart2011); as described in that work, however, many issues remain concerningjoint implicit argument identification.789Computational Linguistics Volume 38, Number 4Appendix A: Role Sets for the Annotated PredicatesListed here are the role sets for the ten predicates used in this article.Role set for bid:Arg0: bidderArg1: thing being bid forArg2: amount of the bidRole set for sale:Arg0: sellerArg1: thing soldArg2: buyerArg3: price paidArg4: beneficiary of saleRole set for loan:Arg0: giverArg1: thing givenArg2: entity given toArg3: loan against(collateral)Arg4: interest rateRole set for cost:Arg1: commodityArg2: priceArg3: buyerArg4: secondary commodityRole set for plan:Arg0: plannerArg1: thing plannedArg2: beneficiary of planArg3: secondary planRole set for investor:Arg0: investorArg1: thing investedArg2: thing invested inRole set for price:Arg0: sellerArg1: commodityArg2: priceArg3: secondary commodityRole set for loss:Arg0: entity losingsomethingArg1: thing lostArg2: entity gaining thinglostArg3: source of lossRole set for investment:Arg0: investorArg1: thing investedArg2: thing invested inRole set for fund:Arg0: funderArg1: thing fundedArg2: amount of fundingArg3: beneficiary790Gerber and Chai SRL of Implicit Arguments for Nominal PredicatesAppendix B: Implicit Argument FeaturesTable B.1Features for determining whether c fills iargn of predicate p. For each mention f (denoting afiller) in the coreference chain c?, pf , and argf are the predicate and argument position of f .Unless otherwise noted, all argument positions (e.g., argn and iargn) should be interpreted as theinteger label n instead of the underlying word content of the argument.
+The & symbol denotesconcatenation; for example, a feature value of ?p & iargn?
+for the iarg0 position of sale would be?sale-0.?
+Features marked with an asterisk (*) are explained in Section 4.2.
+Features marked witha dagger (?)
+require external text corpora that have been automatically processed by existingNLP components (e.g., SRL systems).
+The final column gives a heuristic ranking score for thefeatures across all evaluation folds (see Section 6.2 for discussion).# Feature value description Importance score1* For every f , pf & argf & p & iargn.
+8.22* Sentence distance from c to p. 4.03* For every f , the head word of f & the verbal form of p & iargn.
+3.64* Same as 1 except generalizing pf and p to their WordNet synsets.
+3.35* Same as 3 except generalizing f to its WordNet synset.
+1.06 Whether or not c and p are themselves arguments to the samepredicate.1.07 p & the semantic head word of p?s right sibling.
+0.78 Whether or not any argf and iargn have the same integer argumentposition.0.79* Frame element path between argf of pf and iargn of p in FrameNet(Baker, Fillmore, and Lowe 1998).0.610 Percentage of elements in c?
+that are subjects of a copular for which pis the object.0.611 Whether or not the verb forms of pf and p are in the same VerbNetclass and argf and iargn have the same thematic role.0.612 p & the last word of p?s right sibling.
+0.613*?
+Maximum targeted PMI between argf of pf and iargn of p. 0.614 p & the number of p?s right siblings.
+0.515 Percentage of elements in c?
+that are objects of a copular for which pis the subject.0.516 Frequency of the verbal form of p within the document.
+0.517 p & the stemmed content words in a one?word window around p. 0.518 Whether or not p?s left sibling is a quantifier (many, most, all, etc.
+).Quantified predicates tend not to take implicit arguments.0.419 Percentage of elements in c?
+that are copular objects.
+0.420 TF cosine similarity between words from arguments of all pf andwords from arguments of p.0.421 Whether the path defined in 9 exists.
+0.422 Percentage of elements in c?
+that are copular subjects.
+0.423* For every f , the VerbNet class/role of pf /argf & the class/role ofp/iargn.0.424 Percentage of elements in c?
+that are indefinite noun phrases.
+0.425* p & the syntactic head word of p?s right sibling.
+0.326 p & the stemmed content words in a two-word window around p. 0.327*?
+Minimum selectional preference between any f and iargn of p.Uses the method described by Resnik (1996) computed overan SRL-parsed version of the Penn TreeBank and Gigaword(Graff 2003) corpora.0.328 p & p?s synset in WordNet.
+0.329?
+Same as 27 except using the maximum.
+0.3791Computational Linguistics Volume 38, Number 4Table B.1(continued)# Feature value description Importance score30 Average per?sentence frequency of the verbal form of p within thedocument.0.331 p itself.
+0.332 p & whether p is the head of its parent.
+0.333*?
+Minimum coreference probability between argf of pf and iargn of p. 0.334 p & whether p is before a passive verb.
+0.335 Percentage of elements in c?
+that are definite noun phrases.
+0.336 Percentage of elements in c?
+that are arguments to other predicates.
+0.337 Maximum absolute sentence distance from any f to p. 0.338 p & p?s syntactic category.
+0.239 TF cosine similarity between the role description of iargn and theconcatenated role descriptions of all argf .0.240 Average TF cosine similarity between each argn of each pf and thecorresponding argn of p, where ns are equal.0.241 Same as 40 except using the maximum.
+0.242 Same as 40 except using the minimum.
+0.243 p & the head of the following prepositional phrase?s object.
+0.244 Whether any f is located between p and any of the argumentsannotated by NomBank for p. When true, this feature rules outfalse positives because it implies that the NomBank annotatorsconsidered and ignored f as a local argument to p.0.245 Number of elements in c?.
+0.246 p & the first word of p?s right sibling.
+0.247 p & the grammar rule that expands p?s parent.
+0.248 Number of elements in c?
+that are arguments to other predicates.
+0.249 Nominal form of p & iargn.
+0.250 p & the syntactic parse tree path from p to the nearest passive verb.
+0.251 Same as 37 except using the minimum.
+0.252?
+Same as 33 except using the average.
+0.253 Verbal form of p & iargn.
+0.254 p & the first word of p?s left sibling.
+0.255 Average per-sentence frequency of the nominal form of p within thedocument.0.256 p & the part of speech of p?s parent?s head word.
+0.257?
+Same as 33 except using the maximum.
+0.258 Same as 37 except using the average.
+0.159* Minimum path length between argf of pf and iargn of p withinVerbNet (Kipper 2005).0.160 Frequency of the nominal form of p within the document.
+0.161 p & the number of p?s left siblings.
+0.162 p & p?s parent?s head word.
+0.163 p & the syntactic category of p?s right sibling.
+0.164 p & p?s morphological suffix.
+0.165 TF cosine similarity between words from all f and words from therole description of iargn.0.166 Percentage of elements in c?
+that are quantified noun phrases.
+0.167* Discourse relation whose two discourse units cover c (the primaryfiller) and p.0.168 For any f , the minimum semantic similarity between pf and p usingthe method described by Wu and Palmer (1994) over WordNet(Fellbaum 1998).0.1792Gerber and Chai SRL of Implicit Arguments for Nominal PredicatesTable B.1(continued)# Feature value description Importance score69 p & whether or not p is followed by a prepositional phrase.
+0.170 p & the syntactic head word of p?s left sibling.
+0.171 p & the stemmed content words in a three-word window around p. 0.172 Syntactic category of c & iargn & the verbal form of p. 0.173 Nominal form of p & the sorted integer argument indexes (the ns)from all argn of p.0.174 Percentage of elements in c?
+that are sentential subjects.
+0.175 Whether or not the integer position of any argf equals that of iargn.
+0.176?
+Same as 13 except using the average.
+0.177?
+Same as 27 except using the average.
+0.178 p & p?s parent?s syntactic category.
+0.179 p & the part of speech of the head word of p?s right sibling.
+0.180 p & the semantic head word of p?s left sibling.
+0.181?
+Maximum targeted coreference probability between argf of pfand iargn of p. This is a hybrid feature that calculates the coreferenceprobability of Feature 33 using the corpus tuning method ofFeature 13.0.1793ComputationalLinguisticsVolume38,Number4Appendix C: Per-fold Implicit Argument Identification ResultsTable C.1Per-fold implicit argument identification results.
+Columns are defined as follows: (1) fold used for testing, (2) selected features in rank order,(3) baseline F1, (4) LibLinear cost parameter, (5) LibLinear weight for the positive class, (6) implicit argument confidence threshold, (7) discriminativeF1, (8) oracle F1.
+A bias of 1 was used for all LibLinear models.Baseline Discriminative (LibLinear) OracleFold Features F1 (%) c w+ t F1 (%) F1 (%)1 1, 2, 3, 11, 32, 8, 27, 22, 31, 10, 20, 53, 6, 16, 24, 40, 30, 38, 72, 69,73, 19, 28, 42, 48, 64, 44, 36, 37, 12, 731.7 0.25 4 0.39260 47.1 86.72 1, 3, 2, 4, 17, 13, 28, 11, 6, 18, 25, 12, 56, 29, 16, 53, 41, 31, 46, 10, 7,51, 15, 2232 0.25 256 0.80629 51.5 86.93 4, 3, 2, 8, 7, 6, 59, 20, 9, 62, 37, 39, 41, 19, 10, 15, 11, 35, 61, 44, 42,40, 32, 30, 16, 75, 33, 2435.3 0.25 256 0.90879 55.8 88.14 1, 2, 5, 13, 8, 49, 6, 35, 34, 14, 15, 18, 36, 28, 20, 45, 3, 43, 24, 48, 10,29, 12, 30, 33, 65, 31, 22, 61, 16, 27, 41, 60, 55, 6427.8 0.25 4 0.38540 45.8 86.55 1, 2, 26, 3, 4, 23, 5, 63, 55, 6, 12, 44, 42, 65, 7, 71, 18, 15, 10, 14, 52,34, 19, 24, 50, 5825.8 0.125 1024 0.87629 45.9 886 1, 3, 2, 14, 23, 38, 25, 39, 16, 6, 21, 68, 70, 58, 9, 22, 18, 31, 60, 10,64, 15, 66, 19, 30, 51, 56, 2834.8 0.25 256 0.87759 55.4 90.87 1, 2, 4, 3, 47, 54, 43, 7, 33, 9, 67, 24, 36, 50, 40, 12, 21 22.9 0.25 256 0.81169 46.3 87.48 1, 3, 2, 4, 9, 7, 14, 12, 6, 46, 30, 18, 19, 36, 48, 42, 37, 45, 60, 56, 61,51, 15, 10, 41, 40, 25, 31, 11, 39, 62, 69, 34, 16, 33, 8, 38, 20, 78, 44,55, 80, 53, 50, 52, 49, 24, 28, 5727.1 0.0625 512 0.92019 47.4 87.29 1, 5, 2, 4, 3, 21, 27, 10, 15, 9, 57, 35, 16, 25, 37, 33, 45, 24, 46, 29, 19,34, 51, 50, 22, 48, 32, 11, 12, 58, 41, 8, 76, 18, 30, 40, 77, 6, 66, 44,43, 79, 81, 2023 0.0625 32 0.67719 54.1 85.510 4, 3, 2, 17, 1, 13, 29, 12, 11, 52, 10, 15, 6, 16, 9, 22, 7, 21, 57, 19, 74,34, 45, 20, 6628.4 0.0625 512 0.89769 53.2 88.5(1) (2) (3) (4) (5) (6) (7) (8)794Gerber and Chai SRL of Implicit Arguments for Nominal PredicatesAcknowledgmentsWe would like to thank the anonymousreviewers for their many insightfulcomments and suggestions.
+This workwas partially supported by NSF grantsIIS-0347548 and IIS-0840538.ReferencesBaker, Collin, Charles Fillmore, andJohn Lowe.
+1998.
+The Berkeley FrameNetproject.
+In Proceedings of the Thirty-SixthAnnual Meeting of the Association forComputational Linguistics and SeventeenthInternational Conference on ComputationalLinguistics, pages 86?90, San Francisco, CA.Bhagat, Rahul, Patrick Pantel, and EduardHovy.
+2007.
+LEDIR: An unsupervisedalgorithm for learning directionalityof inference rules.
+In Proceedings of the2007 Joint Conference on EmpiricalMethods in Natural Language Processingand Computational Natural LanguageLearning (EMNLP-CoNLL), pages 161?170,Prague.Blanco, Eduardo and Dan Moldovan.
+2011.A model for composing semantic relations.In Proceedings of the 9th InternationalConference on Computational Semantics(IWCS 2011), pages 45?54, Oxford.Burchardt, Aljoscha, Anette Frank, andManfred Pinkal.
+2005.
+Building textmeaning representations from contextuallyrelated frames?a case study.
+In Proceedingsof the Sixth International Workshop onComputational Semantics, Tilburg.Carpenter, Patricia A., Akira Miyake,and Marcel Adam Just.
+1995.
+Languagecomprehension: Sentence and discourseprocessing.
+Annual Review of Psychology,46:91?120.Carreras, Xavier and Llu?
+?s Ma`rquez.
+2005.Introduction to the CoNLL-2005 sharedtask: Semantic role labeling.
+In Proceedingsof the Ninth Conference on ComputationalNatural Language Learning, pages 152?164,Ann Arbor, MI.Chambers, Nathanael and Dan Jurafsky.2008.
+Unsupervised learning of narrativeevent chains.
+In Proceedings of theAssociation for Computational Linguistics,pages 789?797, Columbus, OH.Charniak, Eugene and Mark Johnson.2005.
+Coarse-to-fine n-best parsingand MaxEnt discriminative reranking.In Proceedings of the 43rd Annual Meeting ofthe Association for Computational Linguistics,pages 173?180, Ann Arbor, MI.Chen, Desai, Nathan Schneider, DipanjanDas, and Noah A. Smith.
+2010.
+Semafor:Frame argument resolution with log-linearmodels.
+In Proceedings of the 5thInternational Workshop on SemanticEvaluation, pages 264?267, Uppsala.Chen, Zheng and Heng Ji.
+2009.
+Graph-basedevent coreference resolution.
+In Proceedingsof the 2009 Workshop on Graph-basedMethods for Natural Language Processing(TextGraphs-4), pages 54?57, Suntec.Chinchor, Nancy, David D. Lewis, andLynette Hirschmant.
+1993.
+Evaluatingmessage understanding systems:An analysis of the third messageunderstanding conference.
+ComputationalLinguistics, 19(3):409?450.Cohen, Jacob.
+1960.
+A coefficient ofagreement for nominal scales.Educational and PsychologicalMeasurement, 20(1):37?46.Dang, Hoa Trang, Diane Kelly, and Jimmy J.Lin.
+2007.
+Overview of the TREC 2007question answering track.
+In Proceedingsof the Fifteenth TREC.
+Available attrec.nist.gov/pubs/trec15/t15proceedings.html.Di Eugenio, Barbara and Michael Glass.2004.
+The kappa statistic: a second look.Computational Linguistics, 30(1):95?101.Efron, Bradley and Robert J. Tibshirani.
+1993.An Introduction to the Bootstrap.
+Chapman& Hall, New York.Fan, Rong-En, Kai-Wei Chang, Cho-JuiHsieh, Xiang-Rui Wang, and Chih-Jen Lin.2008.
+LIBLINEAR: A Library for LargeLinear Classification.
+Journal of MachineLearning Research, 9:1871?1874.Fellbaum, Christiane.
+1998.
+WordNet:An Electronic Lexical Database (Language,Speech, and Communication).
+The MIT Press,Cambridge, MA.Fillmore, C. J. and C. F. Baker.
+2001.Frame semantics for text understanding.In Proceedings of WordNet and OtherLexical Resources Workshop, NAACL,Pittsburgh, PA.Gerber, Matthew and Joyce Chai.
+2010.Beyond NomBank: A study of implicitarguments for nominal predicates.
+InProceedings of the 48th Annual Meetingof the Association for ComputationalLinguistics, pages 1583?1592, Uppsala.Gerber, Matthew, Joyce Chai, and RobertBart.
+2011.
+A joint model of implicitarguments for nominal predicates.
+InProceedings of the ACL 2011 Workshop onRelational Models of Semantics, pages 63?71,Portland, OR.795Computational Linguistics Volume 38, Number 4Gerber, Matthew, Joyce Chai, and AdamMeyers.
+2009.
+The role of implicitargumentation in nominal SRL.
+InProceedings of Human Language Technologies:The 2009 Annual Conference of the NorthAmerican Chapter of the Association forComputational Linguistics, pages 146?154,Boulder, CO.Graesser, Arthur C. and Leslie F. Clark.1985.
+Structures and Procedures of ImplicitKnowledge.
+Ablex Publishing Corporation,New York.Graff, David.
+2003.
+English Gigaword.Linguistic Data Consortium,Philadelphia, PA.Grosz, Barbara J., Aravind K. Joshi, andScott Weinstein.
+1995.
+Centering:A framework for modeling the localcoherence of discourse.
+ComputationalLinguistics, 21(2):203?225.Harris, Zellig.
+1985.
+Distributional structure.In J. J. Katz, editor, The Philosophy ofLinguistics.
+Oxford University Press,New York, pages 26?47.Heim, Irene and Angelika Kratzer.
+1998.Semantics in Generative Grammar.Blackwell, Oxford.Iida, Ryu, Mamoru Komachi, Kentaro Inui,and Yuji Matsumoto.
+2007.
+Annotating aJapanese text corpus with predicate-argument and coreference relations.
+InProceedings of the Linguistic AnnotationWorkshop in ACL-2007, pages 132?139,Prague.Imamura, Kenji, Kuniko Saito, andTomoko Izumi.
+2009.
+Discriminativeapproach to predicate?argument structureanalysis with zero-anaphora resolution.In Proceedings of the ACL-IJCNLP 2009Conference Short Papers, pages 85?88,Suntec.Johansson, Richard and Pierre Nugues.
+2008.Dependency-based syntactic?semanticanalysis with PropBank and NomBank.In CoNLL 2008: Proceedings of the TwelfthConference on Computational NaturalLanguage Learning, pages 183?187,Manchester.Kamp, Hans and Uwe Reyle.
+1993.
+FromDiscourse to Logic.
+Kluwer, Dordrecht.Kipper, Karin.
+2005.
+VerbNet: ABroad-coverage, Comprehensive Verb Lexicon.Ph.D.
+thesis, Department of Computerand Information Science, University ofPennsylvania, Philadelphia.Krippendorff, Klaus.
+1980.
+Content Analysis:An Introduction to Its Methodology.
+SagePublications, Thousand Oaks, CA.Lin, Dekang and Patrick Pantel.
+2001.Discovery of inference rules forquestion-answering.
+Natural LanguageEngineering, 7(4):343?360.Liu, Chang and Hwee Ng.
+2007.
+Learningpredictive structures for semantic rolelabeling of nombank.
+In Proceedings of the45th Annual Meeting of the Association ofComputational Linguistics, pages 208?215,Prague.Marcus, Mitchell, Beatrice Santorini, andMary Ann Marcinkiewicz.
+1993.
+Buildinga large annotated corpus of English: thePenn TreeBank.
+Computational Linguistics,19:313?330.Meyers, Adam.
+2007.
+Annotation guidelinesfor NomBank?noun argument structurefor PropBank.
+Technical report, New YorkUniversity.Nielsen, Leif Arda.
+2004.
+Verb phraseellipsis detection using automaticallyparsed text.
+In COLING ?04: Proceedingsof the 20th international conference onComputational Linguistics, pages 1093?1099,Geneva.Nielsen, Leif Arda.
+2005.
+A corpus-basedstudy of Verb Phrase Ellipsis Identificationand Resolution.
+Ph.D. thesis, King?sCollege, London.NIST, 2008.
+The ACE 2008 Evaluation Plan.National Institute of Standards andTechnology, Gaithersburg, MD.Palmer, Martha S., Deborah A. Dahl,Rebecca J. Schiffman, Lynette Hirschman,Marcia Linebarger, and John Dowding.1986.
+Recovering implicit information.
+InProceedings of the 24th Annual Meeting of theAssociation for Computational Linguistics,pages 10?19, Morristown, NJ.Pantel, Patrick, Rahul Bhagat, BonaventuraCoppola, Timothy Chklovski, and EduardHovy.
+2007.
+ISP: Learning inferentialselectional preferences.
+In Human LanguageTechnologies 2007: The Conference of theNorth American Chapter of the Associationfor Computational Linguistics; Proceedingsof the Main Conference, pages 564?571,Rochester, NY.Pantel, Patrick and Deepak Ravichandran.2004.
+Automatically labeling semanticclasses.
+In HLT-NAACL 2004: MainProceedings, pages 321?328, Boston, MA.Pizzato, Luiz Augusto and Diego Molla?.2008.
+Indexing on semantic roles forquestion answering.
+In COLING 2008:Proceedings of the 2nd Workshop onInformation Retrieval for QuestionAnswering, pages 74?81, Manchester.796Gerber and Chai SRL of Implicit Arguments for Nominal PredicatesPrasad, Rashmi, Alan Lee, Nikhil Dinesh,Eleni Miltsakaki, Geraud Campion,Aravind Joshi, and Bonnie Webber.
+2008.Penn discourse treebank version 2.0.Linguistic Data Consortium, Universityof Pennsylvania, Philadelphia.Pudil, P., J. Novovicova, and J. Kittler.1994.
+Floating search methods in featureselection.
+Pattern Recognition Letters,15:1119?1125.Punyakanok, Vasin, Peter Koomen,Dan Roth, and Wen-tau Yih.
+2005.Generalized inference with multiplesemantic role labeling systems.
+InProceedings of CoNLL-2005 Shared Task,pages 181?184, Ann Arbor, MI.Punyakanok, Vasin, Dan Roth, and Wen-TauYih.
+2008.
+The importance of syntacticparsing and inference in semantic rolelabeling.
+Computational Linguistics,34(2):257?287.Resnik, Philip.
+1996.
+Selectional constraints:An information-theoretic model and itscomputational realization.
+Cognition,61:127?159.Ritter, Alan, Mausam, and Oren Etzioni.2010.
+A latent dirichlet alocation methodfor selectional preferences.
+In Proceedings ofthe 48th Annual Meeting of the Association forComputational Linguistics, pages 424?434,Uppsala.Ruppenhofer, Josef, Caroline Sporleder,Roser Morante, Collin Baker, andMartha Palmer.
+2009.
+Semeval-2010task 10: Linking events and theirparticipants in discourse.
+In Proceedingsof the Workshop on Semantic Evaluations:Recent Achievements and FutureDirections (SEW-2009), pages 106?111,Boulder, CO.Ruppenhofer, Josef, Caroline Sporleder,Roser Morante, Collin Baker, andMartha Palmer.
+2010.
+Semeval-2010task 10: Linking events and theirparticipants in discourse.
+In Proceedingsof the 5th International Workshop onSemantic Evaluation, pages 45?50,Uppsala.Sagae, Kenji.
+2009.
+Analysis of discoursestructure with syntactic dependenciesand data-driven shift-reduce parsing.In Proceedings of the 11th InternationalConference on Parsing Technologies(IWPT?09), pages 81?84, Paris.Sanford, A. J.
+1981.
+Understanding WrittenLanguage.
+John Wiley & Sons Ltd,Hoboken, NJ.Sasano, Ryohei, Daisuke Kawahara, andSadao Kurohashi.
+2004.
+Automaticconstruction of nominal case framesand its application to indirect anaphoraresolution.
+In Proceedings of COLING 2004,pages 1201?1207, Geneva.Schank, Roger C. and Robert P. Abelson.1977.
+Scripts, Plans, Goals andUnderstanding: an Inquiry into HumanKnowledge Structures.
+Lawrence Erlbaum,Hillsdale, NJ.Surdeanu, Mihai, Richard Johansson, AdamMeyers, Llu?
+?s Ma`rquez, and Joakim Nivre.2008.
+The CoNLL 2008 shared task onjoint parsing of syntactic and semanticdependencies.
+In CoNLL 2008: Proceedingsof the Twelfth Conference on ComputationalNatural Language Learning, pages 159?177,Manchester.Szpektor, Idan, Hristo Tanev, Ido Dagan,and Bonaventura Coppola.
+2004.
+ScalingWeb-based acquisition of entailmentrelations.
+In Proceedings of EmpiricalMethods in Natural Language Processing,pages 41?48, Barcelona.Tonelli, Sara and Rodolfo Delmonte.2010.
+Venses++: Adapting a deepsemantic processing system to theidentification of null instantiations.In Proceedings of the 5th InternationalWorkshop on Semantic Evaluation,pages 296?299, Uppsala.van Dijk, T. A.
+1977.
+Semantic macrostructures and knowledge framesin discourse comprehension.
+InM.
+A.
+Just and P. A. Carpenter, editors,Cognitive Processes in Comprehension.Lawrence Erlbaum, Hillsdale, NJ,pages 3?32.van Dijk, Teun A. and Walter Kintsch.
+1983.Strategies of Discourse Comprehension.Academic Press, Waltham, MA.Versley, Yannick, Simone Paolo Ponzetto,Massimo Poesio, Vladimir Eidelman,Alan Jern, Jason Smith, Xiaofeng Yang,and Alessandro Moschitti.
+2008.BART: A modular toolkit for coreferenceresolution.
+In Proceedings of the 6thInternational Conference on LanguageResources and Evaluation, pages 9?12,Marrakech.Whittemore, Greg, Melissa Macpherson,and Greg Carlson.
+1991.
+Event-buildingthrough role-filling and anaphoraresolution.
+In Proceedings of the 29thAnnual Meeting on Association forComputational Linguistics, pages 17?24,Morristown, NJ.Wilson, N. L. 1974.
+Facts, events, and theiridentity conditions.
+Philosophical Studies,25:303?321.797Computational Linguistics Volume 38, Number 4Wu, Zhibiao and Martha Palmer.
+1994.Verb semantics and lexical selection.In Proceedings of the 32nd AnnualMeeting of the Association forComputational Linguistics,pages 133?138, Las Cruces, NM.Yang, Xiaofeng, Jian Su, and Chew Lim Tan.2008.
+A twin-candidate model forlearning-based anaphora resolution.Computational Linguistics, 34(3):327?356.Zanzotto, Fabio Massimo, MarcoPennacchiotti, and Maria Teresa Pazienza.2006.
+Discovering asymmetric entailmentrelations between verbs using selectionalpreferences.
+In ACL-44: Proceedingsof the 21st International Conference onComputational Linguistics and the 44thAnnual Meeting of the Association forComputational Linguistics, pages 849?856,Morristown, NJ.798

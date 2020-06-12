@@ -1,0 +1,1676 @@
+LFG Generation by Grammar SpecializationJu?rgen Wedekind?University of CopenhagenRonald M.
+Kaplan?
+?Nuance Communications, Inc.This article describes an approach to Lexical-Functional Grammar (LFG) generation that isbased on the fact that the set of strings that an LFG grammar relates to a particular acyclicf-structure is a context-free language.
+We present an algorithm that produces for an arbitraryLFG grammar and an arbitrary acyclic input f-structure a context-free grammar describingexactly the set of strings that the given LFG grammar associates with that f-structure.
+Theindividual sentences are then available through a standard context-free generator operatingon that grammar.
+The context-free grammar is constructed by specializing the context-freebackbone of the LFG grammar for the given f-structure and serves as a compact representationof all generation results that the LFG grammar assigns to the input.
+This approach extendsto other grammatical formalisms with explicit context-free backbones, such as PATR, and alsoto formalisms that permit a context-free skeleton to be extracted from richer specifications.
+Itprovides a general mathematical framework for understanding and improving the operation of afamily of chart-based generation algorithms.1.
+IntroductionAlgorithms providing compact representations of alternative syntactic analyses havebeen the state-of-the-art in parsing for many years.
+For context-free grammars, forexample, the well-known chart parsing algorithms have been used for more thanfour decades.
+These assign to a sentence not just one possible analysis but a chartthat compactly represents all possible syntactic analyses.
+Algorithms have also beendeveloped that extend packing to the functional specifications of unification grammarsby producing compact representations of feature-structure ambiguities as well.
+Onethat is pertinent to (but not restricted to) Lexical-Functional Grammar (LFG) is the con-texted constraint satisfaction method developed by Maxwell and Kaplan (1991).
+Thesealgorithms lead to better average time performance because they carefully manage theambiguities that are rampant in natural language.
+They work by dividing the parsingproblem into two phases, a recognition or satisfiability phase that creates the compactrepresentation and determines whether there is at least one parse, and an enumerationphase in which the alternative parses are produced one by one.
+Parsing performance?
+Center for Language Technology, University of Copenhagen, Njalsgade 140, 2300 Copenhagen S,Denmark.
+E-mail: jwedekind@hum.ku.dk.??
+Nuance Communications, Inc., 1198 East Arques Avenue, Sunnyvale, CA 94085, USA.E-mail: Ronald.Kaplan@nuance.com.Submission received: 24 March 2011; revised submission received: 31 October 2011; accepted for publication:28 December 2011.?
+2012 Association for Computational LinguisticsComputational Linguistics Volume 38, Number 4is typically identified with the complexity of the first phase (e.g., the cubic bound forcontext-free parsing), because the collection of all parses can be delivered to a client ap-plication merely by presenting the compact representation.
+A client may be able to selecta limited number of particularly desirable parses, perhaps the smallest or the most prob-able, without doing a full enumeration (Johnson and Riezler 2002; Kaplan et al 2004).Lang (1994) gives a clear formal characterization of the first phase of context-free chart parsing.1 He observes that the recognition problem consists of finding theintersection of the language of the grammar with the input string, and then testing to seewhether that intersection is empty.
+Many language classes are closed under intersectionwith a regular set, and the result of the intersection of a language L(G) with a regularlanguage ?
+is describable as a specialization G?
+of G that assigns to all and only thestrings in ?
+effectively the same parse trees as G would assign.
+Lang argues that a chartfor an input string s (a trivial regular language) and a context-free grammar G can beregarded as a specialization Gs of G that derives either the empty language (if s doesnot belong to L(G)) or a language consisting of just that input.
+In this view a parsingchart/grammar is a representation that makes it possible to enumerate all the derivationtrees of the string, guaranteeing that each tree can be produced in a backtrack-free wayin time proportional to its size.
+This guarantee holds even for an infinitely ambiguousstring: It would take forever to enumerate all valid derivations, but any particular onecan be read out in linear time.
+The procedure for tree enumeration follows directlyfrom the standard context-free generation algorithm applied to the grammar Gs.The generation problem for LFG and other description-based grammatical for-malisms can also be viewed from this perspective.
+Several algorithms have been pro-posed for generation that avoid redundant recomputation by storing intermediateprocessing results in a chart-like auxiliary data structure (e.g., Shieber 1988; Kay 1996;Shemtov 1997; Neumann 1998; Carroll et al 1999; Moore 2002; Carroll and Oepen 2005;Cahill and van Genabith 2006; White 2006; de Kok and van Noord 2010).
+Most of themcan be construed as having a first phase that provides a compact representation foralternative results, in this case for the strings that the grammar provides for a givenfunctional or semantic input.
+The individual generated strings are then produced by anenumeration procedure operating on this compact representation.In this article we observe that the edges of a generation chart can be interpreted asrules of a specialized context-free grammar, just as in Lang?s (1994) characterization ofparsing.
+We present a generation algorithm that specializes the context-free backbone ofa given LFG grammar to a grammar that describes exactly the strings that the LFG gram-mar relates to a given acyclic f-structure.
+Derivations of the resulting grammar simulateall and only those derivations of the LFG grammar whose derived strings are assignedto that input.2 Thus the generated string set is a context-free language compactly repre-sented by the specialized grammar, and the individual members of that language can beenumerated, just as for parsing, by using standard context-free generation algorithms.Our approach can be seen as a generalization and formalization of other chart-basedgeneration algorithms, producing all and only correct outputs for larger combinationsof grammars and inputs.
+It extends to unification grammars with explicit context-freebackbones, such as PATR (Shieber et al 1983), and also to formalisms that permit acontext-free skeleton to be extracted from richer specifications.
+But it does not extend1 Dymetman (1997) extends this characterization to unification grammars.2 The word ?derivation?
+here and in the following is used only to characterize the notion ofwell-formedness in LFG and is not meant to undermine the contrast between LFG andconventional transformational approaches to syntax.868Wedekind and Kaplan LFG Generation by Grammar SpecializationFigure 1The components of an LFG representation: string, constituent structure, functional structure.to cyclic input structures because, as we will show by example, an LFG grammarmight relate to a cyclic structure a set of strings that is not context-free.
+Because acyclicstructures are normally assumed to be the only f-structures that are motivated forlinguistic analysis (Kaplan and Bresnan 1982), this restriction does not seem to limitthe applicability of our algorithm for natural language generation.We begin with some background so that we can make the problem and its solutionmore explicit.
+Along with many other description-based grammar formalisms, an LFGgrammar G assigns to every string s in its language at least one f-structure.
+This situationcan be characterized in terms of a derivation relation ?G, defined as follows:(1) ?G(s,F) iff G assigns to the string s the f-structure FIn the LFG approach a sentence s and its f-structure F are not directly related.
+Theirrelation is mediated by a valid c-structure for s (Kaplan 1995).
+The arrangement of thethree components of an LFG representation is illustrated in Figure 1.
+This representationis derivable by a grammar that includes the annotated (nonterminal) rules in (2a?c)and lexical expansions in (2d?f).
+Annotated lexical c-structure rules are just notationalvariants of traditional LFG lexical entries.
+(2) a.
+S ?
+NP VP(?
+SUBJ) = ?
+?
+= ?b.
+NP ?
+DET N?
+= ?
+?
+= ?c.
+VP ?
+V?
+= ?d.
+DET ?
+a(?
+SPEC) = INDEF(?
+NUM) = SGe.
+N ?
+student(?
+PRED) = 'STUDENT'(?
+NUM) = SGf.
+V ?
+fell(?
+PRED) = 'FALL?(SUBJ)?'(?
+TENSE) = PASTIn accordance with the basic architecture of LFG, an LFG grammar provides a set oflicensing conditions that determine grammatical representations by descriptive, model-based rather than procedural methods.
+The well-formedness of the representation inFigure 1 with respect to the grammar in (2) is thus characterized as follows.The c-structure is valid or well-formed because we can assign to each nonterminalnode a grammar rule that licenses or justifies the local mother?daughters configurationconstituted by the node and its immediate daughters.
+If we assume that the c-structureof Figure 1 consists of the nodes root,n1, ..,n8 and these nodes are related and labeledas depicted in Figure 2, then the rule-mapping ?
+that justifies the c-structure is givenby (3).
+(3) ?root = (2a), ?n1 = (2b), ?n2 = (2c), ?n3 = (2d), ?n4 = (2e), ?n5 = (2f )869Computational Linguistics Volume 38, Number 4SrootNPn1 VPn2DETn3 Nn4 Vn5an6 studentn7 felln8Figure 2The c-structure of Figure 1 with explicitly specified nodes.A description of the f-structure (called the f-description) for this tree and rule-mapping is constructed by instantiating the annotations of all justifying rules in thefollowing way.
+For each rule justifying a local mother?daughters configuration, alloccurrences of the ?
+symbol (called a metavariable) in the functional annotations ofthe daughters are replaced by the mother node, and for each of the daughter cat-egories, all occurrences of the ?
+metavariable in its annotations are replaced by thecorresponding daughter node.3 Thus, the ?
+of the annotations on a daughter categoryof a rule and the ?
+of the annotations of the rule that further expands that categoryare always instantiated with the same node.
+The complete f-description is the unionof the instantiated descriptions of all the justifying rules.
+The f-description obtainedfrom the c-structure in Figure 1 and the rules of the justifying mapping in (3) is givenin (4).
+(4) ???????????
+(root SUBJ) = n1, root = n2,n1 = n3,n1 = n4,n2 = n5,(n3 SPEC) = INDEF, (n3 NUM) = SG,(n4 PRED) = 'STUDENT', (n4 NUM) = SG,(n5 PRED) = 'FALL?(SUBJ)?
+', (n5 TENSE) = PAST??????????
+?The f-structure in Figure 1 is associated with the given c-structure because it satisfiesthe f-description in (4), and furthermore, it is the unique minimal solution for thisdescription.
+In general, LFG requires the f-description of a grammatical sentence to besatisfiable and thus to have at least one model.
+Each such satisfying model consists ofa universe and an interpretation function that assigns unary (partial) functions to theattributes (SUBJ, NUM, SPEC, etc.)
+and elements of the universe to the atomic featurevalues (SG, INDEF, etc.
+), as well as to the nodes in the description.
+Among the modelssatisfying a given f-description there is an (up to isomorphism unique) minimal model,one that is not properly subsumed by other satisfying models.4 This minimal modelrepresents the f-description?s minimal solution, the one from which the f-structurefor the sentence is obtained.
+Conventional attribute?value matrices where the nodes(or node numbers) are attached to the left brackets are LFG-typical representations of3 Our instantiation procedure uses the nodes themselves instead of the related f-structure variables ofKaplan and Bresnan (1982) or the more complex ?-terms of Kaplan (1995).
+This is mathematicallyequivalent to the other representations but simplifies our illustrations.4 For some sentences and some grammars (e.g., those involving functional uncertainty) there aref-descriptions with several non-isomorphic minimal models.
+As we discuss in a subsequent article(Wedekind and Kaplan forthcoming), these also lie within the bounds of our context-free construction.870Wedekind and Kaplan LFG Generation by Grammar Specializationexactly such minimal models.
+The attribute?value matrix representation of the minimalmodel of the f-description (4) is given in (5).
+(5) rootn2n5???????SUBJn1n3n4?
+?PRED 'STUDENT'NUM SGSPEC INDEF?
+?PRED 'FALL?(SUBJ)?
+'TENSE PAST??????
+?The solution in (5) is converted to the f-structure representation in Figure 1 byremoving the node labels that record the relation of the f-structure to the c-structure.From a formal point of view, an f-structure is obtained from the minimal model of anf-description by restricting its interpretation function to the attributes and atomic fea-ture values of the grammar, thus disregarding the nodes and their interpretation.5We now turn to the generation problem.
+A generator for G provides for any givenf-structure F the set of strings that are related to it by the grammar:(6) GenG(F) = {s | ?G(s,F)}The algorithm presented in this article accomplishes the generation task by pro-ducing a context-free grammar for GenG(F), for a given LFG grammar G and any acyclicinput f-structure F.The abstract generator characterization in (6) is of course dual to the one for a parserfor G, since a parser produces for any given terminal string s the set of f-structures thatare assigned to it by G:(7) ParG(s) = {F | ?G(s,F)}For parsing, the Kaplan and Bresnan (1982) proscription of nonbranching dominancechains guarantees that ParG(s) will contain only a finite number of f-structures, but thiscondition does not ensure the finiteness of the set of strings GenG(F) that are related toan f-structure F. This is illustrated by the simple grammar in (8):(8) S ?
+a S b?
+= ?S ?
+c(?
+H?)
+= V?S ?
+a b(?
+H) = VThis generates for the input (9)(9) [H V]the infinite context-free language {an bn | 1 ?
+n}.From a cognitive point of view it seems unrealistic that the number of sentencesthat a natural language grammar relates to an f-structure is infinite.
+As a minimum,there should be some relationship that bounds the size of the c-structure of a sentence5 Note that the interpretation of the node constants that we restrict out of the minimal models can be seento represent the structural correspondence function that maps individual nodes of the c-structure treeinto elements of the f-structure (cf.
+Kaplan 1995).871Computational Linguistics Volume 38, Number 4by the size of the f-structures associated with it.
+Such a structural relationship wouldthen force the related sentences to form a finite set.
+Studies to determine intuitivelyplausible restrictions are rather scarce, however, and proposals for such restrictions arenot yet generally accepted.
+It is thus still an open question whether grammars of actualnatural languages satisfy the particular resource-boundedness restrictions on whichtermination of some existing chart-based generators depends.Even if only finite sets of sentences are related to the f-structures, these sets mightstill be very large.
+Experiments with a broad-coverage German LFG grammar (Dipper2003; Rohrer and Forst 2006) have shown that, because of the scrambling that Germanallows, a given f-structure might be related to a huge set of long sentences.6 This hasconsequences at least for those approaches that assume the output of generation to bea word lattice (Langkilde and Knight 1998) or a finite-state machine representing the(finite) set of all generated sentences.
+A lattice can represent a large collection of stringscompactly only if they are characterized by independent sets of alternative substrings.Scrambling languages, however, have alternative substrings that reappear in differentpositions with complex cooccurrence dependencies and therefore cannot be shared in alattice representation (see Langkilde [2000] for discussion).
+Our context-free grammars(and also Langkilde?s [2000] and Knight and Langkilde?s [2000] forest representations)offer a much more compact encoding under these circumstances, and their structureand formal properties are as well understood as lattices and finite-state machines.Our approach might also be more appropriate than existing chart-based approachesfor optimality-theoretic generation (Kuhn 2001, 2002, 2003).
+An optimality-theoreticLFG system consists of two components: a universal LFG grammar and a language-specifically ordered set of violable constraints (Bresnan 2000).
+The universal LFG gram-mar is used to produce the candidate space of possible analyses (consisting of thec-structure/f-structure pairs that are derivable by the grammar).
+The optimal and thusgrammatical analyses are those candidates that violate the fewest constraints.
+A tech-nical problem comes from the fact that the universal grammar by design may assignan infinite number of c-structures and string realizations to a given f-structure, and theoptimal outputs can be identified only by evaluating all of these against the collectionof constraints.
+Our context-free characterization provides a finite evaluation procedureeven for an infinite candidate space.
+By virtue of the pumping lemma for context-freelanguages (Bar-Hillel, Perles, and Shamir 1961; see also Hopcroft and Ullman 1979) wecan enumerate the c-structure trees assigned to an input f-structure one by one in orderof increasing depth.
+Because the number of constraint violations increases beyond acertain number of recursive category expansions, the optimal results from the infinitespace can be chosen after examining only a finite number of relatively small structures(see Kuhn [2003] for details).Similar to Lang?s approach to parsing (see also Billot and Lang 1989), we providea general framework encompassing all forms of chart generation in a single formalism.This is because existing chart-based generators can be understood as concrete but some-how restricted algorithm/datastructure implementations of our context-free grammarconstruction.
+These restrictions may lead them to produce incorrect outputs in somesituations.
+Because we show the correctness of the output grammar for unrestricted6 The German grammar was developed as part of the Parallel Grammar project (ParGram), a researchand development consortium that has produced large-scale LFG grammars for several languages (Buttet al 1996, 2002).
+These grammars are developed on the XLE system, a high-performance platform forLFG parsing and generation.
+More information on the ParGram project and XLE can be found at:http://pargram.b.uib.no/.872Wedekind and Kaplan LFG Generation by Grammar SpecializationLFG grammars, our framework allows us to examine, compare, and improve on existingchart-based generation techniques.The organization of this article is as follows.
+In the next section we define thefundamental formal objects of LFG theory and the relevant relationships among them.Section 3 is the technical core of the article.
+There we present and prove the correctnessof the context-free grammar-construction algorithm for LFG grammars with arbitraryequational constraints and acyclic input f-structures.
+The grammar construction ab-stracts away from specific details of data structure and computational strategy not es-sential to the mathematical argument.
+Performance and computational strategy are thenbriefly considered in Section 4, and Section 5 compares our approach to other generationalgorithms.
+In Section 6 we identify a fundamental limitation of our approach, demon-strating that the context-free property does not hold for elementary equational con-straints if the input f-structure contains cycles.
+On the other hand, if the input is acyclic,the basic context-free construction can be extended beyond simple equations to theadditional descriptive devices proposed by Kaplan and Bresnan (1982) and still incommon use.
+This is shown in Section 7.
+The last section highlights some additionalconsequences of this approach.The present article elaborates on ideas that we first presented in Kaplan andWedekind (2000).
+In that paper we outlined a context-free grammar construction fora subclass of LFG grammars with restricted functional annotations and single-rootedinput structures.
+Here we consider a more general class of grammars and inputs thatrequires a more rigorous mathematical analysis.2.
+PreliminariesWe start with a formal characterization of LFG grammars with equational statements.Let V?
+denote the set of all finite strings over V. An LFG grammar G over a set ?
+ofattribute and value symbols is defined as follows:Definition 1An LFG grammar G (over attribute?value set ?)
+is a 4-tuple (N,T, S,R) where N is afinite set of nonterminal categories, T is a finite set of terminal symbols, S ?
+N is theroot category, and R is a finite set of annotated productions of the formA ?
+X1 .. XmD1 Dmwith A ?
+N and X1..Xm ?
+(N ?
+T)?.
+(Note that R might contain -productions, al-though these do not appear in most current linguistic descriptions.)
+Each annotateddescription Dj (j = 1, ..,m) is a (possibly empty) finite set of equalities between expres-sions of the form (?
+?
+), (?
+?
+), or v where v is a value of ?
+and ?
+is a possibly emptysequence of attributes of ?.
+When ?
+is empty, (?
+?
+), (?
+?)
+are equivalent to ?
+and ?,respectively.77 Note that this definition permits equations containing terms of the form (?
+?
+), with ?
+nonempty, and thatit does not require ?
+and ?
+to occur in the annotation of each category.
+It thus allows for grammars thatassign to sentences multiply rooted f-structures or f-structures consisting of totally unconnected parts.We take the ?f-structure of a sentence?
+to be the collection of all elements that correspond to c-structurenodes, even those that are not accessible from the root node?s f-structure.873Computational Linguistics Volume 38, Number 4We next define how instantiated descriptions are obtained from the rules by sub-stituting for the ?
+and ?
+metavariables elements drawn from a collection of terms.C-structure nodes are included among the terms, but later on we also make use of addi-tional elements.
+We define a function Inst that assigns to each m-ary rule r, term t, andterm sequence t1..tm the instantiated description that is obtained from the annotationsof r and the terms by substituting t for ?
+and tj for ?
+in the annotations of all j = 1, ..,mdaughters.
+In the following definition we use the (more compact) linear rule notationA ?
+(X1,D1)..(Xm,Dm) that we prefer in more formal specifications.Definition 2Let r be an m-ary LFG rule A ?
+(X1,D1)..(Xm,Dm) (m ?
+0) and ?
+= (t, t1..tm) be a pairof a term and a sequence of terms of length m. Then the instantiated description thatresults from r and ?
+is given byInst(r, ?)
+=m?j=1Inst(Dj, t, tj)where Inst(Dj, t, tj) is the instantiated description produced by substituting t for alloccurrences of ?
+in Dj and substituting tj for all occurrences of ?
+in Dj.The derivation relation for LFG grammars (?G) is defined as already describedinformally in the previous section.
+This is based on context-free derivation trees.
+Letus assume that root is the root node of any c-structure c, and that dts is a function thatassigns to each nonterminal node n of c the sequence of its immediate daughters (dts(n)).Context-free derivations are then defined as follows:Definition 3A labeled tree c and a rule-mapping ?
+from the nonterminal nodes of c into the rules ofcontext-free grammar G is a context-free derivation of string s from nonterminal B inG iff(i) the label (category) of root is B,(ii) the yield is s,(iii) for each nonterminal node n with label A and dts(n) = n1..nm withlabels X1, ..,Xm, respectively, ?n = A ?
+X1..Xm.When we informally described LFG derivations, we pointed out that we obtain thef-structure from the (up to isomorphism) unique minimal model of the f-descriptionby restricting it to the attribute?value set ?.
+This is formalized in the following def-inition by requiring the f-structure to be isomorphic (?=) to M|?, the restriction to ?of a minimal model M of the derived f-description.
+The effect of the isomorphismis to abstract away from the particular properties of different f-structure models thathave no linguistic significance.
+Moreover, because we operate on an arbitrary mem-ber of the class of isomorphic structures without regard to any of its accidental ornonsignificant properties, we know that our analysis applies to all members of theclass.874Wedekind and Kaplan LFG Generation by Grammar SpecializationDefinition 4A labeled tree c and a mapping ?
+from the nonterminal nodes of c into R is an LFG deri-vation of string s with functional description FD and f-structure F in LFG grammar G iff(i) the label of root is S,(ii) the yield is s,(iii) for each nonterminal node n with label A and dts(n) = n1..nm withlabels X1, ..,Xm, respectively, ?n = A ?
+(X1,D1)..(Xm,Dm),(iv) FD =?n?Dom(?
+)Inst(?n, (n, dts(n))),(v) FD is satisfiable,(vi) FD  a = v if v is an atomic feature value and a is any other constant(atomic feature value or node) occurring in FD,(vii) FD  (v ?)
+= (v ?)
+if v is an atomic feature value and ?
+is a nonemptysequence of attributes,(viii) M|?
+?= F where M is a minimal model of FD.Conditions (vi) and (vii) are syntactic versions of the constant/constant and con-stant/complex clash conditions that together capture LFG?s functional uniquenesscondition (the denotations of an atomic feature value and any other distinct atomicfeature value or node constant have to be distinct (vi); atomic feature values have noattributes (vii)).8 A model of an f-description, like the restricted one in (viii), is a pair(U , I) consisting of a universe U and an interpretation function I.
+The interpretationfunction assigns to each constant occurring in the f-description an element of U andto each attribute a unary partial function on U .Note that we create the f-description by instantiating the ?
+?s and ?
+?s by the nodes ofa given c-structure.
+Thus, we conceive of these terms as constants and will refer to themon the f-description level sometimes as node constants rather than nodes.
+Because theinstantiating nodes are uniquely determined if we have a mapping ?
+licensing a givenc-structure, in the following we abbreviate Inst(?n, (n, dts(n))) by Inst(?n).In general, two descriptions D and D?
+are said to be equivalent (D ?
+D?)
+iff therestrictions of their minimal models to ?
+are isomorphic.Definition 5Let D and D?
+be two descriptions with minimal models M and M?.
+Then D ?
+D?
+iffM|?
+?= M?|?.From Definition 4 we obtain the derivability relation ?
+as follows.Definition 6A terminal string s is derivable with f-structure F in G (?G(s,F)) iff there is a derivationof s with F (with some f-description FD) in G.8 Usually, conditions (vi) and (vii) are taken to be additional nonlogical axiom schemata of some traditionalequational logic expressive enough to axiomatize LFG?s underlying feature logic.
+Because we are notprimarily interested in completely axiomatizing LFG?s formal devices within some appropriatemeta-theory, we enforce the special properties of LFG?s atomic feature values by definition and assumethat standard first-order logic with equality is used to determine satisfiability.875Computational Linguistics Volume 38, Number 4In this context we repeat the definition of the set of stringsGenG(F) that an LFG grammarG relates to a given f-structure F:Definition 7For any LFG grammar G and any f-structure FGenG(F) = {s ?
+T?
+| ?G(s,F)}.In the next section we establish the basic result of this article: We present an al-gorithm to construct for an arbitrary LFG grammar G and any acyclic f-structure F aparticular context-free grammar that provides a formal representation for the languageGenG(F).3.
+Constructing the Specialized Grammar for GenG (F)In the process of generation, the c-structures and the f-descriptions for an inputf-structure F are the unknowns that must be discovered to confirm that a given stringbelongs to the set GenG(F).
+The set of valid c-structures that G provides for F is clearlya subset of the trees that are generated by the context-free backbone of G. But thissubset might be infinite, as we have already seen with the input (9) and the grammarin (8), because there is in general no fixed finite upper bound on the length of thestrings related to F or the size of their c-structures.
+Whether or not a given tree is avalid c-structure for F then depends on the properties of the f-description that arisesby instantiating with the proper node constants the annotations on the individual rulesthat license the derivation of that tree.
+The valid c-structures are just those trees forwhich F is the f-structure of the resulting f-description.Because of the possibly unbounded size of the c-structures, there is also no fixedupper bound on the number of node constants that may occur in an f-description forF.
+However, because the number of f-structure elements to which the node constantsactually refer is bounded by the size of F, it must be possible to obtain for any derivedf-description FD an equivalent description whose constants are drawn from a fixedfinite set.
+For instance, if we introduce a distinct canonical constant for each elementof F, we can create an equivalent description by substituting for each node constantin FD the canonical constant associated with the functional element corresponding tothat node.
+This substitution typically reduces the number of distinct terms needed forinstantiation, and its usual effect is to replace several different node constants with asingle canonical term.
+But these replacements will provide an equivalent descriptionbecause we substitute a given term for two node constants if and only if it logicallyfollows from FD that those two nodes map to the same element of F. Thus, if FDdiscriminates between two elements of F, so will the description that results from sucha reducing substitution.Our context-free grammar construction crucially depends on the ability to findfor every f-description of F (from every possible c-structure) an equivalent descrip-tion that involves only a finite number of distinct instantiation terms.
+This is whatenables us to simulate all the conditions for correct LFG generation with a finite set ofcontext-free category labels and a finite set of context-free productions, and thus torely on the finite control of the rule-by-rule category matching process of context-freegeneration to produce the strings in GenG(F).876Wedekind and Kaplan LFG Generation by Grammar SpecializationThe set of terms that correspond directly to the elements of F is large enoughto enforce all functional discriminations for an f-description associated with a com-plete c-structure, as we have suggested.
+But unfortunately that set may not be largeenough to keep track of all necessary distinctions as an f-description is created in anincremental context-free derivation process.
+For some f-structures and some grammarsit may not follow from the description associated with one portion of a derivationtree that two nodes map to the same functional element, even though that identitydoes follow when equations in the f-description for the entire tree are taken intoaccount.Suppose that a three-daughter LFG start rule provides the instantiated annotations(root F) = n1, (root G) = n2, and root = n3.
+Based only on this information we cannottell whether n1 and n2 can map to the same element of the f-structure and thereforewhether it is correct to substitute the same canonical constant for both of them.
+Itdepends on whether the larger description that incorporates the expansion of the thirddaughter implies the identity of the n1 and n2 structures.
+The same-constant substitutionwould preserve equivalence only if the larger description implies that (n3 F) = (n3 G).We must have two distinct constants available until that implication is deduced in thecourse of the derivation, even if the input f-structure does not contain separate ele-ments for those constants to correspond to.Thus the set of constants needed to correctly reduce an arbitrary description as aderivation proceeds incrementally may be larger than the number of elements in theinput f-structure and larger than what is required for an equivalent description for acomplete derivation.
+However, for each acyclic F we show that there is always a finiteset of canonical terms that can maintain all necessary functional discriminations as aderivation unfolds.
+We use this set to construct a reducing substitution that permitsgeneration to be carried out under finite control.
+In contrast, we observe in Section 6that the partial descriptions of cyclic structures cannot safely be reduced without anunbounded number of canonical terms.For the derivations that the simple LFG grammar in (8) provides for the input[H V], we can accomplish the reduction of the f-description space with only two terms,the canonical constant root and a separate canonical constant?
+that serves as a value forall nodes that do not occur in an f-description.
+Let us start with the shortest derivationfor the given input.
+This consists of the c-structure in (10), which is licensed by therule-mapping ?root =S?
+a b(?
+H) = V .
+(10) Srootan1 bn2If we pair the licensing rule with its instantiating nodes (root,n1 n2), we arrive at theinstantiated rule(S?
+a b(?
+H) = V , (root,n1 n2 )).
+The reduction can be accomplished by apply-ing to the instantiating nodes a substitution that replaces root by root and both n1 andn2 by ?.
+This produces the instantiation(S?
+a b(?
+H) = V , (root,??
+))from which we obtainthe description {(root H) = V}.
+This is identical to the description that arises from theoriginal node-instantiated rule, because the ?
+does not occur in the annotations.
+Thereduction for all other derivations of [H V] is illustrated in Figure 3.
+The substitutionsof the node constants of the schematically represented derivations by canonical termsare indicated by assigning the canonical term values to the nodes.
+If we consider theresulting instantiation of the applied rules at the bottom of column (b), we observe that877Computational Linguistics Volume 38, Number 4Figure 3Schematic representation of the derivations of length > 1 with f-structure [H V] admittedby the grammar in (8).
+The right-hand side shows the instantiated descriptions produced byappropriately instantiating metavariables by node constants in column (a) and by particularcanonical canonical terms in column (b).the f-description of each derivation of the input in G reduces to the description (11a)and that this is the description that results for any derivation with the set of instantiatedrules depicted in (11b).
+(11) a.
+{root = root,(root H) = V}b.?????
+(S?a S b?
+= ?
+, (root,?
+root?)),(S?
+a b(?
+H) = V , (root,??))????
+?The reducibility of the f-description space for F provides the key insight for ourcontext-free grammar construction.
+The construction is accomplished in three steps.
+Inthe first step we identify (as illustrated earlier) a finite set of canonical terms that canserve in reducing the f-description space that G provides for F.In the second step we use these terms to construct a set of instantiated rulesof G. These instantiations are ?appropriate?
+in the sense (to be made precise later)that they maintain all necessary distinctions.
+They are formed by associating withthe metavariables canonical terms that can legitimately be used to reduce the corre-sponding nodes of a local tree of a potential derivation of F. For the grammar (8)and the terms root and ?, for example, there are only three appropriately instantiatedrules, the two rules contained in (11b) and(S?
+c(?
+H? )
+= V?
+, (root,?)).
+We then determineall collections of appropriately instantiated rules that together provide descriptionsof F without mistakenly collapsing a functional discrimination.
+For our particular ex-ample there are just two collections of instantiated rules that provide a description of[H V], namely,{(S?
+a b(?
+H) = V , (root,??
+))}and the set in (11b).
+These collections are drawn878Wedekind and Kaplan LFG Generation by Grammar Specializationfrom the power set of the appropriately instantiated rules, so there is only a finitenumber of them and each contains a finite number of instantiated rules.
+This ensuresthat we can determine the f-description space that G provides for F without knowingthe details of the derivations for F and their reductions.In the third and final step we create the context-free grammar that simulates exactlythose derivations in G whose strings are assigned the f-structure F. The categories ofthis new grammar consist of refinements of the categories of the context-free backboneof G together with a distinct root category SF.
+The original categories are augmentedwith two additional components, a canonical instantiation term as used in the first step,and a subset of one of the instantiated-rule collections determined in the second step.The term component is used to encode the reducing substitution for the f-descriptionof a simulated derivation, and the rule component is used to record the reduced in-stantiations of the licensing LFG rules whose application must still be simulated inorder to complete that derivation.
+The productions of the new grammar are createdfrom the rules contained in the instantiated-rule collections by replacing the originalcategories by a certain number of their refinements, and then adding a particular set ofstart rules.
+The start rules expand the root category of the new grammar to the originalstart symbol augmented by root and one of the instantiated-rule collections determinedin the second step.The context-free grammar thus constructed has a much larger set of categories andmany more rules than G. It is organized so that the normal matching of categories in acontext-free derivation globally ensures that the refined rules simulate all derivationsof F in G whose f-description is reducible to a description provided by one of theinstantiated-rule collections determined in the second step.
+Because we have alreadyindicated that every f-description of F must be reducible to a description provided byone of these instantiated-rule collections, the constructed grammar simulates exactlythe set of derivations that G provides for F. The strings of GenG(F) are obtained byremoving the additional components from the categories of the terminal strings.
+Withr1 abbreviating(S?a S b?
+= ?
+, (root,?
+root?
+))and r2 abbreviating(S?
+a b(?
+H) = V , (root,??
+))ourconstruction produces for the LFG grammar in (8) and the input [H V] a context-freegrammar that contains the rules in (12).
+(12) a. SF ?
+S:root:{r1, r2} b. SF ?
+S:root:{r2}c. S:root:{r1, r2} ?
+a:?:?
+S:root:{r1, r2} b:?:?d.
+S:root:{r1, r2} ?
+a:?:?
+S:root:{r2} b:?:?
+e. S:root:{r2} ?
+a:?:?
+b:?
+:?These derive the set of terminal strings {a:?
+:?n b:?
+:?n | 1 ?
+n}.
+By removing the terminalrefinements we obtain {an bn | 1 ?
+n} and thus exactly the set of strings that the gram-mar in (8) relates to [H V].
+The rules (12b,e) simulate the derivation with the c-structurein (10) and the rules (12a,c?e) simulate the derivations of length> 1.
+Rule (12c) simulatesrecursions of the S rule of (8) and an application of rule (12d) terminates a recursionbecause it consumes r1.
+An application of rule (12e) consumes r2 and terminates thederivations.In the remainder of this section we first identify the finite set of canonical termsthat can be used to reduce the f-description space for a given f-structure F derivablewith an LFG grammar G. We then investigate in Section 3.2 the problem of reducing thef-description space for F and G. In Section 3.3 we give a precise recipe for constructingthe context-free grammar for F and G, and in Section 3.4 we illustrate this with a fewexamples.879Computational Linguistics Volume 38, Number 43.1 Identifying the Reducing TermsOur reduction of the f-description space makes use of the fact that we can eliminate cer-tain node constants from an f-description FDwithout risk of producing a description notequivalent to the original.
+This is because some node constants can be defined in termsof others.
+We proceed rule-wise top?down based on the following definability relation.Definition 8Let r be an m-ary LFG rule, t be a term, and a1..am be a sequence of constants of length m,each of them not occurring in t. A constant aj is m(other)-definable in Inst(r, (t, a1..am))iff there is a (possibly empty) ?
+such that Inst(r, (t, a1..am))  aj = (t ?
+).If the constant aj that instantiates the ?
+for a particular daughter is m-definable in termsof (t ?)
+in Inst(r, (t, a1..am)), then all functional discriminations will be preserved if aj iseliminated in favor of the term (t ?)
+from any description containing this instantiateddescription of r.To illustrate the elimination process, let us assume that our grammar includesamong its rules the ones in (13).
+(13) a.
+S ?
+NP VP(?
+SUBJ) = ?
+?
+= ?b.
+VP ?
+V ADVP?
+= ?
+?
+= ?c.
+ADVP ?
+ADV ADVP(?
+ADJ) = (?
+ELE) ?
+= ?d.
+ADVP ?
+ADV(?
+ADJ) = (?
+ELE)e. NP ?
+John(?
+PRED) = 'JOHN'f.
+V ?
+fell(?
+PRED) = 'FALL?(SUBJ)?'(?
+TENSE) = PASTg.
+ADV ?
+today(?
+PRED) = 'TODAY'h.
+ADV ?
+quickly(?
+PRED) = 'QUICKLY'In this grammar fragment we use equational annotations in the adverbial phraserules (13c) and (13d) instead of the more traditional set-membership statements (Kaplanand Bresnan 1982).
+This is another way of allowing for multi-valued attributes thatwas the original motivation for introducing set representations into LFG theory.
+Weuse the equational treatment here to illustrate the fact that undefinable and henceineliminable constants can arise even when equality is the only formal device in anf-description.
+The adverbial rules also illustrate that undefinable constants can figure inthe description of multiply rooted f-structures.
+The rules in (13) provide, for example,the derivation depicted in Figure 4.
+The figure shows the f-structure on the left-handside and the instantiated descriptions of the licensing rules associated with the nodesof the c-structure on the right-hand side.
+This more conventional way of depictingderivations (Kaplan and Bresnan 1982) makes it easy to see the mother-definabilityrelation and at the same time permits the licensing rule-mapping to be read from theannotated c-structure.
+The complete f-description is shown as a set in (14).(14)?????????
+(root SUBJ) = n1, (n1 PRED) = 'JOHN',root = n2, n2 = n4,n2 = n5,n5 = n8,(n4 PRED) = 'FALL?(SUBJ)?
+', (n4 TENSE) = PAST,(n5 ADJ) = (n7 ELE), (n7 PRED) = 'TODAY',(n8 ADJ) = (n10 ELE), (n10 PRED) = 'QUICKLY'????????
+?880Wedekind and Kaplan LFG Generation by Grammar SpecializationSrootNPn1(root SUBJ) = n1VPn2root = n2Johnn3(n1 PRED) = 'JOHN'Vn4n2 = n4ADVPn5n2 = n5felln6(n4 PRED) = 'FALL?(SUBJ)?
+'(n4 TENSE) = PASTADVn7(n5 ADJ) = (n7 ELE)ADVPn8n5 = n8todayn9(n7 PRED) = 'TODAY'ADVn10(n8 ADJ) = (n10 ELE)quicklyn11(n10 PRED) = 'QUICKLY'????
+?SUBJ[PRED 'JOHN']PRED 'FALL?(SUBJ)?
+'TENSE PASTADJ?????
+[ELEPRED 'TODAY'][ELEPRED 'QUICKLY']Figure 4The derivation of John fell today quickly with the rules in (13).In this derivation, the node constants n1,n2,n4,n5, and n8 are m-definable whereasroot, the adverbial nodes n7 and n10, and the terminal nodes are not.
+For all m-definableconstants, we can construct definitions rule-wise top?down in the following way.
+Webegin with the start rule and derive from its instantiated description {(root SUBJ)= n1,root= n2} the definitions n1 = (root SUBJ) and n2 = root for the m-definable daughters n1and n2.
+We then continue with the rules that expand n1 and n2.
+Let us consider the VPrule that expands n2.
+For the m-definable n2 we use the already constructed definitionto replace n2 by its defining term root in the instantiated description of the VP rule.From Inst(VP?
+(V,{?
+= ?
+})(ADVP, {?
+= ?
+}), (root,n4 n5)) we then derive the definitionsn4 = root and n5 = root for its m-definable daughters, and so forth.
+If we run like thisthrough the whole derivation, for all m-definable daughters we obtain defining termsthat do not contain mother-definable node constants.
+For our example these are theones in (15).
+(15) n1 = (root SUBJ)n2 = rootn4 = rootn5 = rootn8 = rootBy substituting all mother-definable node constants by their defining terms we canthen produce from the original f-description the equivalent description in (16).(16)?????????
+(root SUBJ) = (root SUBJ), (root SUBJ PRED) = 'JOHN',root = root,(root PRED) = 'FALL?(SUBJ)?
+', (root TENSE) = PAST,(root ADJ) = (n7 ELE), (n7 PRED) = 'TODAY',(root ADJ) = (n10 ELE), (n10 PRED) = 'QUICKLY'????????
+?Notice that for each acyclic f-structure F the maximal length of the ?
+in the definingterms is bounded by the depth of F.Thus we see that a mother-definable constant can be eliminated in favor of aconstant corresponding to a higher node and a sequence of attributes leading down881Computational Linguistics Volume 38, Number 4through the f-structure.
+The constants that are not eliminable are the root constant root (ifit occurs in FD) and all daughter constants that occur in FD but are not mother-definable.At least for acyclic f-structures, however, we can show that there is an upper boundon the number of these remaining constants.
+This is because the remaining constantsmust each denote one of the elements of the given f-structure, but no two of them candenote the same element.
+This is a consequence of LFG?s instantiation procedure andfunctional uniqueness condition, and the acyclicity of the f-structure.Given LFG?s instantiation procedure, as formalized in Definition 2, two distinctnode constants can be related in a single equation only if the nodes stand in a mother?daughter relationship.
+Thus a daughter and a node external to the mother cannot berelated directly by instantiation but only as a consequence of a deduction involvingat least one instantiated annotation of some other licensing rule.
+Because of LFG?sfunctional uniqueness condition the equations involved in such a deduction cannotcontain atomic feature values.
+The constant/complex clash condition (vii) of Defini-tion 4 prevents atomic values from being substituted for proper subterms and theconstant/constant clash condition (vi) prevents them from being equated to nodes.
+Thussuch a deduction can only involve equations relating a daughter to its mother (or a nodeto itself).If an undefinable daughter corefers with a node external to the mother, then thededuction that relates them must involve an instantiated annotation of that daugh-ter that is (up to symmetric permutation) of the form (?
+?)
+= (?
+??)
+with |?
+?| > 0(such as the adverbial annotations previously mentioned), and there must be deduc-tions from other equations that induce a cycle.
+This is demonstrated in the followinglemma.Lemma 1Let c and ?
+be a derivation with f-description FD for an acyclic f-structure in G. If nj is a daughterof n and nj is not m-definable in Inst(?n) then FD  nj = (n?
+?)
+for all n?
+not dominated by njand all (possibly empty) sequences of attributes ?.ProofLet nj be a daughter of n that is not m-definable in Inst(?n) and suppose that nj = (n?
+?
+)would follow from FD for node n?
+not dominated by nj.
+Assume further that FD andthe instantiated descriptions of the licensing rules are closed under symmetry.
+Nowrecall that the rule of substituting equals for equals has the forme t = t?e?where e is an equation containing subterm t and e?
+is obtained from e by replacing oneoccurrence of t in e by t?.
+Then we know that there is an equation t = t?
+that is eitherin FD (or follows from FD by partial reflexivity9) such that nj = (n?
+?)
+is derivable fromt = t?
+by a left-branching substitution proof of the form9 It may be the case that such a left-branching proof must start with a reflexive equation t = t that is not inFD but can be inferred by partial reflexivity from an equation (t ?)
+= t??
+in FD.
+Partial reflexivity is therestriction of reflexivity to well-defined (object denoting) terms.
+It is a sound inference rule for the theoryof partial functions for which full reflexivity does not hold.882Wedekind and Kaplan LFG Generation by Grammar Specialization???
+?t= t?(n??)(n??)(nj???)????(n??)(n??)(nj???)
+t= t?
+(i) (ii)Figure 5Possible dominance relations between nj and the node occurring in t?.
+(i) The node occurring int?
+is dominated by nj.
+Note that n might occur in t. (ii) The node occurring in t?
+is not dominatedby nj.
+As a special case, t might be (nj ??).
+The dashed and dotted arrows indicate the treetraversal performed in the rewriting proofs of nj = (n?
+?)
+from t = t?, that is, the sequences ofnodes that must appear in the equations used to rewrite t to nj and t?
+to (n?
+?
+), respectively.t = t?
+t1 = t?1e1 .
+.
+.em?1 tm = t?mnj = (n?
+?
+)where t is rewritten to nj and t?
+to (n?
+?)
+by a sequence of substitutions all justified byequations ti = t?i ?
+FD, i = 1, ..,m (cf.
+Statman 1977; Wedekind 1994, Section 4).
+Becauseof LFG?s instantiation procedure and the constant/constant and constant/complexclash conditions, each premise of this proof must have the form (n?
+??)
+= (n?
+??)
+whereeither n?
+and n?
+are in a mother?daughter relation or n?
+= n?.
+Depending on the dominancerelation between nj and the node occurring in t?
+there are two possible cases.
+Theseare illustrated in Figure 5.
+(i) If the node occurring in t?
+is dominated by nj then theremust be a premise (nj ??)
+= (n ?)
+from Inst(?n) such that t?
+is rewritten to (nj ???)
+and(nj ???)
+to (n ??).
+Because FD  t = nj and hence FD  nj = (nj ???
+), |?
+?| = 0 due toacyclicity.
+Thus nj = (n ?)
+?
+Inst(?n), contradicting the undefinability assumption.
+(ii) Ifthe node occurring in t?
+is not dominated by nj there must be a premise (n ?)
+= (nj ??
+)from Inst(?n) such that either t is rewritten to (n ??)
+and then to (nj ???
+), or t = (nj ??
+).Since FD  t = nj, we get in both cases |?
+?| = 0 because of acyclicity and thus the samecontradiction as in (i).The following corollary follows directly from Lemma 1.Corollary 1Let c and ?
+be a derivation with f-description FD for an acyclic f-structure in G. If nj is a daughterof n and nj is not m-definable in Inst(?n) then(i) FD  nj = root, and(ii) FD  nj = n?i for any distinct node n?i that is not definable in terms of itsmother n?
+in Inst(?n?
+).883Computational Linguistics Volume 38, Number 4From Corollary 1 it immediately follows that the denotations of FD?s undefinablenode constants are biunique.
+So, their number must be less than or equal to the size ofthe universe of a minimal model M of FD.
+Suppose F is the f-structure for a derivationwith f-description FD.
+Because F is isomorphic to M|?
+for any minimal model M ofFD, and M|?
+and M share the same universe, we can use F?s (finite) universe to definethe constants that we require.
+Thus for each element a of the universe of F that is notdenoted by an atomic value we introduce a constant aa.10Definition 9Let F be an f-structure with F = (U , I).
+We define the set of constants CF byCF = {aa | a ?
+U and there is no atomic feature value v with I(v) = a}.The set CF provides a sufficient number of constants to produce an equivalent reduceddescription by a biunique renaming of the node constants that remain after the m-definable ones are eliminated.The renaming of the remaining undefinable constants can be accomplished, forexample, if we map in the natural way each mother-undefinable daughter n correspond-ing to a in the isomorphic image F of M|?
+to the constant aa.
+Because of Corollary 1,such a mapping must be biunique.
+Hence it can be used to rename all undefinabledaughters occurring in FD and will thus produce an equivalent description where allnodes except root are replaced by constants drawn from F.As an illustration we pick for the f-structure depicted in Figure 4 the structurewith the universe in (17a) and the interpretation function whose directed acyclic graphrepresentation is given in (17b).11(17) a.
+{a, b, c, d, e, f, g, h, i, j}b. aPREDTENSE ADJSUBJb c d e'FALL?(SUBJ)?'
+PASTPREDELE ELEf g hPRED PRED'JOHN'i j'TODAY' 'QUICKLY'The constants we obtain from the structure (17) by Definition 9 are the ones in (18).
+(18) {aa, ad, ae, af, ag}10 From a computational point of view a constant aa can be regarded as the address of a or a pointer to a.11 According to our formalization, attribute symbols are interpreted by unary partial functions over theuniverse and atomic value symbols by elements of the universe.
+Thus the graph indicates, for example,that the interpretation function assigns to the attribute symbol PRED the (unary) partial function{(a, b), (e, h), (f, i), (g, j)} and to the attribute symbol ELE the partial function {(f, d), (g, d)}.
+Furthermore,it interprets the atomic value symbol 'FALL?(SUBJ)?'
+as denoting b and PAST as denoting c.884Wedekind and Kaplan LFG Generation by Grammar SpecializationNow, let M be a minimal model of our original f-description.
+Because an isomor-phism between M|?
+and our structure (17) must map the denotation of n7 in M to f andthe denotation of n10 to g, we can rename n7 by af and n10 by ag and obtain from (16) theequivalent description (19).(19)?????????
+(root SUBJ) = (root SUBJ), (root SUBJ PRED) = 'JOHN',root = root,(root PRED) = 'FALL?(SUBJ)?
+', (root TENSE) = PAST,(root ADJ) = (af ELE), (af PRED) = 'TODAY',(root ADJ) = (ag ELE), (ag PRED) = 'QUICKLY'????????
+?We next compose the substitution that is induced by the definitions of the definabledaughters and the substitution that we used to rename the undefinable daughters.This provides a substitution that allows us to produce from the original f-descriptionan equivalent description in a single transformation.
+If we compose the two sub-stitutions of our example, that is, the one induced by the definitions in (15) andthe renaming substitution {(n7, af), (n10, ag)}, we arrive at the reducing substitutionin (20).
+(20) {(n1, (root SUBJ)), (n2, root), (n4, root), (n5, root), (n7, af), (n8, root), (n10, ag)}We now give a precise specification of a (finite) set of terms that can serve as therange of the reducing substitutions for all derivations of an f-structure F. This set isobtained from the constants in CF and the attributes of F in the following way.
+Wefirst provide the constants CF with their intended interpretation by expanding F in thenatural way to the canonical structure F?
+for ?
+?
+CF.Definition 10Let F be an f-structure with F = (U , I).
+We define the canonical expansion F?
+of F to?
+?
+CF byF?
+= (U , I?)
+with I?
+= I ?
+{(aa, a) | aa ?
+CF}.In the canonical expansion F?, each element of the universe is denoted by exactly oneconstant.
+Each new constant aa is interpreted by a and each atomic feature value by itsoriginal denotation.A set TF of canonical terms that includes the ranges of the reducing substitutionsfor all possible derivations of F is a set that contains all terms of the form (aa ?)
+thatare defined in F?
+but do not denote an element already designated by an atomic featurevalue.
+It also contains all terms that we obtain from those by substituting root for theirconstant symbols.
+This set includes all constants of CF (because ?
+can be empty) and thusall possible constant values for the mother-undefinable daughters of a derivation for F.Because each element in the universe of F?
+is denoted by a constant, TF also containsall possible defining terms for the mother-definable nodes of that derivation.
+Termsreferring to the denotation of an atomic feature value are not required, since there are(because of the constant/constant clash condition) no node constants with the samedenotation as any atomic feature value.The node constant root is substituted for the CF constants in every term to accountfor the fact that different derivations may associate different functional elements withthe root of the c-structure.
+That would be the case, for example, if our grammar contains885Computational Linguistics Volume 38, Number 4in addition the S and VP rules (21a,b) and alternatively derives the adverbials with therules (21c,d).
+(21) a.
+S ?
+S ADVP?
+= (?
+ADJ) ?
+= ?b.
+VP ?
+V?
+= ?c.
+ADVP ?
+ADV ADVP?
+= (?
+ELE) ?
+= ?d.
+ADVP ?
+ADV?
+= (?
+ELE)With such a grammar we can derive the f-structure of Figure 4 also with an f-descriptionwhere root denotes the ADJ value and where the top of the f-structure is denoted by themother-undefinable S node that is expanded by the original start rule.
+As this exampleindicates, a grammar might produce several f-descriptions for the same f-structureby anchoring the description at different f-structure elements and then moving alongdifferent paths through the structure.
+This is why the term set must contain the entire setof constants CF (and the terms containing them) and not just the ones for the f-structureroots.Thus TF contains sufficiently many constant symbols and defining terms for thereducing substitutions to make all the distinctions that could arise from any c-structureand f-description for the given F. It is defined formally in the following way.Definition 11Let F = (U , I) be an f-structure.
+On the basis of the canonical expansion F?
+= (U , I?)
+of F to?
+?
+CF we first define the set of terms TFTF = {(aa ?)
+?
+Dom(I?)
+| aa ?
+CF and there is no value v ?
+?
+s.t.
+I?
+(v) = I?
+(aa ?
+)}.The set of terms TF that we will use for the grammar construction is then defined byTF = TF ?
+{(root ?)
+| there is a term (aa ?)
+?
+TF} ?
+{?
+}.For mathematical convenience we add the dummy constant?
+as a value for those nodesof the c-structure that are not interpreted in a minimal model of the f-description.
+Theseare just the ones that do not occur in the f-description.
+The complete set of terms for thestructure in (17) is given in (22).
+(22) { aa, ad, ae, af, ag,(aa ADJ), (aa SUBJ),(af ELE), (ag ELE)}?
+{root,(root ADJ), (root SUBJ),(root ELE)}?
+{?
+}We have illustrated that we can reduce the f-description of every derivation of an acyclicf-structure F to an equivalent description if we replace the node constants by termsof TF.
+But this assumes that the c-structure and the f-description are already known.Our grammar construction requires us to simulate this reduction without knowingin advance the details of either the c-structure or a particular f-description.
+And thatmeans only on the basis of the possible values of the reducing substitutions, namelyTF, and the rules of G.3.2 Reducing the f-Description SpaceWe now shift our attention to the rules of G and their instantiating terms, that is, to thearguments of the Inst function.
+These are pairs consisting of an m-ary rule r of G and its886Wedekind and Kaplan LFG Generation by Grammar Specializationinstantiating terms (t, t1..tm).
+Let us call such a pair an instantiation of r, or sometimessimply an instantiated rule.
+Let us further extend the reducing substitutions that weconstructed for the derivations of F to total functions by assigning root to root and ?to each non-denoting node constant.
+Now recall that the f-description of a particularderivation for F consists of the union of the instantiated descriptions of the rules thattogether license that derivation.
+If we consider these licensing rules together withtheir node instantiation, that is, pairs of the form (r, (n,n1..nm)), and use a reducingsubstitution for that derivation to replace the node constants in the instantiations bycanonical terms, then we obtain a collection of instantiated rules of the form (r, (t, t1..tm))all of which are instantiated by terms of TF.
+The union of the instantiated descriptions ofthese rules is identical to the description that the reducing substitution produces fromthe original f-description.
+Because R and TF are finite, the set of all instantiated-rulecollections that we obtain from the (possibly infinite) set of derivations of F by reducingtheir node-instantiated licensing rules must be finite too.
+This fact is crucial for ourgrammar construction.We further observe that the instantiated rules that result from this substitution arealso appropriate in the following sense.Definition 12Let r be an m-ary LFG rule in R of G (m ?
+0), F be an f-structure, (t, t1..tm) ?
+TF ?
+T mF ,and a1..am be a sequence of length m of pair-wise distinct constants not in TF.
+Thenthe instantiated rule (r, (t, t1..tm)) is appropriately instantiated (by terms of TF) iff thefollowing conditions are satisfied:(i) if tj = ?
+then aj is not interpreted in a minimal model of Inst(r, (t, a1..am)),(ii) if aj is m-definable in Inst(r, (t, a1..am)) then Inst(r, (t, a1..am))  aj = tj,(iii) otherwise tj ?
+CF, tj = t and tj = ti for all i = 1, ..,m with i = j.In the following the set of all appropriately instantiated rules is denoted by IRF (IRF ={(r, ?)
+?
+R?
+(TF ?
+T ?F ) | (r, ?)
+is appropriately instantiated}).The constants a1..am in this definition provide the same discriminations as the daughternodes of any local tree licensed by the rule.
+This definition is satisfied by rules that resultfrom eliminating node constants in favor of terms in the way that we have described.Such term-instantiated rules satisfy condition (ii), because whenever the mother isinstantiated by t and an m-definable daughter nj is reduced to a term (t ?)
+?
+TF thenalso Inst(r, (t, a1..am))  aj = tj (= (t ?)).
+Condition (iii) is satisfied, because of the pair-wise distinctness of the values for the mother-undefinable nodes, due to Corollary 1.And condition (i) holds, because non-denoting node constants are mapped to ?.12 Theset IRF of all possible appropriately instantiated rules is large but finite, because R andTF are finite.For our start rule (13a) S ?
+(NP, {(?
+SUBJ) = ?
+})(VP, {?
+= ?
+}), only the two instan-tiations in (23) are appropriate.12 Note that we cannot establish the converse of (i).
+This is because a daughter node constant that is notinterpreted in a minimal model of the instantiated description of a rule might occur in a statementintroduced by a rule expanding that daughter.
+In a minimal model corresponding to a largerderivational context such a daughter constant might thus belong to the interpreted symbols.887Computational Linguistics Volume 38, Number 4(23) a.(S?
+NP VP(?
+SUBJ) = ??
+= ?, (root, (root SUBJ) root))b.(S?
+NP VP(?
+SUBJ) = ??
+= ?, (aa, (aa SUBJ) aa ))The rule ADVP ?
+(ADV, {(?
+ADJ) = (?
+ELE)})(ADVP, {?
+= ?
+}), on the other hand, hasmany appropriate instantiations, among them the ones in (24).
+(24) a.(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (root, af root))b.(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (root, ag root))c.(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (aa, ag aa ))d.(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, ((aa ADJ), ag (aa ADJ)))Instantiations that are not appropriate for this rule are, for example, the ones in (25).
+(25) a.(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (root, root root))b.(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (aa, aa aa ))They are not properly discriminating, because the ADV node of any derived f-description must denote an entity distinct from the denotation of the mother and theother daughter node.The instantiations in (23a) and (24a) are the ones obtained from the derivation inFigure 4 and the reducing substitution (20).
+Note that the appropriately instantiatedrule (23b) that does not associate the S node with the root constant might result fromderivations where the top of the f-structure is not denoted by the root node of thec-structure, as illustrated with the rules in (21).So far we have considered only the individual instantiated rules that we obtain fromthe licensing rules of a derivation for F by replacing the node constants as describedby terms of TF.
+As a consequence of Corollary 1, we also observe that our reducingsubstitutions never replace undefinable daughters of two distinct node-instantiatedlicensing rules by one and the same constant.
+That is, the term-instantiated rules thatresult from two distinct node-instantiated licensing rules always satisfy the followingcompatibility relation.Definition 13Two appropriately instantiated rules (r, (t, t1..tm)) and (r?, (t?, t?1..t?l )) of IRF are compati-ble iffti = t?j for all ti, t?j ?
+CF with ti = t and t?j = t?
+(1 ?
+i ?
+m, 1 ?
+j ?
+l).Given appropriateness, the conditions ti ?
+CF and ti = t imply that ti is not definablein terms of t in the instantiated description of r. In essence, two instantiated rules arecompatible only if there are no repetitions of daughter constants instantiating mother-undefinable daughters: All shared daughter constants instantiate mother-definabledaughters.
+Incompatible instantiations do not respect the biuniqueness property givenby Corollary 1 and therefore cannot appear together in the set of TF-instantiated rulesfor any derivation of F. Note that this compatibility relation is symmetric, but reflexiveonly for those instantiated rules (r, (t, t1..tm)) where each daughter that is instantiated888Wedekind and Kaplan LFG Generation by Grammar Specializationby a constant from CF is mother-definable.
+As a consequence of Corollary 1, only an in-stantiated rule that is compatible with itself can emerge from two separate applicationsof r in a derivation of F.The instantiated rules in (26a?c), for example, are compatible while the ones in (26d)are not.
+The latter rules mistakenly introduce an identity that, because of Corollary 1,can never be derived by the grammar.
+The rules in (26a) result from reducing thelicensing rules of the derivation in Figure 4 with the reducing substitution (20).
+(26) a.(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (root, af root)) (ADVP?
+ADV(?
+ADJ) = (?
+ELE), (root, ag ))b.(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (root, ag root)) (ADVP?
+ADV(?
+ADJ) = (?
+ELE), (root, af ))c.(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (root, aa root)) (ADVP?
+ADV(?
+ADJ) = (?
+ELE), (root, af ))d.(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (root, af root)) (ADVP?
+ADV(?
+ADJ) = (?
+ELE), (root, af ))Our observations lead to a definition that characterizes reducing substitutions en-tirely in terms of the identified properties of the TF-instantiated rules and thus in away that will permit us to simulate their construction by a refinement of the context-free backbone of G. In the following definition we use Nc to denote the nodes of a c-structure c and ?[?]
+to indicate the expression that is obtained from an expression ?
+(term, sequence of terms, formula, set of formulas, etc.)
+and a substitution ?
+(mappingfrom constants to terms) by replacing all occurrences of constants a in ?
+simultaneouslyby ?
+(a).Definition 14Let c and ?
+be a derivation of f-structure F in G and ?
+be a mapping from Nc into TF.Then ?
+is a reducing substitution for the given derivation iff ?
+(root) = root, and for alln,n?
+?
+Dom(?)
+with n = n?
+(i) (?n, (n, dts(n))[?])
+is appropriately instantiated, and(ii) (?n, (n, dts(n))[?])
+is compatible with (?n?
+, (n?, dts(n?))[?
+]).That reducing substitutions in fact preserve equivalence is then established by thefollowing lemma.Lemma 2Let c and ?
+be a derivation with f-description FD and f-structure F in G. If ?
+is a reducingsubstitution for c and ?, then FD ?
+FD[?
+].ProofWe prove the lemma by induction on the number of nodes, according to a left-to-right,top?down traversal of the c-structure.
+Let c and ?
+be a derivation with f-description FDand f-structure F in G, M = (U , I) a minimal model of FD, and ?
+a reducing substitutionfor c and ?.
+We first define for each node n of c the set Nn consisting of all nodes higherthan n, all nodes of the same depth as n but preceding (on the left), and n. Now foreach Nn with |Nn| = i let the function ?i be the restriction of ?
+to Nn (?|Nn).
+Then wecan show by induction for each i = 1, .., |Nc| that FD ?
+FD[?i], that is, left-to-right, top?down.
+The equivalence is established by constructing a minimal model Mi also on theuniverse U of M. Thus the isomorphism between M|?
+and Mi|?
+is the identity function.889Computational Linguistics Volume 38, Number 4The basis, i = 1, is trivial, because ?1 = {(root, root)} by definition.
+Thus FD[?1] = FDand M1 = M is a minimal model of FD[?1].
+Hence FD ?
+FD[?1].
+For the induction step,let i > 1.
+Then FD ?
+FD[?i?1] by hypothesis.
+Let Mi?1 = (U , Ii?1) be a minimal modelof FD[?i?1], and suppose that node nj with mother n is the next node in the sequence(i.e., |Nnj | = i).If nj is not interpreted in M, it does not occur in FD and hence not in FD[?i?1].
+ThusFD[?i] = FD[?i?1], Mi = Mi?1 is a minimal model of FD[?i], and FD ?
+FD[?i].If nj is interpreted in M, there are two cases to consider.
+(a) If nj is m-definable in Inst(?n, (?i?1(n), dts(n))) and ?
+(nj)= tj then FD[?i?1]  nj = tj.Because nj does not occur in tj and hence not in FD[?i], FD[?i?1] is logically equivalentto the definitional extension FD[?i] ?
+{nj = tj} of FD[?i].
+Because tj occurs in FD[?i],Mi = Mi?1|(Dom(Ii?1)\{nj}) is a minimal model of FD[?i].
+Hence Mi?1|?
+?= Mi|?
+andFD ?
+FD[?i].
+(b) If nj is not m-definable in Inst(?n, (?i?1(n), dts(n))) then ?
+(nj) ?
+CF.
+Let ?
+(nj) = aa.Then aa cannot occur in FD[?i?1], because the instantiation is appropriate and pair-wise compatible and aa = root (= ?
+(root)).13 So the model Mi that results from Mi?1by renaming nj by aa must be a minimal model of FD[?i].
+Thus Mi?1|?
+?= Mi|?
+andFD ?
+FD[?i].Hence, FD ?
+FD[?|Nc|] = FD[?
+].Appropriateness and compatibility do not ensure that undefinable daughter con-stants are distinct from the root.
+This case is covered, however, because we kept rootfor the root.We indicated earlier that for an arbitrary derivation of an acyclic f-structure F wecan?dependent on a minimal model of its f-description?construct a substitution withrange TF that satisfies the conditions of Definition 14.
+We now provide a rigorous proofof this assertion.Lemma 3For every derivation of an acyclic f-structure F in G there exists a reducing substitution.ProofSuppose there is a derivation c and ?
+with f-description FD and f-structure F in G, thatFD has minimal model M = (U , I), and that h is an isomorphism between M|?
+and F.Suppose furthermore that c has depth k. For each i = 0, .., k we define by induction afunction ?i : Nc ?
+TF as follows.
+For the root (i = 0) we set ?0(root) = root.
+Suppose wehave defined ?i?1, 0 < i ?
+k. We then set ?i(n) = ?i?1(n) for all n ?
+Dom(?i?1).
+Now,let nj be a node of depth i with mother n. If nj is not interpreted in M we set ?i(nj) = ?.If nj is interpreted in M we set?i(nj) ={(?i?1(n) ?)
+s.t.
+Inst(?n) (n ?)
+= nj if nj is m-definable in Inst(?n)ah(I(nj )) otherwise.13 Of course, the constant aa cannot occur as a proper subterm of any other ?i?1 value.
+If ?i?1 were tomap a node n?
+to (aa ?)
+then n?
+must be m-definable and there must be a node dominating n?
+that isnot m-definable and mapped to aa.
+Because aa = root, aa must instantiate a daughter of another rule,contradicting compatibility.890Wedekind and Kaplan LFG Generation by Grammar SpecializationNow, let ?
+= ?k.
+Then ?
+trivially satisfies the appropriateness conditions (i) and (ii)by definition.
+Appropriateness condition (iii) and compatibility follow by Corollary 1.Thus ?
+is a reducing substitution for c and ?.Lemma 3 ensures that there exists a reducing substitution for every derivation ofan acyclic f-structure F in G. By Lemma 2 we know that such a substitution preservesequivalence.14 Thus, the collections of instantiated rules that result from the derivationsfor F and their reducing substitutions must belong to the set consisting of all possiblecollections of appropriately instantiated and pair-wise compatible rules that togetherprovide descriptions of F. If we extend the Inst function in the obvious way to sets ofinstantiated rules IRInst(IR) =?(r,?
+)?IRInst(r, ?
+)then this set is defined as follows.Definition 15Let F be an f-structure.
+Then IRDF is the set of all sets IR ?
+IRF such that(i) for all (r, ?
+), (r?, ??)
+?
+IR with (r, ?)
+= (r?, ??
+), (r, ?)
+is compatible with (r?, ??
+),(ii) M|?
+?= F, for a minimal model M of Inst(IR).This is a finite set whose size is bounded by a function of the sizes of R and TF.Lemma 2 also shows that we can produce an equivalent description for any derivedf-description of F, not only with the model-dependent substitutions used in the proofof Lemma 3, but in general with any mapping that satisfies the definition of a reducingsubstitution.
+This is important for our grammar construction, because it provides theconditions that we have to control to make sure that we simulate the derivations off-descriptions for F together with equivalence-preserving substitutions.
+Under theseconditions we can reduce the sets of node-instantiated licensing rules of the simulatedderivations to collections that are also included in IRDF.
+IRDF can be determined with-out knowing the details of the valid derivations for F, just on the basis of F and the LFGgrammar G alone.3.3 Producing the Context-free GrammarGFThe context-free grammar GF that simulates all valid derivations for F in G is specifiedin the following definition.
+From this we can produce all strings in GenG(F) by conven-tional context-free generation algorithms.Definition 16Let G = (N,T, S,R) be an LFG grammar and F be an acyclic f-structure.
+For G and Fwe construct a context-free grammar GF = (NF,TF, SF,RF) in the following way.
+Thecollection of nonterminals NF is the (finite) set{SF} ?
+(N ?
+TF ??
+{Pow(IR) | IR ?
+IRDF})14 Note that the particular substitution that we construct in the proof of Lemma 3 reduces FD to anequivalent description that is satisfied in an expansion of F?
+by an interpretation for root in U .891Computational Linguistics Volume 38, Number 4where SF is a new root category.
+Categories in NF other than SF are written A:t:IR, whereA is a category in N, t is a term in TF, and IR is a subset of a set of instantiated rules inIRDF.
+TF is the set T ?
+TF ?
+{?
+}.15 The rules RF are constructed from the annotated rulesR of G. We include all and only rules of the form:(i) SF ?
+S:root:IRroot, where IRroot is any element of IRDF,(ii) A:t:IR ?
+X1:t1:IR1..Xm:tm:IRm such that(a) there is an r ?
+R expanding A to X1..Xm,(b) IR = {(r, (t, t1..tm))} ?m?j=1IRj,(c) if (r, (t, t1..tm)) ?
+IRj (j = 1, ..,m), or (r?, ??)
+?
+IRi ?
+IRj and i = j(i, j = 1, ..,m), then (r, (t, t1..tm)), respectively (r?, ??
+), is compatiblewith itself.We define the projection Cat(X:t:IR) = X for every category in NF ?
+TF except SF andextend this function in the natural way to strings of categories and sets of strings ofcategories.
+Note that the setCat(L(GF)) = {s | ?s?
+?
+L(GF) such that Cat(s?)
+= s}is context-free, because the set of context-free languages is closed under homomor-phisms such as Cat.16Before presenting our main theorem and its proof let us sketch how the derivationsfor F in G are simulated by the context-free grammar GF.The grammar GF expands the root symbol SF to complex categories of the formS:root:IRroot containing the root category S of G as their first component.
+A derivationfrom S:root:IRroot in GF then consists of a phrase structure tree whose nodes are labeledwith refinements of the categories of the original LFG grammar.
+By taking the Catprojection of every category, we obtain the c-structure of at least one derivation for F inG that is simulated by the derivation from S:root:IRroot in GF.
+The term component of theaugmented categories encodes a reducing substitution ?
+for the simulated derivationwith the given c-structure.
+That is, if a node n in the GF derivation is labeled by X:t:IR,then ?
+(n) = t for the corresponding LFG c-structure tree.The component IR contains all instantiated rules of G that are required to licensethe subderivation in G that corresponds (under the Cat projection) to the subderivationfrom n in GF, except that the licensed nodes are replaced in the instantiated rules bytheir ?
+values.17 Thus, the additional components of the root label S:root:IRroot record15 The set of terminals TF is constructed from the full term set TF instead of just ?
+to allow for the possibilityof ?
+appearing in lexical entries (e.g., Zaenen and Kaplan 1995).16 Cf.
+Hopcroft and Ullman (1979).17 The rule component IR is a refinement of the third component of the categories defined in Kaplan andWedekind (2000).
+The categories there were distinguished by Inst(IR), the descriptions produced bycollecting the instantiated annotations from our third-component rules, and thus give a more compactrepresentation whenever different subderivations provide the same instantiated description.
+As wedemonstrated, such a simpler representation is sufficient to control the generation process for grammarswith a conventional set of descriptive devices.
+Instantiated descriptions, however, do not provideenough information for grammars with devices whose evaluation requires the c-structure to be takeninto account, as, for example, functional precedence (Bresnan 1995; Zaenen and Kaplan 1995).
+We showin Wedekind and Kaplan (forthcoming) that these devices can be modeled with our more elaborate rulerepresentation.892Wedekind and Kaplan LFG Generation by Grammar Specializationthat ?
+(root) is set to root (the initial condition for reducing substitutions) and that thenode-instantiated licensing rules of the simulated derivation are reduced to IRroot by ?.Each application of a rule A:t:IR ?
+X1:t1:IR1..Xm:tm:IRm that expands a nonterminal noden of the derivation in GF simulates the application of an LFG rule with context-free back-boneA ?
+X1..Xm whose instantiation with (t, t1..tm) combines with the instantiated-rulecomponents of all daughters to form the rule component IR of the mother.18 Now, ?must be a reducing substitution for the simulated derivation, because all instantiatedrules in IRroot are appropriately instantiated and pair-wise compatible and becausecondition (iic) of Definition 16 ensures that rules that are not self-compatible can onlybe used once for licensing the Cat projection.
+Thus, because of Lemma 2, the derivationin GF simulates a derivation of an f-description in G that ?
+reduces to the equivalentdescription provided by IRroot.We can also see that every derivation for F in G is simulated by a derivation inGF.
+We know from Lemmas 2 and 3 that we can construct for every derivation of anf-description for F in G a reducing substitution ?
+that produces a description equiv-alent to the original one.
+Based on ?
+we can then augment the category labels of thec-structure of a derivation for F in G by term and rule components that record ?
+andthe licensing rules (with the node constants replaced by their ?
+values).
+We thus obtaina derivation from S:root:IRroot where the instantiated description provided by IRroot isequivalent to the original f-description.
+Because GF contains a start rule for every setof appropriately instantiated and pair-wise compatible rules that provides a descriptionof F, there must also be a rule that expands SF to S:root:IRroot and the terminal string ofthe derivation for F in G must be the Cat projection of a derivable string in GF.We are now prepared to prove our main theorem.TheoremFor any LFG grammar G and any acyclic f-structure F, GenG(F) = Cat(L(GF)).ProofWe prove first that GenG(F) ?
+Cat(L(GF)).
+Suppose there is a derivation c and ?
+of aterminal string s with f-description FD and f-structure F in G. By Lemma 3, there exists areducing substitution ?
+for c and ?.
+Thus FD ?
+FD[?]
+by Lemma 2.
+We construct a deri-vation c?
+and ??
+of s?
+from S:root:IRroot with Cat(s?)
+= s. We obtain c?
+by relabeling eachnode n with label X by X:?
+(n):{(?n?, (n?, dts(n?))[?])
+| n dominates nonterminal node n?
+}.That means that the c-structures of both derivations share the same tree skeleton.
+We de-fine ??
+for each nonterminal node n with label A:?
+(n):IR and dts(n) = n1..nm with labelsX1:?
+(n1):IR1, ..,Xm:?
+(nm):IRm by ?
+?n = A:?
+(n):IR ?
+X1:?(n1):IR1..Xm:?(nm):IRm.
+BecauseFD[?]
+= Inst(IRroot) by construction of IRroot and because IRroot ?
+IRF and condition (i)of Definition 15 hold by the properties of ?, IRroot must be an element of IRDF.
+ThusSF ?
+S:root:IRroot is in RF.
+Moreover, Ran(??)
+?
+RF, because by construction the rulecomponents are subsets of IRroot, the rule components of the terminals are empty, andthe rules satisfy (iia,b) of Definition 16 by construction and (iic) because ?
+is a reducingsubstitution.
+Thus s ?
+Cat(L(GF)).We now prove that Cat(L(GF)) ?
+GenG(F).
+Suppose there is a GF derivation c?
+and??
+of s?
+from S:root:IRroot with Cat(s?)
+= s and IRroot ?
+IRDF.
+We first construct a newc-structure c with the same tree skeleton as c?
+by relabeling each node n with label X:t:IR18 Note that the licensing LFG rule might not be uniquely determined if the derivation in GF simulatesrecursions.893Computational Linguistics Volume 38, Number 4by X.
+We define a substitution ?
+by setting ?
+(n) = t for each node n with label X:t:IR.We then show that there is a mapping ?
+into R licensing c with FD ?
+Inst(IRroot).
+Byinduction on the depth of the subtrees we first define for each nonterminal n a function?n from all nonterminal nodes dominated by n into R such that(a) ?n licenses the subtree of c with root n,(b) IR = {(?nn?, (n?, dts(n?))[?])
+| n dominates nonterminal node n?}
+if n has labelA:t:IR in c?,and, for all n?, n?
+?
+Dom(?n) with n?
+= n?
+(c) (?nn?, (n?, dts(n?))[?])
+is appropriately instantiated and(d) (?nn?, (n?, dts(n?))[?])
+is compatible with (?nn?, (n?, dts(n?))[?
+]).Suppose n with dts(n) = n1..nm is expanded by ?
+?n = A:t:IR ?
+X1:t1:IR1..Xm:tm:IRm inc?, then there is a rule r ?
+R satisfying the conditions of Definition 16(ii).
+Thus, r ex-pands A to X1..Xm, IR = {(r, (t, t1..tm))} ?m?j=1IRj, and (r, (n, dts(n))[?])
+= (r, (t, t1..tm)) bydefinition of ?.
+If n is a preterminal node then IRj = ?
+(for each j = 1, ..,m).
+We thenset ?n = {(n, r)} and (a)?
+(d) hold trivially.
+If ?nj has been defined for all nonterminaldaughters nj we set ?n = {(n, r)} ??
+{?nj | nj is a nonterminal daughter of n}.
+Then (a)?
+(c) by construction of ?
+?n and by the inductive hypothesis, and (d) by Definition 16(iic)and because IR ?
+IRroot by Definition 15(i).
+So, ?
+= ?root licenses c, ?
+is a reducingsubstitution for c and ?, and FD ?
+FD[?]
+by Lemma 2.
+Then FD[?]
+= Inst(IRroot) by (b)and thus s is derivable in G with F.The following corollary is an immediate consequence of this theorem.Corollary 2For any LFG grammar G and any acyclic f-structure F, GenG(F) is a context-free language.3.4 A Few ExamplesIn the preceding sections we have shown how to construct a context-free grammarthat generates exactly the set of strings that an LFG grammar assigns to a givenf-structure.
+Those strings can be produced by running a context-free generator withthat grammar.
+In this section we provide examples to illustrate the derivation space ofthe constructed context-free grammar and the correspondence between the derivationsof the constructed grammar and the derivations of the original LFG grammar.As one illustration of the correspondences between the derivations, let us considerthe f-structure F in (27) and the LFG grammar with the rules (13) and the VP rule in (2).(27)??
+?SUBJ[PRED 'JOHN']PRED 'FALL?(SUBJ)?
+'TENSE PAST??
+?For this grammar there is only one derivation of a string with the given f-structure,the one that is depicted in the upper part of Figure 6.
+The figure shows the derivationwith all its components, that is, the c-structure, the rule-mapping ?
+together with thenode instantiation of the licensing rules, and the f-description.
+This LFG derivation is894WedekindandKaplanLFGGenerationbyGrammarSpecializationLFG derivationSroot????
+S?
+NP VP(?
+SUBJ)= ??
+= ?
+(root,n1n2 )NPn1????
+NP?
+John(?
+PRED)= 'JOHN' (n1,n3 )VPn2????
+VP?
+V?
+= ?
+(n2,n4 )Johnn3 Vn4????
+V?
+fell(?
+PRED)= 'FALL?(SUBJ)?'(?
+TENSE)= PAST(n4,n5 )felln5f-description???????????
+(root SUBJ) = n1,root = n2,(n1 PRED) = 'JOHN',n2 = n4,(n4 PRED) = 'FALL?(SUBJ)?
+',(n4 TENSE) = PAST??????????
+?reducing substitution?
+(root) = root?
+(n1) = (root SUBJ)?
+(n2) = root?
+(n3) = ??
+(n4) = root?
+(n5) = ?context-free derivationSFS:root:?????????????????????????(S?
+NP VP(?
+SUBJ)= ??
+= ?, (root, (root SUBJ) root)),(NP?
+John(?
+PRED)= 'JOHN', ((root SUBJ),?)),(VP?
+V?
+= ?, (root, root)),(V?
+fell(?
+PRED)= 'FALL?(SUBJ)?'(?
+TENSE)= PAST, (root,?))????????????????????????
+?rootNP:(root SUBJ):{(NP?
+John(?
+PRED)= 'JOHN', ((root SUBJ),?))}n1VP:root:???????(VP?
+V?
+= ?, (root, root)),(V?
+fell(?
+PRED)= 'FALL?(SUBJ)?'(?
+TENSE)= PAST, (root,?))???????n2John:?:?n3V:root:{(V?
+fell(?
+PRED)= 'FALL?(SUBJ)?'(?
+TENSE)= PAST, (root,?))}n4fell:?
+:?n5instantiated description of thestart rule?s rule component?????????
+(root SUBJ) = (root SUBJ),root = root,(root SUBJ PRED) = 'JOHN',(root PRED) = 'FALL?(SUBJ)?
+',(root TENSE) = PAST????????
+?Figure 6The LFG derivation for (27) and the rules in (2) and (13) with the corresponding context-free derivation of theconstructed grammar.895Computational Linguistics Volume 38, Number 4simulated in the constructed context-free grammar by the derivation that is shown inthe lower part of the figure.Both the depicted substitution ?
+and the subtree to which SF expands are relatedto the original LFG derivation by the construction of the first half of our proof.
+Thatis, ?
+is a reducing substitution and the context-free derivation specializes the categorylabel of each node n of the original c-structure.
+The term component is n?s ?
+value.The rule component is the set of all instantiated rules that result from the licensingrules of the corresponding n-dominated LFG subderivation.
+These are instantiated byreplacing the instantiating nodes of the LFG derivation by their ?
+values.
+Thus, theinstantiated description provided by the rule component of the start rule is equivalentto the original f-description and hence the context-free derivation tree at the bottom ofFigure 6 is licensed completely by the rules of the constructed grammar.
+Note that theCat projection of the terminal string of the context-free derivation is the terminal stringof the c-structure, the sentence John fell.On the other hand, the depicted LFG derivation and the context-free derivationare also related by the construction of the second half of the proof.
+The c-structure isthe Cat projection of the constituent structure that SF?s daughter derives.
+The reducingsubstitution maps each node of this c-structure to the term of its complex label in thecorresponding context-free derivation.
+And the LFG rule that the licensing mappingmaps to each node is the rule of the node label?s rule component that licenses the nodeand its daughters in the Cat projection.
+This is instantiated by the term components ofthe applied context-free rule and combines with the rule components of the daughtersto form the rule component of the mother.
+These licensing LFG rules for the immediatedaughters are shown in gray in the rule component of the node labels in the context-freederivation.As a more complicated illustration, we sketch the derivations of the context-freegrammar GF produced for the f-structure F given in (17) and the grammar compris-ing the rules in (13).
+This LFG grammar produces two terminal strings for the giveninput, John fell today quickly and John fell quickly today.
+A set of pair-wise compatibleappropriately instantiated rules that yields a description of the input f-structure is,for example, the one contained in the start rule (28).
+This set arises from reducingthe node-instantiated licensing rules of the derivation in Figure 4 with the reducingsubstitution (20) extended by mapping non-denoting nodes to ?.
+(28)SF ?
+S:root:???????????????????????????????????????????????????????????(S?
+NP VP(?
+SUBJ) = ??
+= ?, (root, (root SUBJ) root)),(NP?
+John(?
+PRED) = 'JOHN', ((root SUBJ),?)),(VP?
+V ADVP?
+= ??
+= ?, (root, root root)),(V?
+fell(?
+PRED) = 'FALL?(SUBJ)?'(?
+TENSE) = PAST, (root,?)),(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (root, af root)),(ADV?
+today(?
+PRED) = 'TODAY', (af,?)),(ADVP?
+ADV(?
+ADJ) = (?
+ELE), (root, ag )),(ADV?
+quickly(?
+PRED) = 'QUICKLY', (ag,?))??????????????????????????????????????????????????????????
+?The only useful rule of GF for expanding the daughter of rule (28) is the rule (29).All other admissible distributions of the members of the mother?s rule componentalso result in rules of GF.
+But these other rules cannot be used to produce a terminal896WedekindandKaplanLFGGenerationbyGrammarSpecialization(29)S:root:???????????????????????????????????????????????????????????(S?
+NP VP(?
+SUBJ)= ??
+= ?, (root, (root SUBJ) root)),(NP?
+John(?
+PRED)= 'JOHN', ((root SUBJ),?)),(VP?
+V ADVP?
+= ??
+= ?, (root, root root)),(V?
+fell(?
+PRED)= 'FALL?(SUBJ)?'(?
+TENSE)= PAST, (root,?)),(ADVP?
+ADV ADVP(?
+ADJ)= (?
+ELE)?
+= ?, (root, af root)),(ADV?
+today(?
+PRED)= 'TODAY', (af,?)),(ADVP?
+ADV(?
+ADJ)= (?
+ELE), (root, ag )),(ADV?
+quickly(?
+PRED)= 'QUICKLY', (ag,?))???????????????????????????????????????????????????????????
+?NP:(root SUBJ):{(NP?
+John(?
+PRED)= 'JOHN', ((root SUBJ),?))}VP:root:?????????????????????????????????????????(VP?
+V ADVP?
+= ??
+= ?, (root, root root)),(V?
+fell(?
+PRED)= 'FALL?(SUBJ)?'(?
+TENSE)= PAST, (root,?)),(ADVP?
+ADV ADVP(?
+ADJ)= (?
+ELE)?
+= ?, (root, af root)),(ADV?
+today(?
+PRED)= 'TODAY', (af,?)),(ADVP?
+ADV(?
+ADJ)= (?
+ELE), (root, ag )),(ADV?
+quickly(?
+PRED)= 'QUICKLY', (ag,?))?????????????????????????????????????????(30)VP:root:?????????????????????????????????????????(VP?
+V ADVP?
+= ??
+= ?, (root, root root)),(V?
+fell(?
+PRED)= 'FALL?(SUBJ)?'(?
+TENSE)= PAST, (root,?)),(ADVP?
+ADV ADVP(?
+ADJ)= (?
+ELE)?
+= ?, (root, af root)),(ADV?
+today(?
+PRED)= 'TODAY', (af,?)),(ADVP?
+ADV(?
+ADJ)= (?
+ELE), (root, ag )),(ADV?
+quickly(?
+PRED)= 'QUICKLY', (ag,?))??????????????????????????????????????????V:root:{(V?
+fell(?
+PRED)= 'FALL?(SUBJ)?'(?
+TENSE)= PAST, (root,?))}ADVP:root:???????????????????????(ADVP?
+ADV ADVP(?
+ADJ)= (?
+ELE)?
+= ?, (root, af root)),(ADV?
+today(?
+PRED)= 'TODAY', (af,?)),(ADVP?
+ADV(?
+ADJ)= (?
+ELE), (root, ag )),(ADV?
+quickly(?
+PRED)= 'QUICKLY', (ag,?))??????????????????????
+?897Computational Linguistics Volume 38, Number 4string.
+For instance, when the instantiated S rule(S?
+NP VP(?
+SUBJ) = ??
+= ?, (root, (root SUBJ) root))isdistributed over the daughters, the derivation will not produce a terminal string becauseS is not reachable from either NP or VP in the context-free skeleton of the grammarin (13).
+Similarly, the verbal and adverbial categories are not reachable from NP and NPis not reachable from VP.We see then that the left daughter of (29) matches the mother of (31) that derives theterminal symbol ?John:?:??.
+(31) NP:(root SUBJ):{(NP?
+John(?
+PRED) = 'JOHN', ((root SUBJ),?))}?
+John:?
+:?Now, for the right daughter of (29), only the expansion with (30) gives rise to a terminalstring.
+By applying (32) to the left daughter of (30) we first derive the terminal symbol?fell:?:??.(32)V:root:{(V?
+fell(?
+PRED) = 'FALL?(SUBJ)?'(?
+TENSE) = PAST, (root,?))}?
+fell:?
+:?Rule (33) then is the only possible rule of GF whose application (to the right daughterof (30)) will lead to a terminal string.(33)ADVP:root:???????????????????????(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (root, af root)),(ADV?
+today(?
+PRED) = 'TODAY', (af,?)),(ADVP?
+ADV(?
+ADJ) = (?
+ELE), (root, ag )),(ADV?
+quickly(?
+PRED) = 'QUICKLY', (ag,?))????????????????????????ADV:af:{(ADV?
+today(?
+PRED) = 'TODAY', (af,?))}ADVP:root:???????(ADVP?
+ADV(?
+ADJ) = (?
+ELE), (root, ag )),(ADV?
+quickly(?
+PRED) = 'QUICKLY', (ag,?))??????
+?All other legitimate distributions of the instantiated rules of the mother over thedaughters also produce categories that fail to derive terminal strings.
+Some of thesedistributions will figure in derivations that fail, as we observed earlier, because the LFGrules predicted in the rule component of our categories collectively do not derive aterminal string (ADVP is not reachable from ADV in this particular case).
+This exampleillustrates that derivations can also fail to produce any sentence because of mismatchesof the term component of an augmented daughter category and the terms instantiatingthe left-hand categories of the rules in the rule component that expand that daughtercategory.
+That is why the alternative rule in GF in which the adverbial daughter hasthe triple category ADV:af:{(ADV?
+quickly(?
+PRED) = 'QUICKLY', (ag,?
+))}does not produce a terminalstring.
+Note moreover that condition (iic) of Definition 16 blocks recursions of ADVPproducible by the context-free backbone of the original grammar, because the instan-tiated recursive ADVP rule(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (root, af root))cannot be distributedover the daughters.For the same reasons, (34) is the only useful rule that matches the right daughterof (33).(34)ADVP:root:?????(ADVP?
+ADV(?
+ADJ) = (?
+ELE), (root, ag )),(ADV?
+quickly(?
+PRED) = 'QUICKLY', (ag,?))??????
+ADV:ag:{(ADV?
+quickly(?
+PRED) = 'QUICKLY', (ag,?
+))}898Wedekind and Kaplan LFG Generation by Grammar SpecializationWith rules (35) and (36) then we obtain the terminal string ?John:?:?
+fell:?:?today:?:?
+quickly:?:??.
+(35) ADV:af:{(ADV?
+today(?
+PRED) = 'TODAY', (af,?))}?
+today:?:?
+(36) ADV:ag:{(ADV?
+quickly(?
+PRED) = 'QUICKLY', (ag,?))}?
+quickly:?
+:?The Cat projection of this string is John fell today quickly, the only sentence whosederivation GF simulates by starting with rule (28).The only other derivation of a string with f-structure F is simulated if we use a rulelike (28) except that the ADVP rules are instantiated as in (37), that is, exactly the otherway around.(37)(ADVP?
+ADV ADVP(?
+ADJ) = (?
+ELE)?
+= ?, (root, ag root))(ADVP?
+ADV(?
+ADJ) = (?
+ELE), (root, af ))If we begin with this alternative starting rule, we can derive the string ?John:?:?fell:?:?
+quickly:?:?
+today:?:??
+with the corresponding sentence John fell quickly today.There are alternative derivations in GF that also simulate these two LFG derivations,and in that sense the grammar GF allows for spurious ambiguities.
+These derivationsdiffer from the given ones in that the instantiating constants of CF are biuniquelyrenamed (e.g., af by aa and ag by ad) or some of the terminal daughters with no ?
+intheir annotation are biuniquely instantiated by otherwise unused constants of CF.
+In thenext section we consider some computational strategies for eliminating rules that failto produce terminal strings or give rise to spurious ambiguities.4.
+Computational ConsiderationsSo far we imposed only loose restrictions on the ingredients of the generation grammarGF, and a faithful implementation of the grammar definition may create categories andrules that are either useless or redundant.
+Useless rules cannot participate in the simu-lation of any LFG derivation while redundant ones simulate only the same derivationsas other rules and categories in the grammar.
+There are a number of techniques foravoiding the construction of these unnecessary and undesirable grammar elements.If the equations in an LFG rule provide alternative definitions for one and the samedaughter, a naive implementation would produce distinct but equivalent daughter in-stantiations.
+Rule and category instantiations that express only uninformative variationcan be eliminated by normalizing the rule annotations in advance of generation so thatthere is exactly one canonical function-assigning equation for each mother-definabledaughter and by using that equation to construct its defining term.
+Normalizationcan be accomplished by exploiting symmetry and substitutivity to reduce the anno-tations of the rules to some normal form according to an appropriate complexity norm,as suggested by Johnson (1988).
+Another off-line computation can identify terminaldaughters that are introduced with rules that do not contain ?
+and so will never beinterpreted.
+Without loss of generality we can disregard other instantiating constantsthat might be drawn from CF and systematically instantiate all of those terminals withthe distinguished constant ?.We can remove another major source of redundancy by ignoring derivations thatdiffer only by renaming of the instantiating constants of CF.
+This can arise if IRDF899Computational Linguistics Volume 38, Number 4contains rule sets that are identical up to renaming of the instantiating canonical con-stants, as indicated in Section 3.4.
+We observed in conjunction with Lemma 3 that thef-description of every derivation for F can be reduced to an equivalent description thatis satisfied in the canonical model F?
+expanded by some interpretation of root.
+Thus thegeneration grammar can be constructed by considering only the set IRDF?
+containingthose elements of IRDF whose instantiated descriptions are modeled by some rootexpansion of F?.Even with these refinements, the last example in Section 3.4 illustrates the fact thatour recipe for constructing GF may produce other useless categories and expansionrules.
+These cannot play a role in any derivation either because they are unreachablefrom the root symbol SF or because they do not lead to a terminal string.
+We can borrowstrategies from conventional context-free grammar processing to control the productionof these useless items.A top?down approach to grammar construction is the simplest way of avoid-ing categories and rules that are unreachable from the root symbol.
+It correspondsmost directly to the specification of Definition 16.
+The algorithm maintains three data-structures, an agendaA of categories whose expansion rules have yet to be constructed,a set V of terminal categories and nonterminal categories that have already been consid-ered for expansion, and a setR of constructed context-free rules.
+All three structures areempty at the outset.
+The first step of the algorithm is to add the root category SF to A.Then at each subsequent step a category ?
+is selected from A and moved to V , all rules??
+?1..?m satisfying conditions (i) (with IRDF?
+instead of IRDF) and (ii) of Definition 16are added to the rule setR, and each of the nonterminals ?j not already in V is added tothe agenda.
+Because Definition 16 provides for a finite number of categories, the agendaeventually will become empty.
+At that point the algorithm terminates withR containinga subset of RF sufficient to simulate all and only the LFG derivations for F. As indicated,this algorithm has the desirable property of creating just those categories and rules ofGF that are accessible from the root symbol.
+It is guided incrementally by the c-structureskeleton of the LFG grammar.
+It is also guided by properties of the input f-structure asthe rule component for each new category is a subset of some element IRroot of IRDF?.But this procedure has the disadvantage of typically producing many categories thatderive no terminal string.An alternative strategy is to construct the categories and rules in bottom?up fashion.The bottom?up algorithm uses the same three sets, all empty at the outset.
+Here the firststep is to add to the agenda A all of the elements in the set TF of terminal categories.In each subsequent step a category is selected from A and moved to V , as in the top?down approach.
+In this case, however, we add to R all rules ??
+?1..?m that satisfyconditions (i) and (ii) of Definition 16 and where the selected category is at least one ofthe daughters ?j and all other daughter categories already exist in V .
+If ?
+is not SF, wefurther require ?
+?s rule component to be a subset of some IRroot so that this process isalso constrained at each step by the input f-structure.
+The category ?
+is added to theagenda if it is not already present in V .
+This algorithm also terminates when the agendais empty.
+It ensures that every category we construct can derive a terminal string, but itdoes not guarantee that every bottom?up sequence will reach the root symbol.A more serious shortcoming of both strategies is that they presuppose the priorcomputation of all elements of IRDF?, but neither specifies how to instantiate those rulesets in an efficient manner.
+A straightforward modification of the bottom?up algorithmcan sidestep this difficulty.
+We can replace the subset test on the rule component ofeach ?
+with a check to see whether the instantiated description of that component issatisfied in F?
+expanded by some interpretation of root.
+This test makes reference just900Wedekind and Kaplan LFG Generation by Grammar Specializationto the canonical model of the input, examining only those features that are relevantto each potential new category.
+We reject a category if it fails this test, knowing thatits rule component cannot be a subset of any element of IRDF?.
+This is similar in spiritto the step-by-step subsumption test of other bottom?up generation algorithms (e.g.,Shieber 1988 and Kay 1996).
+A further restriction is needed to filter the creation of startrules.
+Rules of the form SF ?
+S:root:IR are included inR only when some root expansionof F?
+is not only a model for Inst(IR) but a minimal one at that.
+We know in that case thatwe have arrived at one of the elements of IRDF?.
+The minimality condition is an ana-logue of the completeness requirement of other algorithms.The incremental satisfiability test of this modified algorithm depends on theinterpretation of the node constant root, and we saw in Section 3.2 that root may denotedifferent elements of the universe in different derivations of F. Although its eventualdenotation cannot be uniquely predicted at intermediate steps of the bottom?upprocess, we can avoid reconsideration of root denotations already determined tobe unsatisfactory by carrying along the satisfying denotations in an auxiliary datastructure associated with each category in A and V .
+For an LFG rule r that expandsA with the c-structure categories X1..Xm, a rule A:t:IR ?
+X1:t1:IR1..Xm:tm:IRm is onlyadded to R if there is at least one root expansion of F?
+that satisfies Inst(r, (t, t1..tm))and whose root denotation is shared across all daughters.
+The root denotations ofall such F?
+expansions are then associated with A:t:IR.
+The complexity of this test isproportional to the complexity of the instantiated description of the LFG rule andnot of the instantiated description of the entire rule component IR, because the rulecomponents of the daughter categories do not need to be reevaluated.For further optimizations we can make use of context-free strategies that take top?down and bottom?up information into account at the same time.
+For instance, we cansimulate a left-corner enumeration of the search space, considering categories that arereachable from a current goal category and match the left corner of a possible rule.
+Asanother option, we can precompute a reachability table for the context-free backboneof G and use it as an additional filter on rule construction.
+In general, almost any ofthe traditional algorithms for parsing context-free grammars can be reformulated asa strategy for avoiding the creation of useless categories and rules.
+We can also useenumeration strategies that focus on the characteristics of the input f-structure.
+A head-driven strategy (cf., e.g., Shieber et al 1990; van Noord 1993) identifies the lexical headsfirst, finds the rules that expand to them, and then uses information associated withthose heads, such as their grammatical function assignments, to pick other categoriesto expand.5.
+Other Chart-based ApproachesA bottom?up strategy for grammar construction comes closest to the algorithms ofprevious chart-based generation proposals.
+There is a correspondence between theedges that are added incrementally to a generation chart and the context-free rules thatwe add to the grammar.
+But chart edges in these proposals typically collapse some ofthe distinctions that we have in our rules and categories, and therefore these algorithmscannot faithfully interpret the full set of grammatical dependencies.
+For some grammarsand inputs they may produce strings that should not belong to the generated language.In an attempt to guarantee termination these algorithms may also include grammarrestrictions or processing limits that unduly narrow the set of legitimate results.
+Wewill illustrate some correspondences and differences with the modified (F?-guided)901Computational Linguistics Volume 38, Number 4algorithm sketched in the previous section by comparing its first few steps with theoperations of Kay?s (1996) chart-generation algorithm.To facilitate the comparison, we have adapted the grammar for one of Kay?s exam-ples to an equivalent grammar in the LFG formalism.
+The LFG grammar is given in (38).
+(38) a.
+S ?
+NP VP(?
+ARG1) = ?
+?
+= ?b.
+NP ?
+DET N?
+= ?
+?
+= ?c.
+VP ?
+V NP?
+= ?
+(?
+ARG2) = ?d.
+DET ?
+the(?
+SPEC) = DEFe.
+N ?
+cat(?
+PRED) = 'CAT'f.
+N ?
+dog(?
+PRED) = 'DOG'g.
+V ?
+saw(?
+PRED) = 'SEE?(ARG1)(ARG2)?'(?
+TENSE) = PASTThis grammar with its particular lexical rules has the sentence The dog saw the cat in itslanguage, and that sentence is assigned the f-structure in (39), a direct encoding of Kay?ssemantic specification.19 This shows the f-structure elements that are used to define theconstants in CF.
+(39) sPREDTENSE ARG1ARG2'SEE?(ARG1)(ARG2)?'
+PAST d cPRED SPEC SPEC PRED'DOG' DEF 'CAT'Taking this f-structure as input, the first step of our bottom?up algorithm is toinitialize the agenda with the terminal categories TF = {the:?
+:?, dog:?
+:?, ..}.
+Those cate-gories are sufficient to complete the right sides of the given lexical rules, and so in thenext steps the terminal categories are moved to V and rules including those in (40) areconstructed.
+These are the ones that can potentially contribute to the generation of thenoun phrase the dog: The instantiated descriptions produced with these terms pass oursatisfiability test on F?.
+(40) a. DET:ad:{(DET?
+the(?
+SPEC) = DEF, (ad,?))}?
+the:?:?b.
+N:ad:{(N?
+dog(?
+PRED) = 'DOG', (ad,?))}?
+dog:?:?c.
+DET:(root ARG1):{(DET?
+the(?
+SPEC) = DEF, ((root ARG1),?))}?
+the:?:?d.
+N:(root ARG1):{(N?
+dog(?
+PRED) = 'DOG', ((root ARG1),?))}?
+dog:?
+:?19 Kay provides a flat, unordered collection of separate propositions as input to the generation process,but the difference between a flat and hierarchical arrangement is not material to our discussion.
+Wehave translated his constants s, d, c into the elements of our f-structure input, and we have mapped hispropositions (dog(d), arg1(s, d)..) into equivalent attribute?value relationships.
+By the same token,because here we are focusing on the organization of data structures, we note without further commentthat his active-passive computational schema is but one way of specializing our general bottom?upalgorithm.902Wedekind and Kaplan LFG Generation by Grammar SpecializationRules (40a,b) correspond directly to the lexical edges that are added to the chart in theinitialization step of Kay?s algorithm.
+A lexical edge includes the word (the Cat projec-tion of our right-hand complex category), a syntactic category (a left-hand c-structurecategory) paired with an instantiation term, and instantiated semantic propositions (aninstantiated description collected from our rule annotations).20 The chart edges thatparallel the first two rules are shown in (41).
+(41) Words Category Semanticsthe DET:ad (ad SPEC) = DEFdog N:ad (ad PRED) = 'DOG'Note that the instantiating term that corresponds to Kay?s semantic index d is thecanonical constant ad drawn from CF.
+It is a significant limitation that ground-levelterms like these are the only ones available for instantiation.
+We observed at the be-ginning of Section 3 that the set CF is in general not large enough to equivalentlyreproduce the discriminations that are required for grammars that allow for undefinabledaughters and path equations and for inputs that contain reentrancies.
+Thus, as origi-nally presented, Kay?s algorithm is correct only for a very restricted set of unificationgrammars.In contrast, we draw from the larger term set TF that includes in addition thecollection of path-terms that combine constants with sequences of attributes.
+Rules(40c,d) make use of the path-term (root ARG1), and it is not unreasonable to extendKay?s approach to create the corresponding edges shown in (42).
+This would allow hisalgorithm to be applied to a broader set of grammars and inputs.
+(42) the DET:(root ARG1) (root ARG1 SPEC) = DEFdog N:(root ARG1) (root ARG1 PRED) = 'DOG'Continuing with the bottom?up strategy, the categories above will be moved fromthe agenda to V , the rule in (43) will be created from the right-side categories of (40c,d),another NP rule will be created from the constant-instantiated rules in (40a,b), and bothnew categories will be placed on the agenda.21(43)NP:(root ARG1):???????????(NP?
+DET N?
+= ??
+= ?, ((root ARG1), (root ARG1) (root ARG1))),(N?
+dog(?
+PRED) = 'DOG', ((root ARG1),?)),(DET?
+the(?
+SPEC) = THE, ((root ARG1),?))???????????
+?DET:(root ARG1):{(DET?
+the(?
+SPEC) = THE, ((root ARG1),?
+))}N:(root ARG1):{(N?
+dog(?
+PRED) = 'DOG', ((root ARG1),?
+))}20 Kay?s instantiated semantics corresponds more directly to the third components of the categories of theless sophisticated grammar construction of Kaplan and Wedekind (2000).
+These instantiated descriptionscollapse some of the distinctions of our third-component rules that are not needed for the limited rangeof dependencies that Kay is considering.21 The NP based on the rules (40a,b) will not survive into a larger derivation in our framework.
+This isbecause all NP daughters are mother-definable in this grammar, and therefore the ad instantiation is notappropriate for the ARG1 daughter of S.903Computational Linguistics Volume 38, Number 4Our extended version of Kay?s algorithm also combines determiner and noun edges tomake up the NP edges in (44).
+(44) the dog NP:(root ARG1) (root ARG1) = (root ARG1),(root ARG1 SPEC) = DEF, (root ARG1 PRED) = 'DOG'the dog NP:ad ad = ad,(ad SPEC) = DEF, (ad PRED) = 'DOG'These edges reveal another significant difference between Kay?s algorithm and ourapproach.
+The Words fields now consist of sequences of words, the (Cat projectionsof the) terminal strings for the full noun phrases.
+These strings are constructed byconcatenating the Words from the two component edges in the order specified by thegrammar rule that justifies the combination.
+That is, an edge does not incorporate thejustifying rule but instead records a single member of the yield of the subtree beneaththe category of the edge.
+The effect is that the incremental construction of the chart isintermixed with the process of recursively assembling the terminal strings of longer andlonger phrases.
+The advantage of Kay?s strategy is that after termination the generatedstrings can be read out as the Words of all the edges whose Category is the start categorypaired with the top-level index and whose Semantics exactly matches the original input:There is no need for a separate context-free generation phase.The disadvantage is that an additional condition must be imposed to guaranteethat only a finite number of edges will be created so that the chart-construction processdoes in fact terminate.
+Kay proposes a use-once restriction that bounds the size of thederivable constituents by the number of predicates in the input.
+For some grammarsand inputs his algorithm will only produce a proper subset of the full set of generablestrings.
+Another disadvantage in comparison to our approach and other approaches inthe chart-based family is that Kay?s chart edges do not record intermediate generationresults in a compact form that allows operations on the generated string set to be carriedout in advance of enumerating the individual strings.22Kay?s algorithm is one of a family of chart-based approaches that differ in detailbut have similar characteristics at an abstract level.
+A common thread is that eachedge contains a semantic or feature-structure representation aggregated from all of theedges in the subtree that it dominates, and edge creation is filtered by testing whetherthese representations subsume the generation input.
+Each algorithm in the family alsoimposes one or more additional restrictions in an attempt to guarantee termination ofthe string generation process.
+Kay appeals to a use-once processing condition, as notedearlier, that ensures termination but may only produce a proper subset of the completeoutput set.Shieber?s (1988) algorithm and its refinements are closer to our approach in thatthey do not associate individual terminal strings with the edges of the chart.
+Each edgecontains a semantic or feature-structure representation and a sequence of immediatedaughter edges from which that representation can be assembled.
+The individual sub-strings consistent with that representation are obtained by a recursive traversal reachingdown to the terminal edges.
+The chart-construction phase of these algorithms (and ourgrammar construction) will not terminate if the number of distinct edges is not boundedby the size of the input.
+This may be the case for cyclic inputs, because they have22 Maxwell (2006) describes a variant of Kay?s algorithm that provides a more compact representation forthe generated string sets and also deals efficiently with disjunctive input structures.904Wedekind and Kaplan LFG Generation by Grammar Specializationinfinitely many distinct unfoldings all of which subsume the input.
+A separate question,even with a bounded chart, is whether the string-production traversal is guaranteedto terminate with a finite set of strings.
+A grammar may give rise to infinitely manystrings if it has recursive or iterative rules whose feature structures subsume the sameportion of the input.
+Any finite set of output strings for such a grammar and input willnecessarily be incomplete.Shieber suggests that the end-to-end generation process will terminate and producea finite but complete set of output strings for a restricted class of semantically mono-tonic grammars.
+Shieber?s condition requires that the semantic representation of everymother phrase is subsumed by the semantic structure of each of its daughter phrases.In LFG terms this condition amounts to the requirement that each daughter is mother-definable (with an annotation of the form (?
+?)
+= ?
+for |?| ?
+0) and, as a consequence,that strings can be generated only for single-rooted inputs.
+On deeper analysis, how-ever, we see that this restriction is not sufficient to ensure that the generation processwill terminate with a finite output set.
+It does not by itself preclude grammars thatassign cyclic feature structures and therefore the chart-construction process may beunbounded.
+And with an acyclic input and a finite chart the complete set of outputstrings may still be unbounded since several daughters in a recursive rule may subsumeexactly the same portion of the mother?s semantic representation.
+A formal exampleof this is the monotonic grammar in (8) that produces the string set {an bn | 1 ?
+n}.
+Astronger restriction on the form of the annotations, namely, that ?
+is never empty, willguarantee a finite chart and a finite and complete output set, but monotonic grammarsin this sense cannot naturally identify the functional or semantic head-daughters thatfigure prominently in so many linguistic descriptions.
+It seems that monotonicity is nota particularly helpful restriction and that some other constraint, either on grammars orprocessing steps, is needed to guarantee an output set containing only a finite numberof syntactic variants (cf., e.g., Neumann 1994; Moore 2002).If we translate Shieber?s and other similar algorithms to our framework, we see thattheir instantiations need only terms involving root and none of the constants in CF or theterms containing those constants.23 This is because these algorithms are not set up tocontrol subsumption accurately for multi-rooted inputs and grammars with mother-undefinable daughters, and in fact their result set may be incorrect in those cases.
+Aswe have demonstrated, maintaining all of the proper discriminations requires the largerterm set and a mechanism with the same effect as our appropriateness and compatibilityconditions.Comparing other chart-based generation proposals to our bottom?up strategy forcreating a generation grammar has brought out some similarities but also highlightedsome important differences.
+Chart edges contain information that summarizes the syn-tactic and semantic contribution of their subtrees and also allows for the correlatedterminal strings to be read out by a straightforward traversal.
+These algorithms cannotattain correctness, completeness, and termination without imposing limits on the kindsof grammatical dependencies that the generator can faithfully interpret, the range ofstructures that can be provided as input, or the size and number of output strings thatcan be produced.
+Our approach operates correctly on a larger class of grammars andinputs because we have more instantiating terms and therefore are able to maintain23 Moore (2002) observed that the basic properties of the algorithm do not change if semantically vacuousconstituents are allowed.
+In this case the translation would require the additional term ?
+to reducenodes that are not interpreted in a model of the f-description.905Computational Linguistics Volume 38, Number 4appropriate discriminations without special restrictions.
+The resulting grammar givesa finite encoding of the complete set of generated outputs in a well-understood formalsystem.
+These can be enumerated on demand in our separate context-free generationphase.6.
+CyclesWe have established the context-free result only for acyclic f-structures; the result doesnot hold for cyclic inputs.
+This is because the f-structures that correspond to subderiva-tions of a derivation of a cyclic structure are not necessarily bounded by the size of theinput.
+So we might need an infinite number of terms in order to reproduce correctlyany discrimination made in the f-description for some subderivation of a cyclic inputstructure.
+The following example demonstrates that the set of strings that a grammarrelates to a particular cyclic input might not be context-free.24Consider the LFG grammar G = ({S,A,C}, {a, b, c}, S,R) with the annotated rulesR given in (45).
+(45) a.
+S ?
+A C(?
+F) = ?
+(?
+G) = ?(?
+G) = ?(?
+F) = (?
+F)b.
+A ?
+a A b(?
+G) = ?(?
+F) = (?
+F)c. C ?
+c C(?
+G) = ?d.
+A ?
+a b(?
+F) = (?
+H)e. C ?
+c(?
+H F) = (?
+H G)Now, let F be the following input f-structure.
+(46) F HGThe set of terminal strings that are derivable with F is {an bn cn | 1 ?
+n}, a language thatis not context-free.
+Each top?down derivation for a terminal string that gets assigned thegiven input f-structure F starts with the S rule.
+Suppose ai bi C is derived from S by i?
+1(i > 0) applications of (45b) and one application of (45d).
+Such a string gets assigned ac-structure and an f-structure of the form depicted in Figure 7 where the C node ismapped to the leftmost G value.
+The f-structure corresponding to the subderivation24 Wedekind (2006) provides another example of such a grammar.
+This runs counter to an assertion inKaplan and Wedekind (2000) that cyclic structures lie within the scope of our context-free analysis.
+Thiswas based on reasoning that we now understand to be incorrect.906Wedekind and Kaplan LFG Generation by Grammar Specializationi times????
+?SA CAa a b b?
+??
+?
+?
+??
+?ai biFi times?
+??
+?G GFFFHFigure 7The derivation of ai bi C in grammar (45).up to this point is arbitrarily larger than the original input, but the rest of the derivationforces the distinguished F, G, and H attributes to collapse into the simple cycles.
+Becausethe rightmost G value is the only position where this structure can be folded up toF using the annotations of (45e), (45c) has to be applied exactly i?
+1 times yieldingai bi ci?1 C. With one application of (45e) we obtain F and the sentence ai bi ci.
+ThusGenG(F) = {an bn cn | 1 ?
+n}.In general our grammar construction will produce correct outputs for the termset drawn from any finite unfolding of a cyclic input structure, but a complete char-acterization of the output strings would require an infinite term set.
+We have not yetinvestigated the formal properties of the languages that are related to cyclic structures.It is an open research question whether a more expressive system (e.g., indexed gram-mars or other forms of controlled grammars) can give a finite characterization of thecomplete string set and whether our context-free grammar construction can be extendedto produce such a formal encoding.7.
+Other Descriptive DevicesWe have shown that the context-free grammar of Definition 16 produces the strings inGenG(F) for an LFG grammar G that characterizes f-structures by means of equality andfunction application, the most primitive descriptive devices of the LFG formalism.
+Inthis section we extend the grammar-construction procedure so that it produces context-free generation grammars that simulate the other formal devices that were originallyproposed by Kaplan and Bresnan (1982).25Completeness and Coherence.
+The result holds trivially when we also take intoaccount LFG?s devices for enforcing the subcategorization requirements of individualpredicates, the completeness and coherence conditions.
+Both conditions are concernedwith the semantic-form PREDicate values that consist of a predicate and a list of gov-ernable grammatical functions, as for example, 'FALL?(SUBJ)?'
+with the list ?(SUBJ)?
+and'JOHN' with the empty list.
+An f-structure is complete if each substructure (including theentire structure) that contains a PRED also contains all governable grammatical functionsits semantic form subcategorizes for.
+And an f-structure is coherent if all its governablefunctions are subcategorized by a local semantic form.
+If an input f-structure F is notcomplete and coherent, the LFG derivation relation ?G does not associate it with any25 Because LFG theory has evolved away from the original c-structural encoding of long-distancedependencies, we will not consider it here.
+In Wedekind and Kaplan (forthcoming) we describe theconstruction for grammars that use functional uncertainty, the device that superseded the initialmechanism for characterizing long-distance dependencies.907Computational Linguistics Volume 38, Number 4strings, and the set GenG(F) is empty.
+Thus, when we determine by inspection that aninput f-structure fails to satisfy these conditions, we maintain the context-free result byassigning it a trivial grammar that generates the empty context-free language.C-Structure Regular Predicates and Disjunctive Functional Constraints.
+The con-struction in Section 3.3 produces context-free generation grammars for LFG grammarswhose c-structure rules are of an elementary form: Their right-hand sides consist ofconcatenated sequences of annotated categories, and the equations in the annotationsets are interpreted as simple conjunctions of f-structure requirements.
+The full LFGnotation is more expressive, allowing functional requirements to be stated as arbi-trary Boolean combinations of basic assertions.
+It also allows the right-hand sides ofc-structure rules to denote arbitrary regular languages over annotated categories.
+Ruleswith the richer notation can be normalized to rules of the necessary elementary formby simple transformations.
+First, in the regular right-side of each rule every categoryX with a Boolean combination of primitive annotations is replaced by a disjunctionof X?s each associated with one of the alternatives of the disjunctive normal form ofthe original annotation.
+Then the augmented regular right-sides are converted to acollection of right-linear rewriting rules by systematically introducing new nontermi-nals and their expansions, as described by Chomsky (1959) (see also Hopcroft andUllman 1979).
+The new nonterminals are annotated with ?
+= ?
+equations as neededto ensure that f-structure requirements are properly maintained.
+The result of thesetransformations is a set of productions all of which are in conventional context-freeformat and have no internal disjunctions and which together define the same string/f-structure mapping as a grammar encoded in the original, linguistically more expres-sive, notation.Constraining Statements and Negation.
+The statements in an LFG f-descriptionare divided into two classes: defining and constraining statements.
+The constrainingstatements are evaluated once all defining statements have been processed and a mini-mal model (of the defining statements) has been constructed.
+The constraining devicesintroduced by Kaplan and Bresnan (1982) are constraining equations and inequali-ties, and existential and negative existential constraints.
+If a constraining statement iscontained in an f-description FD, it is evaluated against a minimal model M of thedefining statements of FD in the obvious way: M |= t =c t?
+iff M |= t = t?
+(constrainingequation), M |= t iff ?t?
+(M |= t = t?)
+(existential constraint), M |= ??
+iff M |= ?
+(negationof a constraining or defining statement).We can extend our grammar construction to descriptions with constraining state-ments by adjusting the definition of IRDF.
+We modify condition (ii) of Definition 15so that M|?
+?= F for a minimal model M of just the defining statements of Inst(IR)and additionally require M |= ?
+for all constraints ?
+of Inst(IR).
+Then a context-freegrammar based on this revised definition will properly reflect the defining/constrainingdistinction.The proof of this depends on one further technicality, however.
+Recall that the con-structions that we used in the proof of our main theorem yield in both proof directionsFD[?]
+= Inst(IRroot).
+As a consequence, the constraining statements in Inst(IRroot) areexactly the ones that result from those in FD by substitution with ?.
+Suppose that Mand Mroot are minimal models of the defining part of FD and Inst(IRroot), respectively.In order to establish also that M satisfies all constraints in FD iff Mroot satisfies the onescontained in Inst(IRroot), it is sufficient to show that M |= t = t?
+iff Mroot |= t[?]
+= t?[?
+]holds for all denoting terms.
+This follows (with M?
+as Mroot) from the isomorphicmapping of term denotations provided by Lemma 2?, a slightly stronger version ofLemma 2.908Wedekind and Kaplan LFG Generation by Grammar SpecializationLemma 2?Let c and ?
+be a derivation with f-description FD and f-structure F in G. If ?
+is a reducingsubstitution for c and ?
+and M = (U , I) and M?
+= (U ?, I?)
+are minimal models of the definingparts of FD and FD[?
+], respectively, then there is an isomorphism h between M|?
+and M?|?such that h(I(t)) = I?(t[?])
+for each interpreted term t or t[?
+].26Membership Statements.
+Membership statements are formulas of the form t?
+?
+t.Membership in LFG is interpreted just as a binary relation between functional ele-ments, and a model satisfies a membership statement t?
+?
+t iff the membership relationholds between the denotation of t?
+and the denotation of t. Membership statementsmay introduce daughters that are undefinable in terms of their mother and thereforemay be instantiated by CF constants as we illustrated earlier in our treatment of the(?
+ADJ) = (?
+ELE) annotation.
+Then, if we expand the isomorphism-based determina-tion of the equivalence of feature structures and feature descriptions in the usual wayto sets and set descriptions, membership statements can be handled by our originalconstruction without further modification.27Semantic Form Instantiation.
+As described earlier, semantic forms are the single-quoted values of PRED attributes in terms of which the completeness and coherenceconditions are defined.
+They are also instantiated, in the sense that for each occurrenceof a semantic form in a derivation a new and distinct indexed form is chosen.
+Becauseof this special property, semantic forms occurring in annotated rules may be regardedas metavariables that are substituted by the instantiation procedure similar to thefamiliar ?
+and ?
+symbols.
+The distinguishing indices on semantic forms are usuallyonly displayed in a graphical representation of an f-structure if this is necessary forclarity, but distinctively indexed semantic forms are always available for appropriatelyinstantiating the LFG rules, just like the other constants that we draw from the inputstructure.
+We can extend the mechanism for controlling the correct instantiation ofundefinable daughters to ensure that the semantic forms of all simulated derivationsare correctly instantiated.
+As part of an appropriate instantiation of an LFG rule we alsosubstitute for the prototypical semantic forms in the rule distinct indexed forms, drawnfrom F, and we expand the compatibility condition to this larger set of instantiations.8.
+Consequences and ObservationsWe have shown that a given LFG grammar can be specialized to a context-free grammarthat characterizes all and only the strings that correspond to a given (acyclic) f-structure.We can now understand different aspects of generation as pertaining either to the waythe specialized grammar GF is constructed or to well-known properties of context-freegrammars and context-free generation.It follows as an immediate corollary, for example, that it is decidable whether the setGenG(F) is empty, contains a finite number of strings, or contains an infinite number ofstrings.
+This can be determined by inspecting GF with standard context-free tools, once26 The proof requires an elaboration of the argument used in the proof of Lemma 2.
+Following the inductiveconstruction of that proof, it is easy to see that I(t) = Ii(t[?i]) holds for all terms t and t[?i] that areinterpreted in M = (U , I) or Mi = (U , Ii ).
+Because there must be an isomorphism h between M|Nc| andany other minimal model M?
+= (U ?, I? )
+of the defining part of FD[?
+], h(I|Nc|(t[?]))
+= I?(t[?])
+and thush(I(t)) = I?(t[?])
+for each interpreted term t or t[?
+].27 Rounds (1988) proposes a bisimulation-based characterization of sets and set membership.
+This wouldrequire a more sophisticated analysis, but it is more of mathematical than linguistic interest.909Computational Linguistics Volume 38, Number 4it has been constructed.
+If the language is infinite, we can make use of the context-freepumping lemma to identify a finite number of short strings from which all other stringscan be produced by repetition of subderivations.
+Wedekind (1995) first established thedecidability of LFG generation and proved a pumping lemma for the generated stringset; our theorem provides alternative and very direct proofs of these previously knownresults.We also have an explanation for another observation of Wedekind (1995).
+Kaplanand Bresnan (1982) showed that the Nonbranching Dominance Condition (sometimescalled Off-line Parsability) is a sufficient condition to guarantee decidability of themembership problem.
+Wedekind noted, however, that this condition is not necessaryto determine whether a given f-structure corresponds to any strings.
+We now see moreclearly why this is the case: If there is a context-free derivation for a given string thatinvolves a nonbranching dominance cycle, we know that there is another derivationfor that same string that has no such cycle.
+Thus, the generated language is the samewhether or not derivations with nonbranching dominance cycles are allowed.There are practical consequences to the two phases of LFG generation.
+The grammarGF can be provided to a client as a finite representation of the set of perhaps infinitelymany strings that correspond to the given f-structure, and the client can then controlthe process of enumerating individual strings.
+The client may choose to produce theshortest ones just by avoiding recursive category expansions.
+Or the client may applyan n-gram model (Langkilde 2000), a stochastic context-free grammar model (Cahilland van Genabith 2006) or a more sophisticated statistical language model trainedon a collection of derivations to identify the most probable derivation and thus thepresumably most fluent sentence from the set of possibilities (Velldal and Oepen 2006;de Kok, Plank, and van Noord 2011; Zarrie?, Cahill, and Kuhn 2011).We have assumed in our construction that terminals are morphologically un-analyzed, full-form words.
+A more modular arrangement is to factor morphologicalgeneralizations into a separate formal specification with less expressive power thanLFG rules can provide, namely, a regular relation (Karttunen, Kaplan, and Zaenen 1992;Kaplan and Kay 1994).
+The analysis of a sentence then consists of mapping the stringof words into a string of morphemes to which the LFG grammar is then applied.
+Thefull relation between strings of words and associated f-structures is then the compo-sition of the regular morphology with an LFG language over morpheme strings.
+Togenerate with such a combined system, we can produce the context-free morphemestrings corresponding to the input f-structure, and then pass those results through themorphology.
+Because the class of context-free languages is closed under compositionwith regular relations and regular relations are closed under inversion, the resulting setof word strings will remain context-free.Our proof also depends on the assumption that the input F is fully specified sothat the set of possible instantiations is finite.
+Dymetman (1991), van Noord (1993),and Wedekind (1999, 2006) have shown that it is in general undecidable whether ornot there are any strings associated with a structure that is an arbitrary extension ofthe f-structure provided as the input.
+Indeed, our proof of context-freeness does notgo through if we allow new elements to be hypothesized arbitrarily, beyond the onesthat appear in F; if this is permitted, we cannot establish a finite bound on the numberof possible categories.
+This is unfortunate, because there may be interesting practicalsituations in which it is convenient to leave unspecified the value of a particular feature.If we know in advance that there can be only a finite number of possible values foran underspecified feature, however, the context-free result can still be established.
+Wecreate from F a set of alternative structures {F1, ..,Fn} by filling in all possible values of910Wedekind and Kaplan LFG Generation by Grammar Specializationthe unspecified features, and for each of them we produce the corresponding context-free grammar.
+Because a finite union of context-free languages is context-free, the setof strings generated from any of these structures must again remain in that class.Of course, this is not a particularly efficient technique: It introduces and propagatesfeatures that the grammar may never actually interrogate, and it needlessly repeats theconstruction of common subgrammars that do not make reference to the alternative fea-ture specifications.
+The amount of computation may be reduced by adapting methodsfrom the parsing literature that operate on conjunctive equivalents of disjunctive featureconstraints (e.g., Karttunen 1984; Maxwell and Kaplan 1991).Our theorem helps us to understand better the problem of ambiguity-preservinggeneration.
+We showed previously that the problem is undecidable in the general case(Wedekind and Kaplan 1996).
+But our generation result does enable us to make thatdecision under certain recognizable circumstances, namely, if the intersection of thesentence sets assigned to the different f-structures is computable.
+This is true if thesentences belong to some formally restricted subsets of the context-free languages, forexample, finite sets or regular languages; this is the unstated presupposition of Knightand Langkilde?s (2000) parse-forest technique.
+For a set of f-structures {F1, ..,Fn} weconstruct the context-free grammars GFi and inspect them with standard context-freetools to determine whether L(GFi ) belongs to an intersectable subclass (i = 1, ..,n).
+Ifeach of them meets this condition, we can compute the intersectionn?i=1L(GFi ) to find anysentences that are derived ambiguously with f-structures F1, ..,Fn.We have shown in this article that the context-free property also holds for otherdescriptive devices as originally proposed by Kaplan and Bresnan (1982).
+In Wedekindand Kaplan (forthcoming) we broaden the grammar-construction procedure so thatit produces context-free generation grammars that simulate the more sophisticatedmechanisms that were introduced and adopted into later versions of the LFG formalism.Among these are devices for the f-structure characterization of long-distance depen-dencies and coordination: functional uncertainty (Kaplan and Maxwell 1988a; Kaplanand Zaenen 1989), set distribution for coordination, and the interaction of uncertaintyand set distribution (Kaplan and Maxwell 1988b).
+We also extend to devices whoseevaluation depends on properties of the c-structure to f-structure correspondence,namely, functional categories and extended heads (Zaenen and Kaplan 1995; Kaplanand Maxwell 1996) and functional precedence (Bresnan 1995; Zaenen and Kaplan 1995).Of course, the context-free result trivially holds for purely abbreviatory notationssuch as templates, lexical rules, and complex categories (Butt et al 1996; Kaplan andMaxwell 1996; Dalrymple, Kaplan, and Holloway King 2004; Crouch et al 2008); theseclearly help in expressing linguistic generalizations but can be formally treated in theobvious way by translating their occurrences into the more basic descriptions that theyabbreviate.
+In contrast, the restriction operator (Kaplan and Wedekind 1993) requiresmore careful consideration.
+Restriction can cause the functional information associatedwith intermediate c-structure nodes not to be included in the f-structures of highernodes.
+This is formally quite tractable if the restricted information is provided to thegenerator as a separately rooted f-structure.
+Otherwise, the f-structure input is essen-tially underspecified, and thus, as discussed earlier, a context-free generation grammarcan be produced just in case restriction can eliminate only a finite amount of information(see also Wedekind 2006).A final comment concerns the generation problem for other high-order grammaticalformalisms.
+The PATR formalism also augments a context-free backbone with a set offeature-structure constraints, but it differs from LFG in that its metavariables allow911Computational Linguistics Volume 38, Number 4constraints on one daughter to refer directly to sister feature structures that may notbe mother-definable.
+It is relatively straightforward to extend our lemmas and theoremso that they apply to a more general notion of definability that encompasses sistersas well as mothers.
+We can thus establish the context-free result for a broader familyof formalisms that share the property of being endowed with a context-free base.
+Onthe other hand, it is not clear whether the string set corresponding to an underlyingHead-driven Phrase Structure Grammar (HPSG) feature structure is context-free.
+HPSG(Pollard and Sag 1994) does not make direct use of a context-free skeleton, and op-erations other than concatenation may be used to assemble a collection of substringsinto an entire sentence.
+We cannot extend our proof to HPSG unless the effect of thesemechanisms can be reduced to an equivalent characterization with a context-free base.Grammars written for the ALE system?s logic of typed feature structures (Carpenter andPenn 1994), however, do have a context-free component and therefore are amenable tothe treatment we have outlined.In sum, this article offers a new way to conceptualize the generation problemfor LFG and other higher-order grammatical formalisms with context-free backbones.Distinguishing the grammar-specialization phase from a string-enumeration phaseprovides a mathematical framework for understanding the formal properties of thegenerated string sets.
+It also provides a framework for analyzing and understanding thecomputational behavior of existing approaches to generation.
+Existing algorithms oper-ate properly on restricted grammars and inputs and thus only approximate a completesolution to the problem.
+They typically implement particular techniques for optimizingthe size of the search space and bounding the amount of computation required by thegeneration process.
+Our formulation can allow a larger and perhaps more attractive setof candidates to be safely considered, and it also makes available a collection of familiartools that may suggest new ways of improving algorithmic performance.From a more general perspective, there has been no deep tradition for the formalanalysis of higher-order generation akin to the richness of our mathematical and com-putational understanding of parsing.
+The approach outlined in this article, we hope,will serve as a major step in redressing that imbalance.AcknowledgmentsWe are indebted to John Maxwell for manyfruitful and insightful discussions of the LFGgeneration problem.
+Hadar Shemtov, MartinKay, and Paula Newman have also offeredcriticisms and suggestions that have helpedto clarify many of the mathematical andcomputational issues.
+We also thank theanonymous reviewers for their valuablecomments on an earlier draft.
+This work wascarried out while R. M. K. was at the PaloAlto Research Center and at MicrosoftCorporation.ReferencesBar-Hillel, Yehoshua, Micha A. Perles, andEliahu Shamir.
+1961.
+On formal propertiesof simple phrase structure grammars.Zeitschrift fu?r Phonetik, Sprachwissenschaft,und Kommunikationsforschung, 14:143?172.Billot, Sylvie and Bernard Lang.
+1989.
+Thestructure of shared forests in ambiguousparsing.
+In Proceedings of the 27th AnnualMeeting of the Association for ComputationalLinguistics, pages 143?151, Vancouver.Bresnan, Joan.
+1995.
+Linear order, syntacticrank, and empty categories: On weakcrossover.
+In Mary Dalrymple, Ronald M.Kaplan, John T. Maxwell III, and AnnieZaenen, editors, Formal Issues inLexical-Functional Grammar, CSLIPublications, Stanford, CA, pages 241?274.Bresnan, Joan.
+2000.
+Optimal syntax.In Joost Dekkers, Frank van der Leeuw,and Jeroen van de Weijer, editors,Optimality Theory: Phonology, Syntax andAcquisition.
+Oxford University Press,Oxford, pages 334?385.Butt, Miriam, Helge Dyvik, Tracy HollowayKing, Hiroshi Masuichi, and ChristianRohrer.
+2002.
+The parallel grammarproject.
+In Proceedings of the Workshop on912Wedekind and Kaplan LFG Generation by Grammar SpecializationGrammar Engineering and Evaluation,pages 1?7, Taipei.Butt, Miriam, Tracy Holloway King,Maria-Eugenia Nin?o, and Fre?de?riqueSegond.
+1996.
+A Grammar Writer?sCookbook.
+CSLI Publications, Stanford, CA.Cahill, Aoife and Josef van Genabith.2006.
+Robust PCFG-based generationusing automatically acquired LFGapproximations.
+In Proceedings of the 21stInternational Conference on ComputationalLinguistics and the 44th Annual Meeting ofthe Association for Computational Linguistics,pages 1033?1040, Sydney.Carpenter, Bob and Gerald Penn.
+1994.ALE 2.0 user?s guide.
+Technicalreport, Carnegie Mellon University,Pittsburgh, PA.Carroll, John A., Ann Copestake, DanFlickinger, and Victor Poznan?ski.1999.
+An efficient chart generator for(semi-)lexicalist grammars.
+In Proceedingsof the 7th European Workshop on NaturalLanguage Generation, pages 86-95,Toulouse.Carroll, John A. and Stephan Oepen.2005.
+High efficiency realization for awide-coverage unification grammar.
+InProceedings of the 2nd International JointConference on Natural Language Processing,pages 165?176, Jeju Island.Chomsky, Noam.
+1959.
+On certain formalproperties of grammars.
+Information andControl, 2:137?167.Crouch, Richard, Mary Dalrymple, RonaldM.
+Kaplan, Tracy Holloway King, John T.Maxwell III, and Paula Newman.
+2008.XLE documentation.
+Technical report,Palo Alto Research Center, Palo Alto, CA.Available at http://www2.parc.com/isl/groups/nltt/xle/doc/xle toc.html.Dalrymple, Mary, Ronald M. Kaplan,and Tracy Holloway King.
+2004.Linguistic generalizations overdescriptions.
+In Proceedings of theInternational Lexical-FunctionalGrammar Conference 2004,pages 199?208, Stanford, CA.de Kok, Danie?l, Barbara Plank, andGertjan van Noord.
+2011.
+Reversiblestochastic attribute?value grammars.In Proceedings of the 49th Annual Meetingof the Association for ComputationalLinguistics: Human Language Technologies,pages 194?199, Portland, OR.de Kok, Danie?l and Gertjan van Noord.
+2010.A sentence generator for Dutch.
+In ElineWesterhout, Thomas Markus, and PaolaMonachesi, editors, ComputationalLinguistics in the Netherlands 2010: SelectedPapers from the 20th CLIN Meeting.Netherlands Graduate School ofLinguistics, Utrecht, pages 75?90.Dipper, Stefanie.
+2003.
+Implementing andDocumenting Large-scale Grammars?German LFG.
+Ph.D. thesis, Universityof Stuttgart.Dymetman, Marc.
+1991.
+Inherently reversiblegrammars, logic programming andcomputability.
+In Proceedings of the ACLWorkshop: Reversible Grammar in NaturalLanguage Processing, pages 20?30,Berkeley, CA.Dymetman, Marc.
+1997.
+Charts,interaction-free grammars, and thecompact representation of ambiguity.In Proceedings of the 15th InternationalJoint Conference on Artificial Intelligence,pages 1002?1009, Nagoya.Hopcroft, John E. and Jeffrey D. Ullman.1979.
+Introduction to Automata Theory,Languages, and Computation.Addison-Wesley, Reading, MA.Johnson, Mark.
+1988.
+Attribute?ValueLogic and the Theory of Grammar.
+CSLIPublications, Stanford, CA.Johnson, Mark and Stefan Riezler.
+2002.Statistical models of syntax learning anduse.
+Cognitive Science, 26(3):239?253.Kaplan, Ronald M. 1995.
+The formalarchitecture of Lexical-FunctionalGrammar.
+In Mary Dalrymple, Ronald M.Kaplan, John T. Maxwell III, and AnnieZaenen, editors, Formal Issues inLexical-Functional Grammar, Stanford, CA,pages 7?27.Kaplan, Ronald M. and Joan Bresnan.1982.
+Lexical-Functional Grammar:A formal system for grammaticalrepresentation.
+In Joan Bresnan, editor,The Mental Representation of GrammaticalRelations.
+MIT Press, Cambridge, MA,pages 173?281.Kaplan, Ronald M. and Martin Kay.
+1994.Regular models of phonological rulesystems.
+Computational Linguistics,20(3):331?378.Kaplan, Ronald M. and John T. Maxwell III.1988a.
+An algorithm for functionaluncertainty.
+In Proceedings of the 12thInternational Conference on ComputationalLinguistics, pages 297?302, Budapest.Kaplan, Ronald M. and John T. Maxwell III.1988b.
+Constituent coordination inLexical-Functional Grammar.
+InProceedings of the 12th InternationalConference on Computational Linguistics,pages 303?305, Budapest.913Computational Linguistics Volume 38, Number 4Kaplan, Ronald M. and John T. Maxwell III.1996.
+LFG grammar writer?s workbench.Technical report, Xerox Palo Alto ResearchCenter, Palo Alto, CA.
+Available atftp://ftp.parc.xerox.com/pub/lfg/lfgmanual.pdf.Kaplan, Ronald M., Stefan Riezler, TracyHolloway King, John T. Maxwell III,Alexander Vasserman, and RichardCrouch.
+2004.
+Speed and accuracy inshallow and deep stochastic parsing.In Proceedings of the Human LanguageTechnology Conference and the 4th AnnualMeeting of the North American Chapter of theAssociation for Computational Linguistics,pages 97?104, Boston, MA.Kaplan, Ronald M. and Ju?rgen Wedekind.1993.
+Restriction and correspondence-based translation.
+In Proceedings of the6th Conference of the European Chapterof the Association for ComputationalLinguistics, pages 193?202, Utrecht.Kaplan, Ronald M. and Ju?rgen Wedekind.2000.
+LFG generation producescontext-free languages.
+In Proceedingsof the 18th International Conference onComputational Linguistics, pages 425?431,Saarbru?cken.Kaplan, Ronald M. and Annie Zaenen.
+1989.Long-distance dependencies, constituentstructure, and functional uncertainty.
+InMark Baltin and Anthony Kroch, editors,Alternative Conceptions of Phrase Structure.Chicago University Press, Chicago, IL,pages 17?42.Karttunen, Lauri.
+1984.
+Features and values.In Proceedings of the 10th InternationalConference on Computational Linguistics and22nd Annual Meeting of the Association forComputational Linguistics, pages 28?33,Stanford, CA.Karttunen, Lauri, Ronald M. Kaplan,and Annie Zaenen.
+1992.
+Two-levelmorphology with composition.
+InProceedings of the 15th InternationalConference on Computational Linguistics,pages 141?148, Nantes.Kay, Martin.
+1996.
+Chart generation.In Proceedings of the 34th Annual Meeting ofthe Association for Computational Linguistics,pages 200?204, Santa Cruz, CA.Knight, Kevin and Irene Langkilde.
+2000.Preserving ambiguities in generation viaautomata intersection.
+In Henry A. Kautzand Bruce W. Porter, editors, Proceedings ofthe 17th National Conference on ArtificialIntelligence and 12th Conference on InnovativeApplications of Artificial Intelligence,pages 697?702, Austin, TX.Kuhn, Jonas.
+2001.
+Formal and ComputationalAspects of Optimality-Theoretic Syntax.Ph.D.
+thesis, University of Stuttgart.Kuhn, Jonas.
+2002.
+OT syntax: Decidabilityof generation-based optimization.In Proceedings of the 40th AnnualMeeting of the Association forComputational Linguistics, pages 48?55,Philadelphia, PA.Kuhn, Jonas.
+2003.
+Optimality-TheoreticSyntax: a Declarative Approach.
+CSLIPublications, Stanford, CA.Lang, Bernard.
+1994.
+Recognition can beharder than parsing.
+ComputationalIntelligence, 10(4):486?494.Langkilde, Irene.
+2000.
+Forest-basedstatistical sentence generation.
+InProceedings of the 6th Applied NaturalLanguage Processing Conference,pages 170?177, Seattle, WA.Langkilde, Irene and Kevin Knight.
+1998.Generation that exploits corpus-basedstatistical knowledge.
+In Proceedingsof the 36th Annual Meeting of theAssociation for Computational Linguisticsand the 17th International Conference onComputational Linguistics, pages 704?710,Montreal.Maxwell III, John T. 2006.
+Efficientgeneration from packed input.In Miriam Butt, Mary Dalrymple,and Tracy Holloway King, editors,Intelligent Linguistics Architectures:Variations on Themes by Ronald M.Kaplan.
+CSLI Publications, Stanford,CA, pages 19?34.Maxwell III, John T. and Ronald M. Kaplan.1991.
+A method for disjunctive constraintsatisfaction.
+In Masaru Tomita, editor,Current Issues in Parsing Technology.Kluwer, Dordrecht, pages 173?190.Moore, Robert C. 2002.
+A complete,efficient sentence-realization algorithmfor unification grammar.
+In Proceedings ofthe 2nd International Natural LanguageGeneration Conference, pages 41?48,New York, NY.Neumann, Gu?nter.
+1994.
+A UniformComputational Model for Natural LanguageParsing and Generation.
+Ph.D. thesis,Saarland University.Neumann, Gu?nter.
+1998.
+Interleaving naturallanguage parsing and generation throughuniform processing.
+Artificial Intelligence,99:121?163.Pollard, Carl and Ivan Sag.
+1994.Head-Driven Phrase Structure Grammar.The University of Chicago Press,Chicago, IL.914Wedekind and Kaplan LFG Generation by Grammar SpecializationRohrer, Christian and Martin Forst.
+2006.Improving coverage and parsing qualityof a large-scale LFG for German.
+InProceedings of the 5th Conference onLanguage Resources and Evaluation(LREC-2006), pages 2206?2211, Genoa.Rounds, William C. 1988.
+Set values forunification-based grammar formalismsand logic programming.
+Research reportCSLI-88-129, CSLI, Stanford University,Stanford, CA.Shemtov, Hadar.
+1997.
+AmbiguityManagement in Natural Language Generation.Ph.D.
+thesis, Stanford University.Shieber, Stuart M. 1988.
+A uniformarchitecture for parsing and generation.In Proceedings of the 12th InternationalConference on Computational Linguistics,pages 614?619, Budapest.Shieber, Stuart M., Hans Uszkoreit,Fernando C. N. Pereira, Jane Robinson,and Mabry Tyson.
+1983.
+The formalismand implementation of PATR-II.In Barbara J. Grosz and Mark E. Stickel,editors, Research on Interactive Acquisitionand Use of Knowledge.
+SRI Final Report1894, SRI International, Menlo Park, CA,pages 39?79.Shieber, Stuart M., Gertjan van Noord,Fernando C. N. Pereira, and Robert C.Moore.
+1990.
+Semantic-head-drivengeneration.
+Computational Linguistics,16(1):30?42.Statman, Richard.
+1977.
+Herbrand?s theoremand Gentzen?s notion of a direct proof.In Jon Barwise, editor, Handbook ofMathematical Logic.
+North-Holland,Amsterdam, pages 897?912.van Noord, Gertjan.
+1993.
+Reversibility inNatural Language Processing.
+Ph.D. thesis,Utrecht University.Velldal, Erik and Stephan Oepen.
+2006.Statistical ranking in tactical generation.In Proceedings of the 2006 Conference onEmpirical Methods in Natural LanguageProcessing, pages 517?525, Sydney.Wedekind, Ju?rgen.
+1994.
+Some remarkson the logic of unification grammars.In Christopher J. Rupp, Michael Rosner,and Roderick Johnson, editors, Constraints,Language and Computation.
+Academic Press,London, pages 29?76.Wedekind, Ju?rgen.
+1995.
+Some remarkson the decidability of the generationproblem in LFG- and PATR-styleunification grammars.
+In Proceedingsof the 7th Conference of the EuropeanChapter of the Association for ComputationalLinguistics, pages 45?52, Dublin.Wedekind, Ju?rgen.
+1999.
+Semantic-drivengeneration with LFG- and PATR-stylegrammars.
+Computational Linguistics,25(2):277?281.Wedekind, Ju?rgen.
+2006.
+On some formalproperties of LFG generation.
+InMiriam Butt, Mary Dalrymple, andTracy Holloway King, editors, IntelligentLinguistic Architectures: Variations onThemes by Ronald M. Kaplan.
+CSLIPublications, Stanford, CA, pages 53?72.Wedekind, Ju?rgen and Ronald M. Kaplan.1996.
+Ambiguity-preserving generationwith LFG- and PATR-style grammars.Computational Linguistics, 22(4):555?558.Wedekind, Ju?rgen and Ronald M. Kaplan.Forthcoming.
+LFG generation withrich descriptive devices.
+Working paper,University of Copenhagen and NuanceCommunications, Inc.White, Michael.
+2006.
+CCG chart realizationfrom disjunctive inputs.
+In Proceedingsof the 4th International Natural LanguageGeneration Conference, pages 12?19, Sydney.Zaenen, Annie and Ronald M. Kaplan.1995.
+Formal devices for linguisticgeneralizations: West Germanic wordorder in LFG.
+In Mary Dalrymple,Ronald M. Kaplan, John T. Maxwell III,and Annie Zaenen, editors, Formal Issues inLexical-Functional Grammar, CSLIPublications, Stanford, CA, pages 215?239.Zarrie?, Sina, Aoife Cahill, and Jonas Kuhn.2011.
+Underspecifying and predictingvoice for surface realisation ranking.In Proceedings of the 49th Annual Meetingof the Association for ComputationalLinguistics: Human Language Technologies,pages 1007?1017, Portland, OR.915

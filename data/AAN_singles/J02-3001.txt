@@ -1,0 +1,705 @@
+c?
+2002 Association for Computational LinguisticsAutomatic Labeling of Semantic RolesDaniel Gildea?
+Daniel Jurafsky?University of California, Berkeley, andInternational Computer Science InstituteUniversity of Colorado, BoulderWe present a system for identifying the semantic relationships, or semantic roles, filled byconstituents of a sentence within a semantic frame.
+Given an input sentence and a target wordand frame, the system labels constituents with either abstract semantic roles, such as Agent orPatient, or more domain-specific semantic roles, such as Speaker,Message, and Topic.The system is based on statistical classifiers trained on roughly 50,000 sentences that werehand-annotated with semantic roles by the FrameNet semantic labeling project.
+We then parsedeach training sentence into a syntactic tree and extracted various lexical and syntactic features,including the phrase type of each constituent, its grammatical function, and its position in thesentence.
+These features were combined with knowledge of the predicate verb, noun, or adjective,as well as information such as the prior probabilities of various combinations of semantic roles.We used various lexical clustering algorithms to generalize across possible fillers of roles.
+Testsentences were parsed, were annotated with these features, and were then passed through theclassifiers.Our system achieves 82% accuracy in identifying the semantic role of presegmented con-stituents.
+At the more difficult task of simultaneously segmenting constituents and identifyingtheir semantic role, the system achieved 65% precision and 61% recall.Our study also allowed us to compare the usefulness of different features and feature combi-nation methods in the semantic role labeling task.
+We also explore the integration of role labelingwith statistical syntactic parsing and attempt to generalize to predicates unseen in the trainingdata.1.
+IntroductionRecent years have been exhilarating ones for natural language understanding.
+Theexcitement and rapid advances that had characterized other language-processing taskssuch as speech recognition, part-of-speech tagging, and parsing have finally begun toappear in tasks in which understanding and semantics play a greater role.
+For example,there has been widespread commercial deployment of simple speech-based naturallanguage understanding systems that answer questions about flight arrival times, givedirections, report on bank balances, or perform simple financial transactions.
+Moresophisticated research systems generate concise summaries of news articles, answerfact-based questions, and recognize complex semantic and dialogue structure.But the challenges that lie ahead are still similar to the challenge that the fieldhas faced since Winograd (1972): moving away from carefully hand-crafted, domain-dependent systems toward robustness and domain independence.
+This goal is not as?
+Currently at Institute for Research in Cognitive Science, University of Pennsylvania, 3401 WalnutStreet, Suite 400A, Philadelphia, PA 19104.
+E-mail: dgildea@cis.upenn.edu?
+Departments of Linguistics and Computer Science, University of Colorado, Boulder, CO 80309.
+E-mail:jurafsky@colorado.edu246Computational Linguistics Volume 28, Number 3far away as it once was, thanks to the development of large semantic databases suchas WordNet (Fellbaum 1998) and progress in domain-independent machine learningalgorithms.Current information extraction and dialogue understanding systems, however, arestill based on domain-specific frame-and-slot templates.
+Systems for booking airplaneinformation use domain-specific frames with slots like orig city, dest city, or de-part time (Stallard 2000).
+Systems for studying mergers and acquisitions use slotslike products, relationship, joint venture company, and amount (Hobbs et al1997).
+For natural language understanding tasks to proceed beyond these specific do-mains, we need semantic frames and semantic understanding systems that do notrequire a new set of slots for each new application domain.In this article we describe a shallow semantic interpreter based on semantic rolesthat are less domain specific than to airport or joint venture company.
+Theseroles are defined at the level of semantic frames of the type introduced by Fillmore(1976), which describe abstract actions or relationships, along with their participants.For example, the Judgement frame contains roles like judge, evaluee, and reason,and the Statement frame contains roles like speaker, addressee, and message, asthe following examples show:(1) [Judge She ] blames [Evaluee the Government ] [Reason for failing to doenough to help ] .
+(2) [Message ?I?ll knock on your door at quarter to six? ]
+[Speaker Susan] said.These shallow semantic roles could play an important role in information extrac-tion.
+For example, a semantic role parse would allow a system to realize that the rulingthat is the direct object of change in (3) plays the same Theme role as the ruling thatis the subject of change in (4):(3) The canvassing board changed its ruling on Wednesday.
+(4) The ruling changed because of the protests.The fact that semantic roles are defined at the frame level means, for example, thatthe verbs send and receive would share the semantic roles (sender, recipient, goods,etc.)
+defined with respect to a common Transfer frame.
+Such common frames mightallow a question-answering system to take a question like (5) and discover that (6) isrelevant in constructing an answer to the question:(5) Which party sent absentee ballots to voters?
+(6) Both Democratic and Republican voters received absentee ballots fromtheir party.This shallow semantic level of interpretation has additional uses outside of gen-eralizing information extraction, question answering, and semantic dialogue systems.One such application is in word sense disambiguation, where the roles associated witha word can be cues to its sense.
+For example, Lapata and Brew (1999) and others haveshown that the different syntactic subcategorization frames of a verb such as serve canbe used to help disambiguate a particular instance of the word.
+Adding semantic rolesubcategorization information to this syntactic information could extend this idea to247Gildea and Jurafsky Automatic Labeling of Semantic Rolesuse richer semantic knowledge.
+Semantic roles could also act as an important interme-diate representation in statistical machine translation or automatic text summarizationand in the emerging field of text data mining (TDM) (Hearst 1999).
+Finally, incorpo-rating semantic roles into probabilistic models of language may eventually yield moreaccurate parsers and better language models for speech recognition.This article describes an algorithm for identifying the semantic roles filled by con-stituents in a sentence.
+We apply statistical techniques that have been successful for therelated problems of syntactic parsing, part-of-speech tagging, and word sense disam-biguation, including probabilistic parsing and statistical classification.
+Our statisticalalgorithms are trained on a hand-labeled data set: the FrameNet database (Baker, Fill-more, and Lowe 1998; Johnson et al 2001).
+The FrameNet database defines a tag setof semantic roles called frame elements and included, at the time of our experiments,roughly 50,000 sentences from the British National Corpus hand-labeled with theseframe elements.This article presents our system in stages, beginning in Section 2 with a more de-tailed description of the data and the set of frame elements or semantic roles used.
+Wethen introduce (in Section 3) the statistical classification technique used and examinein turn the knowledge sources of which our system makes use.
+Section 4 describesthe basic syntactic and lexical features used by our system, which are derived froma Penn Treebank?style parse of individual sentences to be analyzed.
+We break ourtask into two subproblems: finding the relevant sentence constituents (deferred untilSection 5), and giving them the correct semantic labels (Sections 4.2 and 4.3).
+Section 6adds higher-level semantic knowledge to the system, attempting to model the selec-tional restrictions on role fillers not directly captured by lexical statistics.
+We comparehand-built and automatically derived resources for providing this information.
+Sec-tion 7 examines techniques for adding knowledge about systematic alternations inverb argument structure with sentence-level features.
+We combine syntactic parsingand semantic role identification into a single probability model in Section 8.
+Section 9addresses the question of generalizing statistics from one target predicate to another,beginning with a look at domain-independent thematic roles in Section 9.1.
+Finally wedraw conclusions and discuss future directions in Section 10.2.
+Semantic RolesSemantic roles are one of the oldest classes of constructs in linguistic theory, datingback thousands of years to Panini?s ka?raka theory (Misra 1966; Rocher 1964; Dahiya1995).
+Longevity, in this case, begets variety, and the literature records scores of pro-posals for sets of semantic roles.
+These sets of roles range from the very specific tothe very general, and many have been used in computational implementations of onetype or another.At the specific end of the spectrum are domain-specific roles such as the from air-port, to airport, or depart time discussed above, or verb-specific roles such aseater and eaten for the verb eat.
+The opposite end of the spectrum consists of theo-ries with only two ?proto-roles?
+or ?macroroles?
+: Proto-Agent and Proto-Patient(Van Valin 1993; Dowty 1991).
+In between lie many theories with approximately 10roles, such as Fillmore?s (1971) list of nine: Agent, Experiencer, Instrument, Ob-ject, Source, Goal, Location, Time, and Path.11 There are scores of other theories with slightly different sets of roles, including those of Fillmore (1968),Jackendoff (1972), and Schank (1972); see Somers (1987) for an excellent summary.248Computational Linguistics Volume 28, Number 3banter?vdebate?vconverse?vgossip?vdispute?ndiscussion?ntiff?nConversationFrame:Protagonist?1Protagonist?2ProtagonistsTopicMediumFrame Elements:argue?vDomain: Communication Domain: CognitionFrame: QuestioningTopicMediumFrame Elements: SpeakerAddresseeMessageFrame:TopicMediumFrame Elements: SpeakerAddresseeMessageStatementFrame:Frame Elements:JudgmentJudgeEvalueeReasonRoledispute?nblame?v fault?nadmire?vadmiration?n disapprove?vblame?nappreciate?vFrame:Frame Elements:CategorizationCognizerItemCategoryCriterionFigure 1Sample domains and frames from the FrameNet lexicon.Many of these sets of roles have been proposed by linguists as part of theoriesof linking, the part of grammatical theory that describes the relationship betweensemantic roles and their syntactic realization.
+Other sets have been used by computerscientists in implementing natural language understanding systems.
+As a rule, themore abstract roles have been proposed by linguists, who are more concerned withexplaining generalizations across verbs in the syntactic realization of their arguments,whereas the more specific roles have more often been proposed by computer scientists,who are more concerned with the details of the realization of the arguments of specificverbs.The FrameNet project (Baker, Fillmore, and Lowe 1998) proposes roles that areneither as general as the 10 abstract thematic roles, nor as specific as the thousands ofpotential verb-specific roles.
+FrameNet roles are defined for each semantic frame.
+Aframe is a schematic representation of situations involving various participants, props,and other conceptual roles (Fillmore 1976).
+For example, the frame Conversation,shown in Figure 1, is invoked by the semantically related verbs argue, banter, debate,converse, and gossip, as well as the nouns dispute, discussion, and tiff, and is defined asfollows:(7) Two (or more) people talk to one another.
+No person is construed asonly a speaker or only an addressee.
+Rather, it is understood that both(or all) participants do some speaking and some listening: the process isunderstood to be symmetrical or reciprocal.The roles defined for this frame, and shared by all its lexical entries, includeProtagonist-1 and Protagonist-2 or simply Protagonists for the participantsin the conversation, as well as Medium and Topic.
+Similarly, the Judgment framementioned above has the roles Judge, Evaluee, and Reason and is invoked by verbssuch as blame, admire, and praise and nouns such as fault and admiration.
+We refer tothe roles for a given frame as frame elements.
+A number of hand-annotated exam-ples from the Judgment frame are included below to give a flavor of the FrameNetdatabase:(8) [Judge She ] blames [Evaluee the Government ] [Reason for failing to doenough to help ] .
+(9) Holman would characterise this as blaming [Evaluee the poor ] .249Gildea and Jurafsky Automatic Labeling of Semantic Roles(10) The letter quotes Black as saying that [Judge white and Navajo ranchers ]misrepresent their livestock losses and blame [Reason everything ] [Evalueeon coyotes ] .
+(11) The only dish she made that we could tolerate was [Evaluee syrup tartwhich2 ] [Judge we ] praised extravagantly with the result that it becameour unhealthy staple diet.
+(12) I?m bound to say that I meet a lot of [Judge people who ] praise [Evalueeme ] [Reason for speaking up ] but don?t speak up themselves.
+(13) Specimens of her verse translations of Tasso (Jerusalem Delivered) andVerri (Roman Nights) circulated to [ Manner warm ] [Judge critical ] praise;but ?unforeseen circumstance?
+prevented their publication.
+(14) And if Sam Snort hails Doyler as monumental is he perhaps erring onthe side of being excessive in [ Judge his ] praise?Defining semantic roles at this intermediate frame level helps avoid some ofthe well-known difficulties of defining a unique small set of universal, abstract the-matic roles while also allowing some generalization across the roles of different verbs,nouns, and adjectives, each of which adds semantics to the general frame or high-lights a particular aspect of the frame.
+One way of thinking about traditional ab-stract thematic roles, such as Agent and Patient, in the context of FrameNet is toconceive them as frame elements defined by abstract frames, such as action and mo-tion, at the top of an inheritance hierarchy of semantic frames (Fillmore and Baker2000).The examples above illustrate another difference between frame elements andthematic roles as commonly described in the literature.
+Whereas thematic roles tendto be arguments mainly of verbs, frame elements can be arguments of any predicate,and the FrameNet database thus includes nouns and adjectives as well as verbs.The examples above also illustrate a few of the phenomena that make it hard toidentify frame elements automatically.
+Many of these are caused by the fact that thereis not always a direct correspondence between syntax and semantics.
+Whereas thesubject of blame is often the Judge, the direct object of blame can be an Evaluee (e.g.,the poor in ?blaming the poor?)
+or a Reason (e.g., everything in ?blame everythingon coyotes?).
+The identity of the Judge can also be expressed in a genitive pronoun,(e.g., his in ?his praise?)
+or even an adjective (e.g., critical in ?critical praise?
+).The corpus used in this project is perhaps best described in terms of the method-ology used by the FrameNet team.
+We outline the process here; for more detail seeJohnson et al (2001).
+As the first step, semantic frames were defined for the generaldomains chosen; the frame elements, or semantic roles for participants in a frame,were defined; and a list of target words, or lexical predicates whose meaning includesaspects of the frame, was compiled for each frame.
+Example sentences were chosenby searching the British National Corpus for instances of each target word.
+Separatesearches were performed for various patterns over lexical items and part-of-speechsequences in the target words?
+context, producing a set of subcorpora for each tar-get word, designed to capture different argument structures and ensure that someexamples of each possible syntactic usage of the target word would be included in2 The FrameNet annotation includes both the relative pronoun and its antecedent in the target word?sclause.250Computational Linguistics Volume 28, Number 3the final database.
+Thus, the focus of the project was on completeness of examples forlexicographic needs, rather than on statistically representative data.
+Sentences fromeach subcorpus were then annotated by hand, marking boundaries of each frame el-ement expressed in the sentence and assigning tags for the annotated constituent?sframe semantic role, syntactic category (e.g., noun phrase or prepositional phrase),and grammatical function in relation to the target word (e.g., object or complementof a verb).
+In the final phase of the process, the annotated sentences for each tar-get word were checked for consistency.
+In addition to the tags just mentioned, theannotations include certain other information, which we do not make use of in thiswork, such as word sense tags for some target words and tags indicating metaphoricusages.Tests of interannotator agreement were performed for data from a small num-ber of predicates before the final consistency check.
+Interannotator agreement at thesentence level, including all frame element judgments and boundaries for one predi-cate, varied from .66 to .82 depending on the predicate.
+The kappa statistic (Siegeland Castellan 1988) varied from .67 to .82.
+Because of the large number of pos-sible categories when boundary judgments are considered, kappa is nearly iden-tical to the interannotator agreement.
+The system described in this article (whichgets .65/.61 precision/recall on individual frame elements; see Table 15) correctlyidentifies all frame elements in 38% of test sentences.
+Although this .38 is not di-rectly comparable to the .66?.82 interannotator agreements, it?s clear that the per-formance of our system still falls significantly short of human performance on thetask.The British National Corpus was chosen as the basis of the FrameNet projectdespite differences between British and American usage because, at 100 million words,it provides the largest corpus of English with a balanced mixture of text genres.
+TheBritish National Corpus includes automatically assigned syntactic part-of-speech tagsfor each word but does not include full syntactic parses.
+The FrameNet annotators didnot make use of, or produce, a complete syntactic parse of the annotated sentences,although some syntactic information is provided by the grammatical function andphrase type tags of the annotated frame elements.The preliminary version of the FrameNet corpus used for our experiments con-tained 67 frame types from 12 general semantic domains chosen for annotation.
+Acomplete list of the semantic domains represented in our data is shown in Table 1,along with representative frames and predicates.
+Within these frames, examples of atotal of 1,462 distinct lexical predicates, or target words, were annotated: 927 verbs,339 nouns, and 175 adjectives.
+There are a total of 49,013 annotated sentences and99,232 annotated frame elements (which do not include the target words them-selves).How important is the particular set of semantic roles that underlies our sys-tem?
+For example, could the optimal choice of semantic roles be very dependent onthe application that needs to exploit their information?
+Although there may well beapplication-specific constraints on semantic roles, our semantic role classifiers seemin practice to be relatively independent of the exact set of semantic roles under con-sideration.
+Section 9.1 describes an experiment in which we collapsed the FrameNetroles into a set of 18 abstract thematic roles.
+We then retrained our classifier andachieved roughly comparable results; overall performance was 82.1% for abstract the-matic roles, compared to 80.4% for frame-specific roles.
+Although this doesn?t showthat the detailed set of semantic roles is irrelevant, it does suggest that our statisticalclassification algorithm, at least, is relatively robust to even quite large changes in roleidentities.251Gildea and Jurafsky Automatic Labeling of Semantic RolesTable 1Semantic domains with sample frames and predicates from the FrameNet lexicon.Domain Sample Frames Sample PredicatesBody Action flutter, winkCognition Awareness attention, obviousJudgment blame, judgeInvention coin, contriveCommunication Conversation bicker, conferManner lisp, rantEmotion Directed angry, pleasedExperiencer-Obj bewitch, rileGeneral Imitation bogus, forgeHealth Response allergic, susceptibleMotion Arriving enter, visitFilling annoint, packPerception Active glance, savourNoise snort, whineSociety Leadership emperor, sultanSpace Adornment cloak, lineTime Duration chronic, shortIteration daily, sporadicTransaction Basic buy, spendWealthiness broke, well-off3.
+Related WorkAssignment of semantic roles is an important part of language understanding, andthe problem of how to assign such roles has been attacked by many computationalsystems.
+Traditional parsing and understanding systems, including implementations ofunification-based grammars such as Head-Driven Phrase Structure Grammar (HPSG)(Pollard and Sag 1994), rely on hand-developed grammars that must anticipate eachway in which semantic roles may be realized syntactically.
+Writing such grammars istime consuming, and typically such systems have limited coverage.Data-driven techniques have recently been applied to template-based semanticinterpretation in limited domains by ?shallow?
+systems that avoid complex featurestructures and often perform only shallow syntactic analysis.
+For example, in thecontext of the Air Traveler Information System (ATIS) for spoken dialogue, Miller etal.
+(1996) computed the probability that a constituent such as Atlanta filled a semanticslot such as Destination in a semantic frame for air travel.
+In a data-driven approachto information extraction, Riloff (1993) builds a dictionary of patterns for filling slotsin a specific domain such as terrorist attacks, and Riloff and Schmelzenbach (1998)extend this technique to derive automatically entire ?case frames?
+for words in thedomain.
+These last systems make use of a limited amount of hand labor to accept orreject automatically generated hypotheses.
+They show promise for a more sophisticatedapproach to generalizing beyond the relatively small number of frames considered inthe tasks.
+More recently, a domain-independent system has been trained by Blahetaand Charniak (2000) on the function tags, such as Manner and Temporal, includedin the Penn Treebank corpus.
+Some of these tags correspond to FrameNet semanticroles, but the Treebank tags do not include all the arguments of most predicates.
+In thisarticle, we aim to develop a statistical system for automatically learning to identify allsemantic roles for a wide variety of predicates in unrestricted text.252Computational Linguistics Volume 28, Number 34.
+Probability Estimation for RolesIn this section we describe the first, basic version of our statistically trained systemfor automatically identifying frame elements in text.
+The system will be extended inlater sections.
+We first describe in detail the sentence- and constituent-level featureson which our system is based and then use these features to calculate probabilitiesfor predicting frame element labels in Section 4.2.
+In this section we give results fora system that labels roles using the human-annotated boundaries for the frame ele-ments within the sentence; we return to the question of automatically identifying theboundaries in Section 5.4.1 Features Used in Assigning Semantic RolesOur system is a statistical one, based on training a classifier on a labeled training setand testing on a held-out portion of the data.
+The system is trained by first using anautomatic syntactic parser to analyze the 36,995 training sentences, matching annotatedframe elements to parse constituents and extracting various features from the stringof words and the parse tree.
+During testing, the parser is run on the test sentencesand the same features are extracted.
+Probabilities for each possible semantic role r arethen computed from the features.
+The probability computation is described in the nextsection; here we discuss the features used.The features used represent various aspects of the syntactic structure of the sen-tence as well as lexical information.
+The relationship between such surface manifes-tations and semantic roles is the subject of linking theory (see Levin and RappaportHovav [1996] for a synthesis of work in this area).
+In general, linking theory arguesthat the syntactic realization of arguments of a predicate is predictable from semantics;exactly how this relationship works, however, is the subject of much debate.
+Regardlessof the underlying mechanisms used to generate syntax from semantics, the relation-ship between the two suggests that it may be possible to learn to recognize semanticrelationships from syntactic cues, given examples with both types of information.4.1.1 Phrase Type.
+Different semantic roles tend to be realized by different syntacticcategories.
+For example, in communication frames, the Speaker is likely to appearas a noun phrase, Topic as a prepositional phrase or noun phrase, and Medium as aprepositional phrase, as in: ?
+[Speaker We ] talked [Topic about the proposal ] [Medium overthe phone ] .
+?The phrase type feature we used indicates the syntactic category of the phraseexpressing the semantic roles, using the set of syntactic categories of the Penn Treebankproject, as described in Marcus, Santorini, and Marcinkiewicz (1993).
+In our data, frameelements are most commonly expressed as noun phrases (NPs, 47% of frame elementsin the training set), and prepositional phrases (PPs, 22%).
+The next most commoncategories are adverbial phrases (ADVPs, 4%), particles (e.g.
+?make something up?
+;PRTs, 2%) and clauses (SBARs, 2%, and Ss, 2%).
+(Tables 22 and 23 in the Appendixprovides a listing of Penn Treebank?s part-of-speech tags and constituent labels.
+)We used Collins?
+(1997) statistical parser trained on examples from the Penn Tree-bank to generate parses of the same format for the sentences in our data.
+Phrase typeswere derived automatically from parse trees generated by the parser, as shown in Fig-ure 2.
+Given the automatically generated parse tree, the constituent spanning the sameset of words as each annotated frame element was found, and the constituent?s nonter-minal label was taken as the phrase type.
+In cases in which more than one constituentmatches because of a unary production in the parse tree, the higher constituent waschosen.253Gildea and Jurafsky Automatic Labeling of Semantic RolesHePRPNPheardVBDthe sound of liquid slurping in a metal containerNPasINFarrellNNPNPapproachedVBDhimPRPNPfromINbehindNNNPPPVPSSBARVPStarget SourceGoalThemeFigure 2A sample sentence with parser output (above) and FrameNet annotation (below).
+Parseconstituents corresponding to frame elements are highlighted.The matching was performed by calculating the starting and ending word po-sitions for each constituent in the parse tree, as well as for each annotated frameelement, and matching each frame element with the parse constituent with the samebeginning and ending points.
+Punctuation was ignored in this computation.
+Becauseof parsing errors, or, less frequently, mismatches between the parse tree formalism andthe FrameNet annotation standards, for 13% of the frame elements in the training set,there was no parse constituent matching an annotated frame element.
+The one case ofsystematic mismatch between the parse tree formalism and the FrameNet annotationstandards is the FrameNet convention of including both a relative pronoun and itsantecedent in frame elements, as in the first frame element in the following sentence:(15) In its rough state he showed it to [Agt the Professor, who ] bent [BPrt hisgrey beard ] [Path over the neat script ] and read for some time in silence.Mismatch caused by the treatment of relative pronouns accounts for 1% of the frameelements in the training set.During testing, the largest constituent beginning at the frame element?s left bound-ary and lying entirely within the element was used to calculate the frame element?sfeatures.
+We did not use this technique on the training set, as we expected that itwould add noise to the data, but instead discarded examples with no matching parseconstituent.
+Our technique for finding a near match handles common parse errorssuch as a prepositional phrase being incorrectly attached to a noun phrase at theright-hand edge, and it guarantees that some syntactic category will be returned: thepart-of-speech tag of the frame element?s first word in the limiting case.4.1.2 Governing Category.
+The correlation between semantic roles and syntactic re-alization as subject or direct object is one of the primary facts that linking theory at-tempts to explain.
+It was a motivation for the case hierarchy of Fillmore (1968), which254Computational Linguistics Volume 28, Number 3allowed such rules as ?If there is an underlying Agent, it becomes the syntactic sub-ject.?
+Similarly, in his theory of macroroles, Van Valin (1993) describes the Actor asbeing preferred in English for the subject.
+Functional grammarians consider syntacticsubjects historically to have been grammaticalized agent markers.
+As an example ofhow such a feature can be useful, in the sentence ?He drove the car over the cliff,?the subject NP is more likely to fill the Agent role than the other two NPs.
+We willdiscuss various grammatical-function features that attempt to indicate a constituent?ssyntactic relation to the rest of the sentence, for example, as a subject or object of averb.The first such feature, which we call ?governing category,?
+or gov, has only twovalues, S and VP, corresponding to subjects and objects of verbs, respectively.
+Thisfeature is restricted to apply only to NPs, as it was found to have little effect on otherphrase types.
+As with phrase type, the feature was read from parse trees returned bythe parser.
+We follow links from child to parent up the parse tree from the constituentcorresponding to a frame element until either an S or VP node is found and assignthe value of the feature according to whether this node is an S or a VP.
+NP nodesfound under S nodes are generally grammatical subjects, and NP nodes under VPnodes are generally objects.
+In most cases the S or VP node determining the value ofthis feature immediately dominates the NP node, but attachment errors by the parseror constructions such as conjunction of two NPs can cause intermediate nodes tobe introduced.
+Searching for higher ancestor nodes makes the feature robust to suchcases.
+Even given good parses, this feature is not perfect in discriminating grammaticalfunctions, and in particular it confuses direct objects with adjunct NPs such as temporalphrases.
+For example, town in the sentence ?He left town?
+and yesterday in the sentence?He left yesterday?
+will both be assigned a governing category of VP.
+Direct andindirect objects both appear directly under the VP node.
+For example, in the sentence?He gave me a new hose,?
+me and a new hose are both assigned a governing categoryof VP.
+More sophisticated handling of such cases could improve our system.4.1.3 Parse Tree Path.
+Like the governing-category feature described above, the parsetree path feature (path) is designed to capture the syntactic relation of a constituentto the rest of the sentence.
+The path feature, however, describes the syntactic relationbetween the target word (that is, the predicate invoking the semantic frame) and theconstituent in question, whereas the gov feature is independent of where the targetword appears in the sentence; that is, it identifies all subjects whether they are thesubject of the target word or not.The path feature is defined as the path from the target word through the parsetree to the constituent in question, represented as a string of parse tree nonterminalslinked by symbols indicating upward or downward movement through the tree, asshown in Figure 3.
+Although the path is composed as a string of symbols, our systemtreats the string as an atomic value.
+The path includes, as the first element of thestring, the part of speech of the target word and, as the last element, the phrase typeor syntactic category of the sentence constituent marked as a frame element.
+Aftersome experimentation, we settled on a version of the path feature that collapses thevarious part-of-speech tags for verbs, including past-tense verb (VBD), third-personsingular present-tense verb (VBZ), other present-tense verb (VBP), and past participle(VBN), into a single verb tag denoted ?VB.
+?Our path feature is dependent on the syntactic representation used, which in ourcase is the Treebank-2 annotation style (Marcus et al 1994), as our parser is trainedon this later version of the Treebank data.
+Figure 4 shows the annotation for thesentence ?They expect him to cut costs throughout the organization,?
+which exhibits255Gildea and Jurafsky Automatic Labeling of Semantic RolesSNP VPNPHe ate some pancakesPRPDT NNVBFigure 3In this example, the path from the target word ate to the frame element He can be representedas VB?VP?S?NP, with ?
+indicating upward movement in the parse tree and ?
+downwardmovement.
+The NP corresponding to He is found as described in Section 4.1.1.Figure 4Treebank annotation of raising constructions.the syntactic phenomenon known as subject-to-object raising, in which the main verb?sobject is interpreted as the embedded verb?s subject.
+The Treebank-2 style tends to begenerous in its usage of S nodes to indicate clauses, a decision intended to makepossible a relatively straightforward mapping from S nodes to predications.
+In thisexample, the path from cut to the frame element him would be VB?VP?VP?S?NP,which typically indicates a verb?s subject, despite the accusative case of the pronounhim.
+For the target word of expect in the sentence of Figure 4, the path to him wouldbe VB?VP?S?NP, rather than the typical direct-object path of VB?VP?NP.An example of Treebank-2 annotation of an ?equi?
+construction, in which a nounphrase serves as an argument of both the main and subordinate verbs, is shown inFigure 5.
+Here, an empty category is used in the subject position of the subordinateclause and is co-indexed with the NP Congress in the direct-object position of the mainclause.
+The empty category, however, is not used in the statistical model of the parseror shown in its output and is also not used by the FrameNet annotation, which wouldmark the NP Congress as a frame element of raise in this example.
+Thus, the valueof our path feature from the target word raise to the frame element Congress would256Computational Linguistics Volume 28, Number 3Figure 5Treebank annotation of equi constructions.
+An empty category is indicated by an asterisk, andco-indexing by superscript numeral.Table 2Most frequent values of the path feature in the training data.Frequency Path Description14.2% VB?VP?PP PP argument/adjunct11.8 VB?VP?S?NP Subject10.1 VB?VP?NP Object7.9 VB?VP?VP?S?NP Subject (embedded VP)4.1 VB?VP?ADVP Adverbial adjunct3.0 NN?NP?NP?PP Prepositional complement of noun1.7 VB?VP?PRT Adverbial particle1.6 VB?VP?VP?VP?S?NP Subject (embedded VP)14.2 No matching parse constituent31.4 Otherbe VB?VP?VP?S?VP?NP, and from the target word of persuaded the path to Congresswould be the standard direct-object path VB?VP?NP.Other changes in annotation style from the original Treebank style were specifi-cally intended to make predicate argument structure easy to read from the parse treesand include new empty (or null) constituents, co-indexing relations between nodes,and secondary functional tags such as subject and temporal.
+Our parser output, how-ever, does not include this additional information, but rather simply gives trees ofphrase type categories.
+The sentence in Figure 4 is one example of how the change inannotation style of Treebank-2 can affect this level of representation; the earlier styleassigned the word him an NP node directly under the VP of expect.The most common values of the path feature, along with interpretations, are shownin Table 2.For the purposes of choosing a frame element label for a constituent, the pathfeature is similar to the gov feature defined above.
+Because the path captures moreinformation than the governing category, it may be more susceptible to parser errorsand data sparseness.
+As an indication of this, our path feature takes on a total of2,978 possible values in the training data when frame elements with no matching257Gildea and Jurafsky Automatic Labeling of Semantic RolesFigure 6Example of target word renting in a small clause.parse constituent are not counted and 4,086 possible values when paths are found tothe best-matching constituent in these cases.
+The governing-category feature, on theother hand, which is defined only for NPs, has only two values (S, corresponding tosubjects, and VP, corresponding to objects).
+In cases in which the path feature includesan S or VP ancestor of an NP node as part of the path to the target word, the govfeature is a function of the path feature.
+This is the case most of the time, including forour prototypical subject (VB?VP?S?NP) and object (VB?VP?NP) paths.
+Of the 35,138frame elements identified as NPs by the parser, only 4% have a path feature that doesnot include a VP or S ancestor.
+One such example is shown in Figure 6, where thesmall clause ?the remainder renting .
+.
+.?
+has no S node, giving a path feature fromrenting to the remainder of VB?VP?NP?NP.
+The value of the gov feature here is VP, asthe algorithm finds the VP of the sentence?s main clause as it follows parent links upthe tree.
+The feature is spurious in this case, because the main VP is not headed by,or relevant to, the target word renting.Systems based on the path and gov features are compared in Section 4.3.
+Thedifferences between the two are relatively small for the purpose of identifying semanticroles when frame element boundaries are known.
+The path feature will, however, beimportant in identifying which constituents are frame elements for a given target word,as it gives us a way of navigating through the parse tree to find the frame elementsin the sentence.4.1.4 Position.
+To overcome errors due to incorrect parses, as well as to see howmuch can be done without parse trees, we introduced position as a feature.
+The positionfeature simply indicates whether the constituent to be labeled occurs before or after thepredicate defining the semantic frame.
+We expected this feature to be highly correlatedwith grammatical function, since subjects will generally appear before a verb andobjects after.Although we do not have hand-checked parses against which to measure the per-formance of the automatic parser on our corpus, the result that 13% of frame elementshave no matching parse constituent gives a rough idea of the parser?s accuracy.
+Al-258Computational Linguistics Volume 28, Number 3most all of these cases in which no matching parse constituent was found are due toparser error.
+Other parser errors include cases in which a constituent is found, butwith the incorrect label or internal structure.
+This result also considers only the indi-vidual constituent representing the frame element: the parse for the rest of the sentencemay be incorrect, resulting in an incorrect value for the grammatical function featuresdescribed in the previous two sections.
+Collins (1997) reports 88% labeled precisionand recall on individual parse constituents on data from the Penn Treebank, roughlyconsistent with our finding of at least 13% error.4.1.5 Voice.
+The distinction between active and passive verbs plays an important rolein the connection between semantic role and grammatical function, since direct objectsof active verbs often correspond in semantic role to subjects of passive verbs.
+Fromthe parser output, verbs were classified as active or passive by building a set of 10passive-identifying patterns.
+Each of the patterns requires both a passive auxiliary(some form of to be or to get) and a past participle.
+Roughly 5% of the examples wereidentified as passive uses.4.1.6 Head Word.
+As previously noted, we expected lexical dependencies to be ex-tremely important in labeling semantic roles, as indicated by their importance in re-lated tasks such as parsing.
+Head words of noun phrases can be used to expressselectional restrictions on the semantic types of role fillers.
+For example, in a commu-nication frame, noun phrases headed by Bill, brother, or he are more likely to be theSpeaker, whereas those headed by proposal, story, or question are more likely to be theTopic.
+(We did not attempt to resolve pronoun references.
+)Since the parser we used assigns each constituent a head word as an integralpart of the parsing model, we were able to read the head words of the constituentsfrom the parser output, employing the same set of rules for identifying the head childof each constituent in the parse tree.
+The rules for assigning a head word are listedin Collins (1999).
+Prepositions are considered to be the head words of prepositionalphrases.
+The rules for assigning head words do not attempt to distinguish betweencases in which the preposition expresses the semantic content of a role filler, such asPath frame elements expressed by prepositional phrases headed by along, through, orin, and cases in which the preposition might be considered to be purely a case marker,as in most uses of of, where the semantic content of the role filler is expressed bythe preposition?s object.
+Complementizers are considered to be heads, meaning thatinfinitive verb phrases are always headed by to and subordinate clauses such as in thesentence ?I?m sure that he came?
+are headed by that.4.2 Probability EstimationFor our experiments, we divided the FrameNet corpus as follows: one-tenth of theannotated sentences for each target word were reserved as a test set, and another one-tenth were set aside as a tuning set for developing our system.
+A few target wordswhere fewer than 10 examples had been chosen for annotation were removed from thecorpus.
+(Section 9 will discuss generalization to unseen predicates.)
+In our corpus, theaverage number of sentences per target word is only 34, and the number of sentencesper frame is 732, both relatively small amounts of data on which to train frame elementclassifiers.To label the semantic role of a constituent automatically, we wish to estimate aprobability distribution indicating how likely the constituent is to fill each possible259Gildea and Jurafsky Automatic Labeling of Semantic RolesTable 3Distributions calculated for semantic role identification: r indicates semantic role, pt phrasetype, gov grammatical function, h head word, and t target word, or predicate.Distribution Coverage Accuracy PerformanceP(r | t) 100.0% 40.9% 40.9%P(r | pt, t) 92.5 60.1 55.6P(r | pt, gov, t) 92.0 66.6 61.3P(r | pt, position, voice) 98.8 57.1 56.4P(r | pt, position, voice, t) 90.8 70.1 63.7P(r | h) 80.3 73.6 59.1P(r | h, t) 56.0 86.6 48.5P(r | h, pt, t) 50.1 87.4 43.8role, given the features described above and the predicate, or target word, t:P(r | h, pt , gov, position , voice, t)where r indicates semantic role, h head word, and pt phrase type.
+It would be possibleto calculate this distribution directly from the training data by counting the numberof times each role appears with a combination of features and dividing by the totalnumber of times the combination of features appears:P(r | h, pt , gov , position , voice, t) = #(r, h, pt , gov, position , voice, t)#(h, pt , gov, position , voice, t)In many cases, however, we will never have seen a particular combination of featuresin the training data, and in others we will have seen the combination only a smallnumber of times, providing a poor estimate of the probability.
+The small numberof training sentences for each target word and the large number of values that thehead word feature in particular can take (any word in the language) contribute to thesparsity of the data.
+Although we expect our features to interact in various ways, wecannot train directly on the full feature set.
+For this reason, we built our classifier bycombining probabilities from distributions conditioned on a variety of subsets of thefeatures.Table 3 shows the probability distributions used in the final version of the system.Coverage indicates the percentage of the test data for which the conditioning event hadbeen seen in training data.
+Accuracy is the proportion of covered test data for whichthe correct role is given the highest probability, and Performance, which is the productof coverage and accuracy, is the overall percentage of test data for which the correctrole is predicted.3 Accuracy is somewhat similar to the familiar metric of precisionin that it is calculated over cases for which a decision is made, and performance issimilar to recall in that it is calculated over all true frame elements.
+Unlike in a tra-ditional precision/recall trade-off, however, these results have no threshold to adjust,and the task is a multiway classification rather than a binary decision.
+The distribu-tions calculated were simply the empirical distributions from the training data.
+That is,occurrences of each role and each set of conditioning events were counted in a table,and probabilities calculated by dividing the counts for each role by the total number3 Ties for the highest-probabilty role are resolved at random.260Computational Linguistics Volume 28, Number 3Table 4Sample probabilities for P(r | pt, gov, t) calculated from training data for the verb abduct.
+Thevariable gov is defined only for noun phrases.
+The roles defined for the removing frame in themotion domain are Agent (Agt), Theme (Thm), CoTheme (CoThm) (?.
+.
+.
+had beenabducted with him?
+), and Manner (Manr).P(r | pt, gov, t) Count in training dataP(r = Agt | pt = NP, gov = S, t = abduct) = .46 6P(r = Thm | pt = NP, gov = S, t = abduct) = .54 7P(r = Thm | pt = NP, gov = VP, t = abduct) = 1 9P(r = Agt | pt = PP, t = abduct) = .33 1P(r = Thm | pt = PP, t = abduct) = .33 1P(r = CoThm | pt = PP, t = abduct) = .33 1P(r =Manr | pt = ADVP, t = abduct) = 1 1of observations for each conditioning event.
+For example, the distribution P(r | pt, t)was calculated as follows:P(r | pt , t) = #(r, pt , t)#(pt , t)Some sample probabilities calculated from the training are shown in Table 4.As can be seen from Table 3, there is a trade-off between more-specific distri-butions, which have high accuracy but low coverage, and less-specific distributions,which have low accuracy but high coverage.
+The lexical head word statistics, in par-ticular, are valuable when data are available but are particularly sparse because of thelarge number of possible head words.To combine the strengths of the various distributions, we merged them in variousways to obtain an estimate of the full distribution P(r | h, pt , gov, position , voice, t).
+Thefirst combination method is linear interpolation, which simply averages the probabil-ities given by each of the distributions:P(r | constituent) = ?1P(r | t) + ?2P(r | pt , t)+ ?3P(r | pt , gov, t) + ?4P(r | pt , position , voice)+ ?5P(r | pt , position , voice, t) + ?6P(r | h)+ ?7P(r | h, t) + ?8P(r | h, pt , t)where?i ?i = 1.
+The geometric mean, when expressed in the log domain, is similar:P(r | constituent) = 1Z exp{ ?1 log P(r | t) + ?2 log P(r | pt , t)+ ?3 log P(r | pt , gov, t) + ?4 log P(r | pt , position , voice)+ ?5 log P(r | pt , position , voice, t) + ?6 log P(r | h)+ ?7 log P(r | h, t) + ?8 log P(r | h, pt , t) }where Z is a normalizing constant ensuring that?r P(r | constituent) = 1.Results for systems based on linear interpolation are shown in the first row ofTable 5.
+These results were obtained using equal values of ?
+for each distributiondefined for the relevant conditioning event (but excluding distributions for which theconditioning event was not seen in the training data).
+As a more sophisticated methodof choosing interpolation weights, the expectation maximization (EM) algorithm was261Gildea and Jurafsky Automatic Labeling of Semantic RolesTable 5Results on development set, 8,167 observations.Combining Method CorrectEqual linear interpolation 79.5%EM linear interpolation 79.3Geometric mean 79.6Backoff, linear interpolation 80.4Backoff, geometric mean 79.6Baseline: Most common role 40.9Table 6Results on test set, 7,900 observations.Combining Method CorrectEM linear interpolation 78.5%Backoff, linear interpolation 76.9Baseline: Most common role 40.6used to estimate the likelihood of the observed role?s being produced by each of thedistributions in the general techniques of Jelinek and Mercer (1980).
+Because a numberof the distributions used may have no training data for a given set of variables, thedata were divided according to the set of distributions available, and a separate set ofinterpolation weights was trained for each set of distributions.
+This technique (line 2of Table 5) did not outperform equal weights even on the data used to determinethe weights.
+Although the EM algorithm is guaranteed to increase the likelihood ofthe training data, that likelihood does not always correspond to our scoring, which isbased only on whether the correct outcome is assigned the highest probability.
+Resultsof the EM interpolation on held-out test data are shown in Table 6.Experimentation has shown that the weights used have relatively little impact inour interpolation scheme, no doubt because the evaluation metric depends only on theranking of the probabilities and not on their exact values.
+Changing the interpolationweights rarely changes the probabilities of the roles enough to change their ranking.What matters most is whether a combination of variables has been seen in the trainingdata or not.Results for the geometric mean are shown in row 3 of Table 5.
+As with linearinterpolation, the exact weights were found to have little effect, and the results shownreflect equal weights.
+An area we have not explored is the use of the maximum-entropytechniques of, for example, Pietra, Pietra, and Lafferty (1997), to set weights for thelog-linear model, either at the level of combining our probability distributions or atthe level of calculating weights for individual values of the features.In the ?backoff?
+combination method, a lattice was constructed over the distribu-tions in Table 3 from more-specific conditioning events to less-specific, as shown inFigure 7.
+The lattice is used to select a subset of the available distributions to com-bine.
+The less-specific distributions were used only when no data were present for anymore-specific distribution.
+Thus, the distributions selected are arranged in a cut acrossthe lattice representing the most-specific distributions for which data are available.
+Theselected probabilities were combined with both linear interpolation and a geometricmean, with results shown in Table 5.
+The final row of the table represents the baseline262Computational Linguistics Volume 28, Number 3P(r | h, t) P(r | pt, t) P(r | pt, position, voice)P(r | pt, position, voice, t)P(r | pt, gf, t)P(r | t)P(r | h)P(r | h, pt, t)Figure 7Lattice organization of the distributions from Table 3, with more-specific distributions towardthe top.of always selecting the most common role of the target word for all its constituents,that is, using only P(r | t).Although this lattice is reminiscent of techniques of backing off to less specificdistributions commonly used in n-gram language modeling, it differs in that we use thelattice only to select distributions for which the conditioning event has been seen in thetraining data.
+Discounting and deleted interpolation methods in language modelingtypically are used to assign small, nonzero probability to a predicted variable unseen inthe training data even when a specific conditioning event has been seen.
+In our case,we are perfectly willing to assign zero probability to a specific role (the predictedvariable).
+We are interested only in finding the role with the highest probability, anda role given a small, nonzero probability by smoothing techniques will still not bechosen as the classifier?s output.The lattice presented in Figure 7 represents just one way of choosing subsets offeatures for our system.
+Designing a feature lattice can be thought of as choosinga set of feature subsets: once the probability distributions of the lattice have beenchosen, the graph structure of the lattice is determined by the subsumption relationsamong the sets of conditioning variables.
+Given a set of N conditioning variables,there are 2N possible subsets, and 22Npossible sets of subsets, giving us a doublyexponential number of possible lattices.
+The particular lattice of Figure 7 was chosen torepresent some expected interaction between features.
+For example, we expect positionand voice to interact, and they are always used together.
+We expect the head word hand the phrase type pt to be relatively independent predictors of the semantic roleand therefore include them separately as roots of the backoff structure.
+Although wewill not explore all the possibilities for our lattice, some of the feature interactions areexamined more closely in Section 4.3.The final system performed at 80.4% accuracy, which can be compared to the 40.9%achieved by always choosing the most probable role for each target word, essentiallychance performance on this task.
+Results for this system on test data, held out duringdevelopment of the system, are shown in Table 6.
+Surprisingly, the EM-based interpo-lation performed better than the lattice-based system on the held-out test set, but noton the data used to set the weights in the EM-based system.
+We return to an analysisof which roles are hardest to classify in Section 9.1.4.3 Interaction of FeaturesThree of our features, position, gov, and path, attempt to capture the syntactic relationbetween the target word and the constituent to be labeled, and in particular to dif-ferentiate the subjects from objects of verbs.
+To compare these three features directly,experiments were performed using each feature alone in an otherwise identical sys-263Gildea and Jurafsky Automatic Labeling of Semantic RolesTable 7Different estimators of grammatical function.
+The columns of the table correspond toFigures 8a, 8b, and 8c.Feature W/o voice Independent In conjunctionvoice feature with voicepath 79.4% 79.2% 80.4%gov 79.1 79.2 80.7position 79.9 79.7 80.5?
+76.3 76.0 76.0P(r | h, t) P(r | pt, t)P(r | t)P(r | h)P(r | h, pt, t) P(r | pt, GF, voice, t)P(r | pt, GF, voice)P(r | h, t) P(r | pt, t)P(r | t)P(r | h)P(r | h, pt, t) P(r | pt, voice, t)P(r | pt, voice)P(r | pt, GF, t)P(r | h, t) P(r | pt, t)P(r | t)P(r | h)P(r | h, pt, t) P(r | pt, GF, t)a)b)c)Figure 8Lattice structures for comparing grammatical-function features.tem.
+Results are shown in Table 7.
+For the first set of experiments, corresponding tothe first column of Table 7, no voice information was used, with the result that theremaining distributions formed the lattice of Figure 8a.
+(?GF?
+(grammatical function)in the figure represents one of the features position, gov, and path.)
+Adding voice infor-mation back into the system independently of the grammatical-function feature results264Computational Linguistics Volume 28, Number 3P(r | h, t)P(r | t)P(r | pt, path, t)Figure 9Minimal lattice.in the lattice of Figure 8b, corresponding to the second column of Table 7.
+Choosingdistributions such that the grammatical function and voice features are always usedtogether results in Figure 8c, corresponding to the third column of Table 7.
+In eachcase, as in previous results, the grammatical function feature was used only whenthe candidate constituent was an NP.
+The last row of Table 7 shows results using nogrammatical-function feature: the distributions making use of GF are removed fromthe lattices of Figure 8.As a guideline for interpreting these results, with 8,167 observations, the thresholdfor statistical significance with p < .05 is a 1.0% absolute difference in performance.It is interesting to note that looking at a constituent?s position relative to the targetword performed as well as either of our features that read grammatical function offthe parse tree, both with and without passive information.
+The gov and path featuresseem roughly equivalent in performance.Using head word, phrase type, and target word without either position or gram-matical function yielded only 76.3% accuracy, indicating that although the two featuresaccomplish a similar goal, it is important to include some measure of the constituent?srelationship to the target word, whether relative position or either of the syntacticfeatures.Use of the active/passive voice feature seems to be beneficial only when the featureis tied to grammatical function: the second column in Table 7 shows no improvementover the first, while the right-hand column, where grammatical function and voice aretied, shows gains (although only trends) of at least 0.5% in all cases.
+As before, ourthree indicators of grammatical function seem roughly equivalent, with the best resultin this case being the gov feature.
+The lattice of Figure 8c performs as well as oursystem of Figure 7, indicating that including both position and either of the syntacticrelations is redundant.As an experiment to see how much can be accomplished with as simple a systemas possible, we constructed the minimal lattice of Figure 9, which includes just twodistributions, along with a prior for the target word to be used as a last resort when nodata are available.
+This structure assumes that head word and grammatical functionare independent.
+It further makes no use of the voice feature.
+We chose the path featureas the representation of grammatical function in this case.
+This system classified 76.3%of frame elements correctly, indicating that one can obtain roughly nine-tenths theperformance of the full system with a simple approach.
+(We will return to a similarsystem for the purposes of cross-domain experiments in Section 9.)5.
+Identification of Frame Element BoundariesIn this section we examine the system?s performance on the task of locating the frameelements in a sentence.
+Although our probability model considers the question offinding the boundaries of frame elements separately from the question of finding thecorrect label for a particular frame element, similar features are used to calculate both265Gildea and Jurafsky Automatic Labeling of Semantic RolesTable 8Sample probabilities of a constituent?s being a frame element.Distribution Sample Probability Count in training dataP(fe | path) P(fe | path = VB?VP?ADJP?ADVP) = 1 1P(fe | path = VB?VP?NP) = .73 3,963P(fe | path = VB?VP?NP?PP?S) = 0 22P(fe | path, t) P(fe | path = JJ?ADJP?PP, t = apparent) = 1 10P(fe | path = NN?NP?PP?VP?PP, t = departure) = .4 5P(fe | h, t) P(fe | h = sudden, t = apparent) = 0 2P(fe | h = to, t = apparent) = .11 93P(fe | h = that, t = apparent) = .21 81probabilities.
+In the experiments below, the system is no longer given frame elementboundaries but is still given as inputs the human-annotated target word and the frameto which it belongs.
+We do not address the task of identifying which frames come intoplay in a sentence but envision that existing word sense disambiguation techniquescould be applied to the task.As before, features are extracted from the sentence and its parse and are used tocalculate probability tables, with the predicted variable in this case being fe, a binaryindicator of whether a given constituent in the parse tree is or is not a frame element.The features used were the path feature of Section 4.1.3, the identity of the targetword, and the identity of the constituent?s head word.
+The probability distributionscalculated from the training data were P(fe | path), P(fe | path , t), and P(fe | h, t), wherefe indicates an event where the parse constituent in question is a frame element, paththe path through the parse tree from the target word to the parse constituent, t theidentity of the target word, and h the head word of the parse constituent.
+Some samplevalues from these distributions are shown in Table 8.
+For example, the path VB?VP?NP,which corresponds to the direct object of a verbal target word, had a high probabilityof being a frame element.
+The table also illustrates cases of sparse data for variousfeature combinations.By varying the probability threshold at which a decision is made, one can plot aprecision/recall curve as shown in Figure 10.
+P(fe | path , t) performs relatively poorlybecause of fragmentation of the training data (recall that only about 30 sentences areavailable for each target word).
+Although the lexical statistic P(fe | h, t) alone is notuseful as a classifier, using it in linear interpolation with the path statistics improvesresults.
+The curve labeled ?interpolation?
+in Figure 10 reflects a linear interpolation ofthe formP(fe | p, h, t) = ?1P(fe | p) + ?2P(fe | p, t) + ?3P(fe | h, t) (16)Note that this method can identify only those frame elements that have a correspond-ing constituent in the automatically generated parse tree.
+For this reason, it is in-teresting to calculate how many true frame elements overlap with the results of thesystem, relaxing the criterion that the boundaries must match exactly.
+Results for par-tial matching are shown in Table 9.
+Three types of overlap are possible: the identifiedconstituent entirely within the true frame element, the true frame element entirelywithin the identified constituent, and each sequence partially contained by the other.An example of the first case is shown in Figure 11, where the true Message frame ele-ment is Mandarin by a head, but because of an error in the parser output, no constituentexactly matches the frame element?s boundaries.
+In this case, the system identifies266Computational Linguistics Volume 28, Number 300.10.20.30.40.50.60.70.80.910 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1recallprecisionP(fe|path)P(fe|path, t)interpolationFigure 10Plot of precision/recall curve for various methods of identifying frame elements.
+Recall iscalculated over only frame elements with matching parse constituents.Table 9Results on identifying frame elements (FEs), including partial matches.
+Results obtained usingP(fe | path) with threshold at 0.5.
+A total of 7,681 constituents were identified as FEs, and 8,167FEs were present in hand-annotations, of which matching parse constituents were present for7,053 (86%).Type of Overlap Identified Constituents NumberExactly matching boundaries 66% 5,421Identified constituent entirely within true frame element 8 663True frame element entirely within identified constituent 7 599Both partially within the other 0 26No overlap with any true frame element 13 972two frame elements, indicated by shading, which together span the true frame ele-ment.When the automatically identified constituents were fed through the role-labelingsystem described above, 79.6% of the constituents that had been correctly identifiedin the first stage were assigned the correct role in the second, roughly equivalentto the performance when roles were assigned to constituents identified by hand.
+Amore sophisticated integrated system for identifying and labeling frame elements isdescribed in Section 7.1.6.
+Generalizing Lexical StatisticsAs can be seen from Table 3, information about the head word of a constituentis valuable in predicting the constituent?s role.
+Of all the distributions presented,267Gildea and Jurafsky Automatic Labeling of Semantic RolesAs the horses were led back... ,SBARtheDTresultNNNPwasVBDannounced :VBNMandarinNNNPbyINaDTheadNNNPPPVPVPStarget MessageFigure 11An example of overlap between identified frame elements and the true boundaries, caused byparser error.
+In this case two frame elements identified by the classifier (shaded subtrees) areentirely within the human annotation (indicated below the sentence), contributing twoinstances to row 2 of Table 9.P(r | h, pt , t) predicts the correct role most often (87.4% of the time) when trainingdata for a particular head word have been seen.
+Because of the large vocabulary ofpossible head words, however, it also has the smallest coverage, meaning that it islikely that, for a given case in the test data, no frame element with the same headword will have been seen in the set of training sentences for the target word in ques-tion.
+To capitalize on the information provided by the head word, we wish to finda way to generalize from head words seen in the training data to other head words.In this section we compare three different approaches to the task of generalizing overhead words: automatic clustering of a large vocabulary of head words to identifywords with similar semantics; use of a hand-built ontological resource, WordNet, toorganize head words in a semantic hierarchy; and bootstrapping to make use of un-labeled data in training the system.
+We will focus on frame elements filled by nounphrases, which constitute roughly half the total.6.1 Automatic ClusteringTo find groups of head words that are likely to fill the same semantic roles, an auto-matic clustering of nouns was performed using word co-occurrence data from a largecorpus.
+This technique is based on the expectation that words with similar semanticswill tend to co-occur with the same other sets of words.
+For example, nouns describingfoods will tend to occur as direct objects of verbs such as eat devour, and savor.
+Theclustering algorithm attempts to find such patterns of co-occurrence from the countsof grammatical relations between pairs of specific words in the corpus, without theuse of any external knowledge or semantic representation.We extracted verb?direct object relations from an automatically parsed version ofthe British National Corpus, using the parser of Carroll and Rooth (1998).4 Clustering4 We are indebted to Mats Rooth and Sabine Schulte im Walde for providing us with the parsed corpus.268Computational Linguistics Volume 28, Number 3was performed using the probabilistic model of co-occurrence described in detail byHofmann and Puzicha (1998).
+(For other natural language processing [NLP] applica-tions of the probabilistic clustering algorithm, see, e.g., Rooth [1995], Rooth et al [1999];for application to language modeling, see Gildea and Hofmann [1999].
+According tothis model, the two observed variables, in this case the verb and the head noun of itsobject, can be considered independent given the value of a hidden cluster variable, c:P(n, v) =?cP(c)P(n | c)P(v | c)One begins by setting a priori the number of values that c can take and using theEM algorithm to estimate the distributions P(c), P(n | c), and P(v | c).
+Deterministicannealing was used to prevent overfitting of the training data.We are interested only in the clusters of nouns given by the distribution P(n | c):the verbs and the distribution P(v | c) are thrown away once training is complete.
+Othergrammatical relations besides direct object could be used, as could a set of relations.We used the direct object (following other clustering work such as Pereira, Tishby, andLee [1993]) because it is particularly likely to exhibit semantically significant selectionalrestrictions.A total of 2,610,946 verb-object pairs were used as training data for the clustering,with a further 290,105 pairs used as a cross-validation set to control the parameters ofthe clustering algorithm.
+Direct objects were identified as noun phrases directly undera verb phrase node?not a perfect technique, since it also finds nominal adjuncts suchas ?I start today.?
+Forms of the verb to be were excluded from the data, as its co-occurrence patterns are not semantically informative.
+The number of values possiblefor the latent cluster variable was set to 256.
+(Comparable results were found with 64clusters; the use of deterministic annealing prevents large numbers of clusters fromresulting in overfitting.
+)The soft clustering of nouns thus generated is used as follows: for each examplein the frame element?annotated training data, probabilities for values of the hiddencluster variable were calculated using Bayes?
+rule:P(c | h) = P(h | c)P(c)?c?
+P(h | c?)P(c?
+)The clustering was applied only to noun phrase constituents; the distribution P(n | c)from the clustering is used as a distribution P(h | c) over noun head words.Using the cluster probabilities, a new estimate of P(r | c, pt , t) is calculated forcases where pt , the phrase type or syntactic category of the constituent, is NP:P(r | c, pt , t) =?j:pt j = pt ,tj = t,rj = rP(cj | hj)?j:pt j = pt ,tj = tP(cj | hj)where j is an index ranging over the frame elements in the training set and theirassociated features pt , t, h and their semantic roles r.During testing, a smoothed estimate of the head word?based role probability iscalculated by marginalizing over cluster values:P(r | h, pt , t) =?cP(r | c, pt , t)P(c | h)again using P(c | h) = P(h|c)P(c)?c?P(h|c?)P(c?)
+.269Gildea and Jurafsky Automatic Labeling of Semantic RolesTable 10Clustering results on NP constituents only, 4,086 instances.Distribution Coverage Accuracy PerformanceP(r | h, pt, t) 41.6% 87.0% 36.1%?c P(r | c, pt, t)P(c | h) 97.9 79.7 78.0Interpolation of unclustered distributions 100.0 83.4 83.4Unclustered distributions + clustering 100.0 85.0 85.0As with the other methods of generalization described in this section, automaticclustering was applied only to noun phrases, which represent 50% of the constituentsin the test data.
+We would not expect head word to be as valuable for other phrasetypes.
+The second most common category is prepositional phrases.
+The head of aprepositional phrase (PP) is considered to be the preposition, according to the ruleswe use, and because the set of prepositions is small, coverage is not as great a problem.Furthermore, the preposition is often a direct indicator of the semantic role.
+(A morecomplete model might distinguish between cases in which the preposition serves as acase or role marker and others in which it is semantically informative, with clusteringperformed on the preposition?s object in the former case.
+We did not attempt to makethis distinction.)
+Phrase types other than NP and PP make up only a small proportionof the data.Table 10 shows results for the use of automatic clustering on constituents identifiedby the parser as noun phrases.
+As can be seen in the table, the vocabulary used forclustering includes almost all (97.9%) of the test data, and the decrease in accuracy fromdirect lexical statistics to clustered statistics is relatively small (from 87.0% to 79.7%).When combined with the full system described above, clustered statistics increaseperformance on NP constituents from 83.4% to 85.0% (statistically significant at p <.05).
+Over the entire test set, this translates into an improvement from 80.4% to 81.2%.6.2 Using a Semantic Hierarchy: WordNetThe automatic clustering described above can be seen as an imperfect method ofderiving semantic classes from the vocabulary, and we might expect a hand-developedset of classes to do better.
+We tested this hypothesis using WordNet (Fellbaum 1998), afreely available semantic hierarchy.
+The basic technique, when presented with a headword for which no training examples had been seen, was to ascend the type hierarchyuntil reaching a level for which training data are available.
+To do this, counts oftraining data were percolated up the semantic hierarchy in a technique similar to thatof, for example, McCarthy (2000).
+For each training example, the count #(r, s, pt , t)was incremented in a table indexed by the semantic role r, WordNet sense s, phrasetype pt , and target word t, for each WordNet sense s above the head word h in thehypernym hierarchy.
+In fact, the WordNet hierarchy is not a tree, but rather includesmultiple inheritance.
+For example, person has as hypernyms both life form and causalagent.
+In such cases, we simply took the first hypernym listed, effectively convertingthe structure into a tree.
+A further complication is that several WordNet senses arepossible for a given head word.
+We simply used the first sense listed for each word; aword sense disambiguation module capable of distinguishing WordNet senses mightimprove our results.As with the clustering experiments reported above, the WordNet hierarchy wasused only for noun phrases.
+The WordNet hierarchy does not include pronouns; to270Computational Linguistics Volume 28, Number 3Table 11WordNet results on NP constituents only, 4,086 instances.Distribution Coverage Accuracy PerformanceP(r | h, pt, t) 41.6% 87.0% 36.1%WordNet: P(r | s, pt, t) 80.8 79.5 64.1Interpolation of unclustered distributions 100.0 83.4 83.4Unclustered distributions + WordNet 100.0 84.3 84.3increase coverage, the personal pronouns I, me, you, he, she, him, her, we, and us wereadded as hyponyms of person.
+Pronouns that refer to inanimate, or both animate andinanimate, objects were not included.
+In addition, the CELEX English lexical database(Baayen, Piepenbrock, and Gulikers 1995) was used to convert plural nouns to theirsingular forms.As shown in Table 11, accuracy for the WordNet technique is roughly the same asthat in the automatic clustering results in Table 10: 84.3% on NPs, as opposed to 85.0%with automatic clustering.
+This indicates that the error introduced by the unsupervisedclustering is roughly equivalent to the error caused by our arbitrary choice of thefirst WordNet sense for each word and the first hypernym for each WordNet sense.Coverage for the WordNet technique is lower, however, largely because of the absenceof proper nouns from WordNet, as well as the absence of nonanimate pronouns (bothpersonal pronouns such as it and they and indefinite pronouns such as something andanyone).
+A dictionary of proper nouns would likely help improve coverage, and amodule for anaphora resolution might help cases with pronouns, with or withoutthe use of WordNet.
+The conversion of plural forms to singular base forms was animportant part of the success of the WordNet system, increasing coverage from 71.0%to 80.8%.
+Of the remaining 19.2% of all noun phrases not covered by the combination oflexical and WordNet sense statistics, 22% consisted of head words defined in WordNet,but for which no training data were available for any hypernym, and 78% consistedof head words not defined in WordNet.6.3 Bootstrapping from Unannotated DataA third way of attempting to improve coverage of the lexical statistics is to ?bootstrap,?or label unannotated data with the automatic system described in Sections 4 and5 and use the (imperfect) result as further training data.
+This can be considered avariant of the EM algorithm, although we use the single most likely hypothesis forthe unannotated data, rather than calculating the expectation over all hypotheses.
+Onlyone iteration of training on the unannotated data was performed.The unannotated data used consisted of 156,590 sentences containing the targetwords of our corpus, increasing the total amount of data available to roughly six timesthe 36,995 annotated training sentences.Table 12 shows results on noun phrases for the bootstrapping method.
+The accu-racy of a system trained only on data from the automatic labeling (Pauto) is 81.0%, rea-sonably close to the 87.0% for the system trained only on annotated data (Ptrain ).
+Com-bining the annotated and automatically labeled data increases coverage from 41.6%to 54.7% and performance to 44.5%.
+Because the automatically labeled data are notas accurate as the annotated data, we can do slightly better by using the automaticdata only in cases where no training data are available, backing off to the distributionPauto from Ptrain .
+The fourth row of Table 12 shows results with Pauto incorporated271Gildea and Jurafsky Automatic Labeling of Semantic RolesTable 12Bootstrapping results on NP constituents only, 4,086 instances.Distribution Coverage Accuracy PerformancePtrain(r | h, pt, t) 41.6% 87.0% 36.1%Pauto(r | h, pt, t) 48.2 81.0 39.0Ptrain+auto(r | h, pt, t) 54.7 81.4 44.5Ptrain, backoff to Pauto 54.7 81.7 44.7Interpolation of unclustered distributions 100.0 83.4 83.4Unclustered distributions + Pauto 100.0 83.2 83.2into the backoff lattice of all the features of Figure 7, which actually resulted in a slightdecrease in performance from the system without the bootstrapped data, shown in thethird row.
+This is presumably because, although the system trained on automaticallylabeled data performed with reasonable accuracy, many of the cases it classifies cor-rectly overlap with the training data.
+In fact our backing-off estimate of P(r | h, pt , t)classifies correctly only 66% of the additional cases that it covers over Ptrain(r | h, pt , t).6.4 DiscussionThe three methods of generalizing lexical statistics each had roughly equivalent accu-racy on cases for which they were able to derive an estimate of the role probabilitiesfor unseen head words.
+The differences between the three were primarily due to howmuch they could improve the coverage of the estimator, that is, how many new nounheads they were able to handle.
+The automatic-clustering method performed by farthe best on this metric; only 2.1% of test cases were unseen in the data used for theautomatic clustering.
+This indicates how much can be achieved with unsupervisedmethods given very large training corpora.
+The bootstrapping technique describedhere, although it has a similar unsupervised flavor, made use of much less data thanthe corpus used for noun clustering.
+Unlike probabilistic clustering, the bootstrappingtechnique can make use of only those sentences containing the target words in ques-tion.
+The WordNet experiment, on the other hand, indicates both the usefulness ofhand-built resources when they apply and the difficulty of attaining broad coveragewith such resources.
+Combining the three systems described would indicate whethertheir gains are complementary or overlapping.7.
+Verb Argument StructureOne of the primary difficulties in labeling semantic roles is that one predicate maybe used with different argument structures: for example, in the sentences ?He openedthe door?
+and ?The door opened,?
+the verb open assigns different semantic roles toits syntactic subject.
+In this section we compare two strategies for handling this typeof alternation in our system: a sentence-level feature for frame element groups and asubcategorization feature for the syntactic uses of verbs.
+Then a simple system usingthe predicate?s argument structure, or syntactic signature, as the primary feature willbe contrasted with previous systems based on local, independent features.7.1 Priors on Frame Element GroupsThe system described in previous sections for classifying frame elements makes animportant simplifying assumption: it classifies each frame element independent of thedecisions made for the other frame elements in the sentence.
+In this section we remove272Computational Linguistics Volume 28, Number 3Table 13Sample frame element groups for the verb blame.Frame Element Group Example Sentences{Evaluee} Holman would characterize thisas blaming [Evaluee the poor ] .
+{Judge, Evaluee, Reason} The letter quotes Black assaying that [Judge white and Navajo ranchers ]misrepresent their livestock losses andblame [Reason everything ] [Evaluee on coyotes ] .
+[Judge She ] blames [Evaluee the Government ][Reason for failing to do enough to help ] .
+{Judge, Evaluee} The only dish she made that we could tolerate was[Evaluee syrup tart which ] [Judge we ]praised extravagantly with the result that it becameour unhealthy staple diet.Table 14Frame element groups for the verb blame in the Judgment frame.Frame Element Group Probability{Evaluee, Judge, Reason} 0.549{Evaluee, Judge} 0.160{Evaluee, Reason} 0.167{Evaluee} 0.097{Evaluee, Judge, Role } 0.014{Judge} 0.007{Judge, Reason} 0.007this assumption and present a system that can make use of the information that, forexample, a given target word requires that one role always be present or that havingtwo instances of the same role is extremely unlikely.To capture this information, we introduce the notion of a frame element group,which is the set of frame element roles present in a particular sentence (technically amultiset, as duplicates are possible, though quite rare).
+Frame element groups (FEGs)are unordered: examples are shown in Table 13.
+Sample probabilities from the trainingdata for the frame element groups of the target word blame are shown in Table 14.The FrameNet corpus recognizes three types of ?null-instantiated?
+frame elements(Fillmore 1986), which are implied but do not appear in the sentence.
+An example ofnull instantiation is the sentence ?Have you eaten??
+where food is understood.
+Wedid not attempt to identify such null elements, and any null-instantiated roles are notincluded in the sentence?s FEG.
+This increases the variability of observed FEGs, as apredicate may require a certain role but allow it to be null instantiated.Our system for choosing the most likely overall assignment of roles for all theframe elements of a sentence uses an approximation that we derive beginning withthe true probability of the optimal role assignment r?:r?
+= argmaxr1...n P(r1...n | t, f1...n)where P(r1...n | t, f1...n) represents the probability of an overall assignment of roles rito each of the n constituents of a sentence, given the target word t and the variousfeatures fi of each of the constituents.
+In the first step we apply Bayes?
+rule to this273Gildea and Jurafsky Automatic Labeling of Semantic Rolesquantity,r?
+= argmaxr1...n P(r1...n | t)P(f1...n | r1...n, t)P(f1...n | t)and in the second we make the assumption that the features of the various constituentsof a sentence are independent given the target word and each constituent?s role anddiscard the term P(f1...n | t), which is constant with respect to r:r?
+= argmaxr1...n P(r1...n | t)?iP(fi | ri, t)We estimate the prior over frame element assignments as the probability of the frameelement groups, represented with the set operator {}:r?
+= argmaxr1...n P({r1...n} | t)?iP(fi | ri, t)We then apply Bayes?
+rule again,r?
+= argmaxr1...n P({r1...n} | t)?iP(ri | fi, t)P(fi | t)P(ri | t)and finally discard the feature prior P(fi | t) as being constant over the argmax expres-sion:r?
+= argmaxr1...n P({r1...n} | t)?iP(ri | fi, t)P(ri | t)This leaves us with an expression in terms of the prior for frame element groups ofa particular target word P({r1...n} | t), the local probability of a frame element givena constituent?s features P(ri | fi, t) on which our previous system was based, and theindividual priors for the frame elements chosen P(ri | t).
+This formulation can be usedto assign roles either when the frame element boundaries are known or when theyare not, as we will discuss later in this section.Calculating empirical FEG priors from the training data is relatively straightfor-ward, but the sparseness of the data presents a problem.
+In fact, 15% of the testsentences had an FEG not seen in the training data for the target word in question.Using the empirical value for the FEG prior, these sentences could never be correctlyclassified.
+For this reason, we introduce a smoothed estimate of the FEG prior con-sisting of a linear interpolation of the empirical FEG prior and the product, for eachpossible frame element, of the probability of being present or not present in a sentencegiven the target word:?P({r1...n} | t) + (1 ?
+?)??
+?r?r1...nP(r ?
+FEG | t)?r/?r1...nP(r /?
+FEG | t)?
+?The value of ?
+was empirically set to maximize performance on the development set;a value of 0.6 yielded performance of 81.6%, a significant improvement over the 80.4%of the baseline system.
+Results were relatively insensitive to the exact value of ?.Up to this point, we have considered separately the problems of labeling rolesgiven that we know where the boundaries of the frame elements lie (Section 4, aswell as Section 6) and finding the constituents to label in the sentence (Section 5).274Computational Linguistics Volume 28, Number 3Table 15Combined results on boundary identification and role labeling.Unlabeled LabeledMethod Precision Recall Precision RecallBoundary id.
++ baseline role labeler 72.6 63.1 67.0 46.8Boundary id.
++ labeler w/FEG priors 72.6 63.1 65.9 46.2Integrated boundary id.
+and labeling 74.0 70.1 64.6 61.2We now turn to combining the two systems described above into a complete rolelabeling system.
+We use equation (16), repeated below, to estimate the probability thata constituent is a frame element:P(fe | p, h, t) = ?1P(fe | p) + ?2P(fe | p, t) + ?3P(fe | h, t)where p is the path through the parse tree from the target word to the constituent, tis the target word, and h is the constituent?s head word.The first two rows of Table 15 show the results when constituents are determinedto be frame elements by setting the threshold on the probability P(fe | p, h, t) to 0.5 andthen running the labeling system of Section 4 on the resulting set of constituents.
+Thefirst two columns of results show precision and recall for the task of identifying frameelement boundaries correctly.
+The second pair of columns gives precision and recallfor the combined task of boundary identification and role labeling; to be counted ascorrect, the frame element must both have the correct boundary and be labeled withthe correct role.Contrary to our results using human-annotated boundaries, incorporating FEGpriors into the system based on automatically identified boundaries had a negativeeffect on labeled precision and recall.
+No doubt this is due to introducing a dependencyon other frame element decisions that may be incorrect: the use of FEG priors causeserrors in boundary identification to be compounded.One way around this problem is to integrate boundary identification with rolelabeling, allowing the FEG priors and the role-labeling decisions to affect which con-stituents are frame elements.
+This was accomplished by extending the formulationargmaxr1...n P({r1...n} | t)?iP(ri | fi, t)P(ri | t)to include frame element identification decisions:argmaxr1...n P({r1...n} | t)?iP(ri | fi, fei, t)P(fei | fi)P(ri | t)where fei is a binary variable indicating that a constituent is a frame element andP(fei | fi) is calculated as above.
+When fei is true, role probabilities are calculated asbefore; when fei is false, ri assumes an empty role with probability one and is notincluded in the FEG represented by {r1...n}.One caveat in using this integrated approach is its exponential complexity: eachcombination of role assignments to constituents is considered, and the number ofcombinations is exponential in the number of constituents.
+Although this did not posea problem when only the annotated frame elements were under consideration, now we275Gildea and Jurafsky Automatic Labeling of Semantic RolesSNP VPNPHePRP VBDT NNdoortheopenedSVPNPVBDT NNdoor openedTheFigure 12Two subcategorizations for the target word open.
+The relevant production in the parse tree ishighlighted.
+On the left, the value of the feature is ?VP ?
+VB NP?
+; on the right it is ?VP ?VB.
+?must include every parse constituent with a nonzero probability for P(fei | fi).
+To makethe computation tractable, we implement a pruning scheme: hypotheses are extendedby choosing assignments for one constituent at a time, and only the top m hypothesesare retained for extension by assignments to the next constituent.
+Here we set m = 10after experimentation showed that increasing m yielded no significant improvement.Results for the integrated approach are shown in the last row of Table 15.
+Allowingrole assignments to influence boundary identification improves results both on theunlabeled boundary identification task and on the combined identification and labelingtask.
+The integrated approach puts us in a different portion of the precision/recallcurve from the results in the first two rows, as it returns a higher number of frameelements (7,736 vs. 5,719).
+A more direct comparison can be made by lowering theprobability threshold for frame element identification from 0.5 to 0.35 to force thenonintegrated system to return the same number of frame elements as the integratedsystem.
+This yields a frame element identification precision of 71.3% and recall of67.6% and a labeled precision of 60.8% and recall of 57.6%, which is dominated bythe result for the integrated system.
+The integrated system does not have a probabilitythreshold to set; nonetheless it comes closer to identifying the correct number of frameelements (8,167) than does the independent boundary identifier when the theoreticallyoptimal threshold of 0.5 is used with the latter.7.2 SubcategorizationRecall that use of the FEG prior was motivated by the tendency of verbs to assign dif-fering roles to the same syntactic position.
+For example, the verb open assigns differentroles to the syntactic subject in He opened the door and The door opened.
+In this sectionwe consider a different feature motivated by these problems: the syntactic subcate-gorization of the verb.
+For example, the verb open seems to be more likely to assignthe role Patient to its subject in an intransitive context and Agent to its subject in atransitive context.
+Our use of a subcategorization feature was intended to differentiatebetween transitive and intransitive uses of a verb.The feature used was the identity of the phrase structure rule expanding the targetword?s parent node in the parse tree, as shown in Figure 12.
+For example, for He closedthe door, with close as the target word, the subcategorization feature would be ?VP ?VB NP.?
+The subcategorization feature was used only when the target word was a276Computational Linguistics Volume 28, Number 3verb.
+The various part-of-speech tags for verb forms (VBD for past-tense verb forms,VBZ for third-person singular present tense, VBP for other present tense, VBG forpresent participles, and VBN for past participles) were collapsed into a single tag VB.It is important to note that we are not able to distinguish complements from adjuncts,and our subcategorization feature could be sabotaged by cases such as The door closedyesterday.
+In the Penn Treebank style, yesterday is considered an NP with tree structureequivalent to that of a direct object.
+Our subcategorization feature is fairly specific: forexample, the addition of an ADVP to a verb phrase will result in a different value.
+Wetested variations of the feature that counted the number of NPs in a VP or the totalnumber of children of the VP, with no significant change in results.The subcategorization feature was used in conjunction with the path feature, whichrepresents the sequence of nonterminals along the path through the parse tree fromthe target word to the constituent representing a frame element.
+Making use of thenew subcategorization (subcat) feature by adding the distribution P(r | subcat , path , t)to the lattice of distributions in the baseline system resulted in a slight improvementto 80.8% performance from 80.4%.
+As with the gov feature in the baseline system, itwas found beneficial to use the subcat feature only for NP constituents.7.3 DiscussionCombining the FEG priors and subcategorization feature into a single system resultedin performance of 81.6%, no improvement over using FEG priors without subcatego-rization.
+We suspect that the two seemingly different approaches in fact provide similarinformation.
+For example, in our hypothetical example of the sentence He opened thedoor vs. the sentence The door opened, the verb open would have high priors for the FEGs{Agent, Theme} and {Theme}, but a low prior for {Agent}.
+In sentences with onlyone candidate frame element (the subject in The door closed), the use of the FEG priorwill cause it to be labeled Theme, even when the feature probabilities prefer labeling asubject as Agent.
+Thus the FEG prior, by representing the set of arguments the predi-cate is likely to take, essentially already performs the function of the subcategorizationfeature.The FEG prior allows us to introduce a dependency between the classificationsof the sentence?s various constituents with a single parameter.
+Thus, it can handlethe alternation of our example without, for example, introducing the role chosen forone constituent as an additional feature in the probability distribution for the nextconstituent?s role.
+It appears that because introducing additional features can furtherfragment our already sparse data, it is preferable to have a single parameter for theFEG prior.An interesting result reinforcing this conclusion is that some of the argument-structure features that aided the system when individual frame elements were consid-ered independently are unnecessary when using FEG priors.
+Removing the featurespassive and position from the system and using a smaller lattice of only the distribu-tions not employing these features yields an improved performance of 82.8% on therole-labeling task using hand-annotated boundaries.
+We believe that, because thesefeatures pertain to syntactic alternations in how arguments are realized, they overlapwith the function of the FEG prior.
+Adding unnecessary features to the system canreduce performance by fragmenting the training data.8.
+Integrating Syntactic and Semantic ParsingIn the experiments reported in previous sections, we have used the parse tree returnedby a statistical parser as input to the role-labeling system.
+In this section, we explore277Gildea and Jurafsky Automatic Labeling of Semantic Rolesthe interaction between semantic roles and syntactic parsing by integrating the parserwith the semantic-role probability model.
+This allows the semantic-role assignmentto affect the syntactic attachment decisions made by the parser, with the hope ofimproving the accuracy of the complete system.Although most statistical parsing work measures performance in terms of syntac-tic trees without semantic information, an assignment of role fillers has been incor-porated into a statistical parsing model by Miller et al (2000) for the domain-specifictemplates of the Message Understanding Conference (Defense Advanced ResearchProjects Agency 1998) task.
+A key finding of Miller et al?s work was that a systemdeveloped by annotating role fillers in text and training a statistical system performedat the same level as one based on writing a large system of rules, which requires muchmore highly skilled labor to design.8.1 Incorporating Roles into the Parsing ModelWe use as the baseline of all our parsing experiments the model described in Collins(1999).
+The algorithm is a form of chart parsing, which uses dynamic programming tosearch through the exponential number of possible parses by considering subtrees foreach subsequence of the sentence independently.
+To apply chart parsing to a proba-bilistic grammar, independence relations must be assumed to hold between the prob-abilities of a parse tree and the internal structure of its subtrees.In the case of stochastic context-free grammar, the probability of a tree is inde-pendent of the internal structure of its subtrees, given the topmost nonterminal ofthe subtree.
+The chart-parsing algorithm can simply find the highest-probability parsefor each nonterminal for each substring of the input sentence.
+No lower-probabilitysubtrees will ever be used in a complete parse, and they can be thrown away.
+Recentlexicalized stochastic parsers such as Collins (1999), Charniak (1997), and others addadditional features to each constituent, the most important being the head word ofthe parse constituent.The statistical system for assigning semantic roles described in the previous sec-tions does not fit easily into the chart-parsing framework, as it relies on long-distancedependencies between the target word and its frame elements.
+In particular, the pathfeature, which is used to ?navigate?
+through the sentence from the target word to itslikely frame elements, may be an arbitrarily long sequence of syntactic constituents.A path feature looking for frame elements for a target word in another part of thesentence may examine the internal structure of a constituent, violating the indepen-dence assumptions of the chart parser.
+The use of priors over FEGs further complicatesmatters by introducing sentence-level features dependent on the entire parse.For these reasons, we use the syntactic parsing model without frame elementprobabilities to generate a number of candidate parses, compute the best frame elementassignment for each, and then choose the analysis with the highest overall probability.The frame element assignments are computed as in Section 7.1, with frame elementprobabilities being applied to every constituent in the parse.To return a large number of candidate parses, the parser was modified to includeconstituents in the chart even when they were equivalent, according to the parsingmodel, to a higher-probability constituent.
+Rather than choosing a fixed n and keepingthe n best constituents for each entry in the chart, we chose a probability thresholdand kept all constituents within a margin of the highest-probability constituent.
+Thusthe mechanism is similar to the beam search used to prune nonequivalent edges, buta lower threshold was used for equivalent edges ( 1e vs.1100 ).Using these pruning parameters, an average of 14.9 parses per sentence wereobtained.
+After rescoring with frame element probabilities, 18% of the sentences were278Computational Linguistics Volume 28, Number 3Table 16Results on rescoring parser output.Frame Frame Labeled LabeledMethod Element Precision Element Recall Precision RecallSingle-best parse 74.0 70.1 64.6 61.2Rescoring parses 73.8 70.7 64.6 61.9assigned a parse different from the original best parse.
+Nevertheless, the impact onidentification of frame elements was small; results are shown in Table 16.
+The resultsshow a slight, but not statistically significant, increase in recall of frame elements.
+Onepossible reason that the improvement is not greater is the relatively small number ofparses per sentence available for rescoring.
+Unfortunately, the parsing algorithm usedto generate n-best parses is inefficient, and generating large numbers of parses seemsto be computationally intractable.
+In theory, the complexity of n-best variations of theViterbi chart-parsing algorithm is quadratic in n. One can simply expand the dynamicprogramming chart to have n slots for the best solutions to each subproblem, ratherthan one.
+As our grammar forms new constituents from pairs of smaller constituents(that is, it internally uses a binarized grammar), for each pair of constituents consideredin a single-best parser, up to n2 pairs would be present in the n-best variant.
+Thebeam search used by modern parsers, however, makes the analysis more complex.Lexicalization of parse constituents dramatically increases the number of categoriesthat must be stored in the chart, and efficient parsing requires that constituents belowa particular probability threshold be dropped from further consideration.
+In practice,returning a larger number of parses with our algorithm seems to require increasingthe pruning beam size to a degree that makes run times prohibitive.In addition to the robustness of even relatively simple parsing models, one expla-nation for the modest improvement may be the fact that even our integrated systemincludes semantic information for only one word in the sentence.
+As the coverage ofour frame descriptions increases, it may be possible to do better and to model theinteractions between the frames invoked by a text.9.
+Generalizing to Unseen PredicatesMost of the statistics used in the system as described above are conditioned on thetarget word, or predicate, for which semantic roles are being identified.
+This limits theapplicability of the system to words for which training data are available.
+In Section 6,we attempted to generalize across fillers for the roles of a single predicate.
+In thissection, we turn to the related but somewhat more difficult question of generalizingfrom seen to unseen predicates.Many ways of attempting this generalization are possible, but the simplest isprovided by the frame-semantic information of the FrameNet database.
+We can usedata from target words in the same frame to predict behavior for an unseen word,or, if no data are available for the frame in question, we can use data from the samebroad semantic domain into which the frames are grouped.9.1 Thematic RolesTo investigate the degree to which our system is dependent on the set of semanticroles used, we performed experiments using abstract, general semantic roles such as279Gildea and Jurafsky Automatic Labeling of Semantic RolesAgent, Patient, and Goal.
+Such roles were proposed in theories of linking such asFillmore (1968) and Jackendoff (1972) to explain the syntactic realization of semanticarguments.
+This level of roles, often called thematic roles, was seen as useful forexpressing generalizations such as ?If a sentence has anAgent, theAgentwill occupythe subject position.?
+Such correlations might enable a statistical system to generalizefrom one semantic domain to another.Recent work on linguistic theories of linking has attempted to explain syntacticrealization in terms of the fundamentals of verbs?
+meaning (see Levin and RappaportHovav [1996] for a survey of a number of theories).
+Although such an explanation isdesirable, our goal is more modest: an automatic procedure for identifying semanticroles in text.
+We aim to use abstract roles as a means of generalizing from limitedtraining data in various semantic domains.
+We see this effort as consistent with varioustheoretical accounts of the underlying mechanisms of argument linking, since thevarious theories all postulate some sort of generalization between the roles of specificpredicates.To this end, we developed a correspondence from frame-specific roles to a setof abstract thematic roles.
+For each frame, an abstract thematic role was assigned toeach frame element in the frame?s definition.
+Since there is no canonical set of abstractsemantic roles, we decided upon the list shown in Table 17.
+We are interested inadjuncts as well as arguments, leading to roles such as Degree not found in manytheories of verb-argument linking.
+The difficulty of fitting many relations into standardcategories such as Agent and Patient led us to include other roles such as Topic.In all, we used 18 roles, a somewhat richer set than is often used, but still much morerestricted than the frame-specific roles.
+Even with this enriched set, not all frame-specific roles fit neatly into one category.An experiment was performed replacing each role tag in the training and testdata with the corresponding thematic role and training the system as described aboveon the new dataset.
+Results were roughly comparable for the two types of semanticroles: overall performance was 82.1% for thematic roles, compared to 80.4% for frame-specific roles.
+This reflects the fact that most frames had a one-to-one mapping fromframe-specific to abstract roles, so the tasks were largely equivalent.
+We expect abstractroles to be most useful when one is generalizing to predicates and frames not foundin the training data, the topic of the following sections.One interesting consequence of using abstract roles is that they allow us to comparemore easily the system?s performance on different roles because of the smaller numberof categories.
+This breakdown is shown in Table 18.
+Results are given for two systems:the first assumes that the frame element boundaries are known and the second findsthem automatically.
+The second system, which is described in Section 7.1, correspondsto the rightmost two columns in Table 18.
+The ?Labeled Recall?
+column shows howoften the frame element is correctly identified, whereas the ?Unlabeled Recall?
+columnshows how often a constituent with the given role is correctly identified as being aframe element, even if it is labeled with the wrong role.Experiencer and Agent, two similar roles generally found as the subject forcomplementary sets of verbs, are the roles that are correctly identified the most often.The ?Unlabeled Recall?
+column shows that these roles are easy to find in the sentence,as a predicate?s subject is almost always a frame element, and the ?Known Boundaries?column shows that they are also not often confused with other roles when it is knownthat they are frame elements.
+The two most difficult roles in terms of unlabeled recall,Manner and Degree, are typically realized by adverbs or prepositional phrases andconsidered adjuncts.
+It is interesting to note that these are considered in FrameNet tobe general frame elements that can be used in any frame.280Computational Linguistics Volume 28, Number 3Table 17Abstract semantic roles, with representative examples from the FrameNet corpus.Role ExampleAgent Henry pushed the door open and went in.Cause Jeez, that amazes me as well as riles me.Degree I rather deplore the recent manifestation of Pop; it doesn?t seem to me tohave the intellectual force of the art of the Sixties.Experiencer It may even have been that John anticipating his imminent doom ratifiedsome such arrangement perhaps in the ceremony at the Jordan.Force If this is the case can it be substantiated by evidence from the history ofdeveloped societies?Goal Distant across the river the towers of the castle rose against the sky strad-dling the only land approach into Shrewsbury.Instrument In the children with colonic contractions fasting motility did not differentiatechildren with and without constipation.Location These fleshy appendages are used to detect and taste food amongst theweed and debris on the bottom of a river.Manner His brow arched delicately.Null Yet while she had no intention of surrendering her home, it would be foolishto let the atmosphere between them become too acrimonious.Path The dung-collector ambled slowly over, one eye on Sir John.Patient As soon as a character lays a hand on this item, the skeletal Cleric grips itmore tightly.Percept What is apparent is that this manual is aimed at the non-specialist techni-cian, possibly an embalmer who has good knowledge of some medicalprocedures.Proposition It says that rotation of partners does not demonstrate independence.Result All the arrangements for stay-behind agents in north-west Europe collapsed,but Dansey was able to charm most of the governments in exile in Londoninto recruiting spies.Source He heard the sound of liquid slurping in a metal container as Farrell ap-proached him from behind.State Rex spied out Sam Maggott hollering at all and sundry and making gooduse of his over-sized red gingham handkerchief.Topic He said, ?We would urge people to be aware and be alert with fireworksbecause your fun might be someone else?s tragedy.
+?This section has shown that our system can use roles defined at a more abstractlevel than the corpus?s frame-level roles and in fact that when we are looking at asingle predicate, the choice has little effect.
+In the following sections, we attempt touse the abstract roles to generalize the behavior of semantically related predicates.9.2 Unseen PredicatesWe will present results at different, successively broader levels of generalization, mak-ing use of the categorization of FrameNet predicates into frames and more generalsemantic domains.
+We first turn to using data from the appropriate frame when nodata for the target word are available.Table 19 shows results for various probability distributions using a division oftraining and test data constructed such that no target words are in common.
+Everytenth target word was included in the test set.
+The amount of training data availablefor each frame varied, from just one target word in some cases to 167 target wordsin the ?perception/noise?
+frame.
+The training set contained a total of 75,919 frameelements and the test set 7,801 frame elements.281Gildea and Jurafsky Automatic Labeling of Semantic RolesTable 18Performance broken down by abstract role.
+The third column represents accuracy when frameelement boundaries are given to the system, and the fourth and fifth columns reflect findingthe boundaries automatically.
+Unlabeled recall includes cases that were identified as a frameelement but given the wrong role.Known Boundaries Unknown BoundariesRole Number % Correct Labeled Recall Unlabeled RecallAgent 2401 92.8 76.7 80.7Experiencer 333 91.0 78.7 83.5Source 503 87.3 67.4 74.2Proposition 186 86.6 56.5 64.5State 71 85.9 53.5 62.0Patient 1161 83.3 63.1 69.1Topic 244 82.4 64.3 72.1Goal 694 82.1 60.2 69.6Cause 424 76.2 61.6 73.8Path 637 75.0 63.1 63.4Manner 494 70.4 48.6 59.7Percept 103 68.0 51.5 65.1Degree 61 67.2 50.8 60.7Null 55 65.5 70.9 85.5Result 40 65.0 55.0 70.0Location 275 63.3 47.6 63.6Force 49 59.2 40.8 63.3Instrument 30 43.3 30.0 73.3(other) 406 57.9 40.9 63.1Total 8167 82.1 63.6 72.1Table 19Cross-frame performance of various distributions.
+f represents the FrameNet semantic frame.Distribution Coverage Accuracy PerformanceP(r | path) 95.3% 44.5% 42.4%P(r | path, f ) 87.4 68.7 60.1P(r | h) 91.7 54.3 49.8P(r | h, f ) 74.1 81.3 60.3P(r | pt, position, voice) 100.0 43.9 43.9P(r | pt, position, voice, f ) 98.7 68.3 67.4The results show a familiar trade-off between coverage and accuracy.
+Conditioningboth the head word and path features on the frame reduces coverage but improvesaccuracy.
+A linear interpolation,?1P(r | path , f ) + ?2P(r | h, f ) + ?3P(r | pt , position , voice, f )achieved 79.4% performance on the test set, significantly better than any of the in-dividual distributions and approaching the result of 82.1% for the original system,using target-specific statistics and thematic roles.
+This result indicates that predicatesin the same frame behave similarly in terms of their argument structure, a findinggenerally consistent with theories of linking that claim that the syntactic realizationof verb arguments can be predicted from their semantics.
+We would expect verbs inthe same frame to be semantically similar and to have the same patterns of argumentstructure.
+The relatively high performance of frame-level statistics indicates that the282Computational Linguistics Volume 28, Number 3Table 20Cross-frame performance of various distributions.
+d represents the FrameNet semantic domain.Distribution Coverage Accuracy PerformanceP(r | path) 96.2% 41.2% 39.7%P(r | path, d) 85.7 42.7 36.6P(r | h) 91.0 44.7 40.6P(r | h, d) 75.2 54.3 40.9P(r | d) 95.1 29.9 28.4P(r) 100.0 28.7 28.7P(r | h, d) P(r | pt, path, d)P(r | d)Figure 13Minimal lattice for cross-frame generalization.frames defined by FrameNet are fine-grained enough to capture the relevant semanticsimilarities.This result is encouraging in that it indicates that a relatively small amount of datacan be annotated for a few words in a semantic frame and used to train a system thatcan then bootstrap to a larger number of predicates.9.3 Unseen FramesMore difficult than the question of unseen predicates in a known frame are framesfor which no training data are present.
+The 67 frames in the current data set coveronly a fraction of the English language, and the high cost of annotation makes itdifficult to expand the data set to cover all semantic domains.
+The FrameNet project isdefining additional frames and annotating data to expand the scope of the database.The question of how many frames exist, however, remains unanswered for the timebeing; a full account of frame semantics is expected to include multiple frames beinginvoked by many words, as well as an inheritance hierarchy of frames and a moredetailed representation of each frame?s meaning.In this section, we examine the FrameNet data by holding out an entire frame fortesting and using other frames from the same general semantic domain for training.Recall from Figure 1 that domains like Communication include frames like Conver-sation, Questioning, and Statement.
+Because of the variation in difficulty betweendifferent frames and the dependence of the results on which frames are held out fortesting, we used a jackknifing methodology.
+Each frame was used in turn as test data,with all other frames used as training data.
+The results in Table 20 show averageresults over the entire data set.Combining the distributions gives a system based on the (very restricted) backofflattice of Figure 13.
+This system achieves performance of 51.0%, compared to 82.1%for the original system and 79.4% for the within-frame generalization task.
+The resultsshow that generalizing across frames, even within a domain, is more difficult thangeneralizing across target words within a frame.
+There are several factors that mayaccount for this: the FrameNet domains were intended primarily as a way of orga-nizing the project, and their semantics have not been formalized.
+Thus, it may not be283Gildea and Jurafsky Automatic Labeling of Semantic RolesTable 21Cross-domain performance of various distributions.Distribution Coverage Accuracy PerformanceP(r | path) 96.5% 35.3% 33.4%P(r | h) 88.8 36.0 31.9P(r) 100.0 28.7 28.7surprising that they do not correspond to significant generalizations about argumentstructure.
+The domains are fairly broad, as indicated by the fact that always choosingthe most common role for a given domain (the baseline for cross-frame, within-domaingeneralization, given as P(r | d) in Table 20, classifies 28.4% of frame elements cor-rectly) does not do better than the cross-domain baseline of always choosing the mostcommon role from the entire database regardless of domain (P(r) in Table 20, whichyields 28.7% correct).
+This contrasts with a 40.9% baseline for P(r | t), that is, alwayschoosing the most common role for a particular target word (Table 5, last line).
+Do-main information does not seem to help a great deal, given no information about theframe.Furthermore, the cross-frame experiments here are dependent on the mapping offrame-level roles to abstract thematic roles.
+This mapping was done at the frame level;that is, FrameNet roles with the same label in two different frames may be translatedinto two different thematic roles, but all target words in the same frame make use ofthe same mapping.
+The mapping of roles within a frame is generally one to one, andtherefore the choice of mapping has little effect when using statistics conditioned onthe target word and on the frame, as in the previous section.
+When we are attemptingto generalize between frames, the mapping determines which roles from the trainingframe are used to calculate probabilities for the roles in the test frames, and the choiceof mapping is much more significant.
+The mapping used is necessarily somewhatarbitrary.It is interesting to note that the path feature performs better when not conditionedon the domain.
+The head word, however, seems to be more domain-specific: althoughcoverage declines when the context is restricted to the semantic domain, accuracyimproves.
+This seems to indicate that the identity of certain role fillers is domain-specific, but that the syntax/semantics correspondence captured by the path feature ismore general, as predicted by theories of syntactic linking.9.4 Unseen DomainsAs general as they are, the semantic domains of the current FrameNet database coveronly a small portion of the language.
+The domains are defined at the level of, forexample, Communication and Emotion; a list of the 12 domains in our corpus isgiven in Table 1.
+Whether generalization is possible across domains is an importantquestion for a general language-understanding system.For these experiments, a jackknifing protocol similar to that of the previous sectionwas used, this time holding out one entire domain at a time and using all the others astraining material.
+Results for the path and head word feature are shown in Table 21.The distributions P(r | path), P(r | h), and P(r) of Table 21 also appeared in Table 20;the difference between the experiments is only in the division of training and test sets.A linear interpolation, ?1P(r | path)+?2P(r | h), classifies 39.8% of frame elementscorrectly.
+This is no better than our result of 40.9% (Table 3) for always choosing a284Computational Linguistics Volume 28, Number 3predicate?s most frequent role; however, the cross-domain system does not have rolefrequencies for the test predicates.9.5 DiscussionAs one might expect, as we make successively broader generalizations to semanticallymore distant predicates, performance degrades.
+Our results indicate that frame seman-tics give us a level at which generalizations relevant to argument linking can be made.Our results for unseen predicates within the same frame are encouraging, indicatingthat the predicates are semantically similar in ways that result in similar argumentstructure, as the semantically based theories of linking advocated by Levin (1993) andLevin and Rappaport Hovav (1996) would predict.
+We hope that corpus-based sys-tems such as ours can provide a way of testing and elaborating such theories in thefuture.
+We believe that some level of skeletal representation of the relevant aspectsof a word?s meaning, along the lines of Kipper et al (2000) and of the frame hierar-chy being developed by the FrameNet project, could be used in the future to help astatistical system generalize from similar words for which training data are available.10.
+ConclusionOur system is able to label semantic roles automatically with fairly high accuracy,indicating promise for applications in various natural language tasks.
+Semantic rolesdo not seem to be simple functions of a sentence?s syntactic tree structure, and lexicalstatistics were found to be extremely valuable, as has been the case in other naturallanguage processing applications.
+Although lexical statistics are quite accurate on thedata covered by observations in the training set, the sparsity of their coverage ledus to introduce semantically motivated knowledge sources, which in turn allowed usto compare automatically derived and hand-built semantic resources.
+Various meth-ods of extending the coverage of lexical statistics indicated that the broader coverageof automatic clustering outweighed its imprecision.
+Carefully choosing sentence-levelfeatures for representing alternations in verb argument structure allowed us to intro-duce dependencies between frame element decisions within a sentence without addingtoo much complexity to the system.
+Integrating semantic interpretation and syntacticparsing yielded only the slightest gain, showing that although probabilistic modelsallow easy integration of modules, the gain over an unintegrated system may not belarge because of the robustness of even simple probabilistic systems.Many aspects of our system are still quite preliminary.
+For example, our systemcurrently assumes knowledge of the correct frame type for the target word to deter-mine the semantic roles of its arguments.
+A more complete semantic analysis systemwould thus require a module for frame disambiguation.
+It is not clear how difficultthis problem is and how much it overlaps with the general problem of word-sensedisambiguation.Much else remains to be done to apply the system described here to the inter-pretation of general text.
+One technique for dealing with the sparseness of lexicalstatistics would be the combination of FrameNet data with named-entity systems forrecognizing times, dates, and locations, the effort that has gone into recognizing theseitems, typically used as adjuncts, should complement the FrameNet data, which ismore focused on arguments.
+Generalization to predicates for which no annotated dataare available may be possible using other lexical resources or automatic clustering ofpredicates.
+Automatically learning generalizations about the semantics and syntacticbehavior of predicates is an exciting problem for the years to come.285Gildea and Jurafsky Automatic Labeling of Semantic RolesAppendixTable 22Penn Treebank part-of-speech tags (including punctuation).Tag Description Example Tag Description ExampleCC Coordin.
+Conjunction and, but, or SYM Symbol +,%, &CD Cardinal number one, two, three TO ?to?
+toDT Determiner a, the UH Interjection ah, oopsEX Existential ?there?
+there VB Verb, base form eatFW Foreign word mea culpa VBD Verb, past tense ateIN Preposition/sub-conj of, in, by VBG Verb, gerund eatingJJ Adjective yellow VBN Verb, past participle eatenJJR Adj., comparative bigger VBP Verb, non-3sg pres eatJJS Adj., superlative wildest VBZ Verb, 3sg pres eatsLS List item marker 1, 2, One WDT Wh-determiner which, thatMD Modal can, should WP Wh-pronoun what, whoNN Noun, sing.
+or mass llama WP$ Possessive wh- whoseNNS Noun, plural llamas WRB Wh-adverb how, whereNNP Proper noun, singular IBM $ Dollar sign $NNPS Proper noun, plural Carolinas # Pound sign #PDT Predeterminer all, both ?
+Left quote (?
+or ?
+)POS Possessive ending ?s ?
+Right quote (?
+or ?
+)PRP Personal pronoun I, you, he ( Left parenthesis ( [, (, {, <)PRP$ Possessive pronoun your, one?s ) Right parenthesis ( ], ), }, >)RB Adverb quickly, never , Comma ,RBR Adverb, comparative faster .
+Sentence-final punc (.
+!
+?
+)RBS Adverb, superlative fastest : Mid-sentence punc (: ; ... ?
+-)RP Particle up, offTable 23Penn Treebank constituent (or nonterminal) labels.Label DescriptionADJP Adjective PhraseADVP Adverb PhraseCONJP Conjunction PhraseFRAG FragmentINTJ InterjectionNAC Not a constituentNP Noun PhraseNX Head subphrase of complex noun phrasePP Prepositional PhraseQP Quantifier PhraseRRC Reduced Relative ClauseS Simple declarative clause (sentence)SBAR Clause introduced by complementizerSBARQ Question introduced by wh-wordSINV Inverted declarative sentenceSQ Inverted yes/no questionUCP Unlike Co-ordinated PhraseVP Verb PhraseWHADJP Wh-adjective PhraseWHADVP Wh-adverb PhraseWHNP Wh-noun PhraseWHPP Wh-prepositional Phrase286Computational Linguistics Volume 28, Number 3AcknowledgmentsWe are grateful to Chuck Fillmore, AndreasStolcke, Jerry Feldman, and threeanonymous reviewers for their commentsand suggestions, to Collin Baker for hisassistance with the FrameNet data, and toMats Rooth and Sabine Schulteim Walde for making available their parsedcorpus.
+This work was primarily funded byNational Science Foundation grant ITR/HCI#0086132 to the FrameNet project.ReferencesBaayen, R. H., R. Piepenbrock, andL.
+Gulikers.
+1995.
+The CELEX LexicalDatabase (Release 2) [CD-ROM].
+LinguisticData Consortium, University ofPennsylvania [Distributor], Philadelphia,PA.Baker, Collin F., Charles J. Fillmore, andJohn B. Lowe.
+1998.
+?The BerkeleyFrameNet project.?
+In Proceedings ofCOLING/ACL, pages 86?90, Montreal,Canada.Blaheta, Don and Eugene Charniak.
+2000.?Assigning function tags to parsed text.
+?In Proceedings of the First Annual Meeting ofthe North American Chapter of the ACL(NAACL), pages 234?240, Seattle,Washington.Carroll, Glenn and Mats Rooth.
+1998.?Valence induction with ahead-lexicalized PCFG.?
+In Proceedings ofthe Third Conference on Empirical Methods inNatural Language Processing (EMNLP 3),Granada, Spain.Charniak, Eugene.
+1997.
+?Statistical parsingwith a context-free grammar and wordstatistics.?
+In AAAI-97, pages 598?603,Menlo Park, August.
+AAAI Press, MenloPark, California.Collins, Michael.
+1997.
+?Three generative,lexicalised models for statistical parsing.
+?In Proceedings of the 35th Annual Meeting ofthe ACL, pages 16?23, Madrid, Spain.Collins, Michael.
+1999.
+Head-DrivenStatistical Models for Natural LanguageParsing.
+Ph.D. dissertation, University ofPennsylvania, Philadelphia.Dahiya, Yajan Veer.
+1995.
+Panini as a Linguist:Ideas and Patterns.
+Eastern Book Linkers,Delhi, India.Defense Advanced Research ProjectsAgency, editor.
+1998.
+Proceedings of theSeventh Message Understanding Conference.Dowty, David R. 1991.
+Thematic proto-rolesand argument selection.
+Language67(3):547?619.Fellbaum, Christiane, editor.
+1998.
+WordNet:An Electronic Lexical Database.
+MIT Press,Cambridge, Massachusetts.Fillmore, Charles J.
+1968.
+?The case forcase.?
+In Emmon W. Bach and Robert T.Harms, editors, Universals in LinguisticTheory.
+Holt, Rinehart & Winston, NewYork, pages 1?88.Fillmore, Charles J.
+1971.
+?Some problemsfor case grammar.?
+In R. J. O?Brien,editor, 22nd Annual Round Table.Linguistics: Developments of theSixties?Viewpoints of the Seventies.Volume 24 of Monograph Series onLanguage and Linguistics.
+GeorgetownUniversity Press, Washington, D.C.,pages 35?56.Fillmore, Charles J.
+1976.
+?Frame semanticsand the nature of language.?
+In Annals ofthe New York Academy of Sciences:Conference on the Origin and Development ofLanguage and Speech, Volume 280,pages 20?32.
+New York Academy ofSciences, New York.Fillmore, Charles J.
+1986.
+?Pragmaticallycontrolled zero anaphora.?
+In Proceedingsof Berkeley Linguistics Society, pages 95?107,Berkeley, California.Fillmore, Charles J. and Collin F. Baker.2000.
+?FrameNet: Frame semantics meetsthe corpus.?
+Poster presentation, 74thAnnual Meeting of the Linguistics Societyof America.Gildea, Daniel and Thomas Hofmann.
+1999.?Probabilistic topic analysis for languagemodeling.?
+In Eurospeech-99,pages 2167?2170, Budapest.Hearst, Marti.
+1999.
+?Untangling text datamining.?
+In Proceedings of the 37th AnnualMeeting of the ACL, pages 3?10, CollegePark, Maryland.Hobbs, Jerry R., Douglas Appelt, John Bear,David Israel, Megumi Kameyama,Mark E. Stickel, and Mabry Tyson.
+1997.?FASTUS: A cascaded finite-statetransducer for extracting informationfrom natural-language text.?
+InEmmanuel Roche and Yves Schabes,editors, Finite-State Language Processing.MIT Press, Cambridge, Massachusetts,pages 383?406.Hofmann, Thomas and Jan Puzicha.
+1998.?Statistical models for co-occurrencedata.?
+Memorandum, MassachussettsInstitute of Technology ArtificialIntelligence Laboratory, Cambridge,Massachusetts.Jackendoff, Ray.
+1972.
+Semantic Interpretationin Generative Grammar.
+MIT Press,287Gildea and Jurafsky Automatic Labeling of Semantic RolesCambridge, Massachusetts.Jelinek, Frederick and Robert L. Mercer.1980.
+?Interpolated estimation of Markovsource parameters from sparse data.?
+InProceedings: Workshop on Pattern Recognitionin Practice, pages 381?397.
+Amsterdam.North Holland.Johnson, Christopher R., Charles J. Fillmore,Esther J.
+Wood, Josef Ruppenhofer,Margaret Urban, Miriam R. L. Petruk, andCollin F. Baker.
+2001.
+The FrameNetproject: Tools for lexicon building.
+Version0.7.
+Available at http://www.icsi.berkeley.edu/?framenet/book.html.Kipper, Karin, Hoa Trang Dang, WilliamSchuler, and Martha Palmer.
+2000.?Building a class-based verb lexicon usingTAGs.?
+In TAG+5 Fifth InternationalWorkshop on Tree Adjoining Grammars andRelated Formalisms, Paris, May.Lapata, Maria and Chris Brew.
+1999.
+?Usingsubcategorization to resolve verb classambiguity.?
+In Joint SIGDAT Conference onEmpirical Methods in NLP and Very LargeCorpora, pages 266?274, College Park,Maryland.Levin, Beth.
+1993.
+English Verb Classes andAlternations: A Preliminary Investigation.University of Chicago Press, Chicago.Levin, Beth and Malka Rappaport Hovav.1996.
+?From lexical semantics toargument realization.?
+Unpublishedmanuscript.Marcus, Mitchell P., Grace Kim, Mary AnnMarcinkiewicz, Robert MacIntyre, AnnBies, Mark Ferguson, Karen Katz, andBritta Schasberger.
+1994.
+?The PennTreebank: Annotating predicate argumentstructure.?
+In ARPA Human LanguageTechnology Workshop, pages 114?119,Plainsboro, New Jersey.
+MorganKaufmann, San Francisco.Marcus, Mitchell P., Beatrice Santorini, andMary Ann Marcinkiewicz.
+1993.
+Buildinga large annotated corpus of English: ThePenn treebank.
+Computational Linguistics19(2):313?330.McCarthy, Diana.
+2000.
+?Using semanticpreferences to identify verbalparticipation in role switchingalternations.?
+In Proceedings of the FirstAnnual Meeting of the North AmericanChapter of the ACL (NAACL),pages 256?263, Seattle, Washington.Miller, Scott, Heidi Fox, Lance Ramshaw,and Ralph Weischedel.
+2000.
+?A novel useof statistical parsing to extractinformation from text.?
+In Proceedings ofthe First Annual Meeting of the NorthAmerican Chapter of the ACL (NAACL),pages 226?233, Seattle, Washington.Miller, Scott, David Stallard, Robert Bobrow,and Richard Schwartz.
+1996.
+?A fullystatistical approach to natural languageinterfaces.?
+In Proceedings of the 34thAnnual Meeting of the ACL, pages 55?61,Santa Cruz, California.Misra, Vidya Niwas.
+1966.
+The DescriptiveTechnique of Panini.
+Mouton, TheHague.Pereira, Fernando, Naftali Tishby, andLillian Lee.
+1993.
+?Distributionalclustering of English words.?
+InProceedings of the 31st Annual Meeting of theACL, pages 183?190, Columbus, Ohio.Pietra, Stephen Della, Vincent Della Pietra,and John Lafferty.
+1997.
+Inducing featuresof random fields.
+IEEE Transactions onPattern Analysis and Machine Intelligence19(4):380?393.Pollard, Carl and Ivan A.
+Sag.
+1994.Head-Driven Phrase Structure Grammar.University of Chicago Press, Chicago.Riloff, Ellen.
+1993.
+Automaticallyconstructing a dictionary for informationextraction tasks.
+In Proceedings of the 11thNational Conference on Artificial Intelligence(AAAI), pages 811?816, Washington, D.C.Riloff, Ellen and Mark Schmelzenbach.
+1998.?An empirical approach to conceptualcase frame acquisition.?
+In Proceedings ofthe Sixth Workshop on Very Large Corpora,pages 49?56, Montreal, Canada.Rocher, Rosane.
+1964.
+?Agent?
+et ?Objet?chez Panini.
+Journal of the AmericanOriental Society 84:44?54.Rooth, Mats.
+1995.
+?Two-dimensionalclusters in grammatical relations.?
+InAAAI Symposium on Representation andAcquisition of Lexical Knowledge, Stanford,California.Rooth, Mats, Stefan Riezler, Detlef Prescher,Glenn Carroll, and Franz Beil.
+1999.?Inducing a semantically annotatedlexicon via EM-based clustering.?
+InProceedings of the 37th Annual Meeting of theACL, pages 104?111, College Park,Maryland.Schank, Roger C. 1972.
+Conceptualdependency: A theory of naturallanguage understanding.
+CognitivePsychology 3:552?631.Siegel, Sidney and N. John Castellan, Jr.1988.
+Nonparametric Statistics for theBehavioral Sciences.
+2nd ed.
+McGraw-Hill,New York.Somers, Harold L. 1987.
+Valency and Case inComputational Linguistics.
+EdinburghUniversity Press, Edinburgh, Scotland.Stallard, David.
+2000.
+?Talk?n?travel: Aconversational system for air travelplanning.?
+In Proceedings of the Sixth288Computational Linguistics Volume 28, Number 3Applied Natural Language ProcessingConference (ANLP?00), pages 68?75.Van Valin, Robert D. 1993.
+A synopsis ofrole and reference grammar.
+In Robert D.Van Valin, editor, Advances in Role andReference Grammar.
+John BenjaminsPublishing Company, Amsterdam,pages 1?166.Winograd, Terry.
+1972.
+Understandingnatural language.
+Cognitive Psychology,3(1).
+Reprinted as a book by AcademicPress, 1972.

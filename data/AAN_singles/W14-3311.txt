@@ -1,0 +1,286 @@
+Proceedings of the Ninth Workshop on Statistical Machine Translation, pages 114?121,Baltimore, Maryland USA, June 26?27, 2014. c?2014 Association for Computational LinguisticsPhrasal: A Toolkit for New Directions in Statistical Machine TranslationSpence Green, Daniel Cer, and Christopher D. ManningComputer Science Department, Stanford University{spenceg,danielcer,manning}@stanford.eduAbstractWe present a new version of Phrasal, anopen-source toolkit for statistical phrase-based machine translation.
+This revisionincludes features that support emerging re-search trends such as (a) tuning with largefeature sets, (b) tuning on large datasets likethe bitext, and (c) web-based interactive ma-chine translation.
+A direct comparison withMoses shows favorable results in terms ofdecoding speed and tuning time.1 IntroductionIn the early part of the last decade, phrase-based ma-chine translation (MT) (Koehn et al., 2003) emergedas the preeminent design of statistical MT systems.However, most systems were proprietary or closed-source, so progress was initially constrained bythe high engineering barrier to entry into the field.Then Moses (Koehn et al., 2007) was released.What followed was a flowering of work on all as-pects of the translation problem, from rule extrac-tion to deployment issues.
+Other toolkits appearedincluding Joshua (Post et al., 2013), Jane (Wuebkeret al., 2012), cdec (Dyer et al., 2010) and the firstversion of our package, Phrasal (Cer et al., 2010), aJava-based, open source package.This paper presents a completely re-designedrelease of Phrasal that lowers the barrier to entryinto several exciting areas of MT research.
+First,Phrasal exposes a simple yet flexible feature API forbuilding large-scale, feature-rich systems.
+Second,Phrasal provides multi-threaded decoding and on-line tuning for learning feature-rich models on verylarge datasets, including the bitext.
+Third, Phrasalsupplies the key ingredients for web-based, inter-active MT: an asynchronous RESTful JSON webservice implemented as a J2EE servlet, integratedpre- and post-processing, and fast search.Revisions to Phrasal were guided by several de-sign choices.
+First, we optimized the system formulti-core architectures, eschewing distributed in-frastructure like Hadoop and MapReduce.
+While?scaling-out?
+with distributed infrastructure is theconventional industry and academic choice, we findthat ?scaling-up?
+on a single large-node is an at-tractive yet overlooked alternative (Appuswamy etal., 2013).
+A single ?scale-up?
+node is usuallycompetitive in terms of cost and performance, andmulti-core code has fewer dependencies in termsof software and expertise.
+Second, Phrasal makesextensive use of Java interfaces and reflection.
+Thisis especially helpful in the feature API.
+A featurefunction can be added to the system by simply im-plementing an interface and specifying the classname on the decoder command line.
+There is noneed to modify or recompile anything other thanthe new feature function.This paper presents a direct comparison ofPhrasal and Moses that shows favorable resultsin terms of decoding speed and tuning time.
+Anindirect comparison via the WMT2014 sharedtask (Neidert et al., 2014) showed that Phrasalcompares favorably to Moses in an evaluationsetting.
+The source code is freely available at:http://nlp.stanford.edu/software/phrasal/2 Standard System PipelineThis section describes the steps required to builda phrase-based MT system from raw text.
+Eachstep is implemented as a stand-alone executable.For convenience, the Phrasal distribution includesa script that coordinates the steps.2.1 PrerequisitesPhrasal assumes offline preparation of word align-ments and at least one target-side language model.Word Alignment The rule extractor can accom-modate either unsymmetrized or symmetrizedalignments.
+Unsymmetrized alignments can beproduced with either GIZA++ or the BerkeleyAligner (Liang et al., 2006).
+Phrasal then appliessymmetrization on-the-fly using heuristics such asgrow-diag or grow-diag-final.
+If the alignments aresymmetrized separately, then Phrasal accepts align-114ments in the i-j Pharaoh format, which indicatesthat source token i is aligned to target token j.Language Modeling Phrasal can load any n-gram language model saved in the ARPA format.There are two LM loaders.
+The Java-based loader isused by default and is appropriate for small-scale ex-periments and pure-Java environments.
+The C++KenLM (Heafield, 2011) loader1is best for large-scale LMs such as the unfiltered models producedby lmplz (Heafield et al., 2013).
+Profiling showsthat LM queries often account for more than 50% ofthe CPU time in a Phrasal decoding run, so we de-signed the Phrasal KenLM loader to execute queriesmostly in C++ for efficiency.
+The KenLM bind-ing efficiently passes full strings to C++ via JNI.KenLM then iterates over the string, returning ascore and a state length.
+Phrasal can load multiplelanguage models, and includes native support forthe class-based language models that have becomepopular in recent evaluations (Wuebker et al., 2012;Ammar et al., 2013; Durrani et al., 2013).2.2 Rule ExtractionThe next step in the pipeline is extraction of a phrasetable.
+Phrasal includes a multi-threaded versionof the rule extraction algorithm of Och and Ney(2004).
+Phrase tables can be filtered to a specificdata set?as is common in research environments.When filtering, the rule extractor lowers memoryutilization by splitting the data into arbitrary-sizedchunks and extracting rules from each chunk.The rule extractor includes a feature API that isindependent of the decoder feature API.
+This al-lows for storage of static rule feature values in thephrase table.
+Static rule features are useful in twocases.
+First, if a feature value depends on bitextstatistics, which are not accessible during tuningor decoding, then that feature should be stored inthe phrase table.
+Examples are the standard phrasetranslation probabilities, and the dense rule countand rule uniqueness indicators described by Greenet al.
+(2013).
+Second, if a feature depends onlyon the rule and is unlikely to change, then it maybe more efficient to store that feature value in thephrase table.
+An example is a feature template thatindicates inclusion in a specific data domain (Dur-rani et al., 2013).
+Rule extractor feature templatesmust implement the FeatureExtractor inter-face and are loaded via reflection.1Invoked by prefixing the LM path with the ?kenlm:?.The rule extractor can also create lexicalized re-ordering tables.
+The standard phrase orientationmodel (Tillmann, 2004) and the hierarchical modelof Galley and Manning (2008) are available.2.3 TuningOnce a language model has been estimated and aphrase table has been extracted, the next step is toestimate model weights.
+Phrasal supports tuningover n-best lists, which permits rapid experimenta-tion with different error metrics and loss functions.Lattice-based tuning, while in principle more pow-erful, requires metrics and losses that factor overlattices, and in practice works no better than n-besttuning (Cherry and Foster, 2012).Tuning requires a parallel set {(ft, et)}Tt=1ofsource sentences ftand target references et.2Phrasal follows the log-linear approach to phrase-based translation (Och and Ney, 2004) in whichthe predictive translation distribution p(e|f ;w) ismodeled directly asp(e|f ;w) =1Z(f)exp[w>?
+(e, f)](1)where w ?
+Rdis the vector of model parameters,?(?)
+?
+Rdis a feature map, and Z(f) is an appro-priate normalizing constant.MT differs from other machine learning settingsin that it is not common to tune to log-likelihoodunder (1).
+Instead, a gold error metric G(e?, e) ischosen that specifies the similarity between a hy-pothesis e?and a reference e, and that error is min-imized over the tuning set.
+Phrasal includes Javaimplementations of BLEU (Papineni et al., 2002),NIST, and WER, and bindings for TER (Snover etal., 2006) and METEOR (Denkowski and Lavie,2011).
+The error metric is incorporated into a lossfunction ` that returns the loss at either the sentence-or corpus- level.For conventional corpus-level (batch) tuning,Phrasal includes multi-threaded implementationsof MERT (Och, 2003) and PRO (Hopkins andMay, 2011).
+The MERT implementation uses theline search of Cer et al.
+(2008) to directly min-imize corpus-level error.
+The PRO implementa-tion uses a pairwise logistic loss to minimize thenumber of inversions in the ranked n-best lists.These batch implementations accumulate n-bestlists across epochs.2For simplicity, we assume one reference, but the multi-reference case is analogous.115Online tuning is faster and more scalable thanbatch tuning, and sometimes leads to better solu-tions for non-convex settings like MT (Bottou andBousquet, 2011).
+Weight updates are performedafter each tuning example is decoded, and n-bestlists are not accumulated.
+Consequently, online tun-ing is preferable for large tuning sets, or for rapiditeration during development.
+Phrasal includes theAdaGrad-based (Duchi et al., 2011) tuner of Greenet al.
+(2013).
+The regularization options are L2,efficient L1for feature selection (Duchi and Singer,2009), or L1+ L2(elastic net).
+There are two on-line loss functions: a pairwise (PRO) objective anda listwise minimum expected error objective (Och,2003).
+These online loss functions require sentence-level error metrics, several of which are available inthe toolkit: BLEU+1 (Lin and Och, 2004), NakovBLEU (Nakov et al., 2012), and TER.2.4 DecodingThe Phrasal decoder can be invoked either program-matically as a Java object or as a standalone appli-cation.
+In both cases the decoder is configured viaoptions that specify the language model, phrasetable, weight vector w, etc.
+The decoder is multi-threaded, with one decoding instance per thread.Each decoding instance has its own weight vector,so in the programmatic case, it is possible to decodesimultaneously under different weight vectors.Two search procedures are included.
+The defaultis the phrase-based variant of cube pruning (Huangand Chiang, 2007).
+The standard multi-stack beamsearch (Och and Ney, 2004) is also an option.
+Ei-ther procedure can be configured in one of severalrecombination modes.
+The ?Pharaoh?
+mode onlyconsiders linear distortion, source coverage, andtarget LM history.
+The ?Exact?
+mode considersthese states in addition to any feature that declaresrecombination state (see section 3.3).The decoder includes several options for deploy-ment environments such as an unknown word API,pre-/post-processing APIs, and both full and prefix-based force decoding.2.5 Evaluation and Post-processingAll of the error metrics available for tuning canalso be invoked for evaluation.
+For significancetesting, the toolkit includes an implementation ofthe permutation test of Riezler and Maxwell (2005),which was shown to be less susceptible to Type-Ierror than bootstrap re-sampling (Koehn, 2004).r : s(r,w)r ?
+R axiomd : w(d) r : s(r,w)d?
+: s(d?,w)r /?
+cov(d) item|cov(d)| = |s| goalTable 1: Phrase-based MT as deductive inference.This notation can be read as follows: if the an-tecedents on the top are true, then the consequenton the bottom is true subject to the conditions onthe right.
+The new item d?is creating by appendingr to the ordered sequence of rules that define d.Phrasal also includes two truecasing packages.The LM-based truecaser (Lita et al., 2003) requiresan LM estimated from cased, tokenized text.
+Asubsequent detokenization step is thus necessary.
+Amore convenient alternative is the CRF-based post-processor that can be trained to invert an arbitrarypre-processor.
+This post-processor can performtruecasing and detokenization in one pass.3 Feature APIPhrasal supports dynamic feature extraction dur-ing tuning and decoding.
+In the API, feature tem-plates are called featurizers.
+There are two typeswith associated interfaces: RuleFeaturizerand DerivationFeaturizer.
+One way to il-lustrate these two featurizers is to consider phrase-based decoding as a deductive system.
+Let r =?f, e?
+be a rule in a set R, which is conventionallycalled the phrase table.
+Let d = {ri}Ni=1be anordered sequence of derivation N rules called aderivation, which specifies a translation for somesource input sequence s (which, by some abuse ofnotation, is equivalent to f in Eq.
+(1)).
+Finally,define functions cov(d) as the source coverage setof d as a bit vector and s(?, w) as the score of a ruleor derivation under w.3The expression r /?
+cov(d)means that r maps to an empty/uncovered span incov(d).
+Table 1 shows the deductive system.3.1 Dynamic Rule FeaturesRuleFeaturizers are invoked when scoring axioms,which do not require any derivation context.
+Thestatic rule features described in section 2.2 alsocontribute to axiom scoring, and differ only fromRuleFeaturizers in that they are stored permanentlyin the phrase table.
+In contrast, RuleFeaturizers3Note that s(d,w) = w>?
+(d) in the log-linear formulationof MT (see Eq.
+(1)).116Listing 1: A RuleFeaturizer, which dependsonly on a translation rule.public class WordPenaltyFeaturizerimplements RuleFeaturizer {@Overridepublic List<FeatureValue>ruleFeaturize(Featurizable f) {List<FeatureValue> features =Generics.newLinkedList();// Extract single featurefeatures.add(new FeatureValue("WordPenalty", f.targetPhrase.size()));return features;}}are extracted during decoding.
+An example featuretemplate is the word penalty, which is simply thedimension of the target side of r (Listing 1).Featurizable wraps decoder state fromwhich features can be extracted.
+RuleFeaturizersare extracted during each phrase table query andcached, so they can be simply efficiently retrievedduring decoding.Once the feature is compiled, it is simply speci-fied on the command-line when the decoder is exe-cuted.
+No other configuration is required.3.2 Derivation FeaturesDerivationFeaturizers are invoked when scoringitems, and thus depend on some derivation context.An example is the LM, which requires the n-gramcontext from d to score r when creating the newhypothesis d?
+(Listing 2).The LM featurizer first looks up the recombi-nation state of the derivation, which contains then-gram context.
+Then it queries the LM by passingthe rule and context, and sets the new state as theresult of the LM query.
+Finally, it returns a feature?LM?
+with the value of the LM query.3.3 Recombination StateListing 2 shows a state lookup during feature ex-traction.
+Phrase-based MT feature design differssignificantly from that of convex classifiers in termsof the interaction with inference.
+For example, ina maximum entropy classifier inference is exact,so a good optimizer can simply nullify bad fea-tures to retain baseline accuracy.
+In contrast, MTfeature templates affect search through both futurecost heuristics and recombination state.
+Bad fea-tures can introduce search errors and thus decreaseListing 2: A DerivationFeaturizer, whichmust lookup and save recombination state for ex-traction.public class NGramLanguageModelFeaturizerextends DerivationFeaturizer {@Overridepublic List<FeatureValue> featurize(Featurizable f) {// Get recombination stateLMState priorState = f.prior.getState(this);// LM queryLMState state = lm.score(f.targetPhrase, priorState);List<FeatureValue> features =Generics.newLinkedList();// Extract single featurefeatures.add(new FeatureValue("LM", state.getScore()));// Set new recombination statef.setState(this, state);return features;}}accuracy, sometimes catastrophically.The feature API allows DerivationFeaturizersto explicitly declare recombination state via theFeaturizerState interface.4 The interface re-quires a state equality operator and a hash codefunction.
+Then the search procedure will only re-combine derivations with equal states.
+For example,the state of the n-gram LM DerivationFeaturizer(Listing 2) is the n-1 gram context, and the hash-code is a hash of that context string.
+Only deriva-tions for which the equality operator of LMStatereturns true can be recombined.4 Web ServiceMachine translation output is increasingly uti-lized in computer-assisted translation (CAT) work-benches.
+To support deployment, Phrasal includesa lightweight J2EE servlet that exposes a REST-ful JSON API for querying a trained system.
+Thetoolkit includes a standalone servlet container, butthe servlet may also be incorporated into a J2EEserver.
+The servlet requires just one input param-eter: the Phrasal configuration file, which is alsoused for tuning and decoding.
+Consequently, afterrunning the standard pipeline, the trained systemcan be deployed with one command.4To control future cost estimation, the designer would needto write a new heuristic that considers perhaps a subset ofthe full feature map.
+There is a separate API for future costheuristics.1174.1 Standard Web ServiceThe standard web service supports two types ofrequests.
+The first is TranslationRequest,which performs full decoding on a source input.The JSON message structure is:Listing 3: TranslationRequest message.TranslationRequest {srcLang :(string),tgtLang :(string),srcText :(string),tgtText :(string),limit :(integer),properties :(object)}The srcLang and tgtLang fields are ignored bythe servlet, but can be used by a middleware proxyto route requests to Phrasal servlet instances, oneper language pair.
+The srcText field is the sourceinput, and properties is a Javascript associa-tive array that can contain key/value pairs to passto the feature API.
+For example, we often use theproperties field to pass domain informationwith each request.Phrasal will perform full decoding and respondwith the message:Listing 4: TranslationReply message,which is returned upon successful processing ofTranslationRequest.TranslationReply {resultList :[{tgtText :(string),align :(string),score :(float)},...]}resultList is a ranked n-best list of transla-tions, each with target tokens, word alignments,and a score.The second request type is RuleRequest,which enables phrase table queries.
+These requestsare processed very quickly since decoding is notrequired.
+The JSON message structure is:Listing 5: RuleRequest message, whichprompts a direct lookup into the phrase table.RuleRequest {srcLang :(string),tgtLang :(string),srcText :(string),limit :(integer),properties :(object)}limit is the maximum number of translations toreturn.
+The response message is analogous to thatfor TranslationRequest, so we omit it.4.2 Interactive Machine TranslationInteractive machine translation (Bisbey and Kay,1972) pairs human and machine translators in hopesof increasing the throughput of high quality trans-lation.
+It is an old idea that is again in focus.
+Onechallenge is to present relevant machine suggestionsto humans.
+To that end, Phrasal supports context-sensitive translation queries via prefix decod-ing.
+Consider again the TranslationRequestmessage.
+When the tgtText field is empty, thesource input is decoded from scratch.
+But whenthis field contains a prefix, Phrasal returns transla-tions that begin with the prefix.
+The search proce-dure force decodes the prefix, and then completesthe translation via conventional decoding.
+Conse-quently, if the user has typed a partial translation,Phrasal can suggest completions conditioned onthat prefix.
+The longer the prefix, the faster the de-coding, since the user prefix constrains the searchspace.
+This feature allows Phrasal to produce in-creasingly precise suggestions as the user works.5 ExperimentsWe compare Phrasal and Moses by restricting anexisting large-scale system to a set of common fea-tures.
+We start with the Arabic?English system ofGreen et al.
+(2014), which is built from 6.6M paral-lel segments.
+The system includes a 5-gram EnglishLM estimated from the target-side of the bitext and990M English monolingual tokens.
+The feature setis their dense baseline, but without lexicalized re-ordering and the two extended phrase table features.This leaves the nine baseline features also imple-mented by Moses.
+We use the same phrase table,phrase table query limit (20), and distortion limit(5) for both decoders.
+The tuning set (mt023568)contains 5,604 segments, and the development set(mt04) contains 1,075 segments.We ran all experiments on a dedicated server with16 physical cores and 128GB of memory.Figure 1 shows single-threaded decoding timeof the dev set as a function of the cube pruningpop limit.
+At very low limits Moses is faster thanPhrasal, but then slows sharply.
+In contrast, Phrasalscales linearly and is thus faster at higher pop limits.Figure 2 shows multi-threaded decoding time ofthe dev set with the cube pruning pop limit fixedat 1,200.
+Here Phrasal is initially faster, but Mosesbecomes more efficient at four threads.
+There aretwo possible explanations.
+First, profiling showsthat LM queries account for approximately 75%118llll lll llll ll ll lllll100200 500 1000 1500 2000Pop LimitTime (seconds) Systeml PhrasalMosesFigure 1: Development set decoding time as afunction of the cube pruning pop limit.of the Phrasal CPU-time.
+KenLM is written inC++, and Phrasal queries it via JNI.
+It appearsas though multi-threading across this boundary isa source of inefficiency.
+Second, we observe thatthe Java parallel garbage collector (GC) runs up toseven threads, which become increasingly activeas the number of decoder threads increases.
+Theseand other Java overhead threads must be scheduled,limiting gains as the number of decoding threadsapproaches the number of physical cores.Finally, Figure 3 shows tuning BLEU as a func-tion of wallclock time.
+For Moses we chose thebatch MIRA implementation of Cherry and Fos-ter (2012), which is popular for tuning feature-richsystems.
+Phrasal uses the online tuner with the ex-pected BLEU objective (Green et al., 2014).
+Mosesachieves a maximum BLEU score of 47.63 after143 minutes of tuning, while Phrasal reaches thislevel after just 17 minutes, later reaching a maxi-mum BLEU of 47.75 after 42 minutes.
+Much ofthe speedup can be attributed to phrase table andLM loading time: the Phrasal tuner loads these datastructures just once, while the Moses tuner loadsthem every epoch.
+Of course, this loading time be-comes more significant with larger-scale systems.6 ConclusionWe presented a revised version of Phrasal, an open-source, phrase-based MT toolkit.
+The revisionssupport new directions in MT research includingfeature-rich models, large-scale tuning, and web-llllll l l l l l l l l l l50100150200 4 8 12 16ThreadsTime (seconds) Systeml PhrasalMosesFigure 2: Development set decoding time as afunction of the threadpool size.lllllllllllllllllllllllll45464748 0 100 200Time (minutes)Approx.
+BLEU?4 Systeml PhrasalMosesFigure 3: Approximate BLEU-4 during tuningas a function of time over 25 tuning epochs.
+Thehorizontal axis is accumulated time, while eachpoint indicates BLEU at the end of an epoch.based interactive MT.
+A direct comparison withMoses showed favorable performance on a large-scale translation system.Acknowledgments We thank Michel Galley for previous con-tributions to Phrasal.
+The first author is supported by aNationalScience Foundation Graduate Research Fellowship.
+This workwas supported by the Defense Advanced Research ProjectsAgency (DARPA) Broad Operational Language Translation(BOLT) program through IBM.
+Any opinions, findings, andconclusions or recommendations expressed in this material arethose of the author(s) and do not necessarily reflect the viewof DARPA or the US government.119ReferencesW.
+Ammar, V. Chahuneau, M. Denkowski, G. Hanne-man, W. Ling, A. Matthews, et al.
+2013.
+The CMUmachine translation systems at WMT 2013: Syntax,synthetic translation options, and pseudo-references.In WMT.R.
+Appuswamy, C. Gkantsidis, D. Narayanan, O. Hod-son, and A. Rowstron.
+2013.
+Nobody ever got firedfor buying a cluster.
+Technical report, Microsoft Cor-poration, MSR-TR-2013-2.R.
+Bisbey and Kay.
+1972.
+The MIND translation sys-tem: a study in man-machine collaboration.
+Techni-cal Report P-4786, Rand Corp., March.L.
+Bottou and O. Bousquet.
+2011.
+The tradeoffs oflarge scale learning.
+In Optimization for MachineLearning, pages 351?368.
+MIT Press.D.
+Cer, D. Jurafsky, and C. D. Manning.
+2008.
+Regu-larization and search for minimum error rate training.In WMT.D.
+Cer, M. Galley, D. Jurafsky, and C. D. Manning.2010.
+Phrasal: A statistical machine translationtoolkit for exploring new model features.
+In HLT-NAACL, Demonstration Session.C.
+Cherry and G. Foster.
+2012.
+Batch tuning strategiesfor statistical machine translation.
+In HLT-NAACL.M.
+Denkowski and A. Lavie.
+2011.
+Meteor 1.3: Auto-matic metric for reliable optimization and evaluationof machine translation systems.
+In WMT.J.
+Duchi and Y.
+Singer.
+2009.
+Efficient online and batchlearning using forward backward splitting.
+JMLR,10:2899?2934.J.
+Duchi, E. Hazan, and Y.
+Singer.
+2011.
+Adaptive sub-gradient methods for online learning and stochasticoptimization.
+JMLR, 12:2121?2159.N.
+Durrani, B. Haddow, K. Heafield, and P. Koehn.2013.
+Edinburgh?s machine translation systems forEuropean language pairs.
+In WMT.C.
+Dyer, A. Lopez, J. Ganitkevitch, J. Weese, F. Ture,et al.
+2010. cdec: A decoder, alignment, and learn-ing framework for finite-state and context-free trans-lation models.
+In ACL System Demonstrations.M.
+Galley and C. D. Manning.
+2008.
+A simple andeffective hierarchical phrase reordering model.
+InEMNLP.S.
+Green, S. Wang, D. Cer, and C. D. Manning.
+2013.Fast and adaptive online training of feature-rich trans-lation models.
+In ACL.S.
+Green, D. Cer, and C. D. Manning.
+2014.
+An em-pirical comparison of features and tuning for phrase-based machine translation.
+In WMT.K.
+Heafield, I. Pouzyrevsky, J. H. Clark, and P. Koehn.2013.
+Scalable modified Kneser-Ney languagemodel estimation.
+In ACL, Short Papers.K.
+Heafield.
+2011.
+KenLM: Faster and smaller lan-guage model queries.
+In WMT.M.
+Hopkins and J.
+May.
+2011.
+Tuning as ranking.
+InEMNLP.L.
+Huang and D. Chiang.
+2007.
+Forest rescoring:Faster decoding with integrated language models.
+InACL.P.
+Koehn, F. J. Och, and D. Marcu.
+2003.
+Statisticalphrase-based translation.
+In NAACL.P.
+Koehn, H. Hoang, A. Birch, C. Callison-Burch,M.
+Federico, N. Bertoldi, et al.
+2007.
+Moses: Opensource toolkit for statistical machine translation.
+InACL, Demonstration Session.P.
+Koehn.
+2004.
+Statistical significance tests for ma-chine translation evaluation.
+In EMNLP.P.
+Liang, B. Taskar, and D. Klein.
+2006.
+Alignment byagreement.
+In NAACL.C.-Y.
+Lin and F. J. Och.
+2004.
+ORANGE: a method forevaluating automatic evaluation metrics for machinetranslation.
+In COLING.L.
+V. Lita, A. Ittycheriah, S. Roukos, and N. Kambhatla.2003.
+tRuEcasIng.
+In ACL.P.
+Nakov, F. Guzman, and S. Vogel.
+2012.
+Optimizingfor sentence-level BLEU+1 yields short translations.In COLING.J.
+Neidert, S. Schuster, S. Green, K. Heafield, and C. D.Manning.
+2014.
+Stanford University?s submissionsto the WMT 2014 translation task.
+In WMT.F.
+J. Och and H. Ney.
+2004.
+The alignment templateapproach to statistical machine translation.
+Compu-tational Linguistics, 30(4):417?449.F.
+J. Och.
+2003.
+Minimum error rate training for statis-tical machine translation.
+In ACL.K.
+Papineni, S. Roukos, T. Ward, and W. Zhu.
+2002.BLEU: a method for automatic evaluation of ma-chine translation.
+In ACL.M.
+Post, J. Ganitkevitch, L. Orland, J. Weese, Y. Cao,and C. Callison-Burch.
+2013.
+Joshua 5.0: Sparser,better, faster, server.
+In WMT.S.
+Riezler and J. T. Maxwell.
+2005.
+On some pitfalls inautomatic evaluation and significance testing in MT.In ACL Workshop on Intrinsic and Extrinsic Evalua-tion Measures for Machine Translation and/or Sum-marization.M.
+Snover, B. Dorr, R. Schwartz, L. Micciulla, andJ.
+Makhoul.
+2006.
+A study of translation edit ratewith targeted human annotation.
+In AMTA.120C.
+Tillmann.
+2004.
+A unigram orientation model forstatistical machine translation.
+In NAACL.J.
+Wuebker, M. Huck, S. Peitz, M. Nuhn, M. Freitag,J.
+T. Peter, S. Mansour, and H. Ney.
+2012.
+Jane 2:Open source phrase-based and hierarchical statisti-cal machine translation.
+InCOLING:DemonstrationPapers.121

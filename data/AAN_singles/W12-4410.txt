@@ -1,0 +1,186 @@
+Proceedings of the 50th Annual Meeting of the Association for Computational Linguistics, pages 66?70,Jeju, Republic of Korea, 8-14 July 2012. c?2012 Association for Computational LinguisticsTransliteration by Sequence Labeling with Lattice Encodings and RerankingWaleed Ammar Chris Dyer Noah A. SmithLanguage Technologies InstituteCarnegie Mellon UniversityPittsburgh, PA, 15213, USA{wammar,cdyer,nasmith}@cs.cmu.eduAbstractWe consider the task of generating transliter-ated word forms.
+To allow for a wide range ofinteracting features, we use a conditional ran-dom field (CRF) sequence labeling model.
+Wethen present two innovations: a training objec-tive that optimizes toward any of a set of possi-ble correct labels (since more than one translit-eration is often possible for a particular in-put), and a k-best reranking stage to incorpo-rate nonlocal features.
+This paper presents re-sults on the Arabic-English transliteration taskof the NEWS 2012 workshop.1 IntroductionTransliteration is the transformation of a piece oftext from one language?s writing system into an-other.
+Since the transformation is mostly explainedas local substitutions, deletions, and insertions, wetreat word transliteration as a sequence labelingproblem (Ganesh et al, 2008; Reddy and Waxmon-sky, 2009), using linear-chain conditional randomfields as our model (Lafferty et al, 2001; Sha andPereira, 2003).
+We tailor this model to the transliter-ation task in several ways.First, for the Arabic-English task, each Arabic in-put is paired with multiple valid English transliter-ation outputs, any of which is judged to be correct.To effectively exploit these multiple references dur-ing learning, we use a training objective in whichthe model may favor some correct transliterationsover the others.
+Computationally efficient inferenceis achieved by encoding the references in a lattice.Second, inference for our first-order sequence la-beling model requires a runtime that is quadratic inthe number of labels.
+Since our labels are charactern-grams in the target language, we must cope withthousands of labels.
+To make the most of each in-ference call during training, we apply a mini-batchtraining algorithm which converges quickly.Finally, we wish to consider some global featuresthat would render exact inference intractable.
+Wetherefore use a reranking model (Collins, 2000).We demonstrate the performance benefits of thesemodifications on the Arabic-English transliterationtask, using the open-source library cdec (Dyer etal., 2010)1 for learning and prediction.2 Problem DescriptionIn the NEWS 2012 workshop, the task is to gener-ate a list of ten transliterations in a specified targetlanguage for each named entity (in a known sourcelanguage) in the test set.
+A training set is providedfor each language pair.
+An entry in the training setcomprises a named entity in the source language andone or more transliterations in the target language.Zhang et al (2012) provides a detailed descriptionof the shared task.3 Approach3.1 Character AlignmentIn order to extract source-target character map-pings, we use m2m-aligner (Jiampojamarn et al,2007),2 which implements a forward-backward al-gorithm to sum over probabilities of possible charac-ter sequence mappings, and uses Expectation Max-imization to learn mapping probabilities.
+We allowsource characters to be deleted, but not target char-acters.
+Parameters -maxX and -maxY are tuned ona devevelopment set.Our running example is the Arabic name EAdl(in Buckwalter?s ASCII-based encoding of Arabic)with two English transliterations: ADEL and ?ADIL.The character alignment for the two pairs is shownin Fig.
+1.1http://www.cdec-decoder.org2http://code.google.com/p/m2m-aligner66ADELEAdl????ADILEAdl????
+'Arabic English Arabic EnglishFigure 1: Character alignment for transliterating EAdl toADEL and ?ADIL.3.2 Sequence Labeling Scheme and NotationWe frame transliteration as a sequence labelingproblem.
+However, transliteration is not a one-to-one process, meaning that a na?
+?ve application ofone-label-per-token sequence models would be un-likely to perform well.
+Previous work has takentwo different approaches.
+Reddy and Waxmonsky(2009) first segment the input character sequence,then use the segments to construct a transliterationin the target language.
+Since segmentation errorswill compound to produce transliteration errors, weavoid this.
+Ganesh et al (2008) do not require a seg-mentation step, but their model does not allow formany-to-one and many-to-many character mappingswhich are often necessary.Our approach overcomes both these shortcom-ings: we have neither an explicit segmentation step,nor do we forbid many-to-many mappings.
+In ourmodel, each character xi in the source-language in-put x = ?x1, x2, .
+.
+.
+, xn?
+is assigned a label yi.However, a label yi is a sequence of one or moretarget-language characters, a special marker indi-cating a deletion (), or a special marker indicat-ing involvement in a many-to-one mapping (?
+), thatis, yi ?
+?+ ?
+{, ?
+}, where ?
+is the target lan-guage alphabet.3 When an input x has multiple al-ternative reference transliterations, we denote the setY?
+(x) = {y1,y2, .
+.
+.
+,yK}.We map the many-to-many alignments producedby m2m-aligner to one label for each input char-acter, using the scheme in Table 1.
+Note that zero-to-one alignments are not allowed.The two reference label sequences for our runningexample, which are constructed from the alignmentsin Fig.
+1 are:3For an input type x, we only consider labels that were ac-tually observed in the training data, which means the label setis finite.Type Alignment Labels1:0 xi :  yi = 1:1 xi : tj yi = tj1:many xi : tj .
+.
+.
+tk yi = tj .
+.
+.
+tkmany:1 xi .
+.
+.
+xp : tj yp = tjyi = ?
+?
+?
+= yp?1 = ?many:many xi .
+.
+.
+xp : tj .
+.
+.
+tk yp = tj .
+.
+.
+tkyi = ?
+?
+?
+= yp?1 = ?Table 1: Transforming alignments to sequence labels.x y1 y2E ?
+?A A Ad DE DIl L LOf key importance in our model is defining, foreach source character, the set of labels that can beconsidered for it.
+For each source character, we addall labels consistent with character alignments to thelexicon.3.3 ModelOur model for mapping from inputs to outputs isa conditional random field (Lafferty et al, 2001),which defines the conditional probability of everypossible sequence labeling y of a sequence x withthe parametric form:p?
+(y | x) ?
+exp?|x|i=1 ?
+?
+f(x, yi, yi?1) (1)where f is a vector of real-valued feature functions.3.4 FeaturesThe feature functions used are instantiated by apply-ing templates shown in Table 2 to each position i inthe input string x.3.5 Parameter LearningGiven a training dataset of pairs {?xj ,yj?
+}`j=1 (notethat each y is derived from the max-scoring char-acter alignment), a CRF is trained to maximize theregularized conditional log-likelihood:max?L{1,...,`}(?)
+,?`j=1 log p?
+(yj | xj) ?
+C||?||22(2)The regularization strength hyperparameter is tunedon development data.
+On account of the large datasizes and large label sets in several language pairs67Feature Template DescriptionU1:yi-xi,U2:yi-xi?1-xi,U3:yi-xi-xi+1, moving window of unigram,U4:yi-xi?2-xi?1-xi, bigram and trigram contextU5:yi-xi?1-xi-xi+1,U6:yi-xi-xi+1-xi+2U7:yi, B1:yi-yi?1 label unigrams and bigramsU8:|yi| label size (in characters)Table 2: Feature templates for features extracted fromtransliteration hypotheses.
+The SMALLCAPS prefixesprevent accidental feature collisions.
+(Table 3), batch optimization with L-BFGS is in-feasible.
+Therefore, we use a variant of the mini-batch L-BFGS learning approach proposed by Leet al (2011).
+This algorithm uses a series of ran-domly chosen mini-batches B(1),B(2), .
+.
+., each asubset of {1, .
+.
+.
+, `}, to produce a series of weights?(1),?
+(2), .
+.
+.
+by running N iterations of L-BFGSon each mini-batch to compute the following:max?
+(i) LB(i)(?
+(i)) ?
+T??
+(i) ?
+?
+(i?1)?22 (3)The T parameter controls how far from the previ-ous weights the optimizer can move in any particu-lar mini-batch4.
+We use mini-batch sizes of 5, andstart training with a small value of T and increase itas we process more iterations.
+This is equivalent toreducing the step-size with the number of iterationsin conventional stochastic learning algorithms.Language Pair Unique LabelsArabic-English 1,240Chinese-English 2,985Thai-English 1,771English-Chinese 1,321English-Japanese Kanji 4,572Table 3: Size of the label set in some language pairs.3.6 Using Multiple Reference TransliterationsIn some language pairs, NEWS-2012 provides mul-tiple reference transliterations in the training set.
+Inthis section, we discuss two possibilities for usingthese multiple references to train our transliteration4When T = 0, our learning algorithm is identical to the L-BFGS mini-batch algorithm of Le et al (2011); however, wefind that more rapid convergence is possible when T > 0.
+'ADILDEA?Figure 2: Lattice encoding two transliterations of EAdl:ADEL and ?ADIL.model.
+The first possibility is to create multiple in-dependent training inputs for each input x, one foreach correct transliteration in Y?(x).
+Using this ap-proach, with K different transliterations, the CRFtraining objective will attempt to assign probability1K to each correct transliteration, and 0 to all others(modulo regularization).Alternatively, we can train the model to maximizethe marginal probability assigned by the model tothe set of correct labels Y?
+= {y1, .
+.
+.
+,yK}.
+Thatis, we assume a set of training data {(xj ,Y?j )}`j=1and replace the standard CRF objective with the fol-lowing (Dyer, 2009):5max?
+?`j=1 log?y?Y?jp?
+(y | xj) ?
+C||?||22 (4)This learning objective has more flexibility.
+It canmaximize the likelihood of the training data by giv-ing uniform probability to each reference transliter-ation for a given x, but it does not have to.
+In effect,we do not care how probability mass is distributedamong the correct labels.
+Our hope is that if sometransliterations are difficult to model?perhaps be-cause they are incorrect?the model will be able todisregard them.To calculate the marginal probability for each xj ,we represent Y?
+(x) as a label lattice, which is sup-ported as label reference format in cdec.
+A fur-ther computational advantage is that each x in thetraining data is now only a single training instancemeaning that fewer forward-backward evaluationsare necessary.
+The lattice encoding of both translit-erations of our running example is shown in Fig.
+2.3.7 RerankingCRFs require feature functions to be ?local?
+tocliques in the underlying graphical model.
+One wayto incorporate global features is to first decode the5Unlike the standard CRF objective in eq.
+2, the marginalprobability objective is non-convex, meaning that we are onlyguaranteed to converge to a local optimum in training.68k-best transliterations using the CRF, then rerankbased on global features combined with the CRF?sconditional probability of each candidate.
+We ex-periment with three non-local features:Character language model: an estimate ofpcharLM (y) according to a trigram character lan-guage model (LM).
+While a bigram LM can be fac-tored into local features in a first order CRF, highern-gram orders require a higher-order CRF.Class language model: an estimate of pclassLM (y),similar to the character LM, but collapses characterswhich have a similar phonetic function into one class(vowels, consonants, and hyphens/spaces).
+Due tothe reduced number of types in this model, we cantrain a 5-gram LM.Transliteration length: an estimate of plen(|y| ||x|) assuming a multinomial distribution with pa-rameters estimated using transliteration pairs of thetraining set.The probabilistic model for each of the globalfeatures is trained using training data provided forthe shared task.
+The reranking score is a linearcombination of log pcrf (y | x), log pcharLM (y),log pclassLM (y) and log plen(|y| | |x|).
+Linear co-efficients are optimized using simulated annealing,optimizing accuracy of the 1-best transliteration in adevelopment set.
+k-best lists are extracted from theCRF trellis using the lazy enumeration algorithm ofHuang and Chiang (2005).4 ExperimentsWe tested on the NEWS 2012 Arabic-Englishdataset.
+The train, development, and test sets con-sist of 27,177, 1,292, and 1,296 source named enti-ties, respectively, with an average 9.6 references pername in each case.Table 4 summarizes our results using the ACCscore (Zhang et al, 2012) (i.e., word accuracy intop-1).
+?Basic CRF?
+is the model with mini-batchlearning and represents multiple reference translit-erations as independent training examples.
+We man-ually tuned the number of training examples andLBFGS iterations per mini-batch to five and eight,respectively.
+?CRF w/lattice?
+compactly representsthe multiple references in a lattice, as detailed in?3.6.
+We consider reranking using each of the threeglobal features along with the CRF, as well as theModel Ar-EnBasic CRF 23.5CRF w/lattice 37.0CRF w/lattice; rerank pcrf , pcharLM 40.7CRF w/lattice; rerank pcrf , pclassLM 38.4CRF w/lattice; rerank pcrf , plen 37.3CRF w/lattice, rerank all four 42.8Table 4: Model performance, measured in word accuracyin top-1 (ACC, %).full set of four features.Maximizing the marginal conditional likelihoodof the set of alternative transliterations (rather thanmaximizing each alternative independently) showsa dramatic improvement in transliteration accuracyfor Arabic-English.
+Moreover, in Arabic-Englishthe basic CRF model converges in 120K mini-batchiterations, which is, approximately, seven times thenumber of iterations needed for convergence withlattice-encoded labels.
+A model converges when itsACC score on the development set ceases to improvein 800 mini-batch iterations.
+Results also show thatreranking a k-best list of only five transliterationswith any of the global features improves accuracy.Using all the features together to rerank the k-bestlist gives further improvements.5 ConclusionWe built a CRF transliteration model that allowsfor many-to-many character mappings.
+We addresslimitations of CRFs using mini-batch learning andreranking techniques.
+We also show how to relaxthe learning objective when the training set containsmultiple references, resulting in faster convergenceand improved transliteration accuracy.We suspect that including features of higher-ordern-gram labels would help improve transliteration ac-curacy further, but it makes inference intractable dueto the large set of labels.
+In future work, coarsetransformations of label n-grams might address thisproblem.AcknowledgmentsThis research was supported in part by the U.S. ArmyResearch Laboratory and the U.S. Army Research Officeunder contract/grant number W911NF-10-1-0533.
+Wethank anonymous reviewers for the valuable comments.69ReferencesM.
+Collins.
+2000.
+Discriminative reranking for naturallanguage parsing.
+In Proc.
+of ICML.C.
+Dyer, A. Lopez, J. Ganitkevitch, J. Weese, F. Ture,P.
+Blunsom, H. Setiawan, V. Eidelman, and P. Resnik.2010.
+cdec: A decoder, alignment, and learningframework for finite-state and context-free translationmodels.
+In Proc.
+of ACL.C.
+Dyer.
+2009.
+Using a maximum entropy model to buildsegmentation lattices for MT.
+In Proc.
+of NAACL.S.
+Ganesh, S. Harsha, P. Pingali, and V. Varma.
+2008.Statistical transliteration for cross language informa-tion retrieval using HMM alignment and CRF.
+InProc.
+of the 2nd Workshop On Cross Lingual Infor-mation Access.L.
+Huang and D. Chiang.
+2005.
+Better k-best parsing.
+InIn Proc.
+of the 9th International Workshop on ParsingTechnologies.S.
+Jiampojamarn, G. Kondrak, and T. Sherif.
+2007.
+Ap-plying many-to-many alignments and hidden Markovmodels to letter-to-phoneme conversion.
+In Proc.
+ofNAACL.J.
+Lafferty, A. McCallum, and F. Pereira.
+2001.
+Con-ditional random fields: Probabilistic models for seg-menting and labeling sequence data.
+In Proc.
+of ICML.Q.
+V. Le, J. Ngiam, A. Coates, A. Lahiri, B. Prochnow,and A. Y. Ng.
+2011.
+On optimization methods fordeep learning.
+In Proc.
+of ICML.S.
+Reddy and S. Waxmonsky.
+2009.
+Substring-basedtransliteration with conditional random fields.
+In Proc.of the Named Entities Workshop.F.
+Sha and F. Pereira.
+2003.
+Shallow parsing with condi-tional random fields.
+In Proc.
+of NAACL-HLT.M.
+Zhang, H. Li, M. Liu, and A. Kumaran.
+2012.Whitepaper of NEWS 2012 shared task on machinetransliteration.70

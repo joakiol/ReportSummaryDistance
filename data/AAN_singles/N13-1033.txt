@@ -1,0 +1,293 @@
+Proceedings of NAACL-HLT 2013, pages 325?334,Atlanta, Georgia, 9?14 June 2013. c?2013 Association for Computational LinguisticsMassively Parallel Suffix Array Queries and On-Demand Phrase Extractionfor Statistical Machine Translation Using GPUsHua HeDept.
+of Computer ScienceUniversity of MarylandCollege Park, Marylandhuah@cs.umd.eduJimmy LiniSchool and UMIACSUniversity of MarylandCollege Park, Marylandjimmylin@umd.eduAdam LopezHLTCOEJohns Hopkins UniversityBaltimore, Marylandalopez@cs.jhu.eduAbstractTranslation models in statistical machinetranslation can be scaled to large corporaand arbitrarily-long phrases by looking uptranslations of source phrases ?on the fly?in an indexed parallel corpus using suffixarrays.
+However, this can be slow becauseon-demand extraction of phrase tables iscomputationally expensive.
+We address thisproblem by developing novel algorithms forgeneral purpose graphics processing units(GPUs), which enable suffix array queriesfor phrase lookup and phrase extraction tobe massively parallelized.
+Compared toa highly-optimized, state-of-the-art serialCPU-based implementation, our techniquesachieve at least an order of magnitudeimprovement in terms of throughput.
+Thiswork demonstrates the promise of massivelyparallel architectures and the potentialof GPUs for tackling computationally-demanding problems in statistical machinetranslation and language processing.1 IntroductionEfficiently handling large translation models is aperennial problem in statistical machine translation.One particularly promising solution (?2) is to usethe parallel text itself as an implicit representationof the translation model and extract translation units?on the fly?
+when they are needed to decode newinput (Brown, 2004).
+This idea has been appliedto phrase-based (Callison-Burch et al 2005; Zhangand Vogel, 2005), hierarchical (Lopez, 2007; Lopez,2008b; Lopez, 2008a), and syntax-based (Cromieresand Kurohashi, 2011) models.
+A benefit of thistechnique is that it scales to arbitrarily large modelswith very little pre-processing.
+For instance, Lopez(2008b) showed that a translation model trained ona large corpus with sparse word alignments andloose extraction heuristics substantially improvedChinese-English translation.
+An explicit represen-tation of the model would have required nearly aterabyte of memory, but its implicit representationusing the parallel text required only a few gigabytes.Unfortunately, there is substantial computationalcost in searching a parallel corpus for sourcephrases, extracting their translations, and scoringthem on the fly.
+Since the number of possibletranslation units may be quite large (for example,all substrings of a source sentence) and theirtranslations are numerous, both phrase lookup andextraction are performance bottlenecks.
+Despiteconsiderable research and the use of efficientindexes like suffix arrays (Manber and Myers,1990), this problem remains not fully solved.We show how to exploit the massive parallelismoffered by modern general purpose graphics pro-cessing units (GPUs) to eliminate the computationalbottlenecks associated with ?on the fly?
+phrase ex-traction.
+GPUs have previously been applied toDNA sequence matching using suffix trees (Schatzet al 2007) and suffix arrays (Gharaibeh and Ri-peanu, 2010).
+Building on this work, we presenttwo novel contributions: First, we describe improvedGPU algorithms for suffix array queries that achievegreater parallelism (?3).
+Second, we propose noveldata structures and algorithms for phrase extraction(?4) and scoring (?5) that are amenable to GPU par-325allelization.
+The resulting implementation achievesat least an order of magnitude higher throughputthan a state-of-the-art single-threaded CPU imple-mentation (?6).
+Since our experiments verify thatthe GPU implementation produces exactly the sameresults as a CPU reference implementation on a fullextraction, we can simply replace that componentand reap significant performance advantages with noimpact on translation quality.
+To the best of ourknowledge, this is the first reported application ofGPU acceleration techniques for statistical machinetranslation.
+We believe these results reveal a promis-ing yet unexplored future direction in exploiting par-allelism to tackle perennial performance bottlenecksin state-of-the-art translation models.2 Phrase Extraction On DemandLopez (2008b) provides the following recipe for?translation by pattern matching?, which we use asa guide for the remainder of this paper:Algorithm 1 Translation by pattern matching1: for each input sentence do2: for each possible phrase in the sentence do3: Find its occurrences in the source text4: for each occurrence do5: Extract its aligned target phrase (if any)6: for each extracted phrase pair do7: Compute feature values8: Decode as usual using the scored rulesThe computational bottleneck occurs in lines 2?7:there are vast numbers of query phrases, matchingoccurrences, and extracted phrase pairs to process inthe loops.
+In the next three sections, we attack eachproblem in turn.3 Finding Every PhraseFirst, we must find all occurrences of each sourcephrase in the input (line 3, Algorithm 1).
+Thisis a classic application of string pattern matching:given a short query pattern, the task is to find alloccurrences in a much larger text.
+Solving theproblem efficiently is crucial: for an input sentenceF of length |F |, each of its O(|F |2) substrings is apotential query pattern.3.1 Pattern Matching with Suffix ArraysAlthough there are many algorithms for patternmatching, all of the examples that we are awareof for machine translation rely on suffix arrays.We briefly review the classic algorithms of Manberand Myers (1990) here since they form the basisof our techniques and analysis, but readers whoare familiar with them can safely skip ahead toadditional optimizations (?3.2).A suffix array represents all suffixes of a corpusin lexicographical order.
+Formally, for a text T , theith suffix of T is the substring of the text beginningat position i and continuing to the end of T .
+Eachsuffix can therefore be uniquely identified by theindex i of its first word.
+A suffix array S(T )of T is a permutation of these suffix identifiers[1, |T |] arranged by the lexicographical order of thecorresponding suffixes?in other words, the suffixarray represents a sorted list of all suffixes in T .With both T and S(T ) in memory, we can find anyquery pattern Q in O(|Q| log |T |) time by compar-ing pattern Q against the first |Q| characters of up tolog |T | different suffixes using binary search.An inefficiency in this solution is that each com-parison in the binary search algorithm requires com-paring all |Q| characters of the query pattern againstsome suffix of text T .
+We can improve on this usingan observation about the longest common prefix(LCP) of the query pattern and the suffix againstwhich it is compared.
+Suppose we search for a querypattern Q in the span of the suffix array beginning atsuffix L and ending at suffix R. For any suffix Mwhich falls lexicographically between those at L andR, the LCP of Q and M will be at least as long asthe LCP of Q and L or Q and R. Hence if we knowthe quantity h = MIN(LCP(Q,L), LCP(Q,R)) wecan skip comparisons of the first h symbols betweenQ and the suffix M , since they must be the same.The solution of Manber and Myers (1990) ex-ploits this fact along with the observation that eachcomparison in binary search is carried out accord-ing to a fixed recursion scheme: a query is onlyever compared against a specific suffix M for asingle range of suffixes bounded by some fixed Land R. Hence if we know the longest commonprefix between M and each of its correspondingL and R according to the fixed recursions in the326algorithm, we can maintain a bound on h and reducethe aggregate number of symbol comparisons toO(|Q| + log |T |).
+To accomplish this, in additionto the suffix array, we pre-compute two other arraysof size |T | for both left and right recursions (calledthe LCP arrays).Memory use is an important consideration, sinceGPUs have less memory than CPUs.
+For the algo-rithms described here, we require four arrays: theoriginal text T , the suffix array S(T ), and the twoLCP arrays.
+We use a representation of T in whicheach word has been converted to a unique integeridentifier; with 32-bit integers the total number ofbytes is 16|T |.
+As we will show, this turns out to bequite modest, even for large parallel corpora (?6).3.2 Suffix Array Efficiency TricksPrevious work on translation by pattern matchingusing suffix arrays on serial architectures has pro-duced a number of efficiency optimizations:1.
+Binary search bounds for longer substrings areinitialized to the bounds of their longest prefix.Substrings are queried only if their longestprefix string was matched in the text.2.
+In addition to conditioning on the longest pre-fix, Zhang and Vogel (2005) and Lopez (2007)condition on a successful query for the longestproper suffix.3.
+Lopez (2007) queries each unique substringof a sentence exactly once, regardless of howmany times it appears in an input sentence.4.
+Lopez (2007) directly indexes one-word sub-strings with a small auxiliary array, so thattheir positions in the suffix array can be foundin constant time.
+For longer substrings, thisoptimization reduces the log |T | term of querycomplexity to log(count(a)), where a is thefirst word of the query string.Although these efficiency tricks are important in theserial algorithms that serve as our baseline, not allof them are applicable to parallel architectures.
+Inparticular, optimizations (1), (2), and (3) introduceorder dependencies between queries; they are disre-garded in our GPU implementation so that we canfully exploit parallelization opportunities.
+We havenot yet fully implemented (4), which is orthogonalto parallelization: this is left for future work.3.3 Finding Every Phrase on a GPURecent work in computational biology has shownthat suffix arrays are particularly amenable to GPUacceleration: the suffix-array-based DNA sequencematching system MummurGPU++ (Gharaibeh andRipeanu, 2010) has been reported to outperform thealready fast MummurGPU 2 (Trapnell and Schatz,2009), based on suffix trees (an alternative indexingstructure).
+Here, we apply the same ideas to ma-chine translation, introducing some novel improve-ments to their algorithms in the process.A natural approach to parallelism is to performall substring queries in parallel (Gharaibeh and Ri-peanu, 2010).
+There are no dependencies betweeniterations of the loop beginning on line 2 of Algo-rithm 1, so for input sentence F , we can parallelizeby searching for all O(|F |2) substrings concurrently.We adopt this approach here.However, na?
+?ve application of query-level paral-lelism leads to a large number of wasted threads,since most long substrings of an input sentence willnot be found in the text.
+Therefore, we employa novel two-pass strategy: in the first pass, wesimply compute, for each position i in the inputsentence, the length j of the longest substring in Fthat appears in T .
+These computations are carriedout concurrently for every position i.
+During thispass, we also compute the suffix array bounds of theone-word substring F [i], to be used as input to thesecond pass?a variant of optimizations (1) and (4)discussed in ?3.2.
+On the second pass, we searchfor all substrings F [i, k] for all k ?
+[i + 1, i + j].These computations are carried out concurrently forall substrings longer than one word.Even more parallelization is possible.
+As we sawin ?3.1, each query in a suffix array actually requirestwo binary searches: one each for the first and lastmatch in S(T ).
+The abundance of inexpensivethreads on a GPU permits us to perform both queriesconcurrently on separate threads.
+By doing this inboth passes we utilize more of the GPU?s processingpower and obtain further speedups.As a simple example, consider an input sentence?The government puts more tax on its citizens?, andsuppose that substrings ?The government?, ?gov-ernment puts?, and ?puts more tax?
+are found inthe training text, while none of the words in ?on327Initial Word Longest Match Substrings Threads1st pass 2nd passThe 2 The, The government 2 2government 2 government, government puts 2 2puts 3 puts, puts more, puts more tax 2 4more 2 more, more tax 2 2tax 1 tax 2 0on 0 ?
+2 0its 0 ?
+2 0citizens 0 ?
+2 0Total Threads: 16 10Table 1: Example of how large numbers of suffix array queries can be factored across two highly parallel passes on aGPU with a total of 26 threads to perform all queries for this sample input sentence.its citizens?
+are found.
+The number of threadsspawned is shown in Table 1: all threads during apass execute in parallel, and each thread performs abinary search which takes no more than O(|Q| +log |T |) time.
+While spawning so many threadsmay seem wasteful, this degree of parallelizationstill under-utilizes the GPU; the hardware we use(?6) can manage up to 21,504 concurrent threadsin its resident occupancy.
+To fully take advantageof the processing power, we process multiple inputsentences in parallel.
+Compared with previousalgorithms, our two-pass approach and our strategyof thread assignment to increase the amount ofparallelism represent novel contributions.4 Extracting Aligned Target PhrasesThe problem at line 5 of Algorithm 1 is to extract thetarget phrase aligned to each matching source phraseinstance.
+Efficiency is crucial since some sourcephrases occur hundreds of thousands of times.Phrase extraction from word alignments typicallyuses the consistency check of Och et al(1999).
+Aconsistent phrase is one for which no words insidethe phrase pair are aligned to words outside thephrase pair.
+Usually, consistent pairs are computedoffline via dynamic programming over the align-ment grid, from which we extract all consistentphrase pairs up to a heuristic bound on phrase length.The online extraction algorithm of Lopez (2008a)checks for consistent phrases in a different manner.Rather than finding all consistent phrase pairs ina sentence, the algorithm asks: given a specificsource phrase, is there a consistent phrase pairFigure 1: Source phrase f2f3f4 and target phrasee2e3e4 are extracted as a consistent pair, since the back-projection is contained within the original source span.Figure 2: Source phrase f2f3f4 and target phrase e2e3e4should not be extracted, since the back-projection is notcontained within the original source span.of which it is one side?
+To answer this, it firstcomputes the projection of the source phrase in thetarget sentence: the minimum span containing allwords that are aligned to any word of the sourcespan.
+It then computes the projection of the targetspan back into the source; if this back-projectionis contained within the original source span, thephrase pair is consistent, and the target span isextracted as the translation of the source.
+Figure 1shows a ?good?
+pair for source phrase f2f3f4, sincethe back-projection is contained within the originalsource span, whereas Figure 2 shows a ?bad?
+pairfor source phrase f2f3f4 since the back-projectionis not contained within the original source span.3284.1 Sampling Consistent PhrasesRegardless of how efficient the extraction of a singletarget phrase is made, the fact remains that thereare many phrases to extract.
+For example, in ourChinese Xinhua dataset (see ?6), from 8,000 inputquery sentences, about 20 million source substringscan be extracted.
+The standard solution to thisproblem is to sample a set of occurrences of eachsource phrase, and only extract translations for thoseoccurrences (Callison-Burch et al 2005; Zhang andVogel, 2005).
+As a practical matter, this can be doneby sampling at uniform intervals from the matchingspan of a suffix array.
+Lopez (2008a) reports asample size of 300; for phrases occurring fewer than300 times, all translations are extracted.4.2 GPU ImplementationWe present novel data structures and an algorithmfor efficient phrase extraction, which together areamenable to massive parallelization on GPUs.
+Thebasic insight is to pre-compute data structures forthe source-to-target alnment projection and back-projection procedure described by Lopez (2008a)for checking consistent alignments.Let us consider a single matching substring (fromthe output of the suffix array queries), span [i, j] inthe source text T .
+For each k, we need to know theleftmost and rightmost positions that it aligns to inthe target T ?.
+For this purpose we can define thetarget span [i?, j?
+], along with leftmost and rightmostarrays L and R as follows:i?
+:= mink?[i,j]L(k)j?
+:= maxk?
+[i,j]R(k)The arrays L and R are each of length |T |, in-dexed by absolute corpus position.
+Each arrayelement contains the leftmost and rightmost extentsof the source-to-target alnments (in the target),respectively.
+Note that in order to save space,the values stored in the arrays are sentence-relativepositions (e.g., token count from the beginning ofeach sentence), so that we only need one byte perarray entry.
+Thus, i?
+and j?
+are sentence-relativepositions (in the target).Similarly, for the back-projection, we use twoarrays L?
+and R?
+on the target side (length |T ?|) tokeep track of the leftmost and rightmost positionsthat k?
+in the target training text align to, as below:i??
+:= mink??[s?+i?,s?+j?]L?(k?)j??
+:= maxk??[s?+i?,s?+j?]R?(k?
+)The arrays L?
+and R?
+are indexed by absolute corpuspositions, but their contents are sentence relativepositions (on the source side).
+To index the arraysL?
+and R?, we also need to obtain the correspondingtarget sentence start position s?.
+Note that the back-projected span [i?
+?, j??]
+may or may not be the sameas the original span [i, j].
+In fact, this is exactly whatwe must check for to ensure a consistent alignment.The suffix array gives us i, which is an ab-solute corpus position, but we need to know thesentence-relative position, since the spans computedby R,L,R?, L?
+are all sentence relative.
+To solvethis, we introduce an array P (length |T |) that givesthe relative sentence position of each source word.We then pack the three source side arrays (R, L,and P ) into a single RLP array of 32-bit integers(note that we are actually wasting one byte per arrayelement).
+Finally, since the end-of-sentence specialtoken is not used in any of R, L, or P , its positionin RLP can be used to store an index to the startof the corresponding target sentence in the targetarray T ?.
+Now, given a source phrase spanning[i, j] (recall, these are absolute corpus positions), ourphrase extraction algorithm is as follows:Algorithm 2 Efficient Phrase Extraction Algorithm1: for each source span [i, j] do2: Compute [i?, j?
+]3: s := i?
+P [i]?
+14: s?
+:= RLP [s]5: i??
+:= mink??[s?+i?,s?+j?]
+L?(k?
+)6: j??
+:= maxk??[s?+i?,s?+j?]R?(k?
+)7: If i?
+s = i??
+and j ?
+s = j??
+then8: Extract T [i, j] with T ?[s?
++ i?, s?
++ j?
+]where s is the source sentence start position of agiven source phrase and s?
+is the target sentencestart position.
+If the back-projected spans match theoriginal spans, the phrase pair T [i, j] and T ?[s?
++i?, s?
++ j?]
+is extracted.In total, the data structures RLP , R?, and L?require 4|T | + 2|T ?| bytes.
+Not only is this phrase329extraction algorithm fast?requiring only a few in-direct array references?the space requirements forthe auxiliary data structures are quite modest.Given sufficient resources, we would ideally par-allelize the phrase table creation process for eachoccurrence of the matched source substring.
+How-ever, the typical number of source substring matchesfor an input sentence is even larger than the numberof threads available on GPUs, so this strategy doesnot make sense due to context switching overhead.Instead, GPU thread blocks (groups of 512 threads)are used to process each source substring.
+Thismeans that for substrings with large numbers ofmatches, one thread in the GPU block would processmultiple occurrences.
+This strategy is widely used,and according to GPU programming best practicesfrom NVIDIA, allocating more work to a singlethread maintains high GPU utilization and reducesthe cost of context switches.5 Computing Every FeatureFinally, we arrive at line 7 in Algorithm 3, wherewe must compute feature values for each extractedphrase pair.
+Following the implementation of gram-mar extraction used in cdec (Lopez, 2008a), wecompute several widely-used features:1.
+Pair count feature, c(e, f).2.
+The joint probability of all target-to-sourcephrase translation probabilities, p(e|f)= c(e, f)/c(f), where e is target phrase, f isthe source phrase.3.
+The logarithm of the target-to-source lexicalweighting feature.4.
+The logarithm of the source-to-target lexicalweighting feature.5.
+The coherence probability, defined as the ratiobetween the number of successful extractionsof a source phrase to the total count of thesource phrase in the suffix array.The output of our phrase extraction is a largecollection of phrase pairs.
+To extract the above fea-tures, aggregate statistics need to be computed overphrase pairs.
+To make the solution both compactand efficient, we first sort the unordered collectionof phrases from the GPU into an array, then theaggregate statistics can be obtained in a single passover the array, since identical phrase pairs are nowgrouped together.6 Experimental SetupWe tested our GPU-based grammar extraction im-plementation under the conditions in which it wouldbe used for a Chinese-to-English machine transla-tion task, in particular, replicating the data condi-tions of Lopez (2008b).
+Experiments were per-formed on two data sets.
+First, we used the source(Chinese) side of news articles collected from theXinhua Agency, with around 27 million words ofChinese in around one million sentences (totaling137 MB).
+Second, we added source-side parallel textfrom the United Nations, with around 81 millionwords of Chinese in around four million sentences(totaling 561 MB).
+In a pre-processing phase, wemapped every word to a unique integer, with twospecial integers representing end-of-sentence andend-of-corpus, respectively.Input query data consisted of all sentences fromthe NIST 2002?2006 translation campaigns, tok-enized and integerized identically to the trainingdata.
+On average, sentences contained around 29words.
+In order to fully stress our GPU algorithms,we ran tests on batches of 2,000, 4,000, 6,000,8,000, and 16,000 sentences.
+Since there are onlyaround 8,000 test sentences in the NIST data, wesimply duplicated the test data as necessary.Our experiments used NVIDIA?s Tesla C2050GPU (Fermi Generation), which has 448 CUDAcores with a peak memory bandwidth 144 GB/s.Note that the GPU was released in early 2010and represents previous generation technology.NVIDIA?s current GPUs (Kepler) boasts rawprocessing power in the 1.3 TFlops (doubleprecision) range, which is approximately threetimes the GPU we used.
+Our CPU is a 3.33 GHzIntel Xeon X5260 processor, which has two cores.As a baseline, we compared against the publiclyavailable implementation of the CPU-based algo-rithms described by Lopez (2008a) found in thepycdec (Chahuneau et al 2012) extension of thecdec machine translation system (Dyer et al 2010).Note that we only tested grammar extraction forcontinuous pairs of phrases, and we did not test theslower and more complex queries for hierarchical330Input Sentences 2,000 4,000 6,000 8,000 16,000Number of Words 57,868 117,854 161,883 214,246 428,492XinhuaWith Sampling (s300)GPU (words/second)3811(21.9)4723(20.4)5496(32.1)6391(29.7)12405(36.0)CPU (words/second) 200 (1.5)Speedup 19?
+24?
+27?
+32?
+62?No Sampling (s?
+)GPU (words/second)1917(8.5)2859(11.1)3496(19.9)4171(23.2)8186(27.6)CPU (words/second) 1.13 (0.02)Speedup 1690?
+2520?
+3082?
+3677?
+7217?Xinhua + UNWith Sampling (s300)GPU (words/second)2021(5.3)2558(10.7)2933(13.9)3439(15.2)6737(29.0)CPU (words/second) 157 (1.8)Speedup 13?
+16?
+19?
+22?
+43?No Sampling (s?
+)GPU (words/second)500.5(2.5)770.1(3.9)984.6(5.8)1243.8(5.4)2472.3(12.0)CPU (words/second) 0.23 (0.002)Speedup 2194?
+3375?
+4315?
+5451?
+10836?Table 2: Comparing the GPU and CPU implementations for phrase extraction on two different corpora.
+Throughputis measured in words per second under different test set sizes; the 95% confidence intervals across five trials are givenin parentheses, along with relative speedups comparing the two implementations.
+(gappy) patterns described by Lopez (2007).
+Bothour implementation and the baseline are writtenprimarily in C/C++.1Our source corpora and test data are the sameas that presented in Lopez (2008b), and using theCPU implementation as a reference enabled us toconfirm that our extracted grammars and featuresare identical (modulo sampling).
+We timed ourGPU implementation as follows: from the loadingof query sentences, extractions of substrings andgrammar rules, until all grammars for all sentencesare generated in memory.
+Timing does not includeoffline preparations such as the construction of thesuffix array on source texts and the I/O costs forwriting the per-sentence grammar files to disk.
+Thistiming procedure is exactly the same for the CPU1The Chahuneau et al(2012) implementation is in Cython,a language for building Python applications with performance-critical components in C. In particular, all of the suffix arraycode that we instrumented for these experiments are compiledto C/C++.
+The implementation is a port of the original codewritten by Lopez (2008a) in Pyrex, a precursor to Cython.Much of the code is unchanged from the original version.baseline.
+We are confident that our results representa fair comparison between the GPU and CPU, andare not attributed to misconfigurations or other flawsin experimental procedures.
+Note that the CPUimplementation runs in a single thread, on the samemachine that hosts the GPU (described above).7 ResultsTable 2 shows performance results comparing ourGPU implementation against the reference CPUimplementation for phrase extraction.
+In one ex-perimental condition, the sampling parameter forfrequently-matching phrases is set to 300, per Lopez(2008a), denoted s300.
+The experimental conditionwithout sampling is denoted s?.
+Following stan-dard settings, the maximum length of the sourcephrase is set to 5 and the maximum length of thetarget phrase is set to 15 (same for both GPUand CPU implementations).
+The table is dividedinto two sections: the top shows results on theXinhua data, and the bottom on Xinhua + UNdata.
+Columns report results for different numbers331# Sent.
+2000 4000 6000 8000 16000Speedup 9.6?
+14.3?
+17.5?
+20.9?
+40.9?Phrases 2.1?
+1.8?
+1.7?
+1.6?
+1.6?Table 3: Comparing no sampling on the GPU with sam-pling on the CPU in terms of performance improvements(GPU over CPU) and increases in the number of phrasepairs extracted (GPU over CPU).of input sentences.
+Performance is reported in termsof throughput: the number of processed words persecond on average (i.e., total time divided by thebatch size in words).
+The results are averaged overfive trials, with 95% confidence intervals shown inparentheses.
+Note that as the batch size increases,we achieve higher throughput on the GPU sincewe are better saturating its full processing power.In contrast, performance is constant on the CPUregardless of the number of sentences processed.The CPU throughput on the Xinhua data is 1.13words per second without sampling and 200 wordsper second with sampling.
+On 16,000 test sentences,we have mostly saturated the GPU?s processingpower, and observe a 7217?
+speedup over the CPUimplementation without sampling and 62?
+speedupwith sampling.
+On the larger (Xinhua + UN)corpus, we observe 43?
+and 10836?
+speedup withsampling and no sampling, respectively.Interestingly, a run without sampling on the GPUis still substantially faster than a run with samplingon the CPU.
+On the Xinhua corpus, we observespeedups ranging from nine times to forty times, asshown in Table 3.
+Without sampling, we are able toextract up to twice as many phrases.In previous CPU implementations of on-the-flyphrase extraction, restrictions were placed on themaximum length of the source and target phrasesdue to computational constraints (in addition to sam-pling).
+Given the massive parallelism afforded bythe GPU, might we be able to lift these restrictionsand construct the complete phrase table?
+To answerthis question, we performed an experiment withoutsampling and without any restrictions on the lengthof the extracted phrases.
+The complete phrasetable contained about 0.5% more distinct pairs, withnegligible impact on performance.When considering these results, an astute readermight note that we are comparing performanceof a single-threaded implementation with a fully-saturated GPU.
+To address this concern, weconducted an experiment using a multi-threadedversion of the CPU reference implementation totake full advantage of multiple cores on the CPU (byspecifying the -j option in cdec); we experimentedwith up to four threads to fully saturate thedual-core CPU.
+In terms of throughput, the CPUimplementation scales linearly, i.e., running on fourthreads achieves roughly 4?
+throughput.
+Note thatthe CPU and GPU implementations take advantageof parallelism in completely different ways: cdeccan be characterized as embarrassingly parallel, withdifferent threads processing each complete sentencein isolation, whereas our GPU implementationachieves intra-sentential parallelism by exploitingmany threads to concurrently process each sentence.In terms of absolute performance figures, evenwith the 4?
+throughput improvement from fullysaturating the CPU, our GPU implementationremains faster by a wide margin.
+Note that neitherour GPU nor CPU represents state-of-the-arthardware, and we would expect the performanceadvantage of GPUs to be even greater with latestgeneration hardware, since the number of availablethreads on a GPU is increasing faster than thenumber of threads available on a CPU.Since phrase extraction is only one part of anend-to-end machine translation system, it makessense to examine the overall performance of theentire translation pipeline.
+For this experiment, weused our GPU implementation for phrase extrac-tion, serialized the grammar files to disk, and usedcdec for decoding (on the CPU).
+The comparisoncondition used cdec for all three stages.
+We usedstandard phrase length constraints (5 on source side,15 on target side) with sampling of frequent phrases.Finally, we replicated the data conditions in Lopez(2008a), where our source corpora was the Xinhuadata set and our development/test sets were theNIST03/NIST05 data; the NIST05 test set contains1,082 sentences.Performance results for end-to-end translation areshown in Table 4, broken down in terms of totalamount of time for each of the processing stagesfor the entire test set under different conditions.In the decoding stage, we varied the number ofCPU threads (note here we do not observe linear332Phrase Extraction I/O DecodingGPU: 11.03.71 thread 55.72 threads 35.3CPU: 166.53 threads 31.54 threads 26.2Table 4: End-to-end machine translation performance:time to process the NIST05 test set in seconds, brokendown in terms of the three processing stages.speedup).
+In terms of end-to-end results, completetranslation of the test set takes 41 seconds with theGPU for phrase extraction and CPU for decoding,compared to 196 seconds using the CPU for both(with four decoding threads in both cases).
+This rep-resents a speedup of 4.8?, which suggests that evenselective optimizations of individual components inthe MT pipeline using GPUs can make a substantialdifference in overall performance.8 Future WorkThere are a number of directions that we haveidentified for future work.
+For computational ef-ficiency reasons, previous implementations of the?translation by pattern matching?
+approach havehad to introduce approximations, e.g., sampling andconstraints on phrase lengths.
+Our results show thatthe massive amounts of parallelism available in theGPU make these approximations unnecessary, butit is unclear to what extent they impact translationquality.
+For example, Table 3 shows that we extractup to twice as many phrase pairs without sampling,but do these pairs actually matter?
+We have begun toexamine the impact of various settings on translationquality and have observed small improvements insome cases (which, note, come for ?free?
+), but sofar the results have not been conclusive.The experiments in this paper focus primarilyon throughput, but for large classes of applicationslatency is also important.
+One current limitation ofour work is that large batch sizes are necessary tofully utilize the available processing power of theGPU.
+This and other properties of the GPU, such asthe high latency involved in transferring data frommain memory to GPU memory, make low-latencyprocessing a challenge, which we hope to address.Another broad future direction is to ?GPU-ify?other machine translation models and other com-ponents in the machine translation pipeline.
+Anobvious next step is to extend our work to thehierarchical phrase-based translation model (Chi-ang, 2007), which would involve extracting ?gappy?phrases.
+Lopez (2008a) has tackled this problemon the CPU, but it is unclear to what extent thesame types of algorithms he proposed can executeefficiently in the GPU environment.
+Beyond phraseextraction, it might be possible to perform decodingitself in the GPU?not only will this exploit massiveamounts of parallelism, but also reduce costs inmoving data to and from the GPU memory.9 ConclusionGPU parallelism offers many promises for practicaland efficient implementations of language process-ing systems.
+This promise has been demonstratedfor speech recognition (Chong et al 2008; Chonget al 2009) and parsing (Yi et al 2011), and wehave demonstrated here that it extends to machinetranslation as well.
+We believe that explorations ofmodern parallel hardware architectures is a fertilearea of research: the field has only begun to exam-ine the possibilities and there remain many moreinteresting questions to tackle.
+Parallelism is criticalnot only from the perspective of building real-worldapplications, but for overcoming fundamental com-putational bottlenecks associated with models thatresearchers are developing today.AcknowledgmentsThis research was supported in part by the BOLTprogram of the Defense Advanced Research ProjectsAgency, Contract No.
+HR0011-12-C-0015; NSFunder award IIS-1144034.
+Any opinions, findings,conclusions, or recommendations expressed in thispaper are those of the authors and do not necessarilyreflect views of the sponsors.
+The second author isgrateful to Esther and Kiri for their loving supportand dedicates this work to Joshua and Jacob.
+Wewould like to thank three anonymous reviewers forproviding helpful suggestions and also acknowledgeBenjamin Van Durme and CLIP labmates for usefuldiscussions.
+We also thank UMIACS for providinghardware resources via the NVIDIA CUDA Centerof Excellence, UMIACS IT staff, especially JoeWebster, for excellent support.333ReferencesR.
+D. Brown.
+2004.
+A modified Burrows-WheelerTransform for highly-scalable example-based transla-tion.
+In Proceedings of the 6th Conference of theAssociation for Machine Translation in the Americas(AMTA 2004), pages 27?36.C.
+Callison-Burch, C. Bannard, and J. Schroeder.
+2005.Scaling phrase-based statistical machine translation tolarger corpora and longer phrases.
+In Proceedingsof the 43rd Annual Meeting on Association forComputational Linguistics (ACL 2005), pages 255?262.V.
+Chahuneau, N. A. Smith, and C. Dyer.
+2012. pycdec:A Python interface to cdec.
+In Proceedings of the 7thMachine Translation Marathon (MTM 2012).D.
+Chiang.
+2007.
+Hierarchical phrase-based translation.Computational Linguistics, 33(2):201?228.J.
+Chong, Y. Yi, A. Faria, N. R. Satish, and K. Keutzer.2008.
+Data-parallel large vocabulary continuousspeech recognition on graphics processors.
+In Pro-ceedings of the Workshop on Emerging Applicationsand Manycore Architectures.J.
+Chong, E. Gonina, Y. Yi, and K. Keutzer.
+2009.
+A fullydata parallel WFST-based large vocabulary continuousspeech recognition on a graphics processing unit.In Proceedings of the 10th Annual Conference ofthe International Speech Communication Association(INTERSPEECH 2009), pages 1183?1186.F.
+Cromieres and S. Kurohashi.
+2011.
+Efficient retrievalof tree translation examples for syntax-based machinetranslation.
+In Proceedings of the 2011 Conference onEmpirical Methods in Natural Language Processing,EMNLP 2011, pages 508?518.C.
+Dyer, A. Lopez, J. Ganitkevitch, J. Weese, F. Ture,P.
+Blunsom, H. Setiawan, V. Eidelman, and P. Resnik.2010.
+cdec: A decoder, alignment, and learningframework for finite-state and context-free translationmodels.
+In Proceedings of the ACL 2010 SystemDemonstrations, pages 7?12.A.
+Gharaibeh and M. Ripeanu.
+2010.
+Size matters:Space/time tradeoffs to improve GPGPU applicationsperformance.
+In Proceedings of the 2010 ACM/IEEEInternational Conference for High Performance Com-puting, Networking, Storage and Analysis (SC 2010),pages 1?12.A.
+Lopez.
+2007.
+Hierarchical phrase-based translationwith suffix arrays.
+In Proceedings of the 2007Joint Conference on Empirical Methods in NaturalLanguage Processing and Computational NaturalLanguage Learning, pages 976?985.A.
+Lopez.
+2008a.
+Machine translation by patternmatching.
+Ph.D. dissertation, University of Maryland,College Park, Maryland, USA.A.
+Lopez.
+2008b.
+Tera-scale translation models viapattern matching.
+In Proceedings of the 22nd In-ternational Conference on Computational Linguistics(COLING 2008), pages 505?512.U.
+Manber and G. Myers.
+1990.
+Suffix arrays: a newmethod for on-line string searches.
+In Proceedings ofthe First Annual ACM-SIAM Symposium on DiscreteAlgorithms (SODA ?90), pages 319?327.F.
+J. Och, C. Tillmann, and H. Ney.
+1999.
+Improvedalignment models for statistical machine translation.In Proceedings of the 1999 Joint SIGDAT Conferenceon Empirical Methods in Natural Language Process-ing and Very Large Corpora, pages 20?28.M.
+Schatz, C. Trapnell, A. Delcher, and A. Varshney.2007.
+High-throughput sequence alignment usinggraphics processing units.
+BMC Bioinformatics,8(1):474.C.
+Trapnell and M. C. Schatz.
+2009.
+Optimizing dataintensive GPGPU computations for DNA sequencealignment.
+Parallel Computing, 35(8-9):429?440.Y.
+Yi, C.-Y.
+Lai, S. Petrov, and K. Keutzer.
+2011.Efficient parallel CKY parsing on GPUs.
+InProceedings of the 12th International Conference onParsing Technologies, pages 175?185.Y.
+Zhang and S. Vogel.
+2005.
+An efficient phrase-to-phrase alignment model for arbitrarily long phrase andlarge corpora.
+In Proceedings of the Tenth Conferenceof the European Association for Machine Translation(EAMT-05).334

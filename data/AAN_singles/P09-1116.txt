@@ -1,0 +1,349 @@
+Proceedings of the 47th Annual Meeting of the ACL and the 4th IJCNLP of the AFNLP, pages 1030?1038,Suntec, Singapore, 2-7 August 2009. c?2009 ACL and AFNLPPhrase Clustering for Discriminative LearningDekang Lin and Xiaoyun WuGoogle, Inc.1600 Amphitheater Parkway, Mountain View, CA{lindek,xiaoyunwu}@google.comAbstractWe present a simple and scalable algorithm forclustering tens of millions of phrases and usethe resulting clusters as features indiscriminative classifiers.
+To demonstrate thepower and generality of this approach, weapply the method in two very differentapplications: named entity recognition andquery classification.
+Our results show thatphrase clusters offer significant improvementsover word clusters.
+Our NER system achievesthe best current result on the widely usedCoNLL benchmark.
+Our query classifier is onpar with the best system in KDDCUP 2005without resorting to labor intensive knowledgeengineering efforts.1 IntroductionOver the past decade, supervised learningalgorithms have gained widespread acceptance innatural language processing (NLP).
+They havebecome the workhorse in almost all sub-areasand components of NLP, including part-of-speech tagging, chunking, named entityrecognition and parsing.
+To apply supervisedlearning to an NLP problem, one first representsthe problem as a vector of features.
+The learningalgorithm then optimizes a regularized, convexobjective function that is expressed in terms ofthese features.
+The performance of suchlearning-based solutions thus crucially dependson the informativeness of the features.
+Themajority of the features in these supervisedclassifiers are predicated on lexical information,such as word identities.
+The long-taileddistribution of natural language words impliesthat most of the word types will be either unseenor seen very few times in the labeled trainingdata, even if the data set is a relatively large one(e.g., the Penn Treebank).While the labeled data is generally very costlyto obtain, there is a vast amount of unlabeledtextual data freely available on the web.
+One wayto alleviate the sparsity problem is to adopt atwo-stage strategy: first create word clusters withunlabeled data and then use the clusters asfeatures in supervised training.
+Under thisapproach, even if a word is not found in thetraining data, it may still fire cluster-basedfeatures as long as it shares cluster assignmentswith some words in the labeled data.Since the clusters are obtained without anylabeled data, they may not correspond directly toconcepts that are useful for decision making inthe problem domain.
+However, the supervisedlearning algorithms can typically identify usefulclusters and assign proper weights to them,effectively adapting the clusters to the domain.This method has been shown to be quitesuccessful in named entity recognition (Miller etal.
+2004) and dependency parsing (Koo et al,2008).In this paper, we present a semi-supervisedlearning algorithm that goes a step further.
+Inaddition to word-clusters, we also use phrase-clusters as features.
+Out of context, naturallanguage words are often ambiguous.
+Phrases aremuch less so because the words in a phraseprovide contexts for one another.Consider the phrase ?Land of Odds?.
+Onewould never have guessed that it is a companyname based on the clusters containing Odds andLand.
+With phrase-based clustering, ?Land ofOdds?
+is grouped with many names that arelabeled as company names, which is a strongindication that it is a company name as well.
+Thedisambiguation power of phrases is alsoevidenced by the improvements of phrase-basedmachine translation systems (Koehn et.
+al.,2003) over word-based ones.Previous approaches, e.g., (Miller et al 2004)and (Koo et al 2008), have all used the Brownalgorithm for clustering (Brown et al 1992).
+Themain idea of the algorithm is to minimize thebigram language-model perplexity of a textcorpus.
+The algorithm is quadratic in the numberof elements to be clustered.
+It is able to clustertens of thousands of words, but is not scalableenough to deal with tens of millions of phrases.Uszkoreit and Brants (2008) proposed a1030distributed clustering algorithm with a similarobjective function as the Brown algorithm.
+Itsubstantially increases the number of elementsthat can be clustered.
+However, since it stillneeds to load the current clustering of allelements into each of the workers in thedistributed system, the memory requirementbecomes a bottleneck.We present a distributed version of a muchsimpler K-Means clustering that allows us tocluster tens of millions of elements.
+Wedemonstrate the advantages of phrase-basedclusters over word-based ones with experimentalresults from two distinct application domains:named entity recognition and queryclassification.
+Our named entity recognitionsystem achieves an F1-score of 90.90 on theCoNLL 2003 English data set, which is about 1point higher than the previous best result.
+Ourquery classifier reaches the same level ofperformance as the KDDCUP 2005 winningsystems, which were built with a great deal ofknowledge engineering.2 Distributed K-Means clusteringK-Means clustering (MacQueen 1967) is one ofthe simplest and most well-known clusteringalgorithms.
+Given a set of elements representedas feature vectors and a number, k, of desiredclusters, the K-Means algorithm consists of thefollowing steps:Step Operationi.
+Select k elements as the initial centroidsfor k clusters.ii.
+Assign each element to the cluster withthe closest centroid according to adistance (or similarity) function.iii.
+Recompute each cluster?s centroid byaveraging the vectors of its elementsiv.
+Repeat Steps ii and iii untilconvergenceBefore describing our parallel implementation ofthe K-Means algorithm, we first describe thephrases to be clusters and how their featurevectors are constructed.2.1 PhrasesTo obtain a list of phrases to be clustered, wefollowed the approach in (Lin et al, 2008) bycollecting 20 million unique queries from ananonymized query log that are found in a 700billion token web corpus with a minimumfrequency count of 100.
+Note that many of thesequeries are not phrases in the linguistic sense.However, this does not seem to cause any realproblem because non-linguistic phrases mayform their own clusters.
+For example, one clustercontains {?Cory does?, ?Ben saw?, ?I can?tlose?, ?..
+}.To reduce the memory requirement for storinga large number of phrases, we used Bloom Filter(Bloom 1970) to decide whether a sequence oftokens is a phrase.
+The Bloom filter allows asmall percentage of false positives to passthrough.
+We did not remove them with postprocessing since our notion of phrases is quiteloose to begin with.2.2 Context representationDistributional word clustering is based on theassumption that words that appear in similarcontexts tend to have similar meanings.
+Thesame assumption holds for phrases as well.Following previous approaches to distributionalclustering of words, we represent the contexts ofa phrase as a feature vector.
+There are manypossible definitions for what constitutes thecontexts.
+In the literature, contexts have beendefined as subject and object relations involvingthe word (Hindle, 1990), as the documentscontaining the word (Deerwester et al 1990), oras search engine snippets for the word as a query(Sahami and Heilman, 2006).
+We define thecontexts of a phrase to be small, fixed-sizedwindows centered on occurrences of the phrasein a large corpus.
+The features are the words(tokens) in the window.
+The context featurevector of a phrase is constructed by firstaggregating the frequency counts of the words inthe context windows of different instances of theTable 1 Cluster of ?English lessons?Window Cluster members (partial list)size=1 environmental courses, summer schoolcourses, professional developmentclasses, professional training programs,further education courses, leadershipcourses, accelerated courses, vocationalclasses, technical courses, technicalclasses, special education courses, ?..size=3 learn english spanish, grammar learn,language learning spanish, translationspanish language, learning spanishlanguage, english spanish language,learn foreign language, free englishlearning, language study english,spanish immersion course, how tospeak french, spanish learning games,?..1031phrase.
+The frequency counts are then convertedinto point-wise mutual information (PMI) values:2/+:LDN?
+B; L ??
+?F 2:LDN?
+B;2:LDN;2:B;Gwhere phr is a phrase and  f  is a feature ofphr.
+PMI effectively discounts the priorprobability of the features and measures howmuch beyond random a feature tends to occur ina phrase?s context window.
+Given two featurevectors, we compute the similarity between twovectors as the cosine function of the anglebetween the vectors.
+Note that even though aphrase phr can have multiple tokens, its feature fis always a single-word token.We impose an upper limit on the number ofinstances of each phrase when constructing itsfeature vector.
+The idea is that if we have alreadyseen 300K instances of a phrase, we should havealready collected enough data for the phrase.More data for the same phrase will notnecessarily tell us anything more about it.
+Thereare two benefits for such an upper limit.
+First, itdrastically reduces the computational cost.Second, it reduces the variance in the sizes of thefeature vectors of the phrases.2.3 K-Means by MapReduceK-Means is an embarrassingly parallelizablealgorithm.
+Since the centroids of clusters areassumed to be constant within each iteration, theassignment of elements to clusters (Step ii) canbe done totally independently.The algorithm fits nicely into the MapReduceparadigm for parallel programming (Dean andGhemawat, 2004).
+The most straightforwardMapReduce implementation of K-Means wouldbe to have mappers perform Step ii and reducersperform Step iii.
+The keys of intermediate pairsare cluster ids and the values are feature vectorsof elements assigned to the correspondingcluster.
+When the number of elements to beclustered is very large, sorting the intermediatepairs in the shuffling stage can be costly.Furthermore, when summing up a large numberof features vectors, numerical underflowbecomes a potential problem.A more efficient and numerically more stablemethod is to compute, for each input partition,the partial vector sums of the elements belongingto each cluster.
+When the whole partition is done,the mapper emits the cluster ids as keys and thepartial vector sums as values.
+The reducers thenaggregate the partial sums to compute thecentroids.2.4 Indexing centroid vectorsIn a na?ve implementation of Step ii of K-Means,one would compute the similarities between afeature vector and all the centroids in order tofind the closest one.
+The kd-tree algorithm(Bentley 1980) aims at speeding up nearestneighbor search.
+However, it only works whenthe vectors are low-dimensional, which is not thecase here.
+Fortunately, the high-dimensional andsparse nature of our feature vectors can also beexploited.Since the cosine measure of two unit lengthvectors is simply their dot product, whensearching for the closest centroid to an element,we only care about features in the centroids thatare in common with the element.
+We thereforecreate an inverted index that maps a feature tothe list of centroids having that feature.
+Given aninput feature vector, we can iterate through all ofits components and compute its dot product withall the centroids at the same time.2.5 Sizes of context windowIn our experiments, we use either 1 or 3 as thesize of the context windows.
+Window size has aninteresting effect on the types of clusters.
+Withlarger windows, the clusters tend to be moretopical, whereas smaller windows result incategorical clusters.For example, Table 1 contains the cluster thatthe phrase ?English lessons?
+belongs to.
+With 3-word context windows, the cluster is aboutlanguage learning and translation.
+With 1-wordcontext windows, the cluster contains differenttypes of lessons.The ability to produce both kinds of clustersturns out to be very useful.
+In differentapplications we need different types of clusters.For example, in the named entity recognitiontask, categorical clusters are more successful,whereas in query categorization, the topicalclusters are much more beneficial.The Brown algorithm uses essentially thesame information as our 1-word windowclusters.
+We therefore expect it to producemostly categorical clusters.2.6 Soft clusteringAlthough K-Means is generally described as ahard clustering algorithm (each element belongsto at most one cluster), it can produce softclustering simply by assigning an element to allclusters whose similarity to the element is greaterthan a threshold.
+For natural language words and1032phrases, the soft cluster assignments often revealdifferent senses of a word.
+For example, theword Whistler may refer to a town in BritishColumbia, Canada, which is also a ski resort, orto a painter.
+These meanings are reflected in thetop clusters assignments for Whistler in Table 2(window size = 3).2.7 Clustering data setsWe experimented with two corpora (Table 3).One contains web documents with 700 billiontokens.
+The second consists of various news textsfrom LDC: English Gigaword, the Tipster corpusand Reuters RCV1.
+The last column lists thenumbers of phrases we used when running theclustering with that corpus.Even though our cloud computinginfrastructure made phrase clustering possible,there is no question that it is still very timeconsuming.
+To create 3000 clusters among 20million phrases using 3-word windows, each K-Means iteration takes about 20 minutes on 1000CPUs.
+Without using the indexing technique inSection 2.4, each iteration takes about 4 times aslong.
+In all our experiments, we set themaximum number of iterations to be 50.3 Named Entity RecognitionNamed entity recognition (NER) is one of thefirst steps in many applications of informationextraction, information retrieval, questionanswering and other applications of NLP.Conditional Random Fields (CRF) (Lafferty et.al.
+2001) is one of the most competitive NERalgorithms.
+We employed a linear chain CRFwith L2 regularization as the baseline algorithmto which we added phrase cluster features.The CoNLL 2003 Shared Task (Tjong KimSang and Meulder 2003) offered a standardexperimental platform for NER.
+The CoNLLdata set consists of news articles from Reuters1.The training set has 203,621 tokens and thedevelopment and test set have 51,362 and 46,435tokens, respectively.
+We adopted the sameevaluation criteria as the CoNLL 2003 SharedTask.To make the clusters more relevant to thisdomain, we adopted the following strategy:1.
+Construct the feature vectors for 20million phrases using the web data.2.
+Run K-Means clustering on the phrasesthat appeared in the CoNLL training datato obtain K centroids.3.
+Assign each of the 20 million phrases tothe nearest centroid in the previous step.3.1 Baseline featuresThe features in our baseline CRF classifier are asubset of the conventional features.
+They aredefined with the following templates: >U??,>U??5???,<>U??
+S??=?@?
+?5?>5 ?
+<>U??5???
+S??=?@?
+?5?>5 ,  <>U??
+OBTu??=?@?
+?5?>5 ,   <>U??5???
+OBTu??=?@?
+?5?>5 ,  <<>U??
+SPL??
+?=?@?
+?5?>5 =?
+@68 ,<<>U??5???
+SPL??
+?=?@?
+?5?>5 =?
+@68 ?  <>U??
+S??5???=?@?
+?>5 ,<>U??5???
+S??5???=?@?
+?>5 ,       <<>U??
+SPL??5???
+?=?@??>5=?
+@57 ,<<>U??5???
+SPL??5???
+?=?@??>5=?
+@57Here, s denotes a position in the input sequence;ys is a label that indicates whether the token atposition s is a named entity as well as its type; wuis the word at position u; sfx3 is a word?s three-letter suffix; <SPL?=?
+@58  are indicators of1http://www.reuters.com/researchandstandards/Table 2 Soft clusters for Whistlercluster1: sim=0.17, members=104048bc vancouver, british columbia accommodations,coquitlam vancouver, squamish vancouver,langley vancouver, vancouver surrey,  ?cluster2: sim=0.
+16, members= 182692vail skiing, skiing colorado, tahoe ski vacation,snowbird skiing, lake tahoe skiing, breckenridgeskiing, snow ski packages, ski resort whistler, ?cluster3: sim=0.12, members= 91895ski chalets france, ski chalet holidays, france ski,catered chalets, luxury ski chalets, france skiing,france skiing, ski chalet holidays, ?
+?cluster4: sim=0.11, members=237262ocean kayaking, mountain hiking, horse trekking,river kayaking, mountain bike riding, white watercanoeing, mountain trekking, sea kayaking, ?
+?cluster5: sim=0.10, members=540775rent cabin, pet friendly cabin, cabins rental, cabinvacation, cabins colorado, cabin lake tahoe, mainecabin, tennessee mountain cabin,  ?cluster6: sim=0.09, members=117365mary cassatt, oil painting reproductions, henrimatisse, pierre bonnard, edouard manet, augusterenoir, paintings famous, picasso paintings, ???
+?Table 3 Corpora used in experimentsCorpus Description tokens phrasesWeb web documents 700B 20MLDC News text from LDC 3.4B 700K1033different word types: wtp1 is true when a word ispunctuation; wtp2 indicates whether a word is inlower case, upper case, or all-caps; wtp3 is truewhen a token is a number; wtp4 is true when atoken is a hyphenated word with differentcapitalization before and after the hyphen.NER systems often have global features tocapture discourse-level regularities (Chieu andNg 2003).
+For example, documents often have afull mention of an entity at the beginning andthen refer to the entity in partial or abbreviatedforms.
+To help in recognizing the shorterversions of the entities, we maintain a history ofunigram word features.
+If a token is encounteredagain, the word unigram features of the previousinstances are added as features for the currentinstance as well.
+We have a total of 48 featuretemplates.
+In comparison, there are 79 templatesin (Suzuki and Isozaki, 2008).Part-of-speech tags were used in the top-ranked systems in CoNLL 2003, as well as inmany follow up studies that used the data set(Ando and Zhang 2005; Suzuki and Isozaki2008).
+Our system does not need thisinformation to achieve its peak performance.
+Animportant advantage of not needing a POS taggeras a preprocessor is that the system is mucheasier to adapt to other languages, since traininga tagger often requires a larger amount of moreextensively annotated data than the training datafor NER.3.2 Phrase cluster featuresWe used hard clustering with 1-word contextwindows for NER.
+For each input tokensequence, we identify all sequences of tokensthat are found in the phrase clusters.
+The phrasesare allowed to overlap with or be nested in oneanother.
+If a phrase belonging to cluster c isfound at positions b to e (inclusive), we add thefollowing features to the CRF classifier: >U??5?
+$???
+>U?>5?
+#???
+>U??6???5?
+$???
+>U???>5?
+#??
+>U??
+5???
+<>U??
+/??=?@?>5?
+?5 ?
+>U?
+?
+'??
+>U??5???
+5???
+<>U??5???
+/??=?@?>5?
+?5 ?
+>U??5??
+?
+'?
+?where B (before), A (after), S (start), M (middle),and E (end) denote a position in the inputsequence relative to the phrase belonging tocluster c. We treat the cluster membership asbinary.
+The similarity between an element and itscluster centroid is ignored.
+For example, supposethe input sentence is ??
+guitar legend JimiHendrix was ??
+and ?Jimi Hendrix?
+belongs tocluster 183.
+Figure 1 shows the attributes atdifferent input positions.
+The cluster features arethe cross product of the unigram/bigram labelsand the attributes.Figure 1 Phrase cluster featuresThe phrasal cluster features not only help inresolving the ambiguities of words within aphrase, the B and A features also allow wordsadjacent to a phrase to consider longer contextsthan a single word.
+Although one may arguelonger n-grams can also capture this information,the sparseness of n-grams means that long n-gram features are rarely useful in practice.We can easily use multiple clusterings infeature extraction.
+This allows us to side-step thematter of choosing the optimal value k in the K-Means clustering algorithm.Even though the phrases include single tokenwords, we create word clusters with the sameclustering algorithm as well.
+The reason is thatthe phrase list, which comes from query logs,does not necessarily contain all the single tokenwords in the documents.
+Furthermore, due totokenization differences between the query logsand the documents, we systematically missedsome words, such as hyphenated words.
+Whencreating the word clusters, we do not rely on apredefined list.
+Instead, any word above aminimum frequency threshold is included.In their dependency parser with cluster-basedfeatures, Koo et al (2008) found it helpful torestrict lexicalized features to only relativelyfrequent words.
+We did not observe a similarphenomenon with our CRF.
+We include allwords as features and rely on the regularizedCRF to select from them.3.3 Evaluation resultsTable 4 summarizes the evaluation results forour NER system and compares it with the twobest results on the data set in the literature, aswell the top-3 systems in CoNLL 2003.
+In thistable, W and P refer to word and phrase clusterscreated with the web corpus.
+The superscripts arethe numbers of clusters.
+LDC refers to theclusters created with the smaller LDC corpus and+pos indicates the use of part-of-speech tags asfeatures.The performance of our baseline system israther mediocre because it has far fewer featurefunctions than the more competitive systems.1034The Top CoNLL 2003 systems all employedgazetteers or other types of specialized resources(e.g., lists of words that tend to co-occur withcertain named entity types) in addition to part-of-speech tags.Introducing the word clusters immediatelybrings the performance up to a very competitivelevel.
+Phrasal clusters obtained from the LDCcorpus give the same level of improvement asword clusters from the web corpus that is 20times larger.
+The best F-score of 90.90, which isabout 1 point higher than the previous best result,is obtained with a combination of clusters.Adding POS tags to this configuration caused asmall drop in F1.4 Query ClassificationWe now look at the use of phrasal clusters in avery different application: query classification.The goal of query classification is to determineto which ones of a predefined set of classes aquery belongs.
+Compared with documents,queries are much shorter and their categories aremuch more ambiguous.4.1 KDDCUP 2005 data setThe task in the KDDCUP 2005 competition2 is toclassify 800,000 internet user search queries into67 predefined topical categories.
+The training setconsists of 111 example queries, each of whichbelongs to up to 5 of the 67 categories.
+Table 5shows three example queries and their classes.Three independent human labelers classified800 queries that were randomly selected from the2http://www.acm.org/sigs/sigkdd/kdd2005/kddcup.htmlcomplete set of 800,000.
+The participatingsystems were evaluated by their average F-scores(F1) and average precision (P) over these threesets of answer keys for the 800 selected queries. L ?
+S???????????????????????
+??gg ?
+S??????????????
+??gg L ?
+S?????????????????????????gg?
+S???????????????????
+??ggs L t H  H E Here, ?tagged as?
+refer to systems outputs and?labeled as?
+refer to human judgments.
+Thesubscript i ranges over all the query classes.Table 6 shows the scores of each of the threehuman labelers when each of them is evaluatedagainst the other two.
+It can be seen that theconsistency among the labelers is quite low,indicating that the query classification task isvery difficult even for humans.To maximize the little information we haveabout the query classes, we treat the words inquery class names as additional example queries.For example, we added three queries: living,tools, and hardware to the class Living\Tools &Hardware.4.2 Baseline classifierSince the query classes are not mutuallyexclusive, we treat the query classification taskas 67 binary classification problems.
+For eachquery class, we train a logistic regressionclassifier (Vapnik 1999) with L2 regularization.Table 4 CoNLL NER test set resultsSystem Test F1  Improv.Baseline CRF (Sec.
+3.1) 83.78W500 88.34 +4.56P64 89.73 +5.94P125 89.80 +6.02W500 + P125 90.62 +6.84W500 + P64 90.63 +6.85W500 + P125 + P64 90.90 +7.12W500 + P125 + P64+pos 90.62 +6.84LDC64 87.24 +3.46LDC125 88.33 +4.55LDC64 +LDC125 88.44 +4.66(Suzuki and Isozaki, 2008) 89.92(Ando and Zhang, 2005) 89.31(Florian et al, 2003) 88.76(Chieu and Ng, 2003) 88.31(Klein et al, 2003) 86.31Table 5 Example queries and their classesford fieldSports/American FootballInformation/Local & RegionalSports/Schedules & Ticketsjohn deere gatorLiving/Landscaping & GardeningLiving/Tools & HardwareInformation/Companies & IndustriesShopping/Stores & ProductsShopping/Buying Guides & Researchingjustin timberlake lyricsEntertainment/MusicInformation/Arts & HumanitiesEntertainment/CelebritiesTable 6 Labeler ConsistencyL1  L2 L3 AverageF1 0.538 0.477 0.512 0.509P 0.501 0.613 0.463 0.5261035Given an input x, represented as a vector of mfeatures: (x1, x2, ....., xm), a logistic regressionclassifier with parameter vector ?
+L(w1, w2, .....,wm) computes the posterior probability of theoutput y, which is either 1 or -1, asL:U?
+; L ssE A????
+?We tag a query as belonging to a class if theprobability of the class is among the highest 5and is greater than 0.5.The baseline system uses only the words in thequeries as features (the bag-of-wordsrepresentation), treating the query classificationproblem as a typical text categorization problem.We found the prior distribution of the queryclasses to be extremely important.
+In fact, asystem that always returns the top-5 mostfrequent classes has an F1 score of 26.55, whichwould have outperformed 2/3 of the 37 systemsin the KDDCUP and ranked 13th.We made a small modification to the objectivefunction for logistic regression to take intoaccount the prior distribution and to use 50% as auniform decision boundary for all the classes.Normally, training a logistic regression classifieramounts to solving:???IEJ?
+]????
+E sJ?
+???
+@sE A?????
+??A??
+@5awhere n is the number of training examples and ?is the regularization constant.
+In this formula, 1/ncan be viewed as the weight of an example in thetraining corpus.
+When training the classifier for aclass with p positive examples out of a total of nexamples, we change the objective function to:???IEJ?
+P???
+?E ?
+???
+@sE A?????
+??A??
+@5J E U?
+:tL F J; QWith this modification, the total weight of thepositive and negative examples become equal.4.3 Phrasal clusters in query classificationSince topical information is much more relevantto query classification than categoricalinformation, we use clusters created with 3-wordcontext windows.
+Moreover, we use softclustering instead of hard clustering.
+A phrasebelongs to a cluster if the cluster?s centroid isamong the top-50 most similar centroids to thephrase (by cosine similarity), and the similarity isgreater than 0.04.Given a query, we first retrieve all its phrases(allowing overlap) and the clusters they belongto.
+For each of these clusters, we sum thecluster?s similarity to all the phrases in the queryand select the top-N as features for the logisticregression classifier (N=150 in our experiments).When we extract features from multipleclusterings, the selection of the top-N clusters isdone separately for each clustering.
+Once acluster is selected, its similarity values areignored.
+Using the numerical feature values inour experiments always led to worse results.
+Wesuspect that such features make the optimizationof the objective function much more difficult.Figure 2 Comparison with KDDCUP systems4.4 Evaluation resultsTable 7 contains the evaluation results of variousconfigurations of our system.
+Here, bowindicates the use of bag-of-words features; WNrefers to word clusters of size N; and PN refers tophrase clusters of size N. All the clusters are softclusters created with the web corpus using 3-word context windows.The bag-of-words features alone have dismalperformance.
+This is obviously due to theextreme paucity of training examples.
+In fact,only 12% of the words in the 800 test queries arefound in the training examples.
+Using wordclusters as features resulted in a big increase inF-score.
+The phrasal cluster features offeranother big improvement.
+The best result isachieved with multiple phrasal clusterings.Figure 2 compares the performance of oursystem (the dark bar at 2) with the top tercilesystems in KDDCUP 2005.
+The best twosystems in the competition (Shen et al, 2005)and (Vogel et al, 2005) resorted to knowledgeengineering techniques to bridge the gap between00.10.20.30.40.51 2 3 4 5 6 7 8 9 10 11 12 13Table 7 Query Classification resultsSystem F1bow 11.58bow+W3K 34.71bow+P500 39.84bow+P3K 40.80bow+P500+P1K +P2K +P3K+P5K 43.801036the small set of examples and the new queries.They manually constructed a mapping from thequery classes to hierarchical directories such asGoogle Directory3 or Open Directory Project4.They then sent training and testing queries tointernet search engines to retrieve the top pagesin these directories.
+The positions of the resultpages in the directory hierarchies as well as thewords in the pages are used to classify thequeries.
+With phrasal clusters, we can achievetop-level performance without manuallyconstructed resources, or having to rely oninternet search results.5 Discussion and Related WorkIn earlier work on semi-supervised learning, e.g.,(Blum and Mitchell 1998), the classifiers learnedfrom unlabeled data were used directly.
+Recentresearch shows that it is better to use whatever islearned from the unlabeled data as features in adiscriminative classifier.
+This approach is takenby (Miller et.
+al.
+2004), (Wong and Ng 2007),(Suzuki and Isozaki 2008), and (Koo et.
+al.,2008), as well as this paper.Wong and Ng (2007) and Suzuki and Isozaki(2008) are similar in that they run a baselinediscriminative classifier on unlabeled data togenerate pseudo examples, which are then usedto train a different type of classifier for the sameproblem.
+Wong and Ng (2007) made theassumption that each proper named belongs toone class (they observed that this is true about85% of the time for English).
+Suzuki and Isozaki(2008), on the other hand, used the automaticallylabeled corpus to train HMMs.Ando and Zhang (2005) defined an objectivefunction that combines the original problem onthe labeled data with a set of auxiliary problemson unlabeled data.
+The definition of an auxiliaryproblem can be quite flexible as long as it can beautomatically labeled and shares some structuralproperties with the original problem.
+Thecombined objective function is then alternatinglyoptimized with the labeled and unlabeled data.This training regime puts pressure on thediscriminative learner to exploit the structuresuncovered from the unlabeled data.In the two-stage cluster-based approaches suchas ours, clustering is mostly decoupled from thesupervised learning problem.
+However, one canrely on a discriminative classifier to establish theconnection by assigning proper weights to the3http://directory.google.com4http://www.dmoz.orgcluster features.
+One advantage of the two-stageapproach is that the same clusterings may beused for different problems or differentcomponents of the same system.
+Anotheradvantage is that it can be applied to a widerrange of domains and problems.
+Although themethod in (Suzuki and Isozaki 2008) is quitegeneral, it is hard to see how it can be applied tothe query classification problem.Compared with Brown clustering, ouralgorithm for distributional clustering withdistributed K-Means offers several benefits: (1) itis more scalable and parallelizable; (2) it has theability to generate topical as well as categoricalclusters for use in different applications; (3) itcan create soft clustering as well as hard ones.There are two main scenarios that motivatesemi-supervised learning.
+One is to leverage alarge amount of unsupervised data to train anadequate classifier with a small amount oflabeled data.
+Another is to further boost theperformance of a supervised classifier that isalready trained with a large amount of superviseddata.
+The named entity problem in Section 3 andthe query classification problem in Section 4exemplify the two scenarios.One nagging issue with K-Means clustering ishow to set k. We show that this question may notneed to be answered because we can useclusterings with different k?s at the same timeand let the discriminative classifier cherry-pickthe clusters at different granularities according tothe supervised data.
+This technique has also beenused with Brown clustering (Miller et.
+al.
+2004,Koo, et.
+al.
+2008).
+However, they require clustersto be strictly hierarchical, whereas we do not.6 ConclusionsWe presented a simple and scalable algorithm tocluster tens of millions of phrases and we usedthe resulting clusters as features in discriminativeclassifiers.
+We demonstrated the power andgenerality of this approach on two very differentapplications: named entity recognition and queryclassification.
+Our system achieved the bestcurrent result on the CoNLL NER data set.
+Ourquery categorization system is on par with thebest system in KDDCUP 2005, which, unlikeours, involved a great deal of knowledgeengineering effort.AcknowledgmentsThe authors wish to thank the anonymousreviewers for their comments.1037ReferencesR.
+Ando and T. Zhang A Framework for LearningPredictive Structures from Multiple Tasks andUnlabeled Data.
+Journal of Machine LearningResearch, Vol 6:1817-1853, 2005.B.H.
+Bloom.
+1970, Space/time trade-offs in hashcoding with allowable errors, Communications ofthe ACM 13 (7): 422?426A.
+Blum and T. Mitchell.
+1998.
+Combining labeledand unlabeled data with co-training.
+Proceedings ofthe Eleventh Annual Conference on ComputationalLearning Theory pp.
+92?100.P.F.
+Brown, V.J.
+Della Pietra, P.V.
+de Souza, J.C. Lai,and R.L.
+Mercer.
+1992.
+Class-based n-gram modelsof natural language.
+Computational Linguistics,18(4):467?479.H.
+L. Chieu and H. T. Ng.
+Named entity recognitionwith a maximum entropy approach.
+In ProceedingsCoNLL-2003, pages 160?163, 2003.J.
+Dean and S. Ghemawat.
+2004.
+MapReduce:Simplified data processing on large clusters.
+InProceedings of the Sixth Symposium on OperatingSystem Design and Implementation (OSDI-04),San Francisco, CA, USAS Deerwester, S. T. Dumais, G. W. Furnas, T. K.Landauer, and R. A. Harshman.
+1990.
+Indexing bylatent semantic analysis, Journal of the AmericanSociety for Information Science, 1990, 41(6), 391-407R.
+Florian, A. Ittycheriah, H. Jing, and T. Zhang.Named entity recognition through classifiercombination.
+In Proceedings CoNLL-2003, pages168?171, 2003.D.
+Klein, J. Smarr, H. Nguyen, and C. D. Manning.Named entity recognition with character-levelmodels.
+In Proceedings CoNLL-2003, pages 188?191, 2003.P.
+Koehn, F.J. Och, and D. Marcu.
+2003.
+Statisticalphrase-based translation.
+In Proceedings of HLT-NAACL 2003, pp.
+127?133.T.
+Koo, X. Carreras, and M. Collins.
+Simple Semi-supervised Dependency Parsing.
+Proceedings ofACL, 2008.J.
+Lafferty, A. McCallum, F. Pereira.
+Conditionalrandom fields: Probabilistic models for segmentingand labeling sequence data.
+In: Proc.
+18thInternational Conf.
+on Machine Learning, MorganKaufmann, San Francisco, CA (2001) 282?289Y.
+Li, Z. Zheng, and H.K.
+Dai, KDD Cup-2005Report: Facing a Great Challenge.
+SIGKDDExplorations, 7 (2), 2005, 91-99.D.
+Lin, S. Zhao, and B.
+Van Durme, and M. Pasca.2008.
+Mining Parenthetical Translations from theWeb by Word Alignment.
+Proc.
+of ACL-08.Columbus, OH.J.
+Lin.
+Scalable Language Processing Algorithms forthe Masses: A Case Study in Computing Word Co-occurrence Matrices with MapReduce.
+Proceedingsof  EMNLP 2008, pp.
+419-428, Honolulu, Hawaii.J.
+B. MacQueen (1967): Some Methods forclassification and Analysis of MultivariateObservations, Proc.
+of 5-th Berkeley Symposiumon Mathematical Statistics and Probability",Berkeley, University of California Press, 1:281-297S.
+Miller, J. Guinness, and A. Zamanian.
+2004.
+NameTagging with Word Clusters and DiscriminativeTraining.
+In Proceedings of HLT-NAACL, pages337?342.M.
+Sahami and T.D.
+Heilman.
+2006.
+A web-basedkernel function for measuring the similarity ofshort text snippets.
+Proceedings of the 15thinternational conference on World Wide Web, pp.377?386.D.
+Shen, R. Pan, J.T.
+Sun, J.J. Pan, K. Wu, J. Yin, Q.Yang.
+Q2C@UST: our winning solution to queryclassification in KDDCUP 2005.
+SIGKDDExplorations, 2005: 100~110.J.
+Suzuki, and H. Isozaki.
+2008.
+Semi-SupervisedSequential Labeling and Segmentation using Giga-word Scale Unlabeled Data.
+In Proc.
+of ACL/HLT-08.
+Columbus, Ohio.
+pp.
+665-673.E.
+T. Tjong Kim Sang and F. De Meulder.
+2003.Introduction to the CoNLL-2003 Shared Task:Language-Independent Named Entity Recognition.In Proc.
+of CoNLL-2003, pages 142?147.Y.
+Wong and H. T. Ng, 2007.
+One Class per NamedEntity: Exploiting Unlabeled Text for NamedEntity Recognition.
+In Proc.
+of IJCAI-07,Hyderabad, India.J.
+Uszkoreit and T. Brants.
+2008.
+Distributed WordClustering for Large Scale Class-Based LanguageModeling in Machine Translation.
+Proceedings ofACL-08: HLT, pp.
+755-762.V.
+Vapnik, 1999.
+The Nature of Statistical LearningTheory, 2nd edition.
+Springer Verlag.D.
+Vogel, S. Bickel, P. Haider, R. Schimpfky, P.Siemen, S. Bridges, T. Scheffer.
+ClassifyingSearch Engine Queries Using the Web asBackground Knowledge.
+SIGKDD Explorations7(2): 117-122.
+2005.1038

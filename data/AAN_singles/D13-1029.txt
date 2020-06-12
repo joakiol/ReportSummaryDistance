@@ -1,0 +1,335 @@
+Proceedings of the 2013 Conference on Empirical Methods in Natural Language Processing, pages 289?299,Seattle, Washington, USA, 18-21 October 2013. c?2013 Association for Computational LinguisticsJoint Coreference Resolution and Named-Entity Linkingwith Multi-pass SievesHannaneh Hajishirzi Leila Zilles Daniel S. Weld Luke ZettlemoyerDepartment of Computer Science and Electrical EngineeringUniversity of Washington{hannaneh,lzilles,lsz,weld}@cs.washington.eduAbstractMany errors in coreference resolution comefrom semantic mismatches due to inadequateworld knowledge.
+Errors in named-entitylinking (NEL), on the other hand, are of-ten caused by superficial modeling of entitycontext.
+This paper demonstrates that thesetwo tasks are complementary.
+We introduceNECO, a new model for named entity linkingand coreference resolution, which solves bothproblems jointly, reducing the errors made oneach.
+NECO extends the Stanford determinis-tic coreference system by automatically link-ing mentions to Wikipedia and introducingnew NEL-informed mention-merging sieves.Linking improves mention-detection and en-ables new semantic attributes to be incorpo-rated from Freebase, while coreference pro-vides better context modeling by propagat-ing named-entity links within mention clus-ters.
+Experiments show consistent improve-ments across a number of datasets and ex-perimental conditions, including over 11% re-duction in MUC coreference error and nearly21% reduction in F1 NEL error on ACE 2004newswire data.1 IntroductionCoreference resolution and named-entity linking areclosely related problems, but have been largely stud-ied in isolation.
+This paper demonstrates that theyare complementary by introducing a simple jointmodel that improves performance on both tasks.Coreference resolution is the task of determiningwhen two textual mentions name the same individ-[Michael Eisner]1 and [Donald Tsang]2 announced thegrand opening of [[Hong Kong]3 Disneyland]4 yester-day.
+[Eisner]1 thanked [the President]2 and welcomed[fans]5 to [the park]4.Figure 1: A text passage illustrating interactions betweencoreference resolution and NEL.ual.
+The biggest challenge in coreference resolu-tion ?
+accounting for 42% of errors in the state-of-the-art Stanford system ?
+is the inability to rea-son effectively about background semantic knowl-edge (Lee et al 2013).
+For example, consider thesentence in Figure 1.
+?President?
+refers to ?DonaldTsang?
+and ?the park?
+refers to ?Hong Kong Dis-neyland,?
+but automated algorithms typically lackthe background knowledge to draw such inferences.Incorporating knowledge is challenging, and manyefforts to do so have actually hurt performance,e.g.
+(Lee et al 2011; Durrett and Klein, 2013).Named-entity linking (NEL) is the task of match-ing textual mentions to corresponding entities in aknowledge base, such as Wikipedia or Freebase.Such links provide rich sources of semantic knowl-edge about entity attributes ?
+Freebase includespresident as Tsang?s title and Disneyland as hav-ing the attribute park.
+But NEL is itself a chal-lenging problem, and finding the correct link re-quires disambiguating based on the mention stringand often non-local contextual features.
+For exam-ple, ?Michael Eisner?
+is relatively unambiguous butthe isolated mention ?Eisner?
+is more challenging.However, these mentions could be clustered witha coreference model, allowing for improved NELthrough link propagation from the easier mentions.289We present NECO, a new algorithm for jointly solv-ing named entity linking and coreference resolu-tion.
+Our work is related to that of Ratinov andRoth (2012), which also uses knowledge derivedfrom an NEL system to improve coreference.
+How-ever, NECO is the first joint model we know of, ispurely deterministic with no learning phase, doesautomatic mention detection, and improves perfor-mance on both tasks.NECO extends the Stanford?s sieve-based model,in which a high recall mention detection phase isfollowed by a sequence of cluster merging opera-tions ordered by decreasing precision (Raghunathanet al 2010; Lee et al 2013).
+At each step, itmerges two clusters only if all available informationabout their respective entities is consistent.
+We useNEL to increase recall during the mention detectionphase and introduce two new cluster-merging sieves,which compare the Freebase attributes of entities.NECO also improves NEL by initially favoring highprecision linking results and then propagating linksand attributes as clusters are formed.In summary we make the following contributions:?
+We introduce NECO, a novel, joint approachto solving coreference and NEL, demonstratingthat these tasks are complementary by achiev-ing joint error reduction.?
+We present experiments showing improved per-formance at coreference resolution, given bothgold and automatic mention detection: e.g.,6.2 point improvement in MUC recall on ACE2004 newswire text and 3.1 point improvementin MUC precision the CoNLL 2011 test set.?
+NECO also leads to better performance atnamed-entity linking, given both gold and au-tomatic linking, improving F1 from 61.7% to69.2% on a newly labeled test set.12 BackgroundWe make use of existing models for coreference res-olution and named entity linking.1Our corpus and the source code for NECO can be down-loaded from https://www.cs.washington.edu/research-projects/nlp/neco.2.1 Coreference ResolutionCoreference resolution is the the task of identifyingall text spans (called mentions) that refer to the sameentity, forming mention clusters.Stanford?s SieveModel is a state-of-the-art coref-erence resolver comprising a pipeline of ?sieves?that merge coreferent mentions according to deter-ministic rules.
+Mentions are automatically predictedby selecting all noun phrases (NP), pronouns, andnamed entities.
+Each sieve either merges a clusterto its single best antecedent from a list of previousclusters, or declines to merge.Higher precision sieves are applied earlier in thepipeline according to the following order, looking atdifferent aspects of the text, including: (1) speakeridentification, (2-3) exact and relaxed string matchesbetween mentions, (4) precise constructs, includingappositives, acronyms and demonyms, (5-9) differ-ent notions of strict and relaxed head matches be-tween mentions, and finally (10) a number of syn-tactic and distance cues for pronoun resolution.2.2 Named Entity LinkingNamed-entity linking (NEL) is the task of identi-fying mentions in a text and linking them to theentity they name in a knowledge base, usuallyWikipedia.
+NECO uses two existing NEL sys-tems: GLOW (Ratinov et al 2011) and Wikipedi-aMiner (Milne and Witten, 2008).WikipediaMiner links mentions based on a notionof semantic similarity to Wikipedia pages, consider-ing all substrings up to a fixed length.
+Since thereare often many possible links, it disambiguates bychoosing the entity whose Wikipedia page is mostsemantically related to the nearby context of themention.
+The semantic scoring function includes n-gram statistics and also counts shared links to otherunambiguous mentions in the text.GLOW finds mentions by selecting all the NPsand named entities in the text.
+Linking is framedas an integer linear programming optimization prob-lem that takes into account using similar local con-straints but also includes global constraints such asentity link co-occurrence.Both systems return confidence values.
+To main-tain high precision, NECO uses an ensemble of290?
+Let Exemplar(c) be a representative mention of the cluster c, computed as defined below?
+Let cj be an antecedent cluster of ci if cj has a mention which is before the first mention of ci?
+Let l(m) be a Wikipedia page linked to mention m or ?
+if there is no link?
+Let l(c) be a Wikipedia page linked to mention Exemplar(c) or ?
+if there is no link1.
+Initialize Linked Mentions:(a) Let MNEL = {mi | i = 1 .
+.
+.
+p} be the NEL output mentions, mi, each with a link l(mi)(b) Let MCR = {mi | i = 1 .
+.
+.
+q} be the mentions mi from coreference mention detection(c) Let M ?MCR ?MNEL (Sec.
+3.1)(d) Update entity links for all m ?M and prune M (Sec.
+3.2)(e) Extract attributes from Wikipedia and Freebase for all m ?M (Sec.
+3.3)(f) Let C ?M be singleton mention clusters where Exemplar(ci) = mi, l(ci) = l(mi)2.
+Merge Clusters: For every sieve S (including NEL sieves, Sec.
+3.6) and cluster ci ?
+C(a) For every cluster cj , j = [i?
+1 .
+.
+.
+1] (traverse the preceding clusters in reverse order)i. NEL constraints: Prevent merge if l(ci) 6= l(cj) (Sec.
+3.4)ii.
+If all rules of sieve S are satisfied for clusters ci and cjA.
+ck ?
+Merge(ci, cj), including entity link and attribute updates (Sec.
+3.5)B.
+C ?
+C ?
+{ck} \ {ci, cj}3.
+Output: Coreference clusters C and linked Wikipedia pages l(ci)?ci ?
+CFigure 2: NECO: A joint algorithm for named-entity linking and coreference resolution.GLOW and WikipediaMiner, selecting only highconfidence links.3 Joint Coreference and LinkingWe introduce a joint model for coreference resolu-tion and NEL.
+Building on the Stanford sieve ar-chitecture, our algorithm incrementally constructsclusters of mentions using deterministic coreferencerules under NEL constraints.Figure 2 presents the complete algorithm.
+The in-put to NECO is a document and the output is a set Cof coreference clusters, with links l(c) to Wikipediapages for a subset of the clusters c ?
+C. Step 1detects mentions, merging the outputs of the basesystems (Sec.
+3.1).
+Step 2 repeatedly merges coref-erence clusters, while ensuring that NEL constraints(Sec.
+3.4) are satisfied.
+It uses the original Stan-ford sieves and also two new NEL-informed sieves(Sec.
+3.6).
+NEL links are propagated to new clustersas they are formed (Sec.
+3.5).3.1 Mention DetectionIn Steps 1(a-c) in Fig.
+2, NECO combines mentionsfrom the base coreference and NEL systems.Let MCR be the set of mentions returned by us-ing Stanford?s rule-based mention detection algo-rithm (Lee et al 2013).
+Let MNEL be the set ofmentions output by the two NEL systems.
+NECOcreates an initial set of mentions, M , by taking theunion of all the mentions in MNEL and MCR.
+Inpractice, taking the union increases diversity in themention pool.
+For example, it is often the case thatMNEL will include sub-phrases such as ?Suharto?when they are part of a larger mention ?ex-dictatorSuharto?
+that is detected in MCR.3.2 Mention Entity Links and PruningStep 1(d) in Fig.
+2 assigns Wikipedia links to a sub-set of the detected mentions.For mentions m output by the base NEL sys-tems, we assign an exact link l(m) if the entiremention span is linked.
+Mentions m?
+that differfrom an exact linked mention m by only a pre- orpost-fix stop word are similarly assigned exact linksl(m?)
+= l(m).
+For example, the mention ?the pres-ident?
+will be assigned the same link as ?president?but ?The governor of Alaska Sarah Palin?
+would notbe assigned an exact link to Sarah Palin.For mentions m?
+that do not receive an exact link,we assign a head link h(m?)
+if the head word2 m hasbeen linked, by setting h(m?)
+= l(m).
+For instance,the head link for the mention ?President Clinton?
+(with ?Clinton?
+as head word) will be the Wikipediatitle of Bill Clinton.
+We use head links for theRelaxed NEL sieve (Sec.
+3.6).Next, we define L(m) to be the set con-2A head word is assigned to every mention with the Stanfordparser head finding rules (Klein and Manning, 2003).291country president city areacompany state region locationplace agency power unitbody market park provincemanager organization owner trialsite prosecutor attorney countysenator stadium network buildingattraction government department personorigin plant airport kingdomcapital operation author periodnominee candidate film venueFigure 3: The most commonly used fine-grained at-tributes from Freebase and Wikipedia (out of over 500total attributes).taining l(m) and l(m?)
+for all sub-phrases m?of m. We add the sub-phrase links onlyif their confidence is higher than the confi-dence for l(m).
+For instance, assuming ap-propriate confidence values, L(m) would in-clude the pages for {List of governors ofAlaska, Alaska, Sarah Palin} given themention ?The governor of Alaska Sarah Palin.?
+Wewill use L(m) for NEL constraints and filtering(Sec.
+3.4).After updating the entity links for all mentions,NECO prunes spurious mentions that begin orend with a stop word where the remaining sub-expression of the mention exists in M .
+It also re-moves time expressions and numbers from M if theyare not included in MNEL.3.3 Mention AttributesStep 1(e) in Fig.
+2 also assigns attributes for amention m linked to Wikipedia page l(m), at bothcoarse and fine-grained levels, based on informationfrom the Freebase entry corresponding to exact linkl(m) or head link h(m).The coarse attributes include gender, type, andNER classes such as PERSON, LOCATION, and OR-GANIZATION.
+These attributes are part of the orig-inal Stanford coreference system and are used toavoid merging conflicting clusters.
+We use the Free-base values for these attributes when available.
+Forinstance, if the linked entity contains the Freebasetype location or organization, we include the coarsetype to LOCATION or ORGANIZATION respectively.In order to account for both links to specific peo-ple (Barack Obama) and generic links to positionsheld by people (President), we include the type PER-SON if the linked entity has any of the Freebase typesperson, job title, or government office or title.
+If nocoarse Freebase types are available for an attribute,we default to predicted NER classes.We add fine-grained attributes from Freebase andWikipedia by importing additional type information.We use all of the Freebase notable types, a set ofhundreds of commonly used Freebase types, rang-ing from us president to tropical cyclone and syn-thpop album.
+We also include all of the Wikipediacategories, on average six per entity.
+For example,the mention ?Indonesia?
+is assigned fine-grained at-tributes such as book subject, military power, andolympic participating country.
+Since many of thesefine-grained attributes are extremely specific, we usethe last word of each attribute to define an addi-tional fine-grained attribute (see Fig.
+3).
+These fine-grained attributes are used in the Relaxed NEL sieve(Sec.
+3.6).3.4 NEL ConstraintsWhile applying sieves to merge clusters in Figure 2Step 2(a), NECO uses NEL constraints to eliminatesome otherwise acceptable merges.We avoid merging inconsistent clusters that linkto different entities.
+Clusters ci and cj are incon-sistent if both are linked (i.e., both clusters havenon-null entity assignments) and l(ci) 6= l(cj) orh(ci) 6= h(cj).
+Also, in order to consider an an-tecedent cluster c as a merge candidate, we require apair of entities in the set of linked entities L(c) to berelated to one another in Freebase.
+Two entities arerelated in Freebase if they both appear in a relation;for example, Bill Clinton and Arkansas arerelated because Bill Clinton has a ?governor-of?
+re-lation with Arkansas.3.5 Merging Clusters and Update Entity LinksWhen two clusters ci and cj are merged to form anew cluster ck, the entity link information L(ck),l(ck), and h(ck) must be updated (Step 2 of Fig.
+2).We set L(ck) to the union of the linked entities foundin l(ci) and l(cj) and merge coarse attributes at thispoint.In order to set the exact and head entity linksl(ck) and h(ck), we use the exemplar mention292Exemplar(ck) that denotes the most representativemention of the cluster.
+Exemplar(c) is selectedaccording to a set of rules in the Stanford system,based on textual position and mention type (propernoun vs. common).
+We augment this function byconsidering information from exact and head en-tity links as well.
+Mentions appearing earlier intext, proper mentions, and mentions that have ex-act or head named-entity links are preferred to thosewhich do not.
+Given exemplars, we set l(ck) =l(Exemplar(ck)) and h(ck) = h(Exemplar(ck)).3.6 NEL SievesFinally, we introduce two new sieves that use NELinformation at the beginning and end of the Stan-ford sieves pipeline in the merging stage (Step 2 ofFig.
+2).Exact NEL sieve The Exact NEL sieve mergestwo clusters ci and cj if both are linked and theirlinks match, l(ci) = l(cj).
+For example, all men-tions that have been linked to Barack Obama willbecome members of the same coreference cluster.Because the Exact NEL sieve has high precision, weplace it at the very beginning of the pipeline.Relaxed NEL sieve The Relaxed NEL sieve usesfine-grained attributes of the linked mentions tomerge proper nouns with common nouns when theyshare attributes.
+For example, this sieve is able tomerge the proper mention ?Disneyland?
+with the?the mysterious park?, because park is one of thefine-grained attributes assigned to Disneyland.More formally, let mi = Exemplar(ci) andmj = Exemplar(cj).
+For every common nounmention mi, we merge ci with an antecedent clus-ter cj if (1) mj is a linked proper noun, (2) if mi orthe title of its linked Wikipedia page is in the list offine-grained attributes of mj , or (3) if h(mj) is re-lated to the head link h(mi) according to Freebaseas defined above.Because this sieve has low precision, we onlyallow merges between mentions that have a maxi-mum distance of three sentences between one an-other.
+We add the Relaxed NEL sieve near the endof the pipeline, just before pronoun resolution.4 Experimental SetupCore Components and Baselines The Stanfordsieve-based coreference system (Lee et al 2013),the GLOW NEL system (Ratinov et al 2011), andWikipediaMiner (Milne and Witten, 2008) providecore functionality for our joint model, and are alsothe state-of-the-art baselines against which we mea-sure performance.Parameter Settings Based on performance on thedevelopment set, we set the GLOW?s confidence pa-rameter to 1.0 and WikipediaMiner?s to 0.4 to assurehigh-precision NEL.
+We also optimized for the set offine-grained attributes to import from Wikipedia andFreebase, and the best way to incorporate the NELconstraints into the sieve architecture.Datasets We report results on the followingthree datasets: ACE???
+?-NWIRE, CONLL???
+?,and ACE????-NWIRE-NEL.
+ACE???
+?-NWIRE, thenewswire subset of the ACE 2004 corpus (NIST,2004), includes 128 documents.
+The CONLL???
+?coreference dataset includes text from five differentdomains: broadcast conversation (BC), broadcastnews (BN), magazine (MZ), newswire (NW), andweb data (WB) (Pradhan et al 2011).
+The broadcastconversation and broadcast news domains consist oftranscripts, whereas magazine and newswire containmore standard written text.
+The development dataincludes 303 documents and the test data includes322 documents.We created ACE???
+?-NWIRE-NEL by taking asubset of ACE???
+?-NWIRE and annotating withgold-standard entity links.
+We segment and link allthe expressions in text that refer to Wikipedia pages,allowing for nested linking.
+For instance, both thephrase ?Hong Kong Disneyland,?
+and the sub-phrase?Hong Kong?
+are linked.
+This dataset includes 12documents and 350 linked entities.Metrics We evaluate our system using MUC (Vi-lain et al 1995), B3 (Bagga and Baldwin, 1998),and pairwise scores.
+MUC is a link-based met-ric which measures how many clusters need to bemerged to cover the gold clusters and favors largerclusters; B3 computes the proportion of intersec-tion between predicted and gold clusters for everymention and favors singletons (Recasens and Hovy,2010).
+We computed the scores using the Stanford293Method MUC B3 PairwiseP R F1 P R F1 P R F1Stanford Sieves 39.9 46.2 42.8 67.9 71.8 69.8 44.2 29.7 35.6NECO 46.8 52.5 49.5 70.4 72.6 71.5 51.5 34.6 41.4No NEL Mentions 46.1 48.3 47.2 71.4 70.0 70.9 49.7 30.9 38.1No Mention Pruning 43.6 45.6 44.6 70.5 69.9 70.2 46.2 29.4 35.9No Attributes 45.9 47.4 46.6 71.8 69.7 70.7 48.6 27.0 34.7No Constraints 42.3 49.3 45.5 68.3 72.3 70.2 44.2 28.6 34.7Table 1: Coreference results on ACE???
+?-NWIRE with predicted mentions and automatic linking.coreference software for ACE2004 and using theCoNLL scorer for the CoNLL 2011 dataset.5 Experimental ResultsWe first look at NECO?s performance at coreferenceresolution and then evaluate its ability at NEL.5.1 Coref.
+Results with Predicted MentionsOverall System Performance on ACE Data Ta-ble 1 shows NECO?s performance at coreferenceresolution on ACE-????
+compared to the Stanfordsieve implementation (Lee et al 2013).
+The tableshows that NECO has both significantly improvedprecision and recall compared to the Stanford base-line, across all metrics.
+We generally observe largergains in MUC due to better mention detection andthe Relaxed NEL Sieve.Contribution of System Components Table 1also details the performance of four variants of oursystem that ablate various components and features.Specifically, we consider the following cases:?
+No NEL Mentions: We discard additionalmentions, MNEL, provided by NEL (Sec.
+3.1).This increases B3 precision at the expense ofrecall.
+Inspection shows that some of the errorsintroduced by MNEL are actually due to cor-rectly linked entities that were not annotated asmentions in the dataset, but also some improp-erly linked mentions.?
+No Mention Pruning: We disable the initialstep of updating mention boundaries and re-moving spurious mentions (Sec.
+3.2).
+As ex-pected, removing this step drops precision andrecall significantly, even compared to the NoNEL Mentions variant.?
+No Attributes: Ablating coarse and fine-grained attributes (Sec.
+3.3) drops F1 and re-call measures across all metrics.
+To under-stand this effect, note that NECO uses at-tributes in two different settings.
+Updatingcoarse attributes tends to increase precision be-cause it prevents dangerous merges, such asmerging ?Staples?
+with the mention ?it?
+ina situation when ?Staples?
+refers to the per-son entity Todd Staples.
+Fine-grained at-tributes also help with recall, when merginga specific name of an entity with a mentionthat uses a more general term; for instance,?Hong Kong Disneyland?
+can be merged with?the mysterious park?
+because ?park?
+is a fine-grained attribute for Disneyland.
+However,when fine-grained attributes are used, precisionsometimes drops (e.g., when ?president?
+mightmerge with ?Bush?
+when it should really mergewith ?Clinton?).?
+No NEL Constraints: Removing these con-straints (Sec.
+3.4) drops precision dramaticallyleading to drop in F1.
+In the case of incor-rect linking, however, NEL constraints can af-fect recall.
+For instance, NEL constraints mightprevent merging ?Staples?
+with ?Todd Staples?if the former were linked to the company andthe latter to the politician.Overall System Performance on CoNLL DataWe also compare our full system (with added NELsieves, constraints, and mention pruning3) with theStanford sieve coreference system on CoNLL data3Due to CoNLL annotation guidelines, a named entity isadded to the mention list if it is not inside a larger mention withan exact named entity link.294MUC B3Category: Method P R F1 P R F1BC: NECO 62.1 64.7 63.4 69.8 57.8 63.2BC: Stanford Sieves 60.9 65.0 62.9 69.2 58.0 63.1BN: NECO 69.3 59.4 64.0 78.8 60.8 68.6BN: Stanford Sieves 68.0 58.9 63.1 79.0 60.2 68.3MZ: NECO 67.6 62.9 65.2 78.4 61.1 68.7MZ: Stanford Sieves 66.0 63.4 64.9 77.9 61.5 68.7NW: NECO 62.0 54.5 58.0 74.9 57.4 65.0NW: Stanford Sieves 60.0 54.2 56.9 75.3 57.0 64.9Table 3: Coreference results on the individual categories of CoNLL 2011 development data.
+(BC=broadcast conver-sation, BN=broadcast news, MZ=magazine, NW=newswire)MUC B3Method P R F1 P R F1Development DataNECO 64.1+ 59.4 61.7+ 74.7 58.7 65.7Stanford 62.7 59.0 60.8 74.8 58.3 65.6NECO* 56.4+ 50.0 53.0+ 72.6 51.6 60.3Stanford* 53.5 50.0 51.6 71.8 51.3 59.9Test DataNECO 61.2+ 58.4 59.8+ 72.2 56.4 63.3Stanford 59.2 58.8 59.0 71.3 56.1 62.8NECO* 55.1+ 51.7 53.3+ 70.0 50.8 58.8Stanford* 52.0 52.3+ 52.1 68.9 50.8 58.5Table 2: Coreference results on CoNLL 2011 develop-ment and test data, using predicted mentions.
+Rows de-noted with * indicate runs using the fully automated Stan-ford CoreNLP pipeline rather than the predicted annota-tions provided with the CoNLL data.
+Given the relativelyclose results, we ran the Mann-Whitney U test for thistable; values with the + superscript are significant withp < 0.05.
+(Table 2).
+We ran NECO and the baseline in two set-tings: in the first, we use the standard predicted an-notations (for POS, parses, NER, and speaker tags)provided with the CoNLL data, and in the second,we use the automated Stanford CoreNLP pipelineto predict this information.
+On both the develop-ment and test sets, we gain about 1 point in MUCF1 as well as a smaller improvement in B3.
+Closerinspection indicates that our system increases pre-cision primarily due to mention pruning and NELconstraints.
+Due to the differences in mention anno-tation guidelines between ACE and CoNLL, perfor-mance on ACE benefits more from improved men-tion detection from NEL.
+Moreover, the ACE cor-pus is all newswire text, which contains more enti-ties that can benefit from linking.
+CoNLL, on theother hand, contains a wider variety of texts, someof which do not mention many named entities inWikipedia.To examine the performance of our system on thedifferent domains covered by the CoNLL data, wealso test our system on each domain separately (Ta-ble 3).
+We found NEL provided the biggest im-provement for the news domains, broadcast news(BN) and newswire (NW).
+These domains espe-cially benefit from the improved mention detectionand pruning provided by NEL, and strong linkingbenefitted both precision and recall in these do-mains.
+We found that the magazine (MZ) sectionof the corpus benefited the least from NEL, as therewere relatively few entities that our NEL systemswere able to connect to Wikipedia.5.2 Coreference Results with Gold LinkingSome of the errors introduced in our system are dueto incorrect or incomplete links discovered by theautomatic linking system.
+To assess the effect ofNEL performance on NECO, we tested on a por-tion of ACE???
+?-NWIRE dataset for which we hand-labeled correct links for the gold and predicted men-tions.
+?NECO + Gold NEL?
+denotes a version of oursystem which uses gold links instead of those pre-dicted by NEL.
+As shown in Table 4, gold linkingsignificantly improves the performance of our sys-tem across all measures.
+This suggests that furtherwork to improve automatic NEL may have substan-tial reward.Gold linking improves precision for two main rea-295Method MUC B3 PairwiseP R F1 P R F1 P R F1Gold MentionsNECO + Gold NEL 85.8 75.5 80.3 91.4 81.2 86.0 89.1 68.0 77.1NECO 84.6 74.0 78.9 90.5 80.4 85.2 83.9 66.0 73.9Stanford Sieves 84.5 72.2 77.8 89.9 77.7 83.4 89.9 57.3 68.1Predicted MentionsNECO + Gold NEL 56.4 58.8 57.5 78.2 78.3 78.3 68.0 54.3 60.4NECO 51.3 53.5 52.4 76.5 76.4 76.5 61.2 45.6 52.2Stanford Sieves 43.9 46.4 45.1 74.4 74.2 74.3 51.3 36.1 42.4Table 4: Coreference results on ACE???
+?-NWIRE-NEL with gold and predicted mentions and gold or automatic linking.Method MUC B3 PairwiseP R F1 P R F1 P R F1NECO 85.0 76.6 80.6 87.6 76.4 81.6 79.3 56.1 65.8Stanford Sieves 84.6 75.1 79.6 87.3 74.1 80.2 79.4 50.1 61.4Haghighi and Klein (2009) 77.0 75.9 76.5 79.4 74.5 76.9 66.9 49.2 56.7Poon and Domingos (2008) 71.3 70.5 70.9 - - - 62.6 38.9 48.0Finkel and Manning (2008) 78.7 58.5 67.1 86.8 65.2 74.5 76.1 44.2 55.9Table 5: Coreference results on ACE???
+?-NWIRE with gold mentions and automatic linking.sons.
+First, it reduces the coreference errors causedby incorrect NEL links.
+For instance, gold link-ing replaces the erroneous link generated by ourNEL systems for ?Nasser al-Kidwa?
+to the correctWikipedia entity.
+As another example, two men-tions of ?Rutgers?
+will not be merged if one linksto the university and the other links to their footballteam.
+Second, gold linking leads to better mentiondetection and better linked mentions.
+For instance,under gold linking, the whole mention, ?The gover-nor of Alaska, Sarah Palin,?
+is linked to the politi-cian, while automatic linking systems only link thesubstring containing her name, ?Sarah Palin.?
+Still,gold NEL cannot compensate for all coreference er-rors in cases of generic or unlinked entities.5.3 Coreference Results with Gold MentionsMany of the previous papers evaluate coreferenceresolution assuming gold mentions so we also rununder that condition (Table 5) using ACE???
+?-NWIRE data.
+As the table shows, with gold mentionsour system outperforms Haghighi and Klein (2009),Poon and Domingos (2008), Finkel and Man-ning (2008) and the Stanford sieve algorithm acrossall metrics.
+Our method shows a relatively smallergain in precision, because this condition adds nobenefit to our technique of using NEL informationfor pruning mentions.5.4 Improving Named Entity LinkingWhile our previous experiments show that named-entity linking can improve coreference resolution,we now address the question of whether coreferencetechniques can help NEL.
+We compare NECO witha baseline ensemble4 composed of GLOW (Ratinovet al 2011) and WikipediaMiner (Milne and Witten,2008) on our ACE???
+?-NWIRE-NEL dataset (Table6).
+Our system gains about 8% in absolute recalland 5% in absolute precision.
+For instance, our sys-tem correctly adds links from ?Bullock?
+to the en-tity Sandra Bullock because coreference reso-lution merges two mentions.
+In another example, itcorrectly links ?company?
+to Nokia.
+Overall, thereis a 21% relative reduction in F1 error.4We take the union of all the links returned by GLOW andWikipediaMiner, but if they link a mention to two different en-tities, we use only the output of WikipediaMiner.296Method F1 Precision RecallNECO 70.6 72.0 69.2Baseline NEL 64.4 67.4 61.7Table 6: NEL performance of our system and the ensem-ble baseline linker on ACE???
+?-NWIRE-NEL.5.5 Error AnalysisWe analyzed 90 precision and recall errors andpresent our findings in Table 7.
+Spurious mentionsaccounted for the majority of non-semantic errors.Despite the improvements that come from NEL, alarge portion of coreference errors can still be at-tributed to incomplete semantic information, includ-ing precision errors caused by incorrect linking.
+Forinstance, the mention ?Disney?
+sometimes refers tothe company, and other times refers to the amuse-ment park; however, the NEL systems we used haddifficulty disambiguating these cases, and NECO of-ten incorrectly merges such mentions.
+Overly gen-eral fine-grained attributes caused precision errors incases where many proper noun mentions were po-tential antecedents for a common noun.
+Althoughattributes such as country are useful for resolving ageneric ?country?
+mention, this information is insuf-ficient when two distinct mentions such as ?China?and ?Russia?
+both have the country attribute.However, many recall errors are also caused bythe lack of fine-grained attributes.
+Finding the idealset of fine-grained attributes remains an open prob-lem.6 Related WorkCoreference resolution has a fifty year history whichdefies brief summarization; see Ng (2010) for arecent survey.
+Section 2.1 described the Stanfordmulti-pass sieve algorithm, which is the foundationfor NECO.Earlier coreference resolution systems used shal-low semantics and pioneered knowledge extractionfrom online encyclopedias (Ponzetto and Strube,2006; Daume?
+III and Marcu, 2005; Ng, 2007).
+Somerecent work shows improvement in coreference res-olution by incorporating semantic information fromWeb-scale structured knowledge bases.
+Haghighiand Klein (2009) use a rule-based system to extractfine-grained attributes for mentions by analyzingprecise constructs (e.g., appositives) in Wikipediaarticles.
+Subsequently, Haghighi and Klein (2010)used a generative approach to learn entity types froman initial list of unambiguous mention types.
+Bansaland Klein (2012) use statistical analysis of Web n-gram features including lexical relations.Rahman and Ng (2011) use YAGO to extract typerelations for all mentions.
+These methods incor-porate knowledge about all possible meanings of amention.
+If a mention has multiple meanings, ex-traneous information might be associated with it.Zheng et al(2013) use a ranked list of candidate en-tities for each mention and maintain the ranked listwhen mentions are merged.
+Unlike previous work,our method relies on NEL systems to disambiguatepossible meanings of a mention and capture high-precision semantic knowledge from Wikipedia cate-gories and Freebase notable types.Ratinov and Roth (2012) investigated using NELto improve coreference resolution, but did not con-sider a joint approach.
+They extracted attributesfrom Wikipedia categories and used them as fea-tures in a learned mention-pair model, but did notdo mention detection.
+Unfortunately, it is difficultto compare directly to the results of both systems,since they reported results on portions of ACE andCoNLL datasets using gold mentions.
+However,our approach provides independent evidence for thebenefit of NEL, and joint modeling in particular,since it outperforms the state-of-the-art Stanfordsieve system (winner of the CoNLL 2011 sharedtask (Pradhan et al 2011)) and other recent com-parable approaches on benchmark datasets.Our work also builds on a long trajectory ofwork in named entity resolution stemming fromSemTag (Dill et al 2003).
+Section 2.2 discussedGLOW and WikipediaMiner (Ratinov et al 2011;Milne and Witten, 2008).
+Kulkarni et al(2009)present an elegant collective disambiguation model,but do not exploit the syntactic nuances gleaned bywithin-document coreference resolution.
+Hachey etal.
+(2013) provide an insightful summary and evalu-ation of different approaches to NEL.7 ConclusionsObserving that existing coreference resolution andnamed-entity linking have complementary strengths297Error Type Percentage ExampleExtra mentions 31.1 The other thing Paula really important is that they talk a lot about thefact ...Pronoun 27.7 However , [all 3 women gymnasts , taking part in the internationals forthe first time], performed well , because they had strong events and theirmovements had difficulty .Contextualsemantic16.6 [The Chinese side] hopes that each party concerned continues to makeconstructive efforts to ...Considering the requirements of the Korean side, ... the Chinese government decided to ...NEL semantic 13.3 The most important thing about Disney is that it is a global brand.
+... Thesubway to Disney has already been constructed.Attributes 11.1 The Hong Kong government turned over to Disney Corporation [200hectares of land ...].
+... this area has become a prohibited zone in HongKong.Table 7: Examples of different error categories and the relative frequency of each.
+For every example, the mention tobe resolved is underlined, and the correct antecedent is italicized.
+For precision errors, the wrongly merged mentionis bolded.
+For recall errors, the missed mention is surrounded by [brackets].and weaknesses, we present a joint approach.
+Weintroduce NECO, a novel algorithm which solvesthe problems jointly, demonstrating improved per-formance on both tasks.We envision several ways to improve the jointmodel.
+While the current implementation of NECOonly introduces NEL once, we could also integratepredictions with different levels of confidence intodifferent sieves.
+It would be interesting to moretightly integrate the NEL system so it operates onclusters rather than individual mentions ?
+aftereach sieve merges an unlinked cluster, the algorithmwould retry NEL with the new context information.NECO uses a relatively modest number of Freebaseattributes.
+While using more semantic knowledgeholds the promise of increased recall, the challengeis maintaining precision.
+Finally, we would also liketo explore the extent to which a joint probabilisticmodel (e.g., (Durrett and Klein, 2013)) might beused to learn how to best make this tradeoff.8 AcknowledgementsThe research was supported in part by grantsfrom DARPA under the DEFT program throughthe AFRL (FA8750-13-2-0019) and the CSSG(N11AP20020), the ONR (N00014-12-1-0211), andthe NSF (IIS-1115966).
+Support was also providedby a gift from Google, an NSF Graduate ResearchFellowship, and the WRF / TJ Cable Professor-ship.
+The authors thank Greg Durrett, HeeyoungLee, Mitchell Koch, Xiao Ling, Mark Yatskar, Ken-ton Lee, Eunsol Choi, Gabriel Schubiner, NicholasFitzGerald, Tom Kwiatkowski, and the anonymousreviewers for helpful comments and feedback on thework.ReferencesAmit Bagga and Breck Baldwin.
+1998.
+Algorithms forscoring coreference chains.
+In International Confer-ence on Language Resources and Evaluation Work-shop on Linguistics Coreference.Mohit Bansal and Dan Klein.
+2012.
+Coreference se-mantics from web features.
+In Proceedings of the 45thAnnual Meeting of the Association for ComputationalLinguistics.Hal Daume?
+III and Daniel Marcu.
+2005.
+A large-scaleexploration of effective global features for a joint en-tity detection and tracking model.
+In Proceedings ofthe Conference on Human Language Technology andEmpirical Methods in Natural Language Processing.Stephen Dill, Nadav Eiron, David Gibson, Daniel Gruhl,R.
+Guha, Anant Jhingran, Tapas Kanungo, Sridhar Ra-jagopalan, Andrew Tomkins, John A. Tomlin, and Ja-son Y. Zien.
+2003.
+SemTag and Seeker: bootstrappingthe semantic web via automated semantic annotation.In Proceedings of the 12th International Conferenceon World Wide Web.298Greg Durrett and Dan Klein.
+2013.
+Easy victories anduphill battles in coreference resolution.
+In Proceed-ings of the Conference on Empirical Methods in Natu-ral Language Processing.Jenny Rose Finkel and Christopher D. Manning.
+2008.Enforcing transitivity in coreference resolution.
+InProceedings of the 46th Annual Meeting of the Asso-ciation for Computational Linguistics on Human Lan-guage Technologies.Ben Hachey, Will Radford, Joel Nothman, Matthew Hon-nibal, and James R. Curran.
+2013.
+Evaluating entitylinking with Wikipedia.
+Artificial Intelligence Jour-nal, 194.Aria Haghighi and Dan Klein.
+2009.
+Simple coreferenceresolution with rich syntactic and semantic features.
+InProceedings of the Conference on Empirical Methodsin Natural Language Processing.Aria Haghighi and Dan Klein.
+2010.
+Coreference res-olution in a modular, entity-centered model.
+In Hu-man Language Technologies: Annual Conference ofthe North American Chapter of the Association forComputational Linguistics.Dan Klein and Christopher D. Manning.
+2003.
+Accurateunlexicalized parsing.
+In Proceedings of the 41st An-nual Meeting on Association for Computational Lin-guistics.Sayali Kulkarni, Amit Singh, Ganesh Ramakrishnan, andSoumen Chakrabarti.
+2009.
+Collective annotation ofWikipedia entities in Web text.
+In Proceedings of the2009 Conference on Knowledge Discovery and DataMining.Heeyoung Lee, Yves Peirsman, Angel Chang, NathanaelChambers, Mihai Surdeanu, and Dan Jurafsky.
+2011.Stanford?s multi-pass sieve coreference resolution sys-tem at the CoNLL-2011 shared task.
+In Proceedings ofthe Conference on Computational Natural LanguageLearning.Heeyoung Lee, Angel Chang, Yves Peirsman, NathanaelChambers, Mihai Surdeanu, and Dan Jurafsky.
+2013.Deterministic coreference resolution based on entity-centric, precision-ranked rules.
+Computational Lin-guistics, 39(4).Dan Milne and Ian H. Witten.
+2008.
+Learning to linkwith Wikipedia.
+In Proceedings of the ACM Confer-ence on Information and Knowledge Management.Vincent Ng.
+2007.
+Shallow semantics for coreferenceresolution.
+In Proceedings of the 20th InternationalJoint Conference on Artificial Intelligence.Vincent Ng.
+2010.
+Supervised noun phrase coreferenceresearch: The first fifteen years.
+In Proceedings of the48th Annual Meeting of the Association for Computa-tional Linguistics.NIST.
+2004.
+The ACE 2004 evaluation planXPToolkitarchitecture.Simone Paolo Ponzetto and Michael Strube.
+2006.Exploiting semantic role labeling, Wordnet andWikipedia for coreference resolution.
+In Proceedingsof the North American Association for Natural Lan-guage Processing on Human Language Technologies.Hoifung Poon and Pedro Domingos.
+2008.
+Joint unsu-pervised coreference resolution with Markov logic.
+InProceedings of the Conference on Empirical Methodsin Natural Language Processing.Sameer Pradhan, Lance Ramshaw, Mitchell Marcus,Martha Palmer, Ralph Weischedel, and Nianwen Xue.2011.
+CoNLL-2011 shared task: modeling unre-stricted coreference in OntoNotes.
+In Proceedings ofthe Fifteenth Conference on Computational NaturalLanguage Learning: Shared Task.Karthik Raghunathan, Heeyoung Lee, Sudarshan Ran-garajan, Nathanael Chambers, Mihai Surdeanu, DanJurafsky, and Christopher Manning.
+2010.
+A multi-pass sieve for coreference resolution.
+In Proceedingsof the Conference on Empirical Methods in NaturalLanguage Processing.Altaf Rahman and Vincent Ng.
+2011.
+Coreference res-olution with world knowledge.
+In Proceedings of the49th Annual Meeting of the Association for Computa-tional Linguistics: Human Language Technologies.Lev Ratinov and Dan Roth.
+2012.
+Learning-based multi-sieve co-reference resolution with knowledge.
+In Pro-ceedings of the Conference on Empirical Methods inNatural Language Processing.Lev Ratinov, Dan Roth, Doug Downey, and Mike An-derson.
+2011.
+Local and global algorithms for dis-ambiguation to Wikipedia.
+In Proceedings of the 49thAnnual Meeting of the Association for ComputationalLinguistics.Marta Recasens and Eduard Hovy.
+2010.
+Coreferenceresolution across corpora: languages, coding schemes,and preprocessing information.
+In Proceedings of the48th Annual Meeting of the Association for Computa-tional Linguistics.Marc Vilain, John Burger, John Aberdeen, Dennis Con-nolly, and Lynette Hirschman.
+1995.
+A model-theoretic coreference scoring scheme.
+In Proceedingsof the 6th conference on Message Understanding.Jiaping Zheng, Luke Vilnis, Sameer Singh, Jinho D.Choi, and Andrew McCallum.
+2013.
+Dynamicknowledge-base alignment for coreference resolution.In Proceedings of the Seventeenth Conference onComputational Natural Language Learning.299

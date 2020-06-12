@@ -1,0 +1,467 @@
+Proceedings of the 51st Annual Meeting of the Association for Computational Linguistics, pages 135?144,Sofia, Bulgaria, August 4-9 2013. c?2013 Association for Computational LinguisticsA Transition-Based Dependency ParserUsing a Dynamic Parsing StrategyFrancesco SartorioDepartment ofInformation EngineeringUniversity of Padua, Italysartorio@dei.unipd.itGiorgio SattaDepartment ofInformation EngineeringUniversity of Padua, Italysatta@dei.unipd.itJoakim NivreDepartment ofLinguistics and PhilologyUppsala University, Swedenjoakim.nivre@lingfil.uu.seAbstractWe present a novel transition-based, greedydependency parser which implements aflexible mix of bottom-up and top-downstrategies.
+The new strategy allows theparser to postpone difficult decisions untilthe relevant information becomes available.The novel parser has a ?12% error reduc-tion in unlabeled attachment score over anarc-eager parser, with a slow-down factorof 2.8.1 IntroductionDependency-based methods for syntactic parsinghave become increasingly popular during the lastdecade or so.
+This development is probably dueto many factors, such as the increased availabilityof dependency treebanks and the perceived use-fulness of dependency structures as an interfaceto downstream applications, but a very importantreason is also the high efficiency offered by de-pendency parsers, enabling web-scale parsing withhigh throughput.
+The most efficient parsers aregreedy transition-based parsers, which only explorea single derivation for each input and relies ona locally trained classifier for predicting the nextparser action given a compact representation of thederivation history, as pioneered by Yamada andMatsumoto (2003), Nivre (2003), Attardi (2006),and others.
+However, while these parsers are cap-able of processing tens of thousands of tokens persecond with the right choice of classifiers, they arealso known to perform slightly below the state-of-the-art because of search errors and subsequenterror propagation (McDonald and Nivre, 2007),and recent research on transition-based depend-ency parsing has therefore explored different waysof improving their accuracy.The most common approach is to use beamsearch instead of greedy decoding, in combinationwith a globally trained model that tries to minim-ize the loss over the entire sentence instead of alocally trained classifier that tries to maximize theaccuracy of single decisions (given no previous er-rors), as first proposed by Zhang and Clark (2008).With these methods, transition-based parsers havereached state-of-the-art accuracy for a number oflanguages (Zhang and Nivre, 2011; Bohnet andNivre, 2012).
+However, the drawback with this ap-proach is that parsing speed is proportional to thesize of the beam, which means that the most accur-ate transition-based parsers are not nearly as fastas the original greedy transition-based parsers.
+An-other line of research tries to retain the efficiency ofgreedy classifier-based parsing by instead improv-ing the way in which classifiers are learned fromdata.
+While the classical approach limits trainingdata to parser states that result from oracle predic-tions (derived from a treebank), these novel ap-proaches allow the classifier to explore states thatresult from its own (sometimes erroneous) predic-tions (Choi and Palmer, 2011; Goldberg and Nivre,2012).In this paper, we explore an orthogonal approachto improving the accuracy of transition-based pars-ers, without sacrificing their advantage in efficiency,by introducing a new type of transition system.While all previous transition systems assume astatic parsing strategy with respect to top-downand bottom-up processing, our new system allowsa dynamic strategy for ordering parsing decisions.This has the advantage that the parser can postponedifficult decisions until the relevant information be-comes available, in a way that is not possible inexisting transition systems.
+A second advantage ofdynamic parsing is that we can extend the featureinventory of previous systems.
+Our experimentsshow that these advantages lead to significant im-provements in parsing accuracy, compared to abaseline parser that uses the arc-eager transitionsystem of Nivre (2003), which is one of the most135widely used static transition systems.2 Static vs.
+Dynamic ParsingThe notions of bottom-up and top-down parsingstrategies do not have a general mathematical defin-ition; they are instead specified, often only inform-ally, for individual families of grammar formal-isms.
+In the context of dependency parsing, a pars-ing strategy is called purely bottom-up if everydependency h ?
+d is constructed only after alldependencies of the form d ?
+i have been con-structed.
+Here h?
+d denotes a dependency withh the head node and d the dependent node.
+In con-trast, a parsing strategy is called purely top-downif h?
+d is constructed before any dependency ofthe form d?
+i.If we consider transition-based dependency pars-ing (Nivre, 2008), the purely bottom-up strategy isimplemented by the arc-standard model of Nivre(2004).
+After building a dependency h ?
+d, thismodel immediately removes from its stack node d,preventing further attachment of dependents to thisnode.
+A second popular parser, the arc-eager modelof Nivre (2003), instead adopts a mixed strategy.In this model, a dependency h?
+d is constructedusing a purely bottom-up strategy if it represents aleft-arc, that is, if the dependent d is placed to theleft of the head h in the input string.
+In contrast, ifh ?
+d represents a right-arc (defined symmetric-ally), then this dependency is constructed beforeany right-arc d ?
+i (top-down) but after any left-arc d?
+i (bottom-up).What is important to notice about the abovetransition-based parsers is that the adopted pars-ing strategies are static.
+By this we mean that eachdependency is constructed according to some fixedcriterion, depending on structural conditions suchas the fact that the dependency represents a left or aright arc.
+This should be contrasted with dynamicparsing strategies in which several parsing optionsare simultaneously available for the dependenciesbeing constructed.In the context of left-to-right, transition-basedparsers, dynamic strategies are attractive for sev-eral reasons.
+One argument is related to the well-known PP-attachment problem, illustrated in Fig-ure 1.
+Here we have to choose whether to attachnode P as a dependent of V (arc ?2) or else asa dependent of N1 (arc ?3).
+The purely bottom-up arc-standard model has to take a decision assoon as N1 is placed into the stack.
+This is soV N1 P N2?1?2?3 ?4Figure 1: PP-attachment example, with dashed arcsidentifying two alternative choices.because the construction of ?1 excludes ?3 fromthe search space, while the alternative decision ofshifting P into the stack excludes ?2.
+This is bad,because the information about the correct attach-ment could come from the lexical content of node P.The arc-eager model performs slightly better, sinceit can delay the decision up to the point in which ?1has been constructed and P is read from the buffer.However, at this point it must make a commitmentand either construct ?3 or pop N1 from the stack(implicitly committing to ?2) before N2 is readfrom the buffer.
+In contrast with this scenario, inthe next sections we implement a dynamic parsingstrategy that allows a transition system to decidebetween the attachments ?2 and ?3 after it has seenall of the four nodes V, N1, P and N2.Other additional advantages of dynamic parsingstrategies with respect to static strategies are re-lated to the increase in the feature inventory thatwe apply to parser states, and to the increase ofspurious ambiguity.
+However, these arguments aremore technical than the PP-attachment argumentabove, and will be discussed later.3 Dependency ParserIn this section we present a novel transition-basedparser for projective dependency trees, implement-ing a dynamic parsing strategy.3.1 PreliminariesFor non-negative integers i and j with i ?
+j, wewrite [i, j] to denote the set {i, i+1, .
+.
+.
+, j}.
+Wheni > j, [i, j] is the empty set.We represent an input sentence as a string w =w0 ?
+?
+?wn, n ?
+1, where token w0 is a specialroot symbol and, for each i ?
+[1, n], token wi =(i, ai, ti) encodes a lexical element ai and a part-of-speech tag ti associated with the i-th word in thesentence.A dependency tree for w is a directed, orderedtree Tw = (Vw, Aw), where Vw = {wi | i ?136w4w2 w5 w7w1 w3 w6Figure 2: A dependency tree with left spine?w4, w2, w1?
+and right spine ?w4, w7?.
+[0, n]} is the set of nodes, and Aw ?
+Vw ?
+Vw isthe set of arcs.
+Arc (wi, wj) encodes a dependencywi ?
+wj .
+A sample dependency tree (excludingw0) is displayed in Figure 2.
+If (wi, wj) ?
+Aw forj < i, we say that wj is a left child of wi; a rightchild is defined in a symmetrical way.The left spine of Tw is an ordered sequence?u1, .
+.
+.
+, up?
+with p ?
+1 and ui ?
+Vw for i ?
+[1, p],consisting of all nodes in a descending path fromthe root of Tw taking the leftmost child node ateach step.
+More formally, u1 is the root node of Twand ui is the leftmost child of ui?1, for i ?
+[2, p].The right spine of Tw is defined symmetrically;see again Figure 2.
+Note that the left and the rightspines share the root node and no other node.3.2 Basic IdeaTransition-based dependency parsers use a stackdata structure, where each stack element is associ-ated with a tree spanning some (contiguous) sub-string of the input w. The parser can combinetwo trees T and T ?
+through attachment operations,called left-arc or right-arc, under the condition thatT and T ?
+appear at the two topmost positions inthe stack.
+Crucially, only the roots of T and T ?
+areavailable for attachment; see Figure 3(a).In contrast, a stack element in our parser recordsthe entire left spine and right spine of the associatedtree.
+This allows us to extend the inventory of theattachment operations of the parser by includingthe attachment of tree T as a dependent of any nodein the left or in the right spine of a second tree T ?,provided that this does not violate projectivity.1See Figure 3(b) for an example.The new parser implements a mix of bottom-upand top-down strategies, since after any of the at-tachments in Figure 3(b) is performed, additionaldependencies can still be created for the root of T .Furthermore, the new parsing strategy is clearly dy-1A dependency tree for w is projective if every subtree hasa contiguous yield in w.TT ?TT ?
+(a) (b)Figure 3: Left-arc attachment of T to T ?
+in caseof (a) standard transition-based parsers and (b) ourparser.namic, due to the free choice in the timing for theseattachments.
+The new strategy is more powerfulthan the strategy of the arc-eager model, since wecan use top-down parsing at left arcs, which is notallowed in arc-eager parsing, and we do not havethe restrictions of parsing right arcs (h?
+d) beforethe attachment of right dependents at node d.To conclude this section, let us resume our dis-cussion of the PP-attachment example in Figure 1.We observe that the new parsing strategy allows theconstruction of a tree T ?
+consisting of the only de-pendency V?
+N1 and a tree T , placed at the rightof T ?, consisting of the only dependency P?
+N2.Since the right spine of T ?
+consists of nodes Vand N1, we can freely choose between attachmentV?
+P and attachment N1?
+P. Note that this isdone after we have seen node N2, as desired.3.3 Transition-based ParserWe assume the reader is familiar with the formalframework of transition-based dependency parsingoriginally introduced by Nivre (2003); see Nivre(2008) for an introduction.
+To keep the notation ata simple level, we only discuss here the unlabeledversion of our parser; however, a labeled extensionis used in ?5 for our experiments.Our transition-based parser uses a stack datastructure to store partial parses for the input stringw.
+We represent the stack as an ordered sequence?
+= [?d, .
+.
+.
+, ?1], d ?
+0, of stack elements, withthe topmost element placed at the right.
+When d =0, we have the empty stack ?
+= [].
+Sometimes weuse the vertical bar to denote the append operatorfor ?, and write ?
+= ?
+?|?1 to indicate that ?1 is thetopmost element of ?.A stack element is a pair?k = (?uk,1, .
+.
+.
+, uk,p?, ?vk,1, .
+.
+.
+, vk,q?
+)where the ordered sequences ?uk,1, .
+.
+.
+, uk,p?
+and137?vk,1, .
+.
+.
+, vk,q?
+are the left and the right spines, re-spectively, of the tree associated with ?k.
+Recallthat uk,1 = vk,1, since the root node of the associ-ated tree is shared by the two spines.The parser also uses a buffer to store the por-tion of the input string still to be processed.
+Werepresent the buffer as an ordered sequence ?
+=[wi, .
+.
+.
+, wn], i ?
+0, of tokens from w, with thefirst element placed at the left.
+Note that ?
+alwaysrepresents a (non-necessarily proper) suffix of w.When i > n, we have the empty buffer ?
+= [].Sometimes we use the vertical bar to denote theappend operator for ?, and write ?
+= wi|??
+to in-dicate that wi is the first token of ?
+; consequently,we have ??
+= [wi+1, .
+.
+.
+, wn].When processing w, the parser reaches severalstates, technically called configurations.
+A con-figuration of the parser relative to w is a triplec = (?, ?,A), where ?
+and ?
+are a stack anda buffer, respectively, and A ?
+Vw ?
+Vw is aset of arcs.
+The initial configuration for w is([], [w0, .
+.
+.
+, wn], ?).
+The set of terminal config-urations consists of all configurations of the form([?1], [], A), where ?1 is associated with a tree hav-ing root w0, that is, u1,1 = v1,1 = w0, and A is anyset of arcs.The core of a transition-based parser is the setof its transitions.
+Each transition is a binary rela-tion defined over the set of configurations of theparser.
+Since the set of configurations is infinite,a transition is infinite as well, when viewed as aset.
+However, transitions can always be specifiedby some finite means.
+Our parser uses three typesof transitions, defined in what follows.?
+SHIFT, or sh for short.
+This transition re-moves the first node from the buffer andpushes into the stack a new element, consist-ing of the left and right spines of the associ-ated tree.
+More formally(?,wi|?,A) `sh (?|(?wi?, ?wi?
+), ?, A)?
+LEFT-ARCk, k ?
+1, or lak for short.
+Let hbe the k-th node in the left spine of the top-most tree in the stack, and let d be the rootnode of the second topmost tree in the stack.This transition creates a new arc h?
+d. Fur-thermore, the two topmost stack elements arereplaced by a new element associated with thetree resulting from the h?
+d attachment.
+Thetransition does not advance with the readingof the buffer.
+More formally(?
+?|?2|?1, ?, A) `lak (?
+?|?la, ?, A ?
+{h?
+d})where?1 = (?u1,1, .
+.
+.
+, u1,p?, ?v1,1, .
+.
+.
+, v1,q?)
+,?2 = (?u2,1, .
+.
+.
+, u2,r?, ?v2,1, .
+.
+.
+, v2,s?)
+,?la = (?u1,1, .
+.
+.
+, u1,k, u2,1, .
+.
+.
+, u2,r?,?v1,1, .
+.
+.
+, v1,q?)
+,and where we have set h = u1,k and d = u2,1.?
+RIGHT-ARCk, k ?
+1, or rak for short.
+Thistransition is defined symmetrically with re-spect to lak.
+We have(?
+?|?2|?1, ?, A) `rak (?
+?|?ra, ?, A ?
+{h?
+d})where ?1 and ?2 are as in the lak case,?ra = (?u2,1, .
+.
+.
+, u2,r?,?v2,1, .
+.
+.
+, v2,k, v1,1, .
+.
+.
+, v1,q?)
+,and we have set h = v2,k and d = v1,1.Transitions lak and rak are parametric in k,where k is bounded by the length of the input stringand not by a fixed constant (but see also the experi-mental findings in ?5).
+Thus our system uses an un-bounded number of transition relations, which hasan apparent disadvantage for learning algorithms.We will get back to this problem in ?4.3.A complete computation relative to w is a se-quence of configurations c1, c2, .
+.
+.
+, ct, t ?
+1, suchthat c1 and ct are initial and final configurations,respectively, and for each i ?
+[2, t], ci is producedby the application of some transition to ci?1.
+It isnot difficult to see that the transition-based parserspecified above is sound, meaning that the set ofarcs constructed in any complete computation onw is always a dependency tree for w. The parseris also complete, meaning that every (projective)dependency tree for w is constructed by some com-plete computation on w. A mathematical proof ofthis statement is beyond the scope of this paper,and will not be provided here.3.4 Deterministic Parsing AlgorithmThe transition-based parser of the previous sec-tion is a nondeterministic device, since severaltransitions can be applied to a given configuration.This might result in several complete computations138Algorithm 1 Parsing AlgorithmInput: string w = w0 ?
+?
+?wn, function score()Output: dependency tree Twc = (?, ?,A)?
+([], [w0, .
+.
+.
+, wn], ?
+)while |?| > 1 ?
+|?| > 0 dowhile |?| < 2 doupdate c with shp?
+length of left spine of ?1s?
+length of right spine of ?2T ?
+{lak | k ?
+[1, p]} ?
+{rak | k ?
+[1, s]} ?
+{sh}bestT ?
+argmaxt?T score(t , c)update c with bestTreturn Tw = (Vw, A)for w. We present here an algorithm that runsthe parser in pseudo-deterministic mode, greed-ily choosing at each configuration the transitionthat maximizes some score function.
+Algorithm 1takes as input a string w and a scoring functionscore() defined over parser transitions and parserconfigurations.
+The scoring function will be thesubject of ?4 and is not discussed here.
+The outputof the parser is a dependency tree for w.At each iteration the algorithm checks whetherthere are at least two elements in the stack and, ifthis is not the case, it shifts elements from the bufferto the stack.
+Then the algorithm uses the functionscore() to evaluate all transitions that can be ap-plied under the current configuration c = (?, ?,A),and it applies the transition with the highest score,updating the current configuration.To parse a sentence of length n (excluding theroot token w0) the algorithm applies exactly 2n+1transitions.
+In the worst case, each transition ap-plication involves 1 + p+ s transition evaluations.We therefore conclude that the algorithm alwaysreaches a configuration with an empty buffer and astack which contains only one element.
+Then the al-gorithm stops, returning the dependency tree whosearc set is defined as in the current configuration.4 Model and TrainingIn this section we introduce the adopted learningalgorithm and discuss the model parameters.4.1 Learning AlgorithmWe use a linear model for the score function inAlgorithm 1, and define score(t , c) = ~?
+?
+?
+(t , c).Here ~?
+is a weight vector and function ?
+providesAlgorithm 2 Learning AlgorithmInput: pair (w = w0 ?
+?
+?wn, Ag), vector ~?Output: vector ~?c = (?, ?,A)?
+([], [w0, .
+.
+.
+, wn], ?
+)while |?| > 1 ?
+|?| > 0 dowhile |?| < 2 doupdate c with SHIFTp?
+length of left spine of ?1s?
+length of right spine of ?2T ?
+{lak | k ?
+[1, p]} ?
+{rak | k ?
+[1, s]} ?
+{sh}bestT ?
+argmaxt?T score(t , c)bestCorrectT ?argmaxt?T ?isCorrect(t) score(t , c)if bestT 6= bestCorrectT then~?
+?
+~?
+?
+?
+(bestT , c)+?
+(bestCorrectT , c)update c with bestCorrectTa feature vector representation for a transition t ap-plying to a configuration c. The function ?
+will bediscussed at length in ?4.3.
+The vector ~?
+is trainedusing the perceptron algorithm in combination withthe averaging method to avoid overfitting; see Fre-und and Schapire (1999) and Collins and Duffy(2002) for details.The training data set consists of pairs (w,Ag),where w is a sentence and Ag is the set of arcsof the gold (desired) dependency tree for w. Attraining time, each pair (w,Ag) is processed usingthe learning algorithm described as Algorithm 2.The algorithm is based on the notions of correct andincorrect transitions, discussed at length in ?4.2.Algorithm 2 parsesw following Algorithm 1 andusing the current ~?, until the highest score selec-ted transition bestT is incorrect according to Ag .When this happens, ~?
+is updated by decreasing theweights of the features associated with the incorrectbestT and by increasing the weights of the featuresassociated with the transition bestCorrectT havingthe highest score among all possible correct trans-itions.
+After each update, the learning algorithmresumes parsing from the current configuration byapplying bestCorrectT , and moves on using theupdated weights.4.2 Correct and Incorrect TransitionsStandard transition-based dependency parsers aretrained by associating each gold tree with a canon-ical complete computation.
+This means that, foreach configuration of interest, only one transition139?2 ?1 b1(a)?2 ?1 b1(b)?2 ?1?
+?
+?bi(c)?2 ?1?
+?
+?bi(d)Figure 4: Graphical representation of configura-tions; drawn arcs are in Ag but have not yet beenadded to the configuration.
+Transition sh is incor-rect for configuration (a) and (b); sh and ra1 arecorrect for (c); sh and la1 are correct for (d).leading to the gold tree is considered as correct.
+Inthis paper we depart from such a methodology, andfollow Goldberg and Nivre (2012) in allowing morethan one correct transition for each configuration,as explained in detail below.Let (w,Ag) be a pair in the training set.
+In ?3.3we have mentioned that there is always a completecomputation on w that results in the constructionof the set Ag .
+In general, there might be more thanone computation forAg .
+This means that the parsershows spurious ambiguity.Observe that all complete computations for Agshare the same initial configuration cI,w and finalconfiguration cF,Ag .
+Consider now the set C(w) ofall configurations c that are reachable from cI,w,meaning that there exists a sequence of transitionsthat takes the parser from cI,w to c. A configurationc ?
+C(w) is correct for Ag if cF,Ag is reachablefrom c; otherwise, c is incorrect for Ag .Let c ?
+C(w) be a correct configuration for Ag .A transition t is correct for c and Ag if c `t c?and c?
+is correct for Ag ; otherwise, t is incorrectfor c and Ag .
+The next lemma provides a charac-terization of correct and incorrect transitions; seeFigure 4 for examples.
+We use this characterizationin the implementation of predicate isCorrect() inAlgorithm 2.Lemma 1 Let (w,Ag) be a pair in the training setand let c ?
+C(w) with c = (?, ?,A) be a correctconfiguration for Ag .
+Let alo v1,k, k ?
+[1, q], bethe nodes in the right spine of ?1.
+(i) lak and rak are incorrect for c and Ag if andonly if they create a new arc (h?
+d) 6?
+Ag ;(ii) sh is incorrect for c and Ag if and only if thefollowing conditions are both satisfied:(a) there exists an arc (h ?
+d) in Ag suchthat h is in ?
+and d = v1,1;(b) there is no arc (h?
+?
+d?)
+in Ag withh?
+= v1,k, k ?
+[1, q], and d?
+in ?.
+2PROOF (SKETCH) To prove part (i) we focus ontransition rak; a similar argument applies to lak.The ?if?
+statement in part (i) is self-evident.
+?Only if?.
+Assuming that transition rak createsa new arc (h?
+d) ?
+Ag , we argue that from con-figuration c?
+with c `rak c?
+we can still reach thefinal configuration associated with Ag .
+We haveh = v2,k and d = u1,1.
+The tree fragments in ?with roots v2,k+1 and u1,1 must be adjacent siblingsin the tree associated with Ag , since c is a correctconfiguration for Ag and (v2,k ?
+u1,1) ?
+Ag .This means that each of the nodes v2,k+1, .
+.
+.
+, v2,sin the right spine in ?2 in c must have already ac-quired all of its right dependents, since the tree isprojective.
+Therefore it is safe for transition rak toeliminate the nodes v2,k+1, .
+.
+.
+, v2,s from the rightspine in ?2.We now deal with part (ii).
+Let c `sh c?, c?
+=(?
+?, ?
+?, A).?If?.
+Assuming (ii)a and (ii)b, we argue that c?
+isincorrect.
+Node d is the head of ??2.
+Arc (h?
+d) isnot inA, and the only way we could create (h?
+d)from c?
+is by reaching a new configuration with din the topmost stack symbol, which amounts to saythat ?
+?1 can be reduced by a correct transition.
+Nodeh is in some ?
+?i, i > 2, by (ii)a.
+Then reduction of?
+?1 implies that the root of ?
+?1 is reachable from theroot of ?
+?2, which contradicts (ii)b.?Only if?.
+Assuming (ii)a is not satisfied, weargue that sh is correct for c and Ag .
+There mustbe an arc (h?
+d) not in A with d = v1,1 and h issome token wi in ?.
+From stack ??
+= ???|??2|?
+?1 itis always possible to construct (h?
+d) consumingthe substring of ?
+up to wi and ending up withstack ??
+?|?red , where ?red is a stack element withroot wi.
+From there, the parser can move on tothe final configuration cF,Ag .
+A similar argumentapplies if we assume that (ii)b is not satisfied.
+From condition (i) in Lemma 1 and from the factthat there are no cycles in Ag , it follows that thereis at most one correct transition among the trans-itions of type lak or rak.
+From condition (ii) in thelemma we can also see that the existence of a cor-rect transition of type lak or rak for some configura-tion does not imply that the sh transition is incorrect140for the same configuration; see Figures 4(c,d) forexamples.
+It follows that for a correct configurationthere might be at most 2 correct transitions.
+In ourtraining experiments for English in ?5 we observe 2correct transitions for 42% of the reached configur-ations.
+This nondeterminism is a byproduct of theadopted dynamic parsing strategy, and eventuallyleads to the spurious ambiguity of the parser.As already mentioned, we do not impose any ca-nonical form on complete computations that wouldhardwire a preference for some correct transitionand get rid of spurious ambiguity.
+Following Gold-berg and Nivre (2012), we instead regard spuriousambiguity as an additional resource of our pars-ing strategy.
+Our main goal is that the trainingalgorithm learns to prefer a sh transition in a con-figuration that does not provide enough informationfor the choice of the correct arc.
+In the context ofdependency parsing, the strategy of delaying arcconstruction when the current configuration is notinformative is called the easy-first strategy, andhas been first explored by Goldberg and Elhadad(2010).4.3 Feature ExtractionIn existing transition-based parsers a set of atomicfeatures is statically defined and extracted fromeach configuration.
+These features are then com-bined together into complex features, according tosome feature template, and joined with the avail-able transition types.
+This is not possible in oursystem, since the number of transitions lak and rakis not bounded by a constant.
+Furthermore, it is notmeaningful to associate transitions lak and rak, forany k ?
+1, always with the same features, sincethe constructed arcs impinge on nodes at differ-ent depths in the involved spines.
+It seems indeedmore significant to extract information that is localto the arc h?
+d being constructed by each trans-ition, such as for instance the grandparent and thegreat grandparent nodes of d. This is possible ifwe introduce a higher level of abstraction than inexisting transition-based parsers.
+We remark herethat this abstraction also makes the feature repres-entation more similar to the ones typically foundin graph-based parsers, which are centered on arcsor subgraphs of the dependency tree.We index the nodes in the stack ?
+relative tothe head node of the arc being constructed, incase of the transitions lak or rak, or else relativeto the root node of ?1, in case of the transitionsh.
+More precisely, let c = (?, ?,A) be a con-figuration and let t be a transition.
+We definethe context of c and t as the tuple C(c, t) =(s3, s2, s1, q1, q2, gp, gg), whose components areplaceholders for word tokens in ?
+or in ?.
+All theseplaceholders are specified in Table 1, for each c andt .
+Figure 5 shows an example of feature extractionfor the displayed configuration c = (?, ?,A) andthe transition la2.
+In this case we have s3 = u3,1,s2 = u2,1, s1 = u1,2, q1 = gp = u1,1, q2 = b1;gg = none because the head of gp is not availablein c.Note that in Table 1 placeholders are dynamic-ally assigned in such a way that s1 and s2 refer tothe nodes in the constructed arc h?
+d, and gp, ggrefer to the grandparent and the great grandparentnodes, respectively, of d. Furthermore, the nodeassigned to s3 is the parent node of s2, if such anode is defined; otherwise, the node assigned tos3 is the root of the tree fragment in the stack un-derneath ?2.
+Symmetrically, placeholders q1 andq2 refer to the parent and grandparent nodes of s1,respectively, when these nodes are defined; other-wise, these placeholders get assigned tokens fromthe buffer.
+See again Figure 5.Finally, from the placeholders in C(c, t) we ex-tract a standard set of atomic features and theircomplex combinations, to define the function ?.Our feature template is an extended version of thefeature template of Zhang and Nivre (2011), ori-ginally developed for the arc-eager model.
+Theextension is obtained by adding top-down featuresfor left-arcs (based on placeholders gp and gg),and by adding right child features for the first stackelement.
+The latter group of features is usually ex-ploited for the arc-standard model, but is undefinedfor the arc-eager model.5 Experimental AssessmentPerformance evaluation is carried out on the PennTreebank (Marcus et al, 1993) converted to Stan-ford basic dependencies (De Marneffe et al, 2006).We use sections 2-21 for training, 22 as develop-ment set, and 23 as test set.
+The part-of-speechtags are assigned by an automatic tagger with ac-curacy 97.1%.
+The tagger used on the training setis trained on the same data set by using four-wayjackknifing, while the tagger used on the develop-ment and test sets is trained on all the training set.We train an arc-labeled version of our parser.In the first three lines of Table 2 we compare141context sh lak rakplaceholder k = 1 k = 2 k > 2 k = 1 k = 2 k > 2s1 u1,1 = v1,1 u1,k u1,1 = v1,1s2 u2,1 = v2,1 u2,1 = v2,1 v2,ks3 u3,1 = v3,1 u3,1 = v3,1 u3,1 = v3,1 v2,k?1q1 b1 b1 u1,k?1 b1q2 b2 b2 b1 u1,k?2 b2gp none none u1,k?1 none v2,k?1gg none none none u1,k?2 none none v2,k?2Table 1: Definition ofC(c, t) = (s3, s2, s1, q1, q2, gp, gg), for c = (?
+?|?3|?2|?1, b1|b2|?,A) and t of typesh or lak, rak, k ?
+1.
+Symbols uj,k and vj,k are the k-th nodes in the left and right spines, respectively, ofstack element ?j , with uj,1 = vj,1 being the shared root of ?j ; none is an artificial element used whensome context?s placeholder is not available.?
+?
+?stack ?u3,1 = v3,1v3,2u2,1 = v2,1u2,2 v2,2v2,3u1,1 = v1,1u1,2 v1,2u1,3 v1,3la2buffer ?b1 b2 b3 ?
+?
+?context extracted for la2s3 s2 s1 q1=gp q2Figure 5: Extraction of atomic features for context C(c, la2) = (s3, s2, s1, q1, q2, gp, gg), c = (?, ?,A).parser iter UAS LAS UEMarc-standard 23 90.02 87.69 38.33arc-eager 12 90.18 87.83 40.02this work 30 91.33 89.16 42.38arc-standard + easy-first 21 90.49 88.22 39.61arc-standard + spine 27 90.44 88.23 40.27Table 2: Accuracy on test set, excluding punc-tuation, for unlabeled attachment score (UAS),labeled attachment score (LAS), unlabeled exactmatch (UEM).the accuracy of our parser against our implementa-tion of the arc-eager and arc-standard parsers.
+Forthe arc-eager parser, we use the feature templateof Zhang and Nivre (2011).
+The same template isadapted to the arc-standard parser, by removing thetop-down parent features and by adding the rightchild features for the first stack element.
+It turns outthat our feature template, described in ?4.3, is theexact merge of the templates used for the arc-eagerand the arc-standard parsers.We train all parsers up to 30 iterations, and foreach parser we select the weight vector ~?
+from theiteration with the best accuracy on the developmentset.
+All our parsers attach the root node at the endof the parsing process, following the ?None?
+ap-proach discussed by Ballesteros and Nivre (2013).Punctuation is excluded in all evaluation metrics.Considering UAS, our parser provides an improve-ment of 1.15 over the arc-eager parser and an im-provement of 1.31 over the arc-standard parser, thatis an error reduction of ?12% and ?13%, respect-ively.
+Considering LAS, we achieve improvementsof 1.33 and 1.47, with an error reduction of ?11%and ?12%, over the arc-eager and the arc-standardparsers, respectively.We speculate that the observed improvement ofour parser can be ascribed to two distinct com-ponents.
+The first component is the left-/right-spine representation for stack elements, introducedin ?3.3.
+The second component is the easy-firststrategy, implemented on the basis of the spuriousambiguity of our parser and the definition of cor-rect/incorrect transitions in ?4.2.
+In this perspective,we observe that our parser can indeed be viewed asan arc-standard model augmented with (i) the spinerepresentation, and (ii) the easy-first strategy.
+Morespecifically, (i) generalizes the la/ra transitions tothe lak/rak transitions, introducing a top-down com-ponent into the purely bottom-up arc-standard.
+Onthe other hand, (ii) drops the limitation of canonicalcomputations for the arc-standard, and leverages142on the spurious ambiguity of the parser to enlargethe search space.The two components above are mutually inde-pendent, meaning that we can individually imple-ment each component on top of an arc-standardmodel.
+More precisely, the arc-standard + spinemodel uses the transitions lak/rak but retains thedefinition of canonical computation, defined by ap-plying each lak/rak transition as soon as possible.On the other hand, the arc-standard + easy-firstmodel retains the original la/ra transitions but istrained allowing any correct transition at each con-figuration.
+In this case the characterization of cor-rect and incorrect configurations in Lemma 1 hasbeen adapted to transitions la/ra, taking into ac-count the bottom-up constraint.With the purpose of incremental comparison, wereport accuracy results for the two ?incremental?models in the last two lines of Table 2.
+Analyzingthese results, and comparing with the plain arc-standard, we see that the spine representation andthe easy-first strategy individually improve accur-acy.
+Moreover, their combination into our model(third line of Table 2) works very well, with anoverall improvement larger than the sum of theindividual contributions.We now turn to a computational analysis.
+Ateach iteration our parser evaluates a number oftransitions bounded by ?+1, with ?
+the maximumvalue of the sum of the lengths of the left spine in ?1and of the right spine in ?2.
+Quantity ?
+is boundedby the length n of the input sentence.
+Since theparser applies exactly 2n + 1 transitions, worstcase running time is O(n2).
+We have computedthe average value of ?
+on our English data set,resulting in 2.98 (variance 2.15) for training set,and 2.95 (variance 1.96) for development set.
+Weconclude that, in the expected case, running time isO(n), with a slow down constant which is rathersmall, in comparison to standard transition-basedparsers.
+Accordingly, when running our parseragainst our implementation of the arc-eager andarc-standard models, we measured a slow-down of2.8 and 2.2, respectively.
+Besides the change inrepresentation, this slow-down is also due to theincrease in the number of features in our system.We have also checked the worst case value of ?
+inour data set.
+Interestingly, we have seen that forstrings of length smaller than 40 this value linearlygrows with n, and for longer strings the growthstops, with a maximum worst case observed valueof 22.6 Concluding RemarksWe have presented a novel transition-based parserusing a dynamic parsing strategy, which achievesa ?12% error reduction in unlabeled attachmentscore over the static arc-eager strategy and evenmore over the (equally static) arc-standard strategy,when evaluated on English.The idea of representing the right spine of atree within the stack elements of a shift-reducedevice is quite old in parsing, predating empiricalapproaches.
+It has been mainly exploited to solvethe PP-attachment problem, motivated by psycho-linguistic models.
+The same representation is alsoadopted in applications of discourse parsing, whereright spines are usually called right frontiers; seefor instance Subba and Di Eugenio (2009).
+Inthe context of transition-based dependency parsers,right spines have also been exploited by Kitagawaand Tanaka-Ishii (2010) to decide where to attachthe next word from the buffer.
+In this paper wehave generalized their approach by introducing thesymmetrical notion of left spine, and by allowingattachment of full trees rather than attachment of asingle word.2Since one can regard a spine as a stack in it-self, whose elements are tree nodes, our model isreminiscent of the embedded pushdown automataof Schabes and Vijay-Shanker (1990), used to parsetree adjoining grammars (Joshi and Schabes, 1997)and exploiting a stack of stacks.
+However, by im-posing projectivity, we do not use the extra-powerof the latter class.An interesting line of future research is to com-bine our dynamic parsing strategy with a trainingmethod that allows the parser to explore transitionsthat apply to incorrect configurations, as in Gold-berg and Nivre (2012).AcknowledgmentsWe wish to thank Liang Huang and Marco Kuhl-mann for discussion related to the ideas reported inthis paper, and the anonymous reviewers for theiruseful suggestions.
+The second author has beenpartially supported by MIUR under project PRINNo.
+2010LYA9RH 006.2Accuracy comparison of our work with Kitagawa andTanaka-Ishii (2010) is not meaningful, since these authorshave evaluated their system on the same data set but based ongold part-of-speech tags (personal communication).143ReferencesGiuseppe Attardi.
+2006.
+Experiments with a multil-anguage non-projective dependency parser.
+In Pro-ceedings of the 10th Conference on ComputationalNatural Language Learning (CoNLL), pages 166?170.Miguel Ballesteros and Joakim Nivre.
+2013.
+Goingto the roots of dependency parsing.
+ComputationalLinguistics, 39(1):5?13.Bernd Bohnet and Joakim Nivre.
+2012.
+A transition-based system for joint part-of-speech tagging andlabeled non-projective dependency parsing.
+In Pro-ceedings of the 2012 Joint Conference on EmpiricalMethods in Natural Language Processing and Com-putational Natural Language Learning, pages 1455?1465.Jinho D. Choi and Martha Palmer.
+2011.
+Getting themost out of transition-based dependency parsing.
+InProceedings of the 49th Annual Meeting of the Asso-ciation for Computational Linguistics (ACL), pages687?692.Michael Collins and Nigel Duffy.
+2002.
+New rankingalgorithms for parsing and tagging: Kernels over dis-crete structures, and the voted perceptron.
+In Pro-ceedings of the 40th Annual Meeting of the Asso-ciation for Computational Linguistics (ACL), pages263?270, Philadephia, Pennsylvania.Marie-Catherine De Marneffe, Bill MacCartney, andChristopher D. Manning.
+2006.
+Generating typeddependency parses from phrase structure parses.
+InProceedings of the 5th International Conferenceon Language Resources and Evaluation (LREC),volume 6, pages 449?454.Yoav Freund and Robert E. Schapire.
+1999.
+Largemargin classification using the perceptron algorithm.Machine Learning, 37(3):277?296, December.Yoav Goldberg and Michael Elhadad.
+2010.
+An ef-ficient algorithm for easy-first non-directional de-pendency parsing.
+In Proceedings of Human Lan-guage Technologies: The 2010 Annual Conferenceof the North American Chapter of the Associationfor Computational Linguistics (NAACL), pages 742?750, Los Angeles, USA.Yoav Goldberg and Joakim Nivre.
+2012.
+A dynamic or-acle for arc-eager dependency parsing.
+In Proceed-ings of the 24th International Conference on Com-putational Linguistics (COLING), pages 959?976.Aravind K. Joshi and Yves Schabes.
+1997.
+Tree-Adjoining Grammars.
+In Grzegorz Rozenberg andArto Salomaa, editors, Handbook of Formal Lan-guages, volume 3, pages 69?123.
+Springer.Kotaro Kitagawa and Kumiko Tanaka-Ishii.
+2010.Tree-based deterministic dependency parsing ?
+anapplication to Nivre?s method ?.
+In Proceedings ofthe 48th Annual Meeting of the Association for Com-putational Linguistics (ACL) Short Papers, pages189?193.Mitchell P. Marcus, Beatrice Santorini, and Mary AnnMarcinkiewicz.
+1993.
+Building a large annotatedcorpus of English: The Penn Treebank.
+Computa-tional Linguistics, 19:313?330.Ryan McDonald and Joakim Nivre.
+2007.
+Character-izing the errors of data-driven dependency parsingmodels.
+In Proceedings of the 2007 Joint Confer-ence on Empirical Methods in Natural LanguageProcessing and Computational Natural LanguageLearning (EMNLP-CoNLL), pages 122?131.Joakim Nivre.
+2003.
+An efficient algorithm for pro-jective dependency parsing.
+In Proceedings of theEighth International Workshop on Parsing Techno-logies (IWPT), pages 149?160, Nancy, France.Joakim Nivre.
+2004.
+Incrementality in deterministicdependency parsing.
+In Workshop on IncrementalParsing: Bringing Engineering and Cognition To-gether, pages 50?57, Barcelona, Spain.Joakim Nivre.
+2008.
+Algorithms for deterministic in-cremental dependency parsing.
+Computational Lin-guistics, 34(4):513?553.Yves Schabes and K. Vijay-Shanker.
+1990.
+Determ-inistic left to right parsing of tree adjoining lan-guages.
+In Proceedings of the 28th annual meet-ing of the Association for Computational Linguistics(ACL), pages 276?283, Pittsburgh, Pennsylvania.Rajen Subba and Barbara Di Eugenio.
+2009.
+An effect-ive discourse parser that uses rich linguistic inform-ation.
+In Proceedings of Human Language Techno-logies: The 2009 Annual Conference of the NorthAmerican Chapter of the Association for Computa-tional Linguistics, pages 566?574.Hiroyasu Yamada and Yuji Matsumoto.
+2003.
+Stat-istical dependency analysis with support vector ma-chines.
+In Proceedings of the 8th InternationalWorkshop on Parsing Technologies (IWPT), pages195?206.Yue Zhang and Stephen Clark.
+2008.
+A tale of twoparsers: Investigating and combining graph-basedand transition-based dependency parsing.
+In Pro-ceedings of the Conference on Empirical Methods inNatural Language Processing (EMNLP), pages 562?571.Yue Zhang and Joakim Nivre.
+2011.
+Transition-basedparsing with rich non-local features.
+In Proceedingsof the 49th Annual Meeting of the Association forComputational Linguistics (ACL), pages 188?193.144

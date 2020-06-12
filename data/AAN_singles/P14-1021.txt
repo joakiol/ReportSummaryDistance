@@ -1,0 +1,434 @@
+Proceedings of the 52nd Annual Meeting of the Association for Computational Linguistics, pages 218?227,Baltimore, Maryland, USA, June 23-25 2014.c?2014 Association for Computational LinguisticsShift-Reduce CCG Parsing with a Dependency ModelWenduan XuUniversity of CambridgeComputer Laboratorywx217@cam.ac.ukStephen ClarkUniversity of CambridgeComputer Laboratorysc609@cam.ac.ukYue ZhangSingapore Universityof Technology and Designyue zhang@sutd.edu.sgAbstractThis paper presents the first dependencymodel for a shift-reduce CCG parser.
+Mod-elling dependencies is desirable for a num-ber of reasons, including handling the?spurious?
+ambiguity of CCG; fitting wellwith the theory of CCG; and optimizingfor structures which are evaluated at testtime.
+We develop a novel training tech-nique using a dependency oracle, in whichall derivations are hidden.
+A challengearises from the fact that the oracle needsto keep track of exponentially many gold-standard derivations, which is solved byintegrating a packed parse forest with thebeam-search decoder.
+Standard CCGBanktests show the model achieves up to 1.05labeled F-score improvements over threeexisting, competitive CCG parsing models.1 IntroductionCombinatory Categorial Grammar (CCG; Steed-man (2000)) is able to derive typed dependencystructures (Hockenmaier, 2003; Clark and Curran,2007), providing a useful approximation to the un-derlying predicate-argument relations of ?who didwhat to whom?.
+To date, CCG remains the mostcompetitive formalism for recovering ?deep?
+de-pendencies arising from many linguistic phenom-ena such as raising, control, extraction and coordi-nation (Rimell et al, 2009; Nivre et al, 2010).To achieve its expressiveness, CCG exhibitsso-called ?spurious?
+ambiguity, permitting manynon-standard surface derivations which ease therecovery of certain dependencies, especially thosearising from type-raising and composition.
+Butthis raises the question of what is the most suit-able model for CCG: should we model the deriva-tions, the dependencies, or both?
+The choice forsome existing parsers (Hockenmaier, 2003; Clarkand Curran, 2007) is to model derivations directly,restricting the gold-standard to be the normal-formderivations (Eisner, 1996) from CCGBank (Hock-enmaier and Steedman, 2007).Modelling dependencies, as a proxy for the se-mantic interpretation, fits well with the theory ofCCG, in which Steedman (2000) argues that thederivation is merely a ?trace?
+of the underlyingsyntactic process, and that the structure whichis built, and predicated over when applying con-straints on grammaticality, is the semantic inter-pretation.
+The early dependency model of Clarket al (2002), in which model features were definedover only dependency structures, was partly moti-vated by these theoretical observations.More generally, dependency models are desir-able for a number of reasons.
+First, modellingdependencies provides an elegant solution to thespurious ambiguity problem (Clark and Curran,2007).
+Second, obtaining training data for de-pendencies is likely to be easier than for syn-tactic derivations, especially for incomplete data(Schneider et al, 2013).
+Clark and Curran (2006)show how the dependency model from Clark andCurran (2007) extends naturally to the partial-training case, and also how to obtain dependencydata cheaply from gold-standard lexical categorysequences alone.
+And third, it has been argued thatdependencies are an ideal representation for parserevaluation, especially for CCG (Briscoe and Car-roll, 2006; Clark and Hockenmaier, 2002), and sooptimizing for dependency recovery makes sensefrom an evaluation perspective.In this paper, we fill a gap in the literature bydeveloping the first dependency model for a shift-reduce CCG parser.
+Shift-reduce parsing appliesnaturally to CCG (Zhang and Clark, 2011), and theleft-to-right, incremental nature of the decodingfits with CCG?s cognitive claims.
+The discrimina-tive model is global and trained with the structuredperceptron.
+The decoder is based on beam-search218(Zhang and Clark, 2008) with the advantage oflinear-time decoding (Goldberg et al, 2013).A main contribution of the paper is a novel tech-nique for training the parser using a dependencyoracle, in which all derivations are hidden.
+Achallenge arises from the potentially exponentialnumber of derivations leading to a gold-standarddependency structure, which the oracle needs tokeep track of.
+Our solution is an integration ofa packed parse forest, which efficiently stores allthe derivations, with the beam-search decoder attraining time.
+The derivations are not explicitlypart of the data, since the forest is built from thegold-standard dependencies.
+We also show howperceptron learning with beam-search (Collins andRoark, 2004) can be extended to handle the ad-ditional ambiguity, by adapting the ?violation-fixing?
+perceptron of Huang et al (2012).Results on the standard CCGBank tests showthat our parser achieves absolute labeled F-scoregains of up to 0.5 over the shift-reduce parser ofZhang and Clark (2011); and up to 1.05 and 0.64over the normal-form and hybrid models of Clarkand Curran (2007), respectively.2 Shift-Reduce with Beam-SearchThis section describes how shift-reduce tech-niques can be applied to CCG, following Zhangand Clark (2011).
+First we describe the determin-istic process which a parser would follow whentracing out a single, correct derivation; then wedescribe how a model of normal-form derivations?
+or, more accurately, a sequence of shift-reduceactions leading to a normal-form derivation ?can be used with beam-search to develop a non-deterministic parser which selects the highest scor-ing sequence of actions.
+Note this section only de-scribes a normal-form derivation model for shift-reduce parsing.
+Section 3 explains how we extendthe approach to dependency models.The shift-reduce algorithm adapted to CCG issimilar to that of shift-reduce dependency parsing(Yamada and Matsumoto, 2003; Nivre and Mc-Donald, 2008; Zhang and Clark, 2008; Huang andSagae, 2010).
+Following Zhang and Clark (2011),we define each item in the parser as a pair ?s, q?,where q is a queue of remaining input, consistingof words and a set of possible lexical categories foreach word (with q0being the front word), and s isthe stack that holds subtrees s0, s1, ... (with s0atthe top).
+Subtrees on the stack are partial deriva-step stack (sn, ..., s1, s0) queue (q0, q1, ..., qm) action0 Mr. President visited Paris1 N/N President visited Paris SHIFT2 N/N N visited Paris SHIFT3 N visited Paris REDUCE4 NP visited Paris UNARY5 NP (S [dcl]\NP)/NP Paris SHIFT6 NP (S [dcl]\NP)/NP N SHIFT7 NP (S [dcl]\NP)/NP NP UNARY8 NP S [dcl]\NP REDUCE9 S [dcl] REDUCEFigure 1: Deterministic example of shift-reduceCCG parsing (lexical categories omitted on queue).tions that have been built as part of the shift-reduceprocess.
+SHIFT, REDUCE and UNARY are the threetypes of actions that can be applied to an item.
+ASHIFT action shifts one of the lexical categoriesof q0onto the stack.
+A REDUCE action combiness0and s1according to a CCG combinatory rule,producing a new category on the top of the stack.A UNARY action applies either a type-raising ortype-changing rule to the stack-top category s0.1Figure 1 shows a deterministic example for thesentence Mr. President visited Paris, giving a sin-gle sequence of shift-reduce actions which pro-duces a correct derivation (i.e.
+one producing thecorrect set of dependencies).
+Starting with the ini-tial item ?s, q?0(row 0), which has an empty stackand a full queue, a total of nine actions are appliedto produce the complete derivation.Applying beam-search to a statistical shift-reduce parser is a straightforward extension to thedeterministic example.
+At each step, a beam isused to store the top-k highest-scoring items, re-sulting from expanding all items in the previousbeam.
+An item becomes a candidate output once ithas an empty queue, and the parser keeps track ofthe highest scored candidate output and returns thebest one as the final output.
+Compared with greedylocal-search (Nivre and Scholz, 2004), the use ofa beam allows the parser to explore a larger searchspace and delay difficult ambiguity-resolving de-cisions by considering multiple items in parallel.We refer to the shift-reduce model of Zhang andClark (2011) as the normal-form model, wherethe oracle for each sentence specifies a unique se-quence of gold-standard actions which producesthe corresponding normal-form derivation.
+No de-pendency structures are involved at training andtest time, except for evaluation.
+In the next sec-tion, we describe a dependency oracle which con-siders all sequences of actions producing a gold-standard dependency structure to be correct.1See Hockenmaier (2003) and Clark and Curran (2007)for a description of CCG rules.219Mr.
+President visited ParisN /N N (S [dcl ]\NP)/NP NP> >N S [dcl ]\NP>TCNP<S [dcl ](a)Mr. President visited ParisN /N N (S [dcl ]\NP)/NP NP>N>TCNP>TS [dcl ]/(S [dcl ]\NP)>BS [dcl ]/NP>S [dcl ](b)Figure 2: Two derivations leading to the same dependency structure.
+TC denotes type-changing.3 The Dependency ModelCategories in CCG are either basic (such as NPand PP ) or complex (such as (S [dcl ]\NP)/NP ).Each complex category in the lexicon defines oneor more predicate-argument relations, which canbe realized as a predicate-argument dependencywhen the corresponding argument slot is con-sumed.
+For example, the transitive verb categoryabove defines two relations: one for the subjectNP and one for the object NP .
+In this paper aCCG predicate-argument dependency is a 4-tuple:?hf, f, s, ha?
+where hfis the lexical item of thelexical category expressing the relation; f is thelexical category; s is the argument slot; and haisthe head word of the argument.
+Since the lexicalitems in a dependency are indexed by their sen-tence positions, all dependencies for a sentenceform a set, which is referred to as a CCG depen-dency structure.
+Clark and Curran (2007) containsa detailed description of dependency structures.Fig.
+2 shows an example demonstrating spu-rious ambiguity in relation to a CCG depen-dency structure.
+In both derivations, the firsttwo lexical categories are combined using for-ward application (>) and the following depen-dency is realized: ?Mr.,N /N1, 1,President?.
+Inthe normal-form derivation (a), the dependency?visited, (S\NP1)/NP2, 2,Paris?
+is created by com-bining the transitive verb category with the ob-ject NP using forward application.
+One final de-pendency, ?visited, (S\NP1)/NP2, 1,President?, is re-alized when the root node S [dcl ] is producedthrough backward application (<).Fig.
+2(b) shows a non-normal-form derivationwhich uses type-raising (T) and composition (B)(which are not required to derive the correct de-pendency structure).
+In this alternative derivation,the dependency ?visited, (S\NP1)/NP2, 1,President?is realized using forward composition (B), and?visited, (S\NP1)/NP2, 2,Paris?
+is realized when theS [dcl ] root is produced.The chart-based dependency model of Clarkand Curran (2007) treats all derivations as hid-den, and defines a probabilistic model for a de-pendency structure by summing probabilities ofall derivations leading to a particular structure.Features are defined over both derivations andCCG predicate-argument dependencies.
+We fol-low a similar approach, but rather than definea probabilistic model (which requires summing),we define a linear model over sequences of shift-reduce actions, as for the normal-form shift-reducemodel.
+However, the difference compared to thenormal-form model is that we do not assume a sin-gle gold-standard sequence of actions.Similar to Goldberg and Nivre (2012), we de-fine an oracle which determines, for a gold-standard dependency structure, G, what the validtransition sequences are (i.e.
+those sequences cor-responding to derivations leading to G).
+Morespecifically, the oracle can determine, givenG andan item ?s, q?, what the valid actions are for thatitem (i.e.
+what actions can potentially lead to G,starting with ?s, q?
+and the dependencies alreadybuilt on s).
+However, there can be exponentiallymany valid action sequences for G, which we rep-resent efficiently using a packed parse forest.
+Weshow how the forest can be used, during beam-search decoding, to determine the valid actionsfor a parse item (Section 3.2).
+We also show, inSection 3.3, how perceptron training with early-update (Collins and Roark, 2004) can be used inthis setting.3.1 The Oracle ForestA CCG parse forest efficiently represents anexponential number of derivations.
+FollowingClark and Curran (2007) (which builds on Miyaoand Tsujii (2002)), and using the same nota-tion, we define a CCG parse forest ?
+as a tuple?C,D,R, ?, ?
+?, where C is a set of conjunctive220Algorithm 1 (Clark and Curran, 2007)Input: A packed forest ?C,D,R, ?, ?
+?, with dmax(c)and dmax(d) already computed1: function MAIN2: for each dr?
+R s.t.
+dmax.
+(dr) = |G| do3: MARK(dr)4: procedure MARK(d)5: mark d as a correct node6: for each c ?
+?
+(d) do7: if dmax(c) == dmax(d) then8: mark c as a correct node9: for each d??
+?
+(c) do10: if d?has not been visited then11: MARK(d?
+)nodes and D is a set of disjunctive nodes.2Con-junctive nodes are individual CCG categories in ?,and are either obtained from the lexicon, or bycombining two disjunctive nodes using a CCG rule,or by applying a unary rule to a disjunctive node.Disjunctive nodes are equivalence classes of con-junctive nodes.
+Two conjunctive nodes are equiv-alent iff they have the same category, head and un-filled dependencies (i.e.
+they will lead to the samederivation, and produce the same dependencies, inany future parsing).
+R ?
+D is a set of root dis-junctive nodes.
+?
+: D ?
+2Cis the conjunctivechild function and ?
+: C ?
+2Dis the disjunctivechild function.
+The former returns the set of allconjunctive nodes of a disjunctive node, and thelatter returns the disjunctive child nodes of a con-junctive node.The dependency model requires all the conjunc-tive and disjunctive nodes of ?
+that are part of thederivations leading to a gold-standard dependencystructure G. We refer to such derivations as cor-rect derivations and the packed forest containingall these derivations as the oracle forest, denotedas ?G, which is a subset of ?.
+It is prohibitive toenumerate all correct derivations, but it is possibleto identify, from ?, all the conjunctive and dis-junctive nodes that are part of ?G.
+Clark and Cur-ran (2007) gives an algorithm for doing so, whichwe use here.
+The main intuition behind the algo-rithm is that a gold-standard dependency structuredecomposes over derivations; thus gold-standarddependencies realized at conjunctive nodes can becounted when ?
+is built, and all nodes that are partof ?Gcan then be marked out of ?
+by traversingit top-down.
+A key idea in understanding the algo-2Under the hypergraph framework (Gallo et al, 1993;Huang and Chiang, 2005), a conjunctive node corresponds toa hyperedge and a disjunctive node corresponds to the headof a hyperedge or hyperedge bundle.rithm is that dependencies are created when dis-junctive nodes are combined, and hence are asso-ciated with, or ?live on?, conjunctive nodes in theforest.Following Clark and Curran (2007), we alsodefine the following three values, where the firstdecomposes only over local rule productions,while the other two decompose over derivations:cdeps(c) ={?
+if ?
+?
+?
+deps(c), ?
+/?
+G|deps(c)| otherwisedmax(c) =??????
+if cdeps(c) == ??
+if dmax(d) == ?
+for some d ?
+?(c)?d??
+(c)dmax(d) + cdeps(c) otherwisedmax(d) = max{dmax(c) | c ?
+?
+(d)}deps(c) is the set of all dependencies on con-junctive node c, and cdeps(c) counts the numberof correct dependencies on c. dmax(c) is the max-imum number of correct dependencies over anysub-derivation headed by c and is calculated re-cursively; dmax(d) returns the same value for adisjunctive node.
+In all cases, a special value ?indicates the presence of incorrect dependencies.To obtain the oracle forest, we first pre-computedmax(c) and dmax(d) for all d and c in ?
+when ?is built using CKY, which are then used by Algo-rithm 1 to identify all the conjunctive and disjunc-tive nodes in ?G.3.2 The Dependency Oracle AlgorithmWe observe that the canonical shift-reduce algo-rithm (as demonstrated in Fig.
+1) applied to a sin-gle parse tree exactly resembles bottom-up post-order traversal of that tree.
+As an example, con-sider the derivation in Fig.
+2a, where the corre-sponding sequence of actions is: sh N /N , sh N ,re N , un NP , sh (S [dcl ]\NP)/NP , sh NP ,re S [dcl ]\NP , re S [dcl ].3The order of traversalis left-child, right-child and parent.
+For a singleparse, the corresponding shift-reduce action se-quence is unique, and for a given item this canoni-cal order restricts the possible derivations that canbe formed using further actions.
+We now extendthis observation to the more general case of anoracle forest, where there may be more than onegold-standard action for a given item.Definition 1.
+Given a gold-standard dependency3The derivation is ?upside down?, following the conven-tion used for CCG, where the root is S [dcl ].
+We use sh, reand un to denote the three types of shift-reduce action.221Mr.
+President visited ParisN /N N (S [dcl ]\NP)/NP NP> >N S[dcl]\NP(a)Mr. President visited ParisN/N N (S [dcl ]\NP)/NP NP>S[dcl]\NP(b)Figure 3: Example subtrees on two stacks, with two subtrees in (a) and three in (b); roots of subtrees arein bold.structure G, an oracle forest ?G, and an item?s, q?, we say s is a realization of G, denoteds ' G, if |s| = 1, q is empty and the single deriva-tion on s is correct.
+If |s| > 0 and the subtrees ons can lead to a correct derivation in ?Gusing fur-ther actions, we say s is a partial-realization ofG, denoted as s ?
+G. And we define s ?
+G for|s| = 0.As an example, assume that ?Gcontains onlythe derivation in Fig.
+2a; then a stack containingthe two subtrees in Fig.
+3a is a partial-realization,while a stack containing the three subtrees inFig.
+3b is not.
+Note that each of the three sub-trees in Fig.
+3b is present in ?G; however, thesesubtrees cannot be combined into the single cor-rect derivation, since the correct sequence of shift-reduce actions must first combine the lexical cat-egories for Mr. and President before shifting thelexical category for visited.We denote an action as a pair (x, c), wherex ?
+{SHIFT, REDUCE, UNARY} and c is the rootof the subtree resulting from that action.
+For allthree types of actions, c also corresponds to aunique conjunctive node in the complete forest ?
+;and we use csito denote the conjunctive node in?
+corresponding to subtree sion the stack.
+Let?s?, q??
+= ?s, q?
+?
+(x, c) be the resulting item fromapplying the action (x, c) to ?s, q?
+; and let theset of all possible actions for ?s, q?
+be X?s,q?={(x, c) | (x, c) is applicable to ?s, q?
+}.Definition 2.
+Given ?Gand an item ?s, q?
+s.t.
+s ?G, we say an applicable action (x, c) for the itemis valid iff s??
+G or s?'
+G, where ?s?, q??
+=?s, q?
+?
+(x, c).Definition 3.
+Given ?G, the dependency oraclefunction fdis defined as:fd(?s, q?, (x, c),?G) ={true if s??
+G or s?'
+Gfalse otherwisewhere (x, c) ?
+X?s,q?and ?s?, q??
+= ?s, q?
+?
+(x, c).The pseudocode in Algorithm 2 implements fd.It determines, for a given item, whether an appli-cable action is valid in ?G.It is trivial to determine the validity of a SHIFTaction for the initial item, ?s, q?0, since the SHIFTaction is valid iff its category matches the gold-standard lexical category of the first word inthe sentence.
+For any subsequent SHIFT action(SHIFT, c) to be valid, the necessary condition isc ?
+clex0, where clex0denotes the gold-standardlexical category of the front word in the queue, q0(line 3).
+However, this condition is not sufficient;a counterexample is the case where all the gold-standard lexical categories for the sentence in Fig-ure 2 are shifted in succession.
+Hence, in general,the conditions under which an action is valid aremore complex than the trivial case above.First, suppose there is only one correct deriva-tion in ?G.
+A SHIFT action (SHIFT, clex0) is validwhenever cs0(the conjunctive node in ?Gcor-responding to the subtree s0on the stack) andclex0(the conjunctive node in ?Gcorrespondingto the next gold-standard lexical category fromthe queue) are both dominated by the conjunctivenode parent p of cs0in ?G.4A REDUCE action(REDUCE, c) is valid if c matches the category ofthe conjunctive node parent of cs0and cs1in ?G.A UNARY action (UNARY, c) is valid if c matchesthe conjunctive node parent of cs0in ?G.
+We nowgeneralize the case where ?Gcontains a singlecorrect parse to the case of an oracle forest, whereeach parent p is replaced by a set of conjunctivenodes in ?G.Definition 4.
+The left parent set pL(c) of con-junctive node c ?
+?Gis the set of all parent con-junctive nodes of c in ?G, which have the disjunc-tive node d containing c (i.e.
+c ?
+?
+(d)) as a leftchild.Definition 5.
+The ancestor set A(c) of conjunc-tive node c ?
+?Gis the set of all reachable ances-tor conjunctive nodes of c in ?G.Definition 6.
+Given an item ?s, q?, if |s| = 1 wesay s is a frontier stack.4Strictly speaking, the conjunctive node parent is a parentof the disjunctive node containing the conjunctive node cs0.We will continue to use this shorthand for parents of conjunc-tive nodes throughout the paper.222Algorithm 2 The Dependency Oracle Function fdInput: ?G, an item ?s, q?
+s.t.
+s ?
+G, (x, c) ?
+X?s,q?Let s?be the stack of ?s?, q??
+= ?s, q?
+?
+(x, c)1: function MAIN(?s, q?, (x, c), ?G)2: if x is SHIFT then3: if c 6?
+clex0then .
+c not gold lexical category4: return false5: else if c ?
+clex0and |s| = 0 then .
+the initial item6: return true7: else if c ?
+clex0and |s| 6= 0 then8: computeR(cs?1, cs?0)9: returnR(cs?1, cs?0) 6= ?10: if x is REDUCE then .
+s is non-frontier11: if c ?
+R(cs1, cs0) then12: computeR(cs?1, cs?0)13: return true14: else return false15: if x is UNARY then16: if |s| = 1 then .
+s is frontier17: return c ?
+?G18: if |s| 6= 1 and c ?
+?Gthen .
+s is non-frontier19: computeR(cs?1, cs?0)20: returnR(cs?1, cs?0) 6= ?A key to defining the dependency oracle func-tion is the notion of a shared ancestor set.
+In-tuitively, shared ancestor sets are built up throughshift actions, and contain sets of nodes which canpotentially become the results of reduce or unaryactions.
+A further intuition is that shared ances-tor sets define the space of possible correct deriva-tions, and nodes in these sets are ?ticked off?
+whenreduce and unary actions are applied, as a singlecorrect derivation is built through the shift-reduceprocess (corresponding to a bottom-up post-ordertraversal of the derivation).
+The following defi-nition shows how the dependency oracle functionbuilds shared ancestor sets for each action type.Definition 7.
+Let ?s, q?
+be an item and let?s?, q??
+= ?s, q?
+?
+(x, c).
+We define the shared an-cestor setR(cs?1, cs?0) of cs?0, after applying action(x, c), as:?
+{c?| c??
+pL(cs0) ?
+A(c)}, if s is frontier and x =SHIFT?
+{c?| c??
+pL(cs0) ?
+A(c) and there is some c??
+?R(cs1, cs0) s.t.
+c???
+A(c?
+)}, if s is non-frontier andx = SHIFT?
+{c?| c??
+R(cs2, cs1) ?
+A(c)}, if x = REDUCE?
+{c?| c??
+R(cs1, cs0) ?
+A(c)}, if s is non-frontierand x = UNARY?
+R(, c0s0) = ?
+where c0s0is the conjunctive node cor-responding to the gold-standard lexical category of thefirst word in the sentence ( is a dummy symbol indi-cating the bottom of stack).The base case for Definition 7 is when the gold-standard lexical category of the first word in thesentence has been shifted, which creates an emptyshared ancestor set.
+Furthermore, the shared an-cestor set is always empty when the stack is a fron-tier stack.The dependency oracle algorithm checks the va-lidity of applicable actions.
+A SHIFT action isvalid if R(cs?1, cs?0) 6= ?
+for the resulting stacks?.
+A valid REDUCE action consumes s1ands0.
+For the new node, its shared ancestor set isthe subset of the conjunctive nodes in R(cs2, cs1)which dominate the resulting conjunctive node ofa valid REDUCE action.
+The UNARY case for afrontier stack is trivial: any UNARY action ap-plicable to s in ?Gis valid.
+For a non-frontierstack, the UNARY case is similar to REDUCE ex-cept the resulting shared ancestor set is a subset ofR(cs1, cs0).We now turn to the problem of finding theshared ancestor sets.
+In practice, we do not do thisby traversing ?Gtop-down from the conjunctivenodes in pL(cs0) on-the-fly to find each member ofR.
+Instead, when we build ?Gin bottom-up topo-logical order, we pre-compute the set of reachabledisjunctive nodes of each conjunctive node c in?Gas:D(c) = ?
+(c) ?
+(?c???(d),d??(c)(D(c?
+)))Each D is implemented as a hash map, whichallows us to test the membership of one potentialconjunctive node in O(1) time.
+For example, aconjunctive node c ?
+pL(cs0) is reachable fromclex0if there is a disjunctive node d ?
+D(c) s.t.clex0?
+?(d).
+With this implementation, the com-plexity of checking each valid SHIFT action is thenO(|pL(cs0)|).3.3 TrainingWe use the averaged perceptron (Collins, 2002)to train a global linear model and score each ac-tion.
+The normal-form model of Zhang and Clark(2011) uses an early update mechanism (Collinsand Roark, 2004), where decoding is stopped toupdate model weights whenever the single goldaction falls outside the beam.
+In our parser, therecan be multiple gold items in a beam.
+One optionwould be to apply early update whenever at least223Algorithm 3 Dependency Model TrainingInput: (y,G) and beam size k1: w?
+0; B0?
+?
+; i?
+02: B0.push(?s, q?0) .
+the initial item3: cand?
+?
+.
+candidate output priority queue4: gold?
+?
+.
+gold output priority queue5: while Bi6= ?
+do6: for each ?s, q?
+?
+Bido7: if |q| = 0 then .
+candidate output8: cand.push(?s, q?
+)9: if s ' G then .
+s is a realization of G10: gold.push(?s, q?
+)11: expand ?s, q?
+into Bi+112: Bi+1?
+Bi+1[1 : k] .
+apply beam13: if ?G6= ?, ?G?
+Bi+1= ?
+and cand[0] 6' G then14: w?
+w + ?(?G[0])?
+?
+(Bi+1[0]) .
+early update15: return16: i?
+i+ 1 .
+continue to next step17: if cand[0] 6' G then .
+final update18: w?
+w + ?(gold[0])?
+?
+(cand[0])one of these gold items falls outside the beam.However, this may not be a true violation of thegold-standard (Huang et al, 2012).
+Thus, we use arelaxed version of early update, in which all gold-standard actions must fall outside the beam beforean update is performed.
+This update mechanism isprovably correct under the violation-fixing frame-work of Huang et al (2012).Let (y,G) be a training sentence paired with itsgold-standard dependency structure and let ?
+?s,q?be the following set for an item ?s, q?
+:{?s, q?
+?
+(x, c) | fd(?s, q?, (x, c),?G) = true}?
+?s,q?contains all correct items at step i + 1 ob-tained by expanding ?s, q?.
+Let the set of all cor-rect items at a step i+ 1 be:5?G=??s,q??Bi?
+?s,q?Algorithm 3 shows the pseudocode for trainingthe dependency model with early update for oneinput (y,G).
+The score of an item ?s, q?
+is calcu-lated as w ?
+?
+(?s, q?)
+with respect to the currentmodel w, where ?
+(?s, q?)
+is the feature vector forthe item.
+At step i, all items are expanded andadded onto the next beam Bi+1, and the top-k re-tained.
+Early update is applied when all gold itemsfirst fall outside the beam, and any candidate out-put is incorrect (line 14).
+Since there are poten-tially many gold items, and one gold item is re-quired for the perceptron update, a decision needs5In Algorithm 3 we abuse notation by using ?G[0] to de-note the highest scoring gold item in the set.to be made regarding which gold item to updateagainst.
+We choose to reward the highest scoringgold item, in line with the violation-fixing frame-work; and penalize the highest scoring incorrectitem, using the standard perceptron update.
+A fi-nal update is performed if no more expansions arepossible but the final output is incorrect.4 ExperimentsWe implement our shift-reduce parser on top of thecore C&C code base (Clark and Curran, 2007) andevaluate it against the shift-reduce parser of Zhangand Clark (2011) (henceforth Z&C) and the chart-based normal-form and hybrid models of Clarkand Curran (2007).
+For all experiments, we useCCGBank with the standard split: sections 2-21for training (39,604 sentences), section 00 for de-velopment (1,913 sentences) and section 23 (2,407sentences) for testing.The way that the CCG grammar is implementedin C&C has some implications for our parser.First, unlike Z&C, which uses a context-free cover(Fowler and Penn, 2010) and hence is able to useall sentences in the training data, we are only ableto use 36,036 sentences.
+The reason is that thegrammar in C&C does not have complete cover-age of CCGBank, due to the fact that e.g.
+notall rules in CCGBank conform to the combinatoryrules of CCG.
+Second, our parser uses the unifica-tion mechanism from C&C to output dependenciesdirectly, and hence does not need a separate post-processing step to convert derivations into CCG de-pendencies, as required by Z&C.The feature templates of our model consist ofall of those in Z&C, except the ones which re-quire lexical heads to come from either the left orright child, as such features are incompatible withthe head passing mechanism used by C&C.
+EachZ&C template is defined over a parse item, andcaptures various aspects of the stack and queuecontext.
+For example, one template returns thetop category on the stack plus its head word, to-gether with the first word and its POS tag on thequeue.
+Another template returns the second cat-egory on the stack, together with the POS tag ofits head word.
+Every Z&C feature is defined asa pair, consisting of an instantiated context tem-plate and a parse action.
+In addition, we use allthe CCG predicate-argument dependency featuresfrom Clark and Curran (2007), which contribute tothe score of a REDUCE action when dependencies224LP % LR % LF % LSent.
+% CatAcc.
+% coverage %this parser 86.29 84.09 85.18 34.40 92.75 100Z&C 87.15 82.95 85.00 33.82 92.77 100C&C (normal-form) 85.22 82.52 83.85 31.63 92.40 100this parser 86.76 84.90 85.82 34.72 93.20 99.06 (C&C coverage)Z&C 87.55 83.63 85.54 34.14 93.11 99.06 (C&C coverage)C&C (hybrid) ?
+?
+85.25 ?
+?
+99.06 (C&C coverage)C&C (normal-form) 85.22 84.29 84.76 31.93 92.83 99.06 (C&C coverage)Table 1: Accuracy comparison on Section 00 (auto POS).606570758085900  5  10  15  20  25  30Precision %Dependency length (bins of 5)C&CZ&Cthis parser(a) precision vs. dependency length5055606570758085900  5  10  15  20  25  30Recall %Dependency length (bins of 5)C&CZ&Cthis parser(b) recall vs. dependency lengthFigure 4: Labeled precision and recall relative to dependency length on the development set.
+C&Cnormal-form model is used.are realized.
+Detailed descriptions of all the tem-plates in our model can be found in the respectivepapers.
+We run 20 training iterations and the re-sulting model contains 16.5M features with a non-zero weight.We use 10-fold cross validation for POS taggingand supertagging the training data, and automat-ically assigned POS tags for all experiments.
+Aprobability cut-off value of 0.0001 for the ?
+pa-rameter in the supertagger is used for both train-ing and testing.
+The ?
+parameter determines howmany lexical categories are assigned to each word;?
+= 0.0001 is a relatively small value which al-lows in a large number of categories, compared tothe default value used in Clark and Curran (2007).For training only, if the gold-standard lexical cat-egory is not supplied by the supertagger for a par-ticular word, it is added to the list of categories.4.1 Results and AnalysisThe beam size was tuned on the development set,and a value of 128 was found to achieve a rea-sonable balance of accuracy and speed; hence thisvalue was used for all experiments.
+Since C&C al-ways enforces non-fragmentary output (i.e.
+it canonly produce spanning analyses), it fails on somesentences in the development and test sets, andthus we also evaluate on the reduced sets, follow-ing Clark and Curran (2007).
+Our parser does notfail on any sentences because it permits fragmen-tary output (those cases where there is more thanone subtree left on the final stack).
+The results forZ&C, and the C&C normal-form and hybrid mod-els, are taken from Zhang and Clark (2011).Table 1 shows the accuracies of all parsers onthe development set, in terms of labeled precisionand recall over the predicate-argument dependen-cies in CCGBank.
+On both the full and reducedsets, our parser achieves the highest F-score.
+Incomparison with C&C, our parser shows signif-icant increases across all metrics, with 0.57%and 1.06% absolute F-score improvements overthe hybrid and normal-form models, respectively.Another major improvement over the other twoparsers is in sentence level accuracy, LSent, whichmeasures the number of sentences for which thedependency structure is completely correct.Table 1 also shows that our parser has improvedrecall over Z&C at some expense of precision.
+Toprobe this further we compare labeled precisionand recall relative to dependency length, as mea-sured by the distance between the two words in adependency, grouped into bins of 5 values.
+Fig.
+4shows clearly that Z&C favors precision over re-call, giving higher precision scores for almost alldependency lengths compared to our parser.
+In225category LP % (o) LP % (z) LP % (c) LR % (o) LR % (z) LR % (c) LF % (o) LF % (z) LF % (c) freq.N /N 95.53 95.77 95.28 95.83 95.79 95.62 95.68 95.78 95.45 7288NP/N 96.53 96.70 96.57 97.12 96.59 96.03 96.83 96.65 96.30 4101(NP\NP)/NP 81.64 83.19 82.17 90.63 89.24 88.90 85.90 86.11 85.40 2379(NP\NP)/NP 81.70 82.53 81.58 88.91 87.99 85.74 85.15 85.17 83.61 2174((S\NP)\(S\NP))/NP 77.64 77.60 71.94 72.97 71.58 73.32 75.24 74.47 72.63 1147((S\NP)\(S\NP))/NP 75.78 76.30 70.92 71.27 70.60 71.93 73.45 73.34 71.42 1058((S [dcl ]\NP)/NP 83.94 85.60 81.57 86.04 84.30 86.37 84.98 84.95 83.90 917PP/NP 77.06 73.76 75.06 73.63 72.83 70.09 75.31 73.29 72.49 876((S [dcl ]\NP)/NP 82.03 85.32 81.62 83.26 82.00 85.55 82.64 83.63 83.54 872((S\NP)\(S\NP)) 86.42 84.44 86.85 86.19 86.60 86.73 86.31 85.51 86.79 746Table 2: Accuracy comparison on most frequent dependency types, for our parser (o), Z&C (z) and C&Chybrid model (c).
+Categories in bold indicate the argument slot in the relation.LP % LR % LF % LSent.
+% CatAcc.
+% coverage %our parser 87.03 85.08 86.04 35.69 93.10 100Z&C 87.43 83.61 85.48 35.19 93.12 100C&C (normal-form) 85.58 82.85 84.20 32.90 92.84 100our parser 87.04 85.16 86.09 35.84 93.13 99.58 (C&C coverage)Z&C 87.43 83.71 85.53 35.34 93.15 99.58 (C&C coverage)C&C (hybrid) 86.17 84.74 85.45 32.92 92.98 99.58 (C&C coverage)C&C (normal-form) 85.48 84.60 85.04 33.08 92.86 99.58 (C&C coverage)Table 3: Accuracy comparison on section 23 (auto POS).terms of recall (Fig.
+4b), our parser outperformsZ&C over all dependency lengths, especially forlonger dependencies (x ?
+20).
+When comparedwith C&C, the recall of the Z&C parser dropsquickly for dependency lengths over 10.
+Whileour parser also suffers from this problem, it isless severe and is able to achieve higher recall atx ?
+30.Table 2 compares our parser with Z&C and theC&C hybrid model, for the most frequent depen-dency relations.
+While our parser achieved lowerprecision than Z&C, it is more balanced and giveshigher recall for all of the dependency relations ex-cept the last one, and higher F-score for over halfof them.Table 3 presents the final test results on Section23.
+Again, our parser achieves the highest scoresacross all metrics (for both the full and reducedtest sets), except for precision and lexical categoryassignment, where Z&C performed better.5 ConclusionWe have presented a dependency model for a shift-reduce CCG parser, which fully aligns CCG parsingwith the left-to-right, incremental nature of a shift-reduce parser.
+Our work is in part inspired by thedependency models of Clark and Curran (2007)and, in the use of a dependency oracle, is closein spirit to that of Goldberg and Nivre (2012).
+Thedifference is that the Goldberg and Nivre parserbuilds, and scores, dependency structures directly,whereas our parser uses a unification mechanismto create dependencies, and scores the CCG deriva-tions, allowing great flexibility in terms of whatdependencies can be realized.
+Another relatedwork is Yu et al (2013), which introduced a sim-ilar technique to deal with spurious ambiguity inMT.
+Finally, there may be potential to integrate thetechniques of Auli and Lopez (2011), which cur-rently represents the state-of-the-art in CCGBankparsing, into our parser.AcknowledgementsWe thank the anonymous reviewers for their help-ful comments.
+Wenduan Xu is fully supported bythe Carnegie Trust and receives additional fund-ing from the Cambridge Trusts.
+Stephen Clarkis supported by ERC Starting Grant DisCoTex(306920) and EPSRC grant EP/I037512/1.
+YueZhang is supported by Singapore MOE Tier2 grantT2MOE201301.ReferencesMichael Auli and Adam Lopez.
+2011.
+A compari-son of loopy belief propagation and dual decompo-sition for integrated CCG supertagging and parsing.In Proc.
+ACL 2011, pages 470?480, Portland, OR.Ted Briscoe and John Carroll.
+2006.
+Evaluating theaccuracy of an unlexicalized statistical parser on the226PARC DepBank.
+In Proc.
+of COLING/ACL, pages41?48, Sydney, Australia.Stephen Clark and James R. Curran.
+2006.
+Partialtraining for a lexicalized-grammar parser.
+In Proc.NAACL-06, pages 144?151, New York, USA.Stephen Clark and James R. Curran.
+2007.
+Wide-coverage efficient statistical parsing with CCGand log-linear models.
+Computational Linguistics,33(4):493?552.Stephen Clark and Julia Hockenmaier.
+2002.
+Evalu-ating a wide-coverage CCG parser.
+In Proc.
+of theLREC 2002 Beyond Parseval Workshop, pages 60?66, Las Palmas, Spain.Stephen Clark, Julia Hockenmaier, and Mark Steed-man.
+2002.
+Building deep dependency structureswith a wide-coverage CCG parser.
+In Proc.
+ACL,pages 327?334, Philadelphia, PA.Michael Collins and Brian Roark.
+2004.
+Incrementalparsing with the perceptron algorithm.
+In Proc.
+ofACL, pages 111?118, Barcelona, Spain.Michael Collins.
+2002.
+Discriminative training meth-ods for hidden Markov models: Theory and ex-periments with perceptron algorithms.
+In Proc.
+ofEMNLP, pages 1?8, Philadelphia, USA.Jason Eisner.
+1996.
+Efficient normal-form parsing forCombinatory Categorial Grammar.
+In Proc.
+ACL,pages 79?86, Santa Cruz, CA.Timothy AD Fowler and Gerald Penn.
+2010.
+Accu-rate context-free parsing with Combinatory Catego-rial Grammar.
+In Proc.
+ACL, pages 335?344, Upp-sala, Sweden.Giorgio Gallo, Giustino Longo, Stefano Pallottino,and Sang Nguyen.
+1993.
+Directed hypergraphsand applications.
+Discrete applied mathematics,42(2):177?201.Yoav Goldberg and Joakim Nivre.
+2012.
+A dynamicoracle for arc-eager dependency parsing.
+In Proc.COLING, Mumbai, India.Yoav Goldberg, Kai Zhao, and Liang Huang.
+2013.Efficient implementation for beam search incremen-tal parsers.
+In Proceedings of the Short Papers ofACL, Sofia, Bulgaria.Julia Hockenmaier and Mark Steedman.
+2007.
+CCG-bank: A corpus of CCG derivations and dependencystructures extracted from the Penn Treebank.
+Com-putational Linguistics, 33(3):355?396.Julia Hockenmaier.
+2003.
+Data and Models for Sta-tistical Parsing with Combinatory Categorial Gram-mar.
+Ph.D. thesis, University of Edinburgh.Liang Huang and David Chiang.
+2005.
+Better k-best parsing.
+In Proceedings of the Ninth Interna-tional Workshop on Parsing Technology, pages 53?64, Vancouver, Canada.Liang Huang and Kenji Sagae.
+2010.
+Dynamic pro-gramming for linear-time incremental parsing.
+InProc.
+ACL, pages 1077?1086, Uppsala, Sweden.Liang Huang, Suphan Fayong, and Yang Guo.
+2012.Structured perceptron with inexact search.
+In Proc.NAACL, pages 142?151, Montreal, Canada.Yusuke Miyao and Jun?ichi Tsujii.
+2002.
+Maximumentropy estimation for feature forests.
+In Proceed-ings of the Human Language Technology Confer-ence, San Diego, CA.Joakim Nivre and Ryan McDonald.
+2008.
+Integrat-ing graph-based and transition-based dependencyparsers.
+In Proc.
+of ACL/HLT, pages 950?958,Columbus, Ohio.J.
+Nivre and M Scholz.
+2004.
+Deterministic depen-dency parsing of English text.
+In Proceedings ofCOLING 2004, pages 64?70, Geneva, Switzerland.Joakim Nivre, Laura Rimell, Ryan McDonald, and Car-los Gomez-Rodriguez.
+2010.
+Evaluation of depen-dency parsers on unbounded dependencies.
+In Proc.of COLING, Beijing, China.Laura Rimell, Stephen Clark, and Mark Steedman.2009.
+Unbounded dependency recovery for parserevaluation.
+In Proc.
+EMNLP, pages 813?821, Edin-burgh, UK.Nathan Schneider, Brendan O?Connor, Naomi Saphra,David Bamman, Manaal Faruqui, Noah A. Smith,Chris Dyer, and Jason Baldridge.
+2013.
+A frame-work for (under)specifying dependency syntax with-out overloading annotators.
+In Proc.
+of the 7th Lin-guistic Annotation Workshop and Interoperabilitywith Discourse, Sofia, Bulgaria.Mark Steedman.
+2000.
+The Syntactic Process.
+TheMIT Press, Cambridge, Mass.H Yamada and Y Matsumoto.
+2003.
+Statistical depen-dency analysis using support vector machines.
+InProc.
+of IWPT, Nancy, France.Heng Yu, Liang Huang, Haitao Mi, and Kai Zhao.2013.
+Max-violation perceptron and forced decod-ing for scalable mt training.
+In Proc.
+EMNLP, Seat-tle, Washington, USA.Yue Zhang and Stephen Clark.
+2008.
+A tale oftwo parsers: investigating and combining graph-based and transition-based dependency parsing us-ing beam-search.
+In Proc.
+of EMNLP, Hawaii, USA.Yue Zhang and Stephen Clark.
+2011.
+Shift-reduceCCG parsing.
+In Proc.
+ACL 2011, pages 683?692,Portland, OR.227

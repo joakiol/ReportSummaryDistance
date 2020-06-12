@@ -1,0 +1,387 @@
+Proceedings of the 2013 Conference on Empirical Methods in Natural Language Processing, pages 1948?1959,Seattle, Washington, USA, 18-21 October 2013. c?2013 Association for Computational LinguisticsRegularized Minimum Error Rate TrainingMichel GalleyMicrosoft Researchmgalley@microsoft.comChris QuirkMicrosoft Researchchrisq@microsoft.comColin CherryNational Research Councilcolin.cherry@nrc-cnrc.gc.caKristina ToutanovaMicrosoft Researchkristout@microsoft.comAbstractMinimum Error Rate Training (MERT) re-mains one of the preferred methods for tun-ing linear parameters in machine translationsystems, yet it faces significant issues.
+First,MERT is an unregularized learner and is there-fore prone to overfitting.
+Second, it is com-monly used on a noisy, non-convex loss func-tion that becomes more difficult to optimizeas the number of parameters increases.
+To ad-dress these issues, we study the addition ofa regularization term to the MERT objectivefunction.
+Since standard regularizers such as`2 are inapplicable to MERT due to the scaleinvariance of its objective function, we turn totwo regularizers?`0 and a modification of `2?and present methods for efficiently integratingthem during search.
+To improve search in largeparameter spaces, we also present a new direc-tion finding algorithm that uses the gradient ofexpected BLEU to orient MERT?s exact linesearches.
+Experiments with up to 3600 featuresshow that these extensions of MERT yield re-sults comparable to PRO, a learner often usedwith large feature sets.1 IntroductionMinimum Error Rate Training emerged a decadeago (Och, 2003) as a superior training method forsmall numbers of linear model parameters of machinetranslation systems, improving over prior work usingmaximum likelihood criteria (Och and Ney, 2002).This technique quickly rose to prominence, becom-ing standard in many research and commercial MTsystems.
+Variants operating over lattices (Machereyet al 2008) or hypergraphs (Kumar et al 2009) weresubsequently developed, with the benefit of reducingthe approximation error from n-best lists.The primary advantages of MERT are twofold.
+Itdirectly optimizes the evaluation metric under consid-eration (e.g., BLEU) instead of some surrogate loss.Secondly, it offers a globally optimal line search.
+Un-fortunately, there are several potential difficulties inscaling MERT to larger numbers of features, dueto its non-convex loss function and its lack of reg-ularization.
+These challenges have prompted someresearchers to move away from MERT, in favor of lin-early decomposable approximations of the evaluationmetric (Chiang et al 2009; Hopkins and May, 2011;Cherry and Foster, 2012), which correspond to easieroptimization problems and which naturally incorpo-rate regularization.
+In particular, recent work (Chianget al 2009) has shown that adding thousands or tensof thousands of features can improve MT qualitywhen weights are optimized using a margin-basedapproximation.
+On simulated datasets, Hopkins andMay (2011) found that conventional MERT strug-gles to find reasonable parameter vectors, where asmooth loss function based on Pairwise Ranking Op-timization (PRO) performs much better; on real data,this PRO method appears at least as good as MERTon small feature sets, and also scales better as thenumber of features increases.In this paper, we seek to preserve the advantagesof MERT while addressing its shortcomings in termsof regularization and search.
+The idea of adding aregularization term to the MERT objective functioncan be perplexing at first, because the most commonregularizers, such as `1 and `2, are not directly appli-cable to MERT.
+Indeed, these regularizers are scalesensitive, while the MERT objective function is not:scaling the weight vector neither changes the predic-tions of the linear model nor affects the error count.Hence, MERT can hedge any regularization penaltyby maximally scaling down linear model weights.The first contribution of this paper is to analyze var-ious forms of regularization that are not susceptibleto this scaling problem.
+We analyze and experimentwith `0, a form of regularization that is scale insen-sitive.
+We also present new parameterizations of `21948regularization, where we apply `2 regularization toscale-senstive linear transforms of the original linearmodel.
+In addition, we introduce efficient methodsof incorporating regularization in Och (2003)?s exactline searches.
+For all of these regularizers, our meth-ods let us find the true optimum of the regularizedobjective function along the line.Finally, we address the issue of searching in ahigh-dimensional space by using the gradient of ex-pected BLEU (Smith and Eisner, 2006) to find bettersearch directions for our line searches.
+This directionfinder addresses one of the serious concerns raisedby Hopkins and May (2011): MERT widely failedto reach the optimum of a synthetic linear objectivefunction.
+In replicating Hopkins and May?s experi-ments, we confirm that existing search algorithms forMERT?including coordinate ascent, Powell?s algo-rithm (Powell, 1964), and random direction sets (Ceret al 2008)?perform poorly in this experimentalcondition.
+However, when using our gradient-baseddirection finder, MERT has no problem finding thetrue optimum even in a 1000-dimensional space.Our results suggest that the combination of a reg-ularized objective function and a gradient-informedline search algorithm enables MERT to scale wellwith a large number of features.
+Experiments withup to 3600 features show that these extensions ofMERT yield results comparable to PRO (Hopkinsand May, 2011), a parameter tuning method knownto be effective with large feature sets.2 Unregularized MERTPrior to introducing regularized MERT, we brieflyreview standard unregularized MERT (Och, 2003).We use fS1 = {f1 .
+.
+.
+fS} to denote the S input sen-tences of a given tuning set.
+For each sentence fs, letCs = {es,1 .
+.
+.
+es,M} denote the list of M -best can-didate translations.
+Each input and output sentencepair (fs, es,m) is weighted using a linear model thatapplies model parameters w = (w1 .
+.
+.
+wD) ?
+RDto D feature functions h1(f , e,?)
+.
+.
+.
+hD(f , e,?
+),where ?
+is the hidden state associated with thederivation from f to e, such as phrase segmenta-tion and alignment.
+Furthermore, let hs,m ?
+RDdenote the feature vector representing the translationpair (fs, es,m).In MERT, the goal is to minimize a loss functionE(r, e) that scores translation hypotheses against aset of reference translations rS1 = {r1 .
+.
+.
+rS}.
+Thisyields the following optimization problem:w?
+= argminw{ S?s=1E(rs, e?
+(fs;w))}=argminw{ S?s=1M?m=1E(rs, es,m)?
+(es,m, e?(fs;w))}(1)wheree?
+(fs;w) = argmaxm?
+{1...M}{w?hs,m}(2)While the error surface of Equation 1 is only anapproximation of the true error surface of the MTdecoder, the quality of this approximation dependson the size of the hypothesis space represented by theM -best list.
+Therefore, the hypothesis list is growniteratively: decoding with an initial parameter vectorseeds the M -best lists; next, parameter estimationand M -best list gathering alternate until the cumula-tive M -best list no longer grows, or until changes ofw between two decoding runs are deemed too small.To increase the size of the hypothesis space, subse-quent work (Macherey et al 2008) instead operatedon lattices, but this paper focuses on M -best lists.A crucial observation is that the unsmoothed errorcount represented in Equation 1 is a piecewise con-stant function.
+This enabled Och (2003) to devise aline search algorithm guaranteed to find the optimumpoint along the line.
+To extend the search from oneto multiple dimensions, MERT applies a sequenceof line optimizations along some fixed or variableset of search directions {dt} until some convergencecriteria are met.
+Considering a given point wt anda given direction dt at iteration t, finding the mostprobable translation hypothesis in the set of candi-dates translations Cs = {es,1 .
+.
+.
+es,M} correspondsto solving the following optimization problem:e?
+(fs; ?)
+= argmaxm?
+{1...M}{(wt + ?
+?
+dt)?hs,m}(3)The function in this equation is piecewise linear (Pa-pineni, 1999), which enables an efficient exhaustivecomputation.
+Specifically, this function is optimizedby enumerating the up to M hypotheses that formthe upper envelope of the model score function.
+Theerror count, then, is a piecewise constant function1949defined by the points ?fs1 < ?
+?
+?
+< ?fsM at which an in-crease in ?
+causes a change of optimum in Equation 3.Error counts for the whole corpus are simply the sumsof sentence-level piecewise constant functions aggre-gated over all sentences of the corpus.1 The optimal ?is finally computed by enumerating all piecewise con-stant intervals of the corpus-level error function, andby selecting the one that has the lowest error count(or, correspondingly, highest BLEU score).
+Assum-ing the optimum is found in the interval [?k?1, ?k],we define ?opt = (?k?1 + ?k)/2 and change the pa-rameters using the update wt+1 = wt + ?opt ?
+dt.Finally, this method is turned into a global D-dimensional search using algorithms that repeat-edly use the aforementioned exact line search algo-rithm.
+Och (2003) first advocated the use of Powell?smethod (Powell, 1964; Press et al 2007).
+Pharaoh(Koehn, 2004) and subsequently Moses (Koehn et al2007) instead use coordinate ascent, and more recentwork often uses random search directions (Cer et al2008; Macherey et al 2008).
+In Section 4, we willpresent a novel direction finder for maximum-BLEUoptimization, which uses the gradient of expectedBLEU to find directions where the BLEU score ismost likely to increase.3 Regularization for MERTBecause MERT is prone to overfitting when a largenumber of parameters must be optimized, we studythe addition of a regularization term to the objectivefunction.
+One conventional approach is to regularizethe objective function with a penalty based on theEuclidean norm ||w||2 =?
+?iw2i , also known as `2regularization.
+In the case of MERT, this yields thefollowing objective function:2w?
+= argminw{ S?s=1E(rs, e?
+(fs;w)) +||w||222?2}(4)1This assumes that the sufficient statistics of the metric underconsideration are additively decomposable by sentence, whichis the case with most popular evaluation metrics such as BLEU(Papineni et al 2001).2The `2 regularizer is often used in conjunction with log-likelihood objectives.
+The regularization term of Equation 4could similarly be added to the log of an objective?e.g.,log(BLEU) instead of BLEU?but we found that the distinc-tion doesn?t have much of an impact in practice.-0.200.20.40.60.811.21.4-0.4 -0.3 -0.2 -0.1 0 0.1 0.2 0.3 0.4MERTMax at 0.225?
+?-0.200.20.40.60.811.21.4-0.4 -0.3 -0.2 -0.1 0 0.1 0.2 0.3 0.4MERT?
+`2Max at -0.018??
+?`2-0.200.20.40.60.811.21.4-0.4 -0.3 -0.2 -0.1 0 0.1 0.2 0.3 0.4?, the step size in the current directionMERT?
+`0Max at 0?
+?`0Figure 1: Example MERT values along one coordi-nate, first unregularized.
+When regularized with `2, thepiecewise constant function becomes piecewise quadratic.When using `0, the function remains piecewise constantwith a point discontinuity at 0.where the regularization term 1/2?2 is a free param-eter that controls the strength of the regularizationpenalty.
+Similar regularizers have also been usedin conjunction with other norms, such as `1 and `0norms.
+The `1 norm, defined as ||w||1 =?i |wi|,applies a constant force toward zero, preferring vec-tors with fewer non-zero components; `0, defined as||w||0 = |{i | wi 6= 0}|, simply counts the number ofnon-zero components of the weight vector, encodinga preference for sparse vectors.Geometrically, `2 is a parabola, `1 is the wedge-shaped absolute value function, and `0 is an impulsefunction with a spike at 0.
+The original formulation(Equation 1) of MERT consists of a piecewise con-stant representation of the loss, as a function of thestep size in a given direction.
+But with these three reg-1950ularization terms, the function respectively becomespiecewise quadratic, piecewise linear, or piecewiseconstant with a potential impulse jump for each dis-tinct choice of regularizer.
+Figure 1 demonstrates thiseffect graphically.As discussed in (McAllester and Keshet, 2011),the problem with optimizing Equation 4 directly isthat the output of the underlying linear classifier, andtherefore the error count, are not sensitive to the scaleof w. Moreover, `2 regularization (as well as `1 reg-ularization) is scale sensitive, which means any op-timizer of this function can drive the regularizationterm down to zero by scaling down w. As specialtreatments for `2, we evaluate three linear transformsof the weight vector, where the vector w of the regu-larization term ||w||22/2?2 is replaced with either:1. an affine transform: w?
+w02.
+a vector with only (D ?
+1) free parameters, e.g.,(1, w?2, ?
+?
+?
+, w?D)3. an `1 renormalization: w/||w||1In (1), regularization is biased towards w0, a weightvector previously optimized using a competitive yetmuch smaller feature set, such as core features ofa phrase-based (Koehn et al 2007) or hierarchical(Chiang, 2007) system.
+The requirement that thisfeature set be small is to prevent overfitting.
+Other-wise, any regularization toward an overfit parametervector w0 would defeat the purpose of introducinga regularization term in the first place.3 In (2), thetransformation is motivated by the observation thatthe D-parameter linear model of Equation 2 onlyneeds (D ?
+1) degrees of freedom.
+Fixing one ofthe components of w to any non-zero constant andallowing the others to vary, the new linear model re-tains the same modeling power, but the (D ?
+1) freeparameters are no longer scale invariant, i.e., scalingthe (D ?
+1)-dimensional vector now has an effect onlinear model predictions.
+In (3), the weight vectoris normalized as to have an `1-norm equal to 1.
+Incontrast, the `0 norm is scale insensitive, thus notaffected by this problem.3.1 Exact line search with regularizationOptimizing with a regularized error surface requiresa change in the line search algorithm presented in3(Gimpel and Smith, 2012, footnote 6) briefly mentions theuse of such a regularizer with its ramp loss objective function.Section 2, but the other aspects of MERT remain thesame, and we can still use global search algorithmssuch as coordinate ascent, Powell, and random di-rections exactly the same way as with unregularizedMERT.
+Line search with a regularization term is stillas efficient as in (Och, 2003), and it is still guar-anteed to find the optimum of the (now regularized)objective function along the line.
+Considering again agiven point wt and a given direction dt at line searchiteration t, finding the optimum ?opt corresponds tofinding ?
+that minimizes:S?s=1E(rs, e?
+(fs; ?))
++||wt + ?
+?
+dt||222?2(5)Since regularization does not affect the points atwhich e?
+(fs; ?)
+changes its optimum, the points?fs1 < ?
+?
+?
+< ?fsM of intersection in the upper enve-lope remain the same, so the points of discontinuityin the error surface remain the same.
+The differencenow is that the error count on each segment [?i?1, ?i]is no longer constant.
+This means we need to adjustthe final step of line search, which consists of enu-merating all [?i?1, ?i], and keeping the optimum ofEquation 5 for each segment.
+e?
+(fs; ?)
+remains con-stant within the segment, so we only need to considerthe expression ||wt + ?
+?
+dt||22 to select a segmentpoint.
+The optimum is either at the left edge, the rightedge, or in the middle if the vertex of the parabolahappens to lie within that segment.4 We computethis optimum by finding the value ?
+for which thederivative of the regularization term is zero.
+There isan easy closed-form solution:dd?
+[||wt + ?
+?
+dt||222?2]= 0dd?
+[?i(w2t,i + 2 ?
+?
+?
+wt,i ?
+dt,i + ?2 ?
+d2t,i)]= 0?i(2 ?
+wt,i ?
+dt,i + 2 ?
+?
+?
+d2t,i) = 0?
+= ?
+(?iwt,i ?
+dt,i)/(?id2t,i)= ?wt?dtdt?dtThis closed-form solution is computed in time pro-portional to D, which doesn?t slow down the com-4When the optimum is either at the left edge ?i?1 or rightedge ?i of a segment, we select a point at a small relative distancewithin the segment (.999?i?1 + .001?i, in the former case) toavoid ties in objective values.1951putation of Equation 5 for each segment (the con-struction of each segment of the upper envelope isproportional to D anyway).We also use `0 regularization.
+While minimiza-tion of the `0-norm is known to be NP-hard in gen-eral (Hyder and Mahata, 2009), this optimization isrelatively trivial in the case of a line search.
+Indeed,for a given segment, the value in Equation 5 is con-stant everywhere except where we intersect any ofthe coordinate hyperplanes, i.e., where one of thecoordinates is zero.
+Thus, our method consists ofevaluating Equation 5 at the intersection points be-tween the line and coordinate hyperplanes, returningthe optimal point within the given segment.
+For anysegment that doesn?t cross any of these hyperplanes,we evaluate the objective function at any point of thesegment (since the value is constant across the entiresegment).4 Direction finding4.1 A Gradient-based direction finderPerhaps the greatest obstacle in scaling MERTto many dimensions is finding good search direc-tions.
+In problems of lower dimensions, iteratingthrough all the coordinates is computationally feasi-ble, though not guaranteed to find a global maximumeven in the case of a perfect line search.
+As thenumber of dimensions increases by orders of mag-nitude, this coordinate direction approach becomesless and less tractable, and the quality of the searchalso suffers (Hopkins and May, 2011).Optimization has traditionally relied on finding thedirection of steepest ascent: the gradient.
+Unfortu-nately, the objective function optimized by MERT ispiecewise constant; while it may admit a subgradi-ent, this direction is generally not very informative.Instead we may consider a smoothed variation of theoriginal approximation.
+While some variants havebeen considered (Och, 2003; Flanigan et al 2013),we use an expected BLEU approximation, assum-ing hypotheses are drawn from a log-linear distri-bution according to their parameter values (Smithand Eisner, 2006).
+That is, we assume the proba-bility of a translation candidate es,m is proportionalto (exp (w?hs,m))?, where w are the parameters be-ing optimized, hs,m is the vector of the features fores,m, and ?
+is a scaling parameter.
+As ?
+approachesinfinity, the distribution places all its weight on thehighest scoring candidate.The log of the BLEU score may be written as:min(1?RC, 0)+1NN?n=1(logmn ?
+log cn)where R is the sum of reference lengths across thecorpus, C is the sum of candidate lengths, mn is thenumber of matched n-grams (potentially clipped),and cn is the number of n-grams in all candidates.Given a distribution over candidates, we can usethe expected value of the log of the BLEU score.
+Thisis a smooth approximation to the BLEU score, whichasymptotically approaches the true BLEU score asthe scaling parameter ?
+approaches infinity.
+Whilethis expectation is difficult to compute exactly, wecan compute approximations thereof using Taylor se-ries.
+Although prior work demonstrates that a second-order Taylor approximation is feasible to compute(Smith and Eisner, 2006), we find that a first-orderapproximation is faster and very close to the second-order approximation.5 The first order Taylor approxi-mation is as follows:min(1?RE[C], 0)+1NN?n=1(logE[mn]?
+logE[cn])where E is the expectation operator using the proba-bility distribution P (h;w, ?
+).First we note that the gradient ?
+?wiP (h;w, ?)
+isP (h;w, ?
+)(hi ?
+?h?h?iP (h?
+;w, ?
+))Using the chain rule, the gradient of the first orderapproximation to BLEU is as follows:1NN?n=1( 1E[mn]?hmn(h)?P (h;w, ?
+)?wi?1E[cn]?hcn(h)?P (h;w, ?
+)?wi)+{0 if E[C] > RRE[C]2?h c1(h)?P (h;w,?
+)?wiotherwise5Experimentally, we compared our analytical gradient ofthe first-order Taylor approximation with the finite-differencegradients of the first- and second-order approximations, and wefound these three gradients to be very close in terms of cosinesimilarity (> 0.99).
+We performed these measurements both atarbitrary points and at points of convergence of MERT.1952In the case of `2-regularized MERT, the final gradi-ent also includes the partial derivative of the regular-ization penalty of Equation 4, which is wi/?2 for agiven component i of the gradient.
+We do not updatethe gradient in the case of `0 regularization since the`0-norm is not differentiable.4.2 SearchOur search strategy consists of looking at the direc-tions of steepest increase of expected BLEU, whichis similar to that of Smith and Eisner (2006), but withthe difference that we do so in the context of MERT.We think this difference provides two benefits.
+First,while the smooth approximation of BLEU reducesthe likelihood of remaining trapped in a local opti-mum, we avoid approximation error by retaining theoriginal objective function.
+Second, the benefit ofexact line searches in MERT is that there is no needto be concerned about step size, since step size inMERT line searches is guaranteed to be optimal withrespect to the direction under consideration.Finally, our gradient-based search algorithm oper-ates as follows.
+Considering the current point wt, wecompute the gradient gt of the first order Taylor ap-proximation at that point, using the current scaling pa-rameter ?.
+(We initialize the search with ?
+= 0.01.
+)We find the optimum along the line wt+?
+?gt.
+When-ever any given line search yields no improvementlarger than a small tolerance threshold, we multiply?
+by two and perform a new line search.
+The increaseof this parameter ?
+corresponds to a cooling schedule(Smith and Eisner, 2006), which progressively sharp-ens the objective function to get a better estimate ofBLEU as the search converges to an optimum.
+Werepeatedly perform new line searches until ?
+exceeds1000.
+The inability to improve the current optimumwith a sharp approximation (?
+> 1000) doesn?t meanline searches would fail with smaller values, so wefind it helpful to repeat the above procedure until afull pass of updates of ?
+from 0.01 to 1000 yields noimprovement.4.3 Computational complexityComputing the gradient increases the computationalcost of MERT, though not its asymptotic complexity.The cost of a single exhaustive line search isO (SM(D + logM + logS))where S is the number of sentences, each with Mpossible translations, andD is the number of features.For each sentence, we first identify the model scoreas a linear function of the step size, requiring twodot products for an overall cost of O(SMD).6 Nextwe construct the upper envelope for each sentence:first the equations are sorted in increasing order ofslope, and then they are merged in linear time to forman envelope, with an overall cost of O(SM logM).A linear pass through the envelope converts theseinto piecewise constant (or linear, or quadratic) repre-sentations of the (regularized) loss function.
+Finallythe per-sentence envelopes are merged into a globalrepresentation of the loss along that direction.
+Ourimplementation successively merges adjacent pairsof piecewise smooth loss function representationsuntil a single list remains.
+These logS passes lead toa merging runtime of O(SM logS).The time required to compute a gradient is pro-portional to O(SMD).
+For each sentence, we firstgather the probability and its gradient, then use this tocompute expected n-gram counts and matches as wellas those gradients in time O(MD).
+A constant num-ber of arithmetic operations suffice to compute thefinal expected loss value and its gradient.
+Therefore,computing the gradient does not increase the algo-rithmic complexity when compared to conventionalapproaches using coordinate ascent and random di-rections.
+Likewise the runtime of a single iterationis competitive with PRO, given that gradient findingis generally the most expensive part of convex opti-mization.
+Of course, it is difficult to compare overallruntime of convex optimization with that of MERT,as we know of no way to bound the number of gradi-ent evaluations required for convergence with MERT.Therefore, we resort to empirical comparison later inthe paper, and find that the two methods appear tohave comparable runtime.6In the special case where the difference between the priordirection and the current direction is sparse, we may update theindividual linear functions in time proportional to the number ofchanged dimensions.
+Coordinate ascent in particular can updatethe linear functions in time O(SM): to the intercept of theequation for each translation, we may add the prior step sizemultiplied by the feature value in the prior coordinate, and theslope becomes the feature value in the new coordinate.
+However,this optimization does not appear to be widely adopted, likelybecause it does not lead to any speedup when random vectors,conjugate directions, or other non-sparse directions are used.1953Language pair Train Tune Dev TestGBMChinese-English 0.99M 1,797 1,000 1,082(mt02+03) (mt05)Finnish-English 2.20M 11,935 2,001 4,855SparseHRM Chinese-English 3.51M 1,894 1,664 1,357(mt05) (mt06) (mt08)Arabic-English 1.49M 1,663 1,360 1,313(mt06) (mt08) (mt09)Table 1: Datasets for the two experimental conditions.5 Experimental DesignFollowing Hopkins and May (2011), our experimen-tal setup utilizes both real and synthetic data.
+Themotivation for using synthetic data is that it is a wayof gauging the quality of optimization methods, sincethe data is constructed knowing the global optimum.Hopkins and May also note that the use of an ob-jective function that is linear in some gold weightvector makes the search much simpler than in a realtranslation setting, and they suggest that a learnerthat performs poorly in such a simple scenario haslittle hope of succeeding in a more complex one.The setup of our synthetic data experiment is al-most the same as that performed by Hopkins andMay (2011).
+We generate feature vectors of dimen-sionality ranging from 10 to 1000.
+These features aregenerated by drawing random numbers uniformly inthe interval [0, 500].
+This synthetic dataset consistsof S=1000 source ?sentences?, and M=500 ?trans-lation?
+hypotheses for each sentence.
+A pseudo?BLEU?
+score is then computed for each hypothe-sis, by computing the dot product between a prede-fined gold weight vector w?
+and each feature vectorhs,m.
+By this linear construction, w?
+is guaranteedto be a global optimum.7 The pseudo-BLEU score isnormalized for each M -best list, so that the transla-tion with highest model score according to w?
+hasa BLEU score of 1, and so that the translation withlowest model score for the sentence gets a BLEU ofzero.
+This normalization has no impact on search,but makes results more interpretable.For our translation experiments, we use multi-stack phrase-based decoding (Koehn et al 2007).We report results for two feature sets: non-linearfeatures induced using Gradient Boosting Machines(Toutanova and Ahn, 2013) and sparse lexicalized7The objective function remains piecewise constant, and theplateau containingw?
+maps to the optimal value of the function.reordering features (Cherry, 2013).
+We exploit thesefeature sets (GBM and SparseHRM, respectively) intwo distinct experimental conditions, which we de-tail in the two next paragraphs.
+Both GBM andSparseHRM augment baseline features similar toMoses?
+: relative frequency and lexicalized phrasetranslation scores for both translation directions; oneor two language model features, depending on thelanguage pair; distortion penalty; word and phrasecount; six lexicalized reordering features.
+For bothexperimental conditions, phrase tables have maxi-mum phrase length of 7 words on either side.
+Inreference to Table 1, we used the training set (Train)for extracting phrase tables and language models; theTune set for optimization with MERT or PRO; theDev set for selecting hyperparameters of PRO andregularized MERT; and the Test set for reporting fi-nal results.
+In each experimental condition, we firsttrained weights for the base feature sets, and thendecoded the Tune, Dev, and Test datasets, generating500-best lists for each set.
+All results report rerank-ing performance on these lists with different featuresets and optimization methods, based on lower-casedBLEU (Papineni et al 2001).The GBM feature set (Toutanova and Ahn, 2013)consists of about 230 features automatically inducedusing decision tree weak learners, which derive fea-tures using various word-level, phrase-level, and mor-phological attributes.
+For Chinese-English, the train-ing corpus consists of approximately one million sen-tence pairs from the FBIS and Hong Kong portionsof the LDC data for the NIST MT evaluation and theTune and Test sets are from NIST competitions.
+A4-gram language model was trained on the Xinhuaportion of the English Gigaword corpus and on thetarget side of the bitext.
+For Finnish-English we useda dataset from a technical domain of software man-uals.
+For this language pair we used two languagemodels: one very large model trained on billions ofwords, and another language model trained from thetarget side of the parallel training set.The SparseHRM set (Cherry, 2013) contains 3600sparse reordering features.
+For each phrase, the fea-tures take the form of indicators describing its orienta-tion in the derivation, and its lexical content in termsof word clusters or frequent words.
+For both Chinese-English and Arabic-English, systems are trained ondata from the NIST 2012 MT evaluation.
+4-gram195400.20.40.60.8150 100 500 1000 20  200BLEUnumber of featuresexpected BLEU gradientrandom directionsPowellcoordinate ascent00.20.40.60.8150 100 500 1000 20  200cosinenumber of featuresexpected BLEU gradientrandom directionsPowellcoordinate ascentFigure 2: Change in BLEU score and cosine similarityto the gold weight vector w?
+as the number of featuresincreases, using the noisy synthetic experiments.
+Thegradient-based direction finding method is barely affectedby the noise.
+The increase of the number of dimensions en-ables our direction finder to find a slightly better optimum,which moved away from w?
+due to noise.language models were trained on the target side ofthe parallel training data for both Arabic and Chinese.The Chinese systems development set is taken fromthe NIST mt05 evaluation set, augmented with somematerial reserved from our NIST training corpora inorder to better cover newsgroup and weblog domains.6 ResultsWe conducted experiments with the synthetic datascenario described in the previous section, as wellas with noise added to the data (Hopkins and May,2011).
+The purpose of adding noise is to make theoptimization task more realistic.
+Specifically, af-ter computing all pseudo-BLEU scores, we addednoise to each feature vector hs,m by drawing froma zero-mean Gaussian with standard deviation 200.Our results with both noiseless and noisy data yieldthe same conclusion as Hopkins and May: standardMERT struggles with many dimensions, and failsto recover w?.
+However, our experiments with thegradient direction finder of Section 4 are much morepositive.
+This direction finder not only recovers w?4050607080901001  10  100  1000BLEUline search iterationexpected BLEU gradient(noisy) expected BLEU gradientcoordinate ascent(noisy) coordinate ascentFigure 3: Comparison of rate of convergence betweencoordinate ascent and our expected BLEU direction finder(D = 500).
+Noisy refers to the noisy experimental setting.
+(cosine > 0.999) even with 1000 dimensions, but itseffectiveness is also visible with noisy data, as seenin Figure 2.
+The decrease of its cosine is relativelysmall compared to other search algorithms, and thisdecrease is not necessarily a sign of search errorssince the addition of noise causes the true optimumto be different from w?.
+Finally, Figure 3 shows ourrate of convergence compared to coordinate ascent.Our experimental results with the GBM featureset data are shown in Table 2.
+Each table is di-vided into three sections corresponding respectivelyto MERT (Och, 2003) with Koehn-style coordinateascent (Koehn, 2004), PRO, and our optimizer featur-ing both regularization and the gradient-based direc-tion finder.
+All variants of MERT are initialized witha single starting point, which is either uniform weightor w0.
+Instead of providing MERT with additionalrandom starting points as in Moses, we use randomwalks as in (Moore and Quirk, 2008) to attempt tomove out of local optima.8 Since PRO and our opti-mizer have hyperparameters, we use a held-out set(Dev) for adjusting them.
+For PRO, we adjust threeparameters: a regularization penalty for `2, the pa-rameter ?
+in the add-?
+smoothed sentence-level ver-sion of BLEU (Lin and Och, 2004), and a parameterfor scaling the corpus-level length of the references.The latter scaling parameter is discussed in (He and8In the case of the gradient-based direction finder, we alsouse the following strategy whenever optimization converges toa (possibly local) optimum.
+We run one round of coordinateascent, and continue with the gradient direction finder as soon asthe optimum improves.
+If the none of the coordinate directionshelped, we stop the search.1955Chinese-English Finnish-EnglishMethod Starting pt.
+# feat.
+Tune Dev Test # feat.
+Tune Dev TestMERT uniform 14 33.2 19.9 32.9 15 53.0 52.6 54.8MERT uniform 224 33.0 19.2 32.1 232 53.2 51.7 53.8MERT w0 224 34.1 20.1 33.0 232 53.9 52.5 54.7PRO w0 224 33.4 20.1 33.3 232 53.3 52.9 55.3`2 MERT (v1: ||w ?w0||) w0 224 33.2 20.3 33.5 232 53.2 52.7 55.2`2 MERT (v2: D ?
+1 dimensions) w0 224 33.0 20.4 33.2 232 52.9 52.6 55.0`2 MERT (v3: `1-renormalized) w0 224 33.1 20.0 33.3 232 53.1 52.5 55.1`0 MERT w0 224 33.4 20.3 33.2 232 53.2 52.6 55.1Table 2: BLEU scores for GBM features.
+Model parameters were optimized on the Tune set.
+For PRO and regularizedMERT, we optimized with different hyperparameters (regularization weight, etc.
+), and retained for each experimentalcondition the model that worked best on Dev.
+The table shows the performance of these retained models.51.251.451.651.85252.252.452.61e-05  0.0001  0.001  0.01  0.1  1  10BLEUregularization weightexpected BLEU gradientcoordinate ascentFigure 4: BLEU score on the Finnish Dev set (GBM)with different values for the 1/2?2 regularization weight.To enable comparable results, the other hyperparameter(length) is kept fixed.Deng, 2012; Nakov et al 2012) and addresses theproblem that systems tuned with PRO tend to pro-duce sentences that are too short.
+On the other hand,regularized MERT only requires one hyperparameterto tune: a regularization penalty for `2 or `0.
+How-ever, since PRO optimizes translation length on theDev dataset and MERT does so using the Tune set, acomparison of the two systems would yield a discrep-ancy in length that would be undesirable.
+Therefore,we add another hyperparameter to regularized MERTto tune length in the same manner using the Dev set.Table 2 offers several findings.
+First, unregular-ized MERT can achieve competitive results with asmall set of highly engineered features, but adding alarge set of more than 200 features causes MERT toperform poorly, particularly on the test set.
+However,unregularized MERT can recover much of this dropof performance if it is given a good sparse initializerw0.
+Regularized MERT (v1) provides an increase inthe order of 0.5 BLEU on the test set compared tothe best results with unregularized MERT.
+Regular-ized MERT is competitive with PRO, even though thenumber of features is relatively large.
+Using the sameGBM experimental setting, Figure 4 compares regu-larized MERT using the gradient direction finder andcoordinate ascent.
+At the best regularization setting,the two algorithms are comparable in terms of BLEU(though coordinate ascent is slower due to its lack ofa good direction finder), but our method seems morerobust with suboptimal regularization parameters.Our results with the SparseHRM feature set dataare shown in Table 3.
+As with the GBM feature set,we find again that the version of `2 MERT regular-ized towards ||w ?w0|| is competitive with PRO,even though we train MERT with a large set of 3601features.9 One remaining question is whether MERTremains practical with large feature sets.
+As notedin the complexity analysis of Section 4.3, MERThas a dependence on the number of features that iscomparable to PRO, i.e., it is linear in both cases.Practically, we find that optimization time is com-parable between the two systems.
+In the case ofChinese-English for the GBM feature set, one run ofthe PRO optimizer took 26 minutes on average, whileregularized MERT with the gradient direction findertook 37 minutes on average, taking into account thetime to compute w0.
+In the case of Chinese-Englishfor the SparseHRM feature set, average optimizationtimes for PRO and our method were 3.10 hours and3.84 hours on average, respectively.9We note that the experimental setup of (Cherry, 2013) inte-grates the Sparse HRM features into the decoder, while we usethem in an M -best reranking scenario.
+The reranking setup ofthis paper yields smaller improvements for both PRO and MERTthan those of (Cherry, 2013).1956Chinese-English Arabic-EnglishMethod Starting pt.
+# feat.
+Tune Dev Test # feat.
+Tune Dev TestMERT uniform 14 25.7 34.0 27.8 14 43.2 42.8 45.5MERT uniform 3601 25.4 33.1 27.3 3601 45.7 42.3 44.9MERT w0 3601 27.7 33.5 27.5 3601 46.0 42.4 45.2PRO w0 3601 25.9 34.3 28.1 3601 44.6 43.4 46.1`2 MERT (v1: ||w ?w0||) w0 3601 26.3 34.3 28.3 3601 45.2 43.2 46.0`2 MERT (v2: D ?
+1 dimensions) w0 3601 26.4 34.1 28.2 3601 45.0 43.4 45.9`2 MERT (v3: `1-renormalized) w0 3601 26.1 34.0 27.9 3601 44.9 43.3 45.7`0 MERT w0 3601 26.5 34.2 28.1 3601 45.4 43.1 46.0Table 3: BLEU scores for SparseHRM features.
+Notes in Table 2 also apply here.Finally, as shown in Table 2, we see that MERT ex-periments that rely on a good initial starting point w0generally perform better than when starting froma uniform vector.
+While having to compute w0 inthe first place is a bit of a disadvantage comparedto standard MERT, the need for good initializer ishardly surprising in the context of non-convex op-timization.
+Other non-convex problems in machinelearning, such as deep neural networks (DNN) andword alignment models, commonly require such ini-tializers in order to obtain decent performance.
+Inthe case of DNN, extensive research is devoted to theproblem of finding good initializers.10 In the case ofword alignment, it is common practice to initializesearch in non-convex optimization problems?suchas IBM Model 3 and 4 (Brown et al 1993)?withsolutions of simpler models?such as IBM Model 1.7 Related workMERT and its extensions have been the target of ex-tensive research (Och, 2003; Macherey et al 2008;Cer et al 2008; Moore and Quirk, 2008; Kumar etal., 2009; Galley and Quirk, 2011).
+More recent workhas focused on replacing MERT with a linearly de-composable approximations of the evaluation metric(Smith and Eisner, 2006; Liang et al 2006; Watan-abe et al 2007; Chiang et al 2008; Hopkins andMay, 2011; Rosti et al 2011; Gimpel and Smith,2012; Cherry and Foster, 2012), which generallyinvolve a surrogate loss function incorporating a reg-ularization term such as the `2-norm.
+While we arenot aware of any previous work adding a penalty on10For example, (Larochelle et al 2009) presents a pre-trainedDNN that outperforms a shallow network, but the performanceof the DNN becomes much worse relative to the shallow networkonce pre-training is turned off.the weights in the context of MERT, (Cer et al 2008)achieves a related effect.
+Cer et als goal is to achievea more regular or smooth objective function, whileours is to obtain a more regular set of parameters.The two approaches may be complementary.More recently, new research has explored directionfinding using a smooth surrogate loss function (Flani-gan et al 2013).
+Although this method is successfulin helping MERT find better directions, it also exac-erbates the tendency of MERT to overfit.11 As anindirect way of controlling overfitting on the tuningset, their line searches are performed over directionsestimated over a separate dataset.8 ConclusionIn this paper, we have shown that MERT can scale toa much larger number of features than previouslythought, thanks to regularization and a directionfinder that directs the search towards the greatestincrease of expected BLEU score.
+While our bestresults are comparable to PRO and not significantlybetter, we think that this paper provides a deeper un-derstanding of why standard MERT can fail whenhandling an increasingly larger number of features.Furthermore, this paper complements the analysisby Hopkins and May (2011) of the differences be-tween MERT and optimization with a surrogate lossfunction.AcknowledgmentsWe thank the anonymous reviewers for their helpfulcomments and suggestions.11Indeed, in their Table 3, a comparison between HILS andHOLS suggests tuning set performance improves substantially,while held out performance degrades.1957ReferencesPeter F. Brown, Vincent J. Della Pietra, Stephen A. DellaPietra, and Robert L. Mercer.
+1993.
+The mathematicsof statistical machine translation: parameter estimation.Comput.
+Linguist., 19(2):263?311.Daniel Cer, Dan Jurafsky, and Christopher D. Manning.2008.
+Regularization and search for minimum errorrate training.
+In Proceedings of the Third Workshop onStatistical Machine Translation, pages 26?34.Colin Cherry and George Foster.
+2012.
+Batch tuningstrategies for statistical machine translation.
+In Pro-ceedings of the 2012 Conference of the North AmericanChapter of the Association for Computational Linguis-tics: Human Language Technologies, pages 427?436.Colin Cherry.
+2013.
+Improved reordering for phrase-based translation using sparse features.
+In Proceedingsof the 2013 Conference of the North American Chap-ter of the Association for Computational Linguistics:Human Language Technologies, pages 22?31.David Chiang, Yuval Marton, and Philip Resnik.
+2008.Online large-margin training of syntactic and structuraltranslation features.
+In Proceedings of the 2008 Con-ference on Empirical Methods in Natural LanguageProcessing, pages 224?233.David Chiang, Kevin Knight, and Wei Wang.
+2009.11,001 new features for statistical machine translation.In Proceedings of Human Language Technologies: The2009 Annual Conference of the North American Chap-ter of the Association for Computational Linguistics,pages 218?226.David Chiang.
+2007.
+Hierarchical phrase-based transla-tion.
+Computational Linguistics, 33(2):201?228.Jeffrey Flanigan, Chris Dyer, and Jaime Carbonell.
+2013.Large-scale discriminative training for statistical ma-chine translation using held-out line search.
+In Pro-ceedings of the 2013 Conference of the North AmericanChapter of the Association for Computational Linguis-tics: Human Language Technologies, pages 248?258.Michel Galley and Chris Quirk.
+2011.
+Optimal searchfor minimum error rate training.
+In Proceedings ofthe 2011 Conference on Empirical Methods in NaturalLanguage Processing, pages 38?49.Kevin Gimpel and Noah A. Smith.
+2012.
+Structured ramploss minimization for machine translation.
+In Proceed-ings of the 2012 Conference of the North AmericanChapter of the Association for Computational Linguis-tics: Human Language Technologies, pages 221?231.Xiaodong He and Li Deng.
+2012.
+Maximum expectedBLEU training of phrase and lexicon translation mod-els.
+In Proceedings of the 50th Annual Meeting ofthe Association for Computational Linguistics: LongPapers - Volume 1, pages 292?301.Mark Hopkins and Jonathan May.
+2011.
+Tuning as rank-ing.
+In Proceedings of the 2011 Conference on Empir-ical Methods in Natural Language Processing, pages1352?1362.M.
+Hyder and K. Mahata.
+2009.
+An approximate L0norm minimization algorithm for compressed sens-ing.
+In Acoustics, Speech and Signal Processing,2009.
+ICASSP 2009.
+IEEE International Conferenceon, pages 3365?3368.Philipp Koehn, Hieu Hoang, Alexandra Birch Mayne,Christopher Callison-Burch, Marcello Federico, NicolaBertoldi, Brooke Cowan, Wade Shen, Christine Moran,Richard Zens, Chris Dyer, Ondrej Bojar, AlexandraConstantin, and Evan Herbst.
+2007.
+Moses: Opensource toolkit for statistical machine translation.
+InProc.
+of ACL, Demonstration Session.Philipp Koehn.
+2004.
+Pharaoh: a beam search decoderfor phrase-based statistical machine translation models.In Proc.
+of AMTA, pages 115?124.Shankar Kumar, Wolfgang Macherey, Chris Dyer, andFranz Och.
+2009.
+Efficient minimum error rate train-ing and minimum bayes-risk decoding for translationhypergraphs and lattices.
+In Proceedings of the JointConference of the 47th Annual Meeting of the ACLand the 4th International Joint Conference on NaturalLanguage Processing of the AFNLP, pages 163?171.Hugo Larochelle, Yoshua Bengio, Je?ro?me Louradour, andPascal Lamblin.
+2009.
+Exploring strategies for trainingdeep neural networks.
+J. Mach.
+Learn.
+Res., 10:1?40.P.
+Liang, A.
+Bouchard-Co?te?, D. Klein, and B. Taskar.2006.
+An end-to-end discriminative approach to ma-chine translation.
+In International Conference on Com-putational Linguistics and Association for Computa-tional Linguistics (COLING/ACL).Chin-Yew Lin and Franz Josef Och.
+2004.
+ORANGE:a method for evaluating automatic evaluation metricsfor machine translation.
+In Proceedings of the 20thinternational conference on Computational Linguistics,Stroudsburg, PA, USA.Wolfgang Macherey, Franz Och, Ignacio Thayer, andJakob Uszkoreit.
+2008.
+Lattice-based minimum errorrate training for statistical machine translation.
+In Pro-ceedings of the 2008 Conference on Empirical Methodsin Natural Language Processing, pages 725?734.David McAllester and Joseph Keshet.
+2011.
+Generaliza-tion bounds and consistency for latent structural probitand ramp loss.
+In Advances in Neural InformationProcessing Systems 24, pages 2205?2212.Robert C. Moore and Chris Quirk.
+2008.
+Random restartsin minimum error rate training for statistical machinetranslation.
+In Proceedings of the 22nd InternationalConference on Computational Linguistics - Volume 1,pages 585?592.1958Preslav Nakov, Francisco Guzman, and Stephan Vogel.2012.
+Optimizing for sentence-level BLEU+1 yieldsshort translations.
+In Proceedings of COLING 2012,pages 1979?1994.Franz Josef Och and Hermann Ney.
+2002.
+Discriminativetraining and maximum entropy models for statisticalmachine translation.
+In Proceedings of 40th AnnualMeeting of the Association for Computational Linguis-tics, pages 295?302.Franz Josef Och.
+2003.
+Minimum error rate training instatistical machine translation.
+In Proceedings of the41st Annual Meeting of the Association for Computa-tional Linguistics, pages 160?167.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2001.
+BLEU: a method for automatic evalu-ation of machine translation.
+In Proc.
+of ACL.Kishore Papineni.
+1999.
+Discriminative training via linearprogramming.
+In Proceedings IEEE International Con-ference on Acoustics, Speech, and Signal Processing(ICASSP), volume 2, pages 561?564, Vol.
+2.M.J.D.
+Powell.
+1964.
+An efficient method for findingthe minimum of a function of several variables withoutcalculating derivatives.
+Comput.
+J., 7(2):155?162.William H. Press, Saul A. Teukolsky, William T. Vetter-ling, and Brian P. Flannery.
+2007.
+Numerical Recipes:The Art of Scientific Computing.
+Cambridge UniversityPress, 3rd edition.Antti-Veikko Rosti, Bing Zhang, Spyros Matsoukas, andRichard Schwartz.
+2011.
+Expected BLEU trainingfor graphs: BBN system description for WMT11 sys-tem combination task.
+In Proceedings of the SixthWorkshop on Statistical Machine Translation, pages159?165.David A. Smith and Jason Eisner.
+2006.
+Minimum riskannealing for training log-linear models.
+In Proceed-ings of the COLING/ACL 2006 Main Conference PosterSessions, pages 787?794.Kristina Toutanova and Byung-Gyu Ahn.
+2013.
+Learn-ing non-linear features for machine translation usinggradient boosting machines.
+In Proceedings of the 51stAnnual Meeting of the Association for ComputationalLinguistics (Volume 2: Short Papers), pages 406?411.Taro Watanabe, Jun Suzuki, Hajime Tsukada, and HidekiIsozaki.
+2007.
+Online large-margin training for sta-tistical machine translation.
+In Proceedings of the2007 Joint Conference on Empirical Methods in Natu-ral Language Processing and Computational NaturalLanguage Learning (EMNLP-CoNLL), pages 764?773.1959

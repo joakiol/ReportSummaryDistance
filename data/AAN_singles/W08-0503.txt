@@ -1,0 +1,183 @@
+Software Engineering, Testing, and Quality Assurance for Natural Language Processing, pages 5?13,Columbus, Ohio, USA, June 2008. c?2008 Association for Computational Linguisticszymake: a computational workflow system for machine learning andnatural language processingEric BreckDepartment of Computer ScienceCornell UniversityIthaca, NY 14853USAebreck@cs.cornell.eduAbstractExperiments in natural language processingand machine learning typically involve run-ning a complicated network of programs tocreate, process, and evaluate data.
+Re-searchers often write one or more UNIX shellscripts to ?glue?
+together these various pieces,but such scripts are suboptimal for several rea-sons.
+Without significant additional work, ascript does not handle recovering from fail-ures, it requires keeping track of complicatedfilenames, and it does not support running pro-cesses in parallel.
+In this paper, we presentzymake as a solution to all these problems.zymake scripts look like shell scripts, buthave semantics similar to makefiles.
+Usingzymake improves repeatability and scalabil-ity of running experiments, and provides aclean, simple interface for assembling compo-nents.
+A zymake script also serves as doc-umentation for the complete workflow.
+Wepresent a zymake script for a published setof NLP experiments, and demonstrate that itis superior to alternative solutions, includingshell scripts and makefiles, while being farsimpler to use than scientific grid computingsystems.1 IntroductionRunning experiments in natural language process-ing and machine learning typically involves a com-plicated network of programs.
+One program mightextract data from a raw corpus, others might pre-process it with various linguistic tools, before finallythe main program being tested is run.
+Further pro-grams must evaluate the output, and produce graphsand tables for inclusion in papers and presentations.All of these steps can be run by hand, but a more typ-ical approach is to automate them using tools suchas UNIX shell scripts.
+We argue that any approachshould satisfy a number of basic criteria.Reproducibility At some future time, the originalresearcher or other researchers ought to be able tore-run the set of experiments and produce identicalresults1.
+Such reproducibility is a cornerstone of sci-entific research, and ought in principle to be easierin our discipline than in a field requiring physicalmeasurements such as physics or chemistry.Simplicity We want to create a system that we andother researchers will find easy to use.
+A systemwhich requires significant overhead before any ex-periment can be run can limit a researcher?s abilityto quickly and easily try out new ideas.A realistic life-cycle of experiments A typical ex-periment evolves in structure as it goes along - theresearcher may choose partway through to add newdatasets, new ranges of parameters, or new sets ofmodels to test.
+Moreover, a computational exper-iment rarely works correctly the first time.
+Com-ponents break for various reasons, a tool may notperform as expected, and so forth.
+A usable toolmust be simple to use in the face of such repeatedre-execution.Software engineering Whether writing shellscripts, makefiles, or Java, one is writing code,and software engineering concerns apply.
+Onekey principle is modularity, that different parts of1User input presents difficulties which we will not discuss.5training regime classestwo-way distinction A vs B+Otwo-way distinction B vs A+Othree-way distinction A vs B vs Obaseline comparison A+B vs OTable 1: Training regimesa program should be cleanly separated.
+Anotheris generality, creating solutions that are re-usablein different specific cases.
+A usable tool mustencourage good software engineering.Inherent support for the combinatorial nature ofour experiments Experiments in natural languageprocessing and machine learning typically comparedifferent datasets, different models, different featuresets, different training regimes, and train and test ona number of cross-validation folds.
+This produces avery large number of files which any system musthandle in a clean way.In this paper, we present zymake2, and argue thatis superior to several alternatives for the task of au-tomating the steps in running an experiment in natu-ral language processing or machine learning.2 A Typical NLP ExperimentAs a running example, we present the followingset of experiments (abstracted from (Breck et al,2007)).
+The task is one of entity identification -we have a large dataset in which two different typesof opinion entities are tagged, type A, and type B.We will use a sequence-based learning algorithm tomodel the entities, but we want to investigate the re-lationship between the two types.
+In particular, willit be preferable to learn a single model which pre-dicts both entity type A and entity type B, or twoseparate models, one predicting A, and one predict-ing B.
+The former case makes a three-way distinc-tion between entities of type A, of type B, and oftype O, all other words.
+The latter two models makea distinction between type A and both other typesor between type B and both other types.
+Further-2Any name consisting of a single letter followed by makealready refers to an existing software project.
+zymake is thefirst pronouncable name consisting of a two letter prefix tomake, starting from the end of the alphabet.
+I pronounce ?zy-?as in ?zydeco.
+?more, prior work to which we wish to compare doesnot distinguish at all between type A and type B, sowe also need a model which just predicts entities tobe of either type A or B, versus the background O.These four training regimes are summarized in Ta-ble 1.Given one of these training regimes, the modelis trained and tested using 10-fold cross-validation,and the result is evaluated using precision and re-call.
+The evaluation is conducted separately for classA, for class B, and for predicting the union of bothclasses.2.1 Approach 1: A UNIX Shell ScriptMany researchers use UNIX shell scripts to co-ordinate experiments3.
+Figure 1 presents a poten-tial shell script for the experiments discussed in Sec-tion 2.
+Shell scripting is familiar and widely usedfor co-ordinating the execution of programs.
+How-ever, there are three difficulties with this approach -it is difficult to partially re-run, the specification ofthe filenames is error-prone, and the script is badlymodularized.Re-running the experiment The largest difficultywith this script is how it handles errors - namely, itdoes not.
+If some early processes succeed, but laterones fail, the researcher can only re-run the entirescript, wasting the time spent on the previous run.There are two common solutions to this problem.The simplest is to comment out the parts of the scriptwhich have succeeded, and re-run the script.
+Thisis highly brittle and error-prone.
+More reliable butmuch more complicated is to write a wrapper aroundeach command which checks whether the outputsfrom the command already exist before running it.Neither of these is desirable.
+It is also worth not-ing that this problem can arise not just through error,but when an input file changes, an experiment is ex-tended with further processing, additional graphs areadded, further statistics are calculated, or if anothermodel is added to the comparison.3Some researchers use more general programming lan-guages, such as Perl, Python, or Java to co-ordinate their ex-periments.
+While such languages may make some aspects ofco-ordination easier ?
+for example, such languages would nothave to call out to an external program to produce a range of in-tegers as does the script in Figure 1 ?
+the arguments that followapply equally to these other approaches.6for fold in ?seq 0 9?
+; doextract-test-data $fold raw-data $fold.testfor class in A B A+B; doextract-2way-training $fold raw-data $class > $fold.$class.traintrain $fold.$class.train > $fold.$class.modelpredict $fold.$class.model $fold.test > $fold.$class.outprep-eval-2way $fold.$class.out > $fold.eval-ineval $class $fold.$class.eval-in > $fold.$class.evaldoneextract-3way-training $fold raw-data > $fold.3way.traintrain $fold.3way.train > $fold.3way.modelpredict $fold.3way.model $fold.test > $fold.3way.outfor class in A B A+B; doprep-eval-3way $class $fold.3way.out > $fold.3way.$class.eval-ineval $class $fold.3way.$class.eval-in > $fold.3way.$class.evaldonedoneFigure 1: A shell scriptProblematic filenames In this example, a file-name is a concatenation of several variable names -e.g.
+$(fold).$(class).train.
+This is alsoerror-prone - the writer of the script has to keeptrack, for each filename, of which attributes need tobe specified for a given file, and the order in whichthey must be specified.
+Either of these can changeas an experiment?s design evolves, and subtle designchanges can require changes throughout the script ofthe references to many filenames.Bad modularization In this example, the evalprogram is called twice, even though the input andoutput files in each case are of the same format.The problem is that the filenames are such that theline in the script which calls eval needs to be in-clude information about precisely which files (inone case $fold.3way.$class, and in the other$fold.$class) are being evaluated.
+This is irrel-evant ?
+a more modular specification for the evalprogram would simply say that it operates on a.eval-in file and produces an .eval file.
+Wewill see ways below of achieving exactly this.44One way of achieving this modularization with shell scriptscould involve defining functions.
+While this could be effective,this greatly increases the complexity of the scripts.%.model: %.traintrain $< > $@%.out: %.model %.testpredict $?
+> $@Figure 2: A partial makefile2.2 Approach 2: A makefileOne solution to the problems detailed above is touse a makefile instead of a shell script.
+The makeprogram (Feldman, 1979) bills itself as a ?utility tomaintain groups of programs?5, but from our per-spective, make is a declarative language for speci-fying dependencies.
+This seems to be exactly whatwe want, and indeed it does solve some of the prob-lems detailed above.
+make has several new prob-lems, though, which result in its being not an idealsolution to our problem.Figure 2 presents a portion of a makefile for thistask.
+For this part, the makefile ideally matches whatwe want.
+It will pick up where it left off, avoidingthe re-running problem above.
+The question of file-names is sidestepped, as we only need to deal withthe extensions here.
+And each command is neatly5GNU make manpage.7partitioned into its own section, which specifies itsdependencies, the files created by each command,and the shell command to run to create them.
+How-ever, there are three serious problems with this ap-proach.Files are represented by strings The first prob-lem can be seen by trying to write a similar line forthe eval command.
+It would look something likethis:%.eval: %.eval-ineval get-class $?
+> $@However, it is hard to write the code representedhere as get-class.
+This code needs to examinethe filename string of $?
+or $@, and extract the classfrom that.
+This is certainly possible using standardUNIX shell tools or make extensions, but it is ugly,and has to be written once for every time such afield needs to be accessed.
+For example, one way ofwriting get-class using GNU make extensionswould be:GETCLASS = $(filter A B A+B,\$(subst ., ,$(1)))%.eval: %.eval-ineval $(call GETCLASS,$@) $?
+> $@The basic problem here is that to make, afile is represented by a string, its filename.For machine learning and natural language pro-cessing experiments, it is much more natu-ral to represent a file as a set of key-valuepairs.
+For example, the file 0.B.model mightbe represented as { fold = 0, class = B,filetype = model } .Combinatorial dependencies The second prob-lem with make is that it is very difficult to spec-ify combinatorial dependencies.
+If one continued towrite the makefile above, one would eventually needto write a final all target to specify all the fileswhich would need to be built.
+There are 60 suchfiles: one for each fold of the following set$fold.3way.A.eval$fold.3way.B.eval$fold.3way.A+B.eval$fold.A.eval%.taggerA.pos: %.txttagger_A $?
+> $@%.taggerB.pos: %.txttagger_B $?
+> $@%.taggerC.pos: %.txttagger_C $?
+> $@%.chunkerA.chk: %.poschunker_A $?
+> $@%.chunkerB.chk: %.poschunker_B $?
+> $@%.chunkerC.chk: %.poschunker_C $?
+> $@%.parserA.prs: %.chkparser_A $?
+> $@%.parserB.prs: %.chkparser_B $?
+> $@%.parserC.prs: %.chkparser_C $?
+> $@Figure 3: A non-functional makefile for testing three in-dependent decisions$fold.B.eval$fold.A+B.evalThere is no easy way in make of listing these 60files in a natural manner.
+One can escape to a shellscript, or use GNU make?s foreach function, butboth ways are messy.Non-representable dependency structures Thefinal problem with make also relates to dependen-cies.
+It is more subtle, but it turns out that there aresome sorts of dependency structures which cannotbe represented in make.
+Suppose I want to com-pare the effect of using one of three parsers, one ofthree part-of-speech-taggers and one of three chun-kers for a summarization experiment.
+This involvesthree separate three-way distinctions in the makefile,where for each, there are three different commandsthat might be run.
+A non-working example is in Fig-8ure 3.
+The problem is that make pattern rules (rulesusing the % character) can only match the suffix orprefix of a filename6.
+This makefile does not workbecause it requires the parser, chunker, and taggerto all be the last part of the filename before the typesuffix.2.3 Approach 3: zymakezymake is designed to address the problems out-lined above.
+The key principles of its design are asfollows:?
+Like make, zymakefiles can be re-run multi-ple times, each time picking up where the lastleft off.?
+Files are specified by key-value sets, not bystrings?
+zymake includes a straightforward way ofhandling combinatorial sets of files.?
+zymake syntax is minimally different fromshell syntax.Figure 4 presents a zymakefile which runs the run-ning example experiment.
+Rather than explainingthe entire file at once, we will present a series of in-creasingly complex parts of it.Figure 5 presents the simplest possible zymake-file, consisting of one rule, which describes how tocreate a $().test file, and one goal, which listswhat files should be created by this file.
+A rule issimply a shell command7, with some number of in-terpolations8.
+An interpolation is anything betweenthe characters $( and the matching ).
+This is theonly form of interpolation done by zymake, so asto minimally conflict with other interpolations doneby the shell, scripting languages such as Perl, etc.6Thus, if we were only comparing two sets of items ?
+e.g.parsers and taggers but not chunkers ?
+we could write this setof dependencies by using a prefix to distinguish one set and asuffix to distinguish the other.
+This is hardly pretty, though, anddoes not extend to more than two sets.7Users who are familiar with UNIX shells will find it use-ful to be able to use input/output redirection and pipelines inzymakefiles.
+Knowledge of advanced shell programming is notnecessary to use zymake, however.8This term is used in Perl; it is sometimes referred to in otherlanguages as ?substitution?
+or ?expansion.
+?extract-test-data $(fold) raw-data$(>).testextract-2way-training $(fold) raw-data$(class) > $(train="2way").trainextract-3way-training $(fold) raw-data> $(train="3way").traintrain $().train > $().modelpredict $().model $().test > $().outprep-eval-3way $(class) $().out >$(train="3way").eval-inprep-eval-2way $().out >$(train="2way").eval-ineval $(class) $().eval-in > $().evalclasses = A B A+Bways = 2way 3way: $(fold = *(range 0 9)class = *classestrain = *ways).evalFigure 4: An example zymakefile.
+The exact commandsrun by this makefile are presented in Appendix A.extract-test-data raw-data $(>).test: $().testFigure 5: Simple zymakefile #1extract-test-data $(fold) raw-data$(>).test: $(fold=0).test $(fold=1).testFigure 6: Simple zymakefile #29extract-test-data $(fold) raw-data$(>).testfolds = 0 1: $(fold=*folds).testFigure 7: Simple zymakefile #3The two interpolations in this example are file in-terpolations, which are replaced by zymake with agenerated filename.
+Files in zymake are identifiednot by a filename string but by a set of key-valuepairs, along with a suffix.
+In this case, the two in-terpolations have no key-value pairs, and so are onlyrepresented by a suffix.
+Finally, there are two kindsof file interpolations - inputs, which are files that arerequired to exist before a command can be run, andoutputs, which are files created by a command9.
+Inthis case, the interpolation $(>).test is markedas an output by the > character10, while $().testis an input, since it is unmarked.The goal of this program is to create a file match-ing the interpolation $().test.
+The single ruledoes create a file matching that interpolation, and sothis program will result in the execution of the fol-lowing single command:extract-test-data raw-data .testFigure 6 presents a slightly more complex zy-makefile.
+In this case, there are two goals - to createa .test file with the key fold having the value0, and another .test file with fold equal to 1.We also see that the rule has become slightly morecomplex ?
+there is now another interpolation.
+This,however, is not a file interpolation, but a variable in-terpolation.
+$(fold) will be replaced by the valueof fold.9Unlike make, zymake requires that each command ex-plicitly mention an interpolation corresponding to each inputor output file.
+This restriction is caused by the merging of thecommand part of the rule with the dependency part of the rule,which are separate in make.
+We felt that this reduced redun-dancy and clutter in the zymakefiles, but this may occasionallyrequire writing a wrapper around a program which does not be-have in this manner.10zymakewill also infer that any file interpolation followingthe > character, representing standard output redirection in theshell, is an outputExecuting this zymakefile results in the executionof two commands:extract-test-data 0 raw-data 0.testextract-test-data 1 raw-data 1.testNote that the output files are now not just .testbut include the fold number in their name.
+This isbecause zymake infers that the fold key, mentionedin the extract rule, is needed to distinguish the twotest files.
+In general the user should specify as fewkeys as possible for each file interpolation, and allowzymake to infer the exact set of keys necessary todistinguish each file from the rest11.Figure 7 presents a small refinement to the zy-makefile in Figure 6.
+The commands that will be runare the same, but instead of separately listing the twotest files to be created, we create a variable foldswhich is a list of all the folds we want, and use asplat to create multiple goals.
+A splat is indicatedby the asterisk character, and creates one copy of thefile interpolation for each value in the variable?s list.Figure 4 is now a straightforward extension of theexample we have seen so far.
+It uses a few morefeatures of zymake that we will not discuss, suchas string-valued keys, and the range function, butfurther documentation is available on the zymakewebsite.
+zymake wants to create the goals at theend, so it examines all the rules and constructs a di-rected acyclic graph, or DAG, representing the de-pendencies among the files.
+It then executes thecommands in some order based on this DAG ?
+seeSection 3 for discussion of execution order.2.4 Benefits of zymakezymake satisfies the criteria set out above, and han-dles the problems discussed with other systems.?
+Reproducibility.
+By providing a single filewhich can be re-executed many times, zymakeencourages a development style that encodesall information about a workflow in a singlefile.
+This also serves as documentation of thecomplete workflow.11Each file will be distinguished by all and only the keysneeded for the execution of the command that created it, andthe commands that created its inputs.
+A unique, global orderingof keys is used along with a unique, global mapping of filenamecomponents to key, value pairs so that the generated filenamefor each file uniquely maps to the appropriate set of key, valuepairs.10?
+Simplicity.
+zymake only requires writing a setof shell commands, annotated with interpola-tions.
+This allows researchers to quickly andeasily construct new and more complex exper-iments, or to modify existing ones.?
+Experimental life-cycle.
+zymake can re-execute the same file many times when com-ponents fail, inputs change, or the workflow isextended.?
+Software engineering.
+Each command in azymakefile only needs to describe the inputsand outputs relevant for that command, makingthe separate parts of the file quite modular.?
+Combinatorial experiments.
+zymake includesa built-in method for specifying that a particu-lar variable needs to range over several possi-bilities, such as a set of models, parameter val-ues, or datasets.2.5 Using zymakeBeginning to use zymake is as simple as download-ing a single binary from the website12.
+Just as witha shell script or makefile, the user then writes a sin-gle textual zymakefile, and passes it to zymake forexecution.
+Typical usage of zymake will be in anedit-run development cycle.3 Parallel ExecutionFor execution of very large experiments, efficientuse of parallelism is necessary.
+zymake offers anatural way of executing the experiment in a maxi-mally parallel manner.
+The default serial executiondoes a topological sort of the DAG, and executesthe components in that order.
+To execute in paral-lel, zymake steps through the DAG starting at theroots, starting any command which does not dependon a command which has not yet executed.To make this practical, of course, remote execu-tion must be combined with parallel execution.
+Thecurrent implementation provides a simple means ofexecuting a remote job using ssh, combined witha simple /proc-based measure of remote cpu uti-lization to find the least-used remote cpu from a12Binaries for Linux, Mac OS X, and Windows, as wellas full source code, are available at http://www.cs.cornell.edu/?ebreck/zymake/.provided set.
+We are currently looking at extend-ing zymake to interface it with the Condor sys-tem (Litzkow et al, 1988).
+Condor?s DAGManis designed to execute a DAG in parallel on a setof remote machines, so it should naturally fit withzymake.
+Interfaces to other cluster software arepossible as well.
+Another important extension willbe to allow the system to throttle the number of con-current jobs produced and/or collect smaller jobs to-gether, to better match the available computationalresources.4 Other approachesDeelman et al (2004) and Gil et al (2007) describethe Pegasus andWings systems, which together havea quite similar goal to zymake.
+This system is de-signed to manage large scientific workflows, withboth data and computation distributed across manymachines.
+A user describes their available data andresources in a semantic language, along with anabstract specification of a workflow, which Wingsthen renders into a complete workflow DAG.
+This ispassed to Pegasus, which instantiates the DAG withinstances of the described resources and passes it toCondor for actual execution.
+The system has beenused for large-scale scientific experiments, such asearthquake simulation.
+However, we believe thatthe added complexity of the input that a user hasto provide over zymake?s simple shell-like syntaxwill mean a typical machine learning or natural lan-guage processing researcher will find zymake eas-ier to use.The GATE and UIMA architectures focus specif-ically on the management of components for lan-guage processing (Cunningham et al, 2002; Fer-rucci and Lally, 2004).
+While zymake knows noth-ing about the structure of the files it manages, thesesystems provide a common format for textual an-notations which all components must use.
+GATEprovides a graphical user interface for running com-ponents and for viewing and producing annotations.UIMA provides a framework not just for running ex-periments but for data analysis and application de-ployment.
+Compared to writing a zymake script,however, the requirements for using these systemsto manage an experiment are greater.
+In addition,both these architectures most naturally support com-11ponents written in Java (and in the case of UIMA,C++).
+zymake is agnostic as to the source languageof each component, making it easier to include pro-grams written by third parties or by researchers whoprefer different languages.make, despite dating from 1979, has proved itsusefulness over time, and is still widely used.
+Manyother systems have been developed to replace it,including ant13, SCons14, maven15, and others.However, so far as we are aware, none of these sys-tems solves the problems we have described withmake.
+As with make and shell scripts, runningexperiments is certainly possible using these othertools, but we believe they are far more complex andcumbersome than zymake.5 Future ExtensionsThere are a number of extensions to zymake whichcould make it even more useful.
+One is to allow thedependency DAG to vary during the running of theexperiment.
+At the moment, zymake requires thatthe entire DAG be known before any processes canrun.
+As an example of when this is less than ideal,consider early-stopping an artificial neural network.One way of doing this is train the network to fullconvergence, and output predictions from the inter-mediate networks at some fixed interval of epochs.We would like then to evaluate all these predictionson held-out data (running one process for each ofthem) and then to choose the point at which thisscore is maximized (running one process for thewhole set).
+Since the number of iterations to con-vergence is not known ahead of time, at the momentwe cannot support this structure in zymake.
+Weplan, however, to allow the structure of the DAG tovary at run-time, allowing such experiments.We are also interested in other extensions, includ-ing an optional textual or graphical progress bar,providing a way for the user to have more controlover the string filename produced from a key-valueset16, and keeping track of previous versions of cre-ated files, to provide a sort of version control of theoutput files.13http://ant.apache.org/.14http://www.scons.org/.15http://maven.apache.org/.16This will better allow zymake to interact with other work-flows.6 ConclusionMost experiments in machine learning and natu-ral language processing involve running a complex,interdependent set of processes.
+We have arguedthat there are serious difficulties with common ap-proaches to automating these experiments.
+In theirplace, we offer zymake, a new scripting languagewith shell-like syntax but make-like semantics.
+Wehope our community will find it as useful as we have.AcknowledgementsWe thank Yejin Choi, Alex Niculescu-Mizil, DavidPierce, the Cornell machine learning discussiongroup, and the anonymous reviewers for helpfulcomments on earlier drafts of this paper.A Output of Figure 4We present here the commands run by zymakewhen presented with the file in Figure 4.
+We presentonly the commands run for fold 0, not for all 10folds.
+Also, in actual execution zymake adds a pre-fix to each filename based on the name of the zy-makefile, so as to separate different experiments.
+Fi-nally, note that this is only one possible order that thecommands could be run in.extract-2way-training 0 raw-data A > A.0.2way.traintrain A.0.2way.train > A.0.2way.modelextract-2way-training 0 raw-data B > B.0.2way.traintrain B.0.2way.train > B.0.2way.modelextract-2way-training 0 raw-data A+B > AB.0.2way.traintrain AB.0.2way.train > AB.0.2way.modelextract-3way-training 0 raw-data > 0.3way.traintrain 0.3way.train > 0.3way.modelextract-test-data 0 raw-data 0.testpredict A.0.2way.model 0.test > A.0.2way.outprep-eval-2way A.0.2way.out > A.0.2way.eval-ineval A A.0.2way.eval-in > A.0.2way.evalpredict B.0.2way.model 0.test > B.0.2way.outprep-eval-2way B.0.2way.out > B.0.2way.eval-ineval B B.0.2way.eval-in > B.0.2way.evalpredict AB.0.2way.model 0.test > AB.0.2way.outprep-eval-2way AB.0.2way.out > AB.0.2way.eval-ineval A+B AB.0.2way.eval-in > AB.0.2way.evalpredict 0.3way.model 0.test > 0.3way.outprep-eval-3way A 0.3way.out > A.0.3way.eval-ineval A A.0.3way.eval-in > A.0.3way.evalprep-eval-3way B 0.3way.out > B.0.3way.eval-ineval B B.0.3way.eval-in > B.0.3way.evalprep-eval-3way A+B 0.3way.out > AB.0.3way.eval-ineval A+B AB.0.3way.eval-in > AB.0.3way.eval12ReferencesEric Breck, Yejin Choi, and Claire Cardie.
+2007.
+Iden-tifying expressions of opinion in context.
+In Pro-ceedings of the Twentieth International Joint Confer-ence on Artificial Intelligence (IJCAI-2007), Hyder-abad, India, January.Hamish Cunningham, Diana Maynard, Kalina Bont-cheva, and Valentin Tablan.
+2002.
+GATE: A frame-work and graphical development environment for ro-bust NLP tools and applications.
+In Proceedings of the40th Anniversary Meeting of the Association for Com-putational Linguistics (ACL ?02), Philadelphia, July.Ewa Deelman, James Blythe, Yolanda Gil, Carl Kessel-man, Gaurang Mehta, Sonal Patil, Mei-Hui Su, KaranVahi, and Miron Livny.
+2004. Pegasus : Mappingscientific workflows onto the grid.
+In Across GridsConference, Nicosia, Cyprus.Stuart I. Feldman.
+1979.
+Make-a program for maintain-ing computer programs.
+Software - Practice and Ex-perience, 9(4):255?65.David Ferrucci and Adam Lally.
+2004.
+UIMA: an archi-tectural approach to unstructured information process-ing in the corporate research environment.
+Nat.
+Lang.Eng., 10(3-4):327?348.Yolanda Gil, Varun Ratnakar, Ewa Deelman, GaurangMehta, and Jihie Kim.
+2007.
+Wings for pegasus: Cre-ating large-scale scientific applications using semanticrepresentations of computational workflows.
+In Pro-ceedings of the 19th Annual Conference on InnovativeApplications of Artificial Intelligence (IAAI), Vancou-ver, British Columbia, Canada, July.Michael Litzkow, Miron Livny, and Matthew Mutka.1988.
+Condor - a hunter of idle workstations.
+In Pro-ceedings of the 8th International Conference of Dis-tributed Computing Systems, June.13

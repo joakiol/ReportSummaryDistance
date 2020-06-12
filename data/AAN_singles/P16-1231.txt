@@ -1,0 +1,416 @@
+Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics, pages 2442?2452,Berlin, Germany, August 7-12, 2016.c?2016 Association for Computational LinguisticsGlobally Normalized Transition-Based Neural NetworksDaniel Andor, Chris Alberti, David Weiss, Aliaksei Severyn,Alessandro Presta, Kuzman Ganchev, Slav Petrov and Michael Collins?Google IncNew York, NY{andor,chrisalberti,djweiss,severyn,apresta,kuzman,slav,mjcollins}@google.comAbstractWe introduce a globally normalizedtransition-based neural network modelthat achieves state-of-the-art part-of-speech tagging, dependency parsing andsentence compression results.
+Our modelis a simple feed-forward neural networkthat operates on a task-specific transitionsystem, yet achieves comparable or betteraccuracies than recurrent models.
+We dis-cuss the importance of global as opposedto local normalization: a key insight isthat the label bias problem implies thatglobally normalized models can be strictlymore expressive than locally normalizedmodels.1 IntroductionNeural network approaches have taken the fieldof natural language processing (NLP) by storm.In particular, variants of long short-term mem-ory (LSTM) networks (Hochreiter and Schmidhu-ber, 1997) have produced impressive results onsome of the classic NLP tasks such as part-of-speech tagging (Ling et al, 2015), syntactic pars-ing (Vinyals et al, 2015) and semantic role label-ing (Zhou and Xu, 2015).
+One might speculatethat it is the recurrent nature of these models thatenables these results.In this work we demonstrate that simple feed-forward networks without any recurrence canachieve comparable or better accuracies thanLSTMs, as long as they are globally normalized.Our model, described in detail in Section 2, usesa transition system (Nivre, 2006) and feature em-beddings as introduced by Chen and Manning(2014).
+We do not use any recurrence, but per-form beam search for maintaining multiple hy-?On leave from Columbia University.potheses and introduce global normalization witha conditional random field (CRF) objective (Bot-tou et al, 1997; Le Cun et al, 1998; Lafferty etal., 2001; Collobert et al, 2011) to overcome thelabel bias problem that locally normalized mod-els suffer from.
+Since we use beam inference,we approximate the partition function by summingover the elements in the beam, and use early up-dates (Collins and Roark, 2004; Zhou et al, 2015).We compute gradients based on this approximateglobal normalization and perform full backprop-agation training of all neural network parametersbased on the CRF loss.In Section 3 we revisit the label bias problemand the implication that globally normalized mod-els are strictly more expressive than locally nor-malized models.
+Lookahead features can par-tially mitigate this discrepancy, but cannot fullycompensate for it?a point to which we returnlater.
+To empirically demonstrate the effective-ness of global normalization, we evaluate ourmodel on part-of-speech tagging, syntactic de-pendency parsing and sentence compression (Sec-tion 4).
+Our model achieves state-of-the-art ac-curacy on all of these tasks, matching or outper-forming LSTMs while being significantly faster.In particular for dependency parsing on the WallStreet Journal we achieve the best-ever publishedunlabeled attachment score of 94.61%.As discussed in more detail in Section 5, wealso outperform previous structured training ap-proaches used for neural network transition-basedparsing.
+Our ablation experiments show that weoutperform Weiss et al (2015) and Alberti etal.
+(2015) because we do global backpropagationtraining of all model parameters, while they fixthe neural network parameters when training theglobal part of their model.
+We also outperformZhou et al (2015) despite using a smaller beam.To shed additional light on the label bias problem2442in practice, we provide a sentence compression ex-ample where the local model completely fails.
+Wethen demonstrate that a globally normalized pars-ing model without any lookahead features is al-most as accurate as our best model, while a locallynormalized model loses more than 10% absolutein accuracy because it cannot effectively incorpo-rate evidence as it becomes available.Finally, we provide an open-source implemen-tation of our method, called SyntaxNet,1whichwe have integrated into the popular TensorFlow2framework.
+We also provide a pre-trained,state-of-the art English dependency parser called?Parsey McParseface,?
+which we tuned for a bal-ance of speed, simplicity, and accuracy.2 ModelAt its core, our model is an incremental transition-based parser (Nivre, 2006).
+To apply it to differenttasks we only need to adjust the transition systemand the input features.2.1 Transition SystemGiven an input x, most often a sentence, we define:?
+A set of states S(x).?
+A special start state s??
+S(x).?
+A set of allowed decisionsA(s, x) for all s ?S(x).?
+A transition function t(s, d, x) returning anew state s?for any decision d ?
+A(s, x).We will use a function ?
+(s, d, x; ?)
+to compute thescore of decision d in state s for input x. Thevector ?
+contains the model parameters and weassume that ?
+(s, d, x; ?)
+is differentiable with re-spect to ?.In this section, for brevity, we will drop the de-pendence of x in the functions given above, simplywriting S, A(s), t(s, d), and ?
+(s, d; ?
+).Throughout this work we will use transition sys-tems in which all complete structures for the sameinput x have the same number of decisions n(x)(or n for brevity).
+In dependency parsing for ex-ample, this is true for both the arc-standard andarc-eager transition systems (Nivre, 2006), wherefor a sentence x of length m, the number of deci-sions for any complete parse is n(x) = 2 ?
+m.31http://github.com/tensorflow/models/tree/master/syntaxnet2http://www.tensorflow.org3Note that this is not true for the swap transition systemdefined in Nivre (2009).A complete structure is then a sequence of deci-sion/state pairs (s1, d1) .
+.
+.
+(sn, dn) such that s1=s?, di?
+S(si) for i = 1 .
+.
+.
+n, and si+1=t(si, di).
+We use the notation d1:jto refer to a de-cision sequence d1.
+.
+.
+dj.We assume that there is a one-to-one mappingbetween decision sequences d1:j?1and states sj:that is, we essentially assume that a state encodesthe entire history of decisions.
+Thus, each statecan be reached by a unique decision sequencefrom s?.4We will use decision sequences d1:j?1and states interchangeably: in a slight abuse ofnotation, we define ?
+(d1:j?1, d; ?)
+to be equal to?
+(s, d; ?)
+where s is the state reached by the deci-sion sequence d1:j?1.The scoring function ?
+(s, d; ?)
+can be definedin a number of ways.
+In this work, followingChen and Manning (2014), Weiss et al (2015),and Zhou et al (2015), we define it via a feed-forward neural network as?
+(s, d; ?)
+= ?
+(s; ?
+(l)) ?
+?
+(d).Here ?
+(l)are the parameters of the neural network,excluding the parameters at the final layer.
+?
+(d)arethe final layer parameters for decision d.
+?
+(s; ?
+(l))is the representation for state s computed by theneural network under parameters ?(l).
+Note thatthe score is linear in the parameters ?(d).
+We nextdescribe how softmax-style normalization can beperformed at the local or global level.2.2 Global vs. Local NormalizationIn the Chen and Manning (2014) style of greedyneural network parsing, the conditional probabil-ity distribution over decisions djgiven contextd1:j?1is defined asp(dj|d1:j?1; ?)
+=exp ?
+(d1:j?1, dj; ?
+)ZL(d1:j?1; ?
+), (1)whereZL(d1:j?1; ?)
+=?d?
+?A(d1:j?1)exp ?
+(d1:j?1, d?
+; ?
+).4It is straightforward to extend the approach to make useof dynamic programming in the case where the same statecan be reached by multiple decision sequences.2443Each ZL(d1:j?1; ?)
+is a local normalization term.The probability of a sequence of decisions d1:nispL(d1:n) =n?j=1p(dj|d1:j?1; ?)=exp?nj=1?
+(d1:j?1, dj; ?
+)?nj=1ZL(d1:j?1; ?).
+(2)Beam search can be used to attempt to find themaximum of Eq.
+(2) with respect to d1:n. Theadditive scores used in beam search are the log-softmax of each decision, ln p(dj|d1:j?1; ?
+), notthe raw scores ?
+(d1:j?1, dj; ?
+).In contrast, a Conditional Random Field (CRF)defines a distribution pG(d1:n) as follows:pG(d1:n) =exp?nj=1?
+(d1:j?1, dj; ?)ZG(?
+), (3)whereZG(?)
+=?d?1:n?Dnexpn?j=1?
+(d?1:j?1, d?j; ?
+)and Dnis the set of all valid sequences of deci-sions of length n.
+ZG(?)
+is a global normalizationterm.
+The inference problem is now to findargmaxd1:n?DnpG(d1:n) = argmaxd1:n?Dnn?j=1?
+(d1:j?1, dj; ?
+).Beam search can again be used to approximatelyfind the argmax.2.3 TrainingTraining data consists of inputs x paired with golddecision sequences d?1:n. We use stochastic gradi-ent descent on the negative log-likelihood of thedata under the model.
+Under a locally normalizedmodel, the negative log-likelihood isLlocal(d?1:n; ?)
+= ?
+ln pL(d?1:n; ?)
+= (4)?n?j=1?
+(d?1:j?1, d?j; ?)
++n?j=1lnZL(d?1:j?1; ?
+),whereas under a globally normalized model it isLglobal(d?1:n; ?)
+= ?
+ln pG(d?1:n; ?)
+=?n?j=1?
+(d?1:j?1, d?j; ?)
++ lnZG(?).
+(5)A significant practical advantange of the locallynormalized cost Eq.
+(4) is that the local parti-tion function ZLand its derivative can usually becomputed efficiently.
+In contrast, the ZGterm inEq.
+(5) contains a sum over d?1:n?
+Dnthat is inmany cases intractable.To make learning tractable with the globallynormalized model, we use beam search and earlyupdates (Collins and Roark, 2004; Zhou et al,2015).
+As the training sequence is being decoded,we keep track of the location of the gold path inthe beam.
+If the gold path falls out of the beamat step j, a stochastic gradient step is taken on thefollowing objective:Lglobal?beam(d?1:j; ?)
+=?j?i=1?
+(d?1:i?1, d?i; ?)
++ ln?d?1:j?Bjexpj?i=1?
+(d?1:i?1, d?i; ?).
+(6)Here the set Bjcontains all paths in the beamat step j, together with the gold path prefix d?1:j.It is straightforward to derive gradients of theloss in Eq.
+(6) and to back-propagate gradients toall levels of a neural network defining the score?
+(s, d; ?).
+If the gold path remains in the beamthroughout decoding, a gradient step is performedusing Bn, the beam at the end of decoding.3 The Label Bias ProblemIntuitively, we would like the model to be ableto revise an earlier decision made during search,when later evidence becomes available that rulesout the earlier decision as incorrect.
+At firstglance, it might appear that a locally normal-ized model used in conjunction with beam searchor exact search is able to revise earlier deci-sions.
+However the label bias problem (see Bottou(1991), Collins (1999) pages 222-226, Laffertyet al (2001), Bottou and LeCun (2005), Smithand Johnson (2007)) means that locally normal-ized models often have a very weak ability to re-vise earlier decisions.This section gives a formal perspective on thelabel bias problem, through a proof that globallynormalized models are strictly more expressivethan locally normalized models.
+The theorem wasoriginally proved5by Smith and Johnson (2007).5More precisely Smith and Johnson (2007) prove thetheorem for models with potential functions of the form?
+(di?1, di, xi); the generalization to potential functions ofthe form ?
+(d1:i?1, di, x1:i) is straightforward.2444The example underlying the proof gives a clear il-lustration of the label bias problem.6Global Models can be Strictly More Expressivethan Local Models Consider a tagging problemwhere the task is to map an input sequence x1:nto a decision sequence d1:n. First, consider a lo-cally normalized model where we restrict the scor-ing function to access only the first i input sym-bols x1:iwhen scoring decision di.
+We will re-turn to this restriction soon.
+The scoring function?
+can be an otherwise arbitrary function of the tu-ple ?d1:i?1, di, x1:i?
+:pL(d1:n|x1:n) =n?i=1pL(di|d1:i?1, x1:i)=exp?ni=1?
+(d1:i?1, di, x1:i)?ni=1ZL(d1:i?1, x1:i).Second, consider a globally normalized modelpG(d1:n|x1:n) =exp?ni=1?
+(d1:i?1, di, x1:i)ZG(x1:n).This model again makes use of a scoring function?
+(d1:i?1, di, x1:i) restricted to the first i input sym-bols when scoring decision di.Define PLto be the set of all possible distribu-tions pL(d1:n|x1:n) under the local model obtainedas the scores ?
+vary.
+Similarly, define PGto be theset of all possible distributions pG(d1:n|x1:n) un-der the global model.
+Here a ?distribution?
+is afunction from a pair (x1:n, d1:n) to a probabilityp(d1:n|x1:n).
+Our main result is the following:Theorem 3.1 See also Smith and Johnson (2007).PLis a strict subset of PG, that is PL( PG.To prove this we will first prove that PL?
+PG.This step is straightforward.
+We then show thatPG* PL; that is, there are distributions in PGthat are not in PL.
+The proof that PG* PLgivesa clear illustration of the label bias problem.Proof that PL?
+PG: We need to show thatfor any locally normalized distribution pL, we canconstruct a globally normalized model pGsuch6Smith and Johnson (2007) cite Michael Collins asthe source of the example underlying the proof.
+Notethat the theorem refers to conditional models of the formp(d1:n|x1:n) with global or local normalization.
+Equiva-lence (or non-equivalence) results for joint models of theform p(d1:n, x1:n) are quite different: for example resultsfrom Chi (1999) and Abney et al (1999) imply that weightedcontext-free grammars (a globally normalized joint model)and probabilistic context-free grammars (a locally normal-ized joint model) are equally expressive.that pG= pL.
+Consider a locally normalizedmodel with scores ?
+(d1:i?1, di, x1:i).
+Define aglobal model pGwith scores??
+(d1:i?1, di, x1:i) = log pL(di|d1:i?1, x1:i).Then it is easily verified thatpG(d1:n|x1:n) = pL(d1:n|x1:n)for all x1:n, d1:n. In proving PG* PLwe will use a simple prob-lem where every example seen in training or testdata is one of the following two tagged sentences:x1x2x3= a b c, d1d2d3= A B Cx1x2x3= a b e, d1d2d3= A D E (7)Note that the input x2= b is ambiguous: it cantake tags B or D. This ambiguity is resolved whenthe next input symbol, c or e, is observed.Now consider a globally normalized model,where the scores ?
+(d1:i?1, di, x1:i) are de-fined as follows.
+Define T as the set{(A,B), (B,C), (A,D), (D,E)} of bigram tagtransitions seen in the data.
+Similarly, define Eas the set {(a,A), (b, B), (c, C), (b,D), (e, E)} of(word, tag) pairs seen in the data.
+We define?
+(d1:i?1, di, x1:i) (8)= ??
+J(di?1, di) ?
+T K + ??
+J(xi, di) ?
+EKwhere ?
+is the single scalar parameter of themodel, and JpiK = 1 if pi is true, 0 otherwise.Proof that PG* PL: We will construct a glob-ally normalized model pGsuch that there is no lo-cally normalized model such that pL= pG.Under the definition in Eq.
+(8), it is straightfor-ward to show thatlim??
+?pG(A B C|a b c) = lim??
+?pG(A D E|a b e) = 1.In contrast, under any definition for?
+(d1:i?1, di, x1:i), we must havepL(A B C|a b c) + pL(A D E|a b e) ?
+1 (9)This follows because pL(A B C|a b c) =pL(A|a) ?
+pL(B|A, a b) ?
+pL(C|A B, a b c)and pL(A D E|a b e) = pL(A|a) ?pL(D|A, a b) ?
+pL(E|A D, a b e).
+The in-equality pL(B|A, a b) + pL(D|A, a b) ?
+1 thenimmediately implies Eq.
+(9).2445En En-Union CoNLL ?09 AvgMethod WSJ News Web QTB Ca Ch Cz En Ge Ja Sp -Linear CRF 97.17 97.60 94.58 96.04 98.81 94.45 98.90 97.50 97.14 97.90 98.79 97.17Ling et al (2015) 97.78 97.44 94.03 96.18 98.77 94.38 99.00 97.60 97.84 97.06 98.71 97.16Our Local (B=1) 97.44 97.66 94.46 96.59 98.91 94.56 98.96 97.36 97.35 98.02 98.88 97.29Our Local (B=8) 97.45 97.69 94.46 96.64 98.88 94.56 98.96 97.40 97.35 98.02 98.89 97.30Our Global (B=8) 97.44 97.77 94.80 96.86 99.03 94.72 99.02 97.65 97.52 98.37 98.97 97.47Parsey McParseface - 97.52 94.24 96.45 - - - - - - - - -Table 1: Final POS tagging test set results on English WSJ and Treebank Union as well as CoNLL?09.
+We also show theperformance of our pre-trained open source model, ?Parsey McParseface.
+?It follows that for sufficiently large values of ?,we have pG(A B C|a b c)+ pG(A D E|a b e) > 1,and given Eq.
+(9) it is impossible to de-fine a locally normalized model withpL(A B C|a b c) = pG(A B C|a b c) andpL(A D E|a b e) = pG(A D E|a b e).
+Under the restriction that scores?
+(d1:i?1, di, x1:i) depend only on the first iinput symbols, the globally normalized model isstill able to model the data in Eq.
+(7), while thelocally normalized model fails (see Eq.
+9).
+Theambiguity at input symbol b is naturally resolvedwhen the next symbol (c or e) is observed, butthe locally normalized model is not able to reviseits prediction.It is easy to fix the locally normalized modelfor the example in Eq.
+(7) by allowing scores?
+(d1:i?1, di, x1:i+1) that take into account the in-put symbol xi+1.
+More generally we can have amodel of the form ?
+(d1:i?1, di, x1:i+k) where theinteger k specifies the amount of lookahead in themodel.
+Such lookahead is common in practice, butinsufficient in general.
+For every amount of looka-head k, we can construct examples that cannot bemodeled with a locally normalized model by du-plicating the middle input b in (7) k + 1 times.Only a local model with scores ?
+(d1:i?1, di, x1:n)that considers the entire input can capture any dis-tribution p(d1:n|x1:n): in this case the decompo-sition pL(d1:n|x1:n) =?ni=1pL(di|d1:i?1, x1:n)makes no independence assumptions.However, increasing the amount of context usedas input comes at a cost, requiring more powerfullearning algorithms, and potentially more train-ing data.
+For a detailed analysis of the trade-offs between structural features in CRFs and morepowerful local classifiers without structural con-straints, see Liang et al (2008); in these exper-iments local classifiers are unable to reach theperformance of CRFs on problems such as pars-ing and named entity recognition where structuralconstraints are important.
+Note that there is noth-ing to preclude an approach that makes use of bothglobal normalization and more powerful scoringfunctions ?
+(d1:i?1, di, x1:n), obtaining the best ofboth worlds.
+The experiments that follow makeuse of both.4 ExperimentsTo demonstrate the flexibility and modeling powerof our approach, we provide experimental resultson a diverse set of structured prediction tasks.
+Weapply our approach to POS tagging, syntactic de-pendency parsing, and sentence compression.While directly optimizing the global model de-fined by Eq.
+(5) works well, we found that train-ing the model in two steps achieves the same pre-cision much faster: we first pretrain the networkusing the local objective given in Eq.
+(4), and thenperform additional training steps using the globalobjective given in Eq.
+(6).
+We pretrain all layersexcept the softmax layer in this way.
+We purpose-fully abstain from complicated hand engineeringof input features, which might improve perfor-mance further (Durrett and Klein, 2015).We use the training recipe from Weiss et al(2015) for each training stage of our model.Specifically, we use averaged stochastic gradientdescent with momentum, and we tune the learn-ing rate, learning rate schedule, momentum, andearly stopping time using a separate held-out cor-pus for each task.
+We tune again with a differentset of hyperparameters for training with the globalobjective.4.1 Part of Speech TaggingPart of speech (POS) tagging is a classic NLP task,where modeling the structure of the output is im-portant for achieving state-of-the-art performance.2446Data & Evaluation.
+We conducted experimentson a number of different datasets: (1) the En-glish Wall Street Journal (WSJ) part of the PennTreebank (Marcus et al, 1993) with standard POStagging splits; (2) the English ?Treebank Union?multi-domain corpus containing data from theOntoNotes corpus version 5 (Hovy et al, 2006),the English Web Treebank (Petrov and McDon-ald, 2012), and the updated and corrected Ques-tion Treebank (Judge et al, 2006) with identicalsetup to Weiss et al (2015); and (3) the CoNLL?09 multi-lingual shared task (Haji?c et al, 2009).Model Configuration.
+Inspired by the inte-grated POS tagging and parsing transition systemof Bohnet and Nivre (2012), we employ a simpletransition system that uses only a SHIFT action andpredicts the POS tag of the current word on thebuffer as it gets shifted to the stack.
+We extract thefollowing features on a window ?3 tokens cen-tered at the current focus token: word, cluster,character n-gram up to length 3.
+We also extractthe tag predicted for the previous 4 tokens.
+Thenetwork in these experiments has a single hiddenlayer with 256 units on WSJ and Treebank Unionand 64 on CoNLL?09.Results.
+In Table 1 we compare our model toa linear CRF and to the compositional character-to-word LSTM model of Ling et al (2015).
+TheCRF is a first-order linear model with exact infer-ence and the same emission features as our model.It additionally also has transition features of theword, cluster and character n-gram up to length 3on both endpoints of the transition.
+The results forLing et al (2015) were solicited from the authors.Our local model already compares favorablyagainst these methods on average.
+Using beamsearch with a locally normalized model does nothelp, but with global normalization it leads to a7% reduction in relative error, empirically demon-strating the effect of label bias.
+The set of char-acter ngrams feature is very important, increasingaverage accuracy on the CoNLL?09 datasets byabout 0.5% absolute.
+This shows that character-level modeling can also be done with a simplefeed-forward network without recurrence.4.2 Dependency ParsingIn dependency parsing the goal is to produce a di-rected tree representing the syntactic structure ofthe input sentence.Data & Evaluation.
+We use the same corporaas in our POS tagging experiments, except thatwe use the standard parsing splits of the WSJ.
+Toavoid over-fitting to the development set (Sec.
+22),we use Sec.
+24 for tuning the hyperparameters ofour models.
+We convert the English constituencytrees to Stanford style dependencies (De Marneffeet al, 2006) using version 3.3.0 of the converter.For English, we use predicted POS tags (the samePOS tags are used for all models) and excludepunctuation from the evaluation, as is standard.For the CoNLL ?09 datasets we follow standardpractice and include all punctuation in the evalua-tion.
+We follow Alberti et al (2015) and use ourown predicted POS tags so that we can include ak-best tag feature (see below) but use the suppliedpredicted morphological features.
+We report unla-beled and labeled attachment scores (UAS/LAS).Model Configuration.
+Our model configurationis basically the same as the one originally pro-posed by Chen and Manning (2014) and then re-fined by Weiss et al (2015).
+In particular, we usethe arc-standard transition system and extract thesame set of features as prior work: words, part ofspeech tags, and dependency arcs and labels in thesurrounding context of the state, as well as k-besttags as proposed by Alberti et al (2015).
+We usetwo hidden layers of 1,024 dimensions each.Results.
+Tables 2 and 3 show our final parsingresults and a comparison to the best systems fromthe literature.
+We obtain the best ever publishedresults on almost all datasets, including the WSJ.Our main results use the same pre-trained wordembeddings as Weiss et al (2015) and Alberti etal.
+(2015), but no tri-training.
+When we artifi-cially restrict ourselves to not use pre-trained wordembeddings, we observe only a modest drop of?0.5% UAS; for example, training only on theWSJ yields 94.08% UAS and 92.15% LAS for ourglobal model with a beam of size 32.Even though we do not use tri-training, ourmodel compares favorably to the 94.26% LAS and92.41% UAS reported by Weiss et al (2015) withtri-training.
+As we show in Sec.
+5, these gains canbe attributed to the full backpropagation trainingthat differentiates our approach from that of Weisset al (2015) and Alberti et al (2015).
+Our resultsalso significantly outperform the LSTM-based ap-proaches of Dyer et al (2015) and Ballesteros etal.
+(2015).2447WSJ Union-News Union-Web Union-QTBMethod UAS LAS UAS LAS UAS LAS UAS LASMartins et al (2013)?92.89 90.55 93.10 91.13 88.23 85.04 94.21 91.54Zhang and McDonald (2014)?93.22 91.02 93.32 91.48 88.65 85.59 93.37 90.69Weiss et al (2015) 93.99 92.05 93.91 92.25 89.29 86.44 94.17 92.06Alberti et al (2015) 94.23 92.36 94.10 92.55 89.55 86.85 94.74 93.04Our Local (B=1) 92.95 91.02 93.11 91.46 88.42 85.58 92.49 90.38Our Local (B=32) 93.59 91.70 93.65 92.03 88.96 86.17 93.22 91.17Our Global (B=32) 94.61 92.79 94.44 92.93 90.17 87.54 95.40 93.64Parsey McParseface (B=8) - - 94.15 92.51 89.08 86.29 94.77 93.17Table 2: Final English dependency parsing test set results.
+We note that training our system using only the WSJ corpus (i.e.
+nopre-trained embeddings or other external resources) yields 94.08% UAS and 92.15% LAS for our global model with beam 32.Catalan Chinese Czech English German Japanese SpanishMethod UAS LAS UAS LAS UAS LAS UAS LAS UAS LAS UAS LAS UAS LASBest Shared Task Result - 87.86 - 79.17 - 80.38 - 89.88 - 87.48 - 92.57 - 87.64Ballesteros et al (2015) 90.22 86.42 80.64 76.52 79.87 73.62 90.56 88.01 88.83 86.10 93.47 92.55 90.38 86.59Zhang and McDonald (2014) 91.41 87.91 82.87 78.57 86.62 80.59 92.69 90.01 89.88 87.38 92.82 91.87 90.82 87.34Lei et al (2014) 91.33 87.22 81.67 76.71 88.76 81.77 92.75 90.00 90.81 87.81 94.04 91.84 91.16 87.38Bohnet and Nivre (2012) 92.44 89.60 82.52 78.51 88.82 83.73 92.87 90.60 91.37 89.38 93.67 92.63 92.24 89.60Alberti et al (2015) 92.31 89.17 83.57 79.90 88.45 83.57 92.70 90.56 90.58 88.20 93.99 93.10 92.26 89.33Our Local (B=1) 91.24 88.21 81.29 77.29 85.78 80.63 91.44 89.29 89.12 86.95 93.71 92.85 91.01 88.14Our Local (B=16) 91.91 88.93 82.22 78.26 86.25 81.28 92.16 90.05 89.53 87.4 93.61 92.74 91.64 88.88Our Global (B=16) 92.67 89.83 84.72 80.85 88.94 84.56 93.22 91.23 90.91 89.15 93.65 92.84 92.62 89.95Table 3: Final CoNLL ?09 dependency parsing test set results.4.3 Sentence CompressionOur final structured prediction task is extractivesentence compression.Data & Evaluation.
+We follow Filippova et al(2015), where a large news collection is used toheuristically generate compression instances.
+Ourfinal corpus contains about 2.3M compression in-stances: we use 2M examples for training, 130kfor development and 160k for the final test.
+We re-port per-token F1 score and per-sentence accuracy(A), i.e.
+percentage of instances that fully matchthe golden compressions.
+Following Filippova etal.
+(2015) we also run a human evaluation on 200sentences where we ask the raters to score com-pressions for readability (read) and informative-ness (info) on a scale from 0 to 5.Model Configuration.
+The transition systemfor sentence compression is similar to POS tag-ging: we scan sentences from left-to-right and la-bel each token as keep or drop.
+We extract fea-tures from words, POS tags, and dependency la-bels from a window of tokens centered on the in-put, as well as features from the history of predic-tions.
+We use a single hidden layer of size 400.Generated corpus Human evalMethod A F1 read infoFilippova et al (2015) 35.36 82.83 4.66 4.03Automatic - - 4.31 3.77Our Local (B=1) 30.51 78.72 4.58 4.03Our Local (B=8) 31.19 75.69 - -Our Global (B=8) 35.16 81.41 4.67 4.07Table 4: Sentence compression results on News data.
+Auto-matic refers to application of the same automatic extractionrules used to generate the News training corpus.Results.
+Table 4 shows our sentence compres-sion results.
+Our globally normalized model againsignificantly outperforms the local model.
+Beamsearch with a locally normalized model suffersfrom severe label bias issues that we discuss ona concrete example in Section 5.
+We also compareto the sentence compression system from Filip-pova et al (2015), a 3-layer stacked LSTM whichuses dependency label information.
+The LSTMand our global model perform on par on both theautomatic evaluation as well as the human ratings,but our model is roughly 100?
+faster.
+All com-pressions kept approximately 42% of the tokenson average and all the models are significantly bet-ter than the automatic extractions (p < 0.05).24485 DiscussionWe derived a proof for the label bias problemand the advantages of global models.
+We thenemprirically verified this theoretical superiorityby demonstrating state-of-the-art performance onthree different tasks.
+In this section we situate andcompare our model to previous work and providetwo examples of the label bias problem in practice.5.1 Related Neural CRF WorkNeural network models have been been combinedwith conditional random fields and globally nor-malized models before.
+Bottou et al (1997) andLe Cun et al (1998) describe global training ofneural network models for structured predictionproblems.
+Peng et al (2009) add a non-linearneural network layer to a linear-chain CRF andDo and Artires (2010) apply a similar approachto more general Markov network structures.
+Yaoet al (2014) and Zheng et al (2015) introduce re-currence into the model and Huang et al (2015)finally combine CRFs and LSTMs.
+These neuralCRF models are limited to sequence labeling taskswhere exact inference is possible, while our modelworks well when exact inference is intractable.5.2 Related Transition-Based Parsing WorkFor early work on neural-networks for transition-based parsing, see Henderson (2003; 2004).
+Ourwork is closest to the work of Weiss et al (2015),Zhou et al (2015) and Watanabe and Sumita(2015); in these approaches global normalizationis added to the local model of Chen and Manning(2014).
+Empirically, Weiss et al (2015) achievesthe best performance, even though their modelkeeps the parameters of the locally normalizedneural network fixed and only trains a perceptronthat uses the activations as features.
+Their modelis therefore limited in its ability to revise the pre-dictions of the locally normalized model.
+In Ta-ble 5 we show that full backpropagation trainingall the way to the word embeddings is very im-portant and significantly contributes to the perfor-mance of our model.
+We also compared trainingunder the CRF objective with a Perceptron-likehinge loss between the gold and best elements ofthe beam.
+When we limited the backpropagationdepth to training only the top layer ?
+(d), we foundnegligible differences in accuracy: 93.20% and93.28% for the CRF objective and hinge loss re-spectively.
+However, when training with full back-Method UAS LASLocal (B=1) 92.85 90.59Local (B=16) 93.32 91.09Global (B=16) {?
+(d)} 93.45 91.21Global (B=16) {W2, ?
+(d)} 94.01 91.77Global (B=16) {W1,W2, ?
+(d)} 94.09 91.81Global (B=16) (full) 94.38 92.17Table 5: WSJ dev set scores for successively deeper levelsof backpropagation.
+The full parameter set corresponds tobackpropagation all the way to the embeddings.
+Wi: hiddenlayer i weights.propagation the CRF accuracy is 0.2% higher andtraining converged more than 4?
+faster.Zhou et al (2015) perform full backpropagationtraining like us, but even with a much larger beam,their performance is significantly lower than ours.We also apply our model to two additional tasks,while they experiment only with dependency pars-ing.
+Finally, Watanabe and Sumita (2015) intro-duce recurrent components and additional tech-niques like max-violation updates for a corre-sponding constituency parsing model.
+In contrast,our model does not require any recurrence or spe-cialized training.5.3 Label Bias in PracticeWe observed several instances of severe label biasin the sentence compression task.
+Although us-ing beam search with the local model outperformsgreedy inference on average, beam search leadsthe local model to occasionally produce emptycompressions (Table 6).
+It is important to notethat these are not search errors: the empty com-pression has higher probability under pLthan theprediction from greedy inference.
+However, themore expressive globally normalized model doesnot suffer from this limitation, and correctly givesthe empty compression almost zero probability.We also present some empirical evidence thatthe label bias problem is severe in parsing.
+Wetrained models where the scoring functions inparsing at position i in the sentence are limited toconsidering only tokens x1:i; hence unlike the fullparsing model, there is no ability to look aheadin the sentence when making a decision.7Theresult for a greedy model under this constraint7This setting may be important in some applications,where for example parse structures for sentence prefixes arerequired, or where the input is received one word at a timeand online processing is beneficial.2449Method Predicted compression pLpGLocal (B=1) In Pakistan, former leader Pervez Musharraf has appeared in court for the first time, on treason charges.
+0.13 0.05Local (B=8) In Pakistan, former leader Pervez Musharraf has appeared in court for the first time, on treason charges.
+0.16 <10?4Global (B=8) In Pakistan, former leader Pervez Musharraf has appeared in court for the first time, on treason charges.
+0.06 0.07Table 6: Example sentence compressions where the label bias of the locally normalized model leads to a breakdown duringbeam search.
+The probability of each compression under the local (pL) and global (pG) models shows that only the globalmodel can properly represent zero probability for the empty compression.is 76.96% UAS; for a locally normalized modelwith beam search is 81.35%; and for a globallynormalized model is 93.60%.
+Thus the globallynormalized model gets very close to the perfor-mance of a model with full lookahead, while thelocally normalized model with a beam gives dra-matically lower performance.
+In our final exper-iments with full lookahead, the globally normal-ized model achieves 94.01% accuracy, comparedto 93.07% accuracy for a local model with beamsearch.
+Thus adding lookahead allows the lo-cal model to close the gap in performance to theglobal model; however there is still a significantdifference in accuracy, which may in large part bedue to the label bias problem.A number of authors have considered modifiedtraining procedures for greedy models, or for lo-cally normalized models.
+Daum?e III et al (2009)introduce Searn, an algorithm that allows a classi-fier making greedy decisions to become more ro-bust to errors made in previous decisions.
+Gold-berg and Nivre (2013) describe improvements to agreedy parsing approach that makes use of meth-ods from imitation learning (Ross et al, 2011) toaugment the training set.
+Note that these meth-ods are focused on greedy models: they are un-likely to solve the label bias problem when used inconjunction with beam search, given that the prob-lem is one of expressivity of the underlying model.More recent work (Yazdani and Henderson, 2015;Vaswani and Sagae, 2016) has augmented locallynormalized models with correctness probabilitiesor error states, effectively adding a step after everydecision where the probability of correctness ofthe resulting structure is evaluated.
+This gives con-siderable gains over a locally normalized model,although performance is lower than our full glob-ally normalized approach.6 ConclusionsWe presented a simple and yet powerful model ar-chitecture that produces state-of-the-art results forPOS tagging, dependency parsing and sentencecompression.
+Our model combines the flexibil-ity of transition-based algorithms and the model-ing power of neural networks.
+Our results demon-strate that feed-forward network without recur-rence can outperform recurrent models such asLSTMs when they are trained with global normal-ization.
+We further support our empirical findingswith a proof showing that global normalizationhelps the model overcome the label bias problemfrom which locally normalized models suffer.AcknowledgementsWe would like to thank Ling Wang for traininghis C2W part-of-speech tagger on our setup, andEmily Pitler, Ryan McDonald, Greg Coppola andFernando Pereira for tremendously helpful discus-sions.
+Finally, we are grateful to all members ofthe Google Parsing Team.ReferencesSteven Abney, David McAllester, and FernandoPereira.
+1999.
+Relating probabilistic grammars andautomata.
+Proceedings of the 37th Annual Meet-ing of the Association for Computational Linguis-tics, pages 131?160.Chris Alberti, David Weiss, Greg Coppola, and SlavPetrov.
+2015.
+Improved transition-based parsingand tagging with neural networks.
+In Proceedings ofthe 2015 Conference on Empirical Methods in Nat-ural Language Processing, pages 1354?1359.Miguel Ballesteros, Chris Dyer, and Noah A. Smith.2015.
+Improved transition-based parsing by mod-eling characters instead of words with LSTMs.
+InProceedings of the 2015 Conference on EmpiricalMethods in Natural Language Processing, pages349?359.Bernd Bohnet and Joakim Nivre.
+2012.
+A transition-based system for joint part-of-speech tagging and la-beled non-projective dependency parsing.
+In Pro-ceedings of the 2012 Joint Conference on Empiri-cal Methods in Natural Language Processing andComputational Natural Language Learning, pages1455?1465.2450L?eon Bottou and Yann LeCun.
+2005.
+Graph trans-former networks for image recognition.
+Bulletin ofthe International Statistical Institute (ISI).L?eon Bottou, Yann Le Cun, and Yoshua Bengio.
+1997.Global training of document processing systems us-ing graph transformer networks.
+In Proceedings ofComputer Vision and Pattern Recognition (CVPR),pages 489?493.L?eon Bottou.
+1991.
+Une approche th?eorique de lap-prentissage connexionniste: Applications `a la recon-naissance de la parole.
+Ph.D. thesis, Doctoral dis-sertation, Universite de Paris XI.Danqi Chen and Christopher D. Manning.
+2014.
+A fastand accurate dependency parser using neural net-works.
+In Proceedings of the 2014 Conference onEmpirical Methods in Natural Language Process-ing, pages 740?750.Zhiyi Chi.
+1999.
+Statistical properties of probabilisticcontext-free grammars.
+Computational Linguistics,pages 131?160.Michael Collins and Brian Roark.
+2004.
+Incrementalparsing with the perceptron algorithm.
+In Proceed-ings of the 42nd Meeting of the Association for Com-putational Linguistics (ACL?04), pages 111?118.Michael Collins.
+1999.
+Head-Driven Statistical Mod-els for Natural Language Parsing.
+Ph.D. thesis,University of Pennsylvania.Ronan Collobert, Jason Weston, L?eon Bottou, MichaelKarlen, Koray Kavukcuoglu, and Pavel Kuksa.2011.
+Natural language processing (almost) fromscratch.
+The Journal of Machine Learning Re-search, 12:2493?2537.Hal Daum?e III, John Langford, and Daniel Marcu.2009.
+Search-based structured prediction.
+MachineLearning Journal (MLJ), 75(3):297?325.Marie-Catherine De Marneffe, Bill MacCartney, andChristopher D. Manning.
+2006.
+Generating typeddependency parses from phrase structure parses.
+InProceedings of Fifth International Conference onLanguage Resources and Evaluation, pages 449?454.Trinh Minh Tri Do and Thierry Artires.
+2010.
+Neu-ral conditional random fields.
+In International Con-ference on Artificial Intelligence and Statistics, vol-ume 9, pages 177?184.Greg Durrett and Dan Klein.
+2015.
+Neural crf parsing.In Proceedings of the 53rd Annual Meeting of theAssociation for Computational Linguistics and the7th International Joint Conference on Natural Lan-guage Processing, pages 302?312.Chris Dyer, Miguel Ballesteros, Wang Ling, AustinMatthews, and Noah A. Smith.
+2015.
+Transition-based dependency parsing with stack long short-term memory.
+In Proceedings of the 53rd AnnualMeeting of the Association for Computational Lin-guistics, pages 334?343.Katja Filippova, Enrique Alfonseca, Carlos A. Col-menares, ?ukasz Kaiser, and Oriol Vinyals.
+2015.Sentence compression by deletion with lstms.
+InProceedings of the 2015 Conference on EmpiricalMethods in Natural Language Processing, pages360?368.Yoav Goldberg and Joakim Nivre.
+2013.
+Trainingdeterministic parsers with non-deterministic oracles.Transactions of the Association for ComputationalLinguistics, 1:403?414.Jan Haji?c, Massimiliano Ciaramita, Richard Johans-son, Daisuke Kawahara, Maria Ant`onia Mart?
+?, Llu?
+?sM`arquez, Adam Meyers, Joakim Nivre, SebastianPad?o, Jan?St?ep?anek, Pavel Stra?n?ak, Mihai Surdeanu,Nianwen Xue, and Yi Zhang.
+2009.
+The conll-2009shared task: Syntactic and semantic dependenciesin multiple languages.
+In Proceedings of the Thir-teenth Conference on Computational Natural Lan-guage Learning: Shared Task, pages 1?18.James Henderson.
+2003.
+Inducing history representa-tions for broad coverage statistical parsing.
+In Pro-ceedings of the 2003 Human Language TechnologyConference of the North American Chapter of theAssociation for Computational Linguistics, pages24?31.James Henderson.
+2004.
+Discriminative training of aneural network statistical parser.
+In Proceedings ofthe 42nd Meeting of the Association for Computa-tional Linguistics (ACL?04), pages 95?102.Sepp Hochreiter and J?urgen Schmidhuber.
+1997.Long short-term memory.
+Neural computation,9(8):1735?1780.Eduard Hovy, Mitchell Marcus, Martha Palmer, LanceRamshaw, and Ralph Weischedel.
+2006.
+Ontonotes:The 90% solution.
+In Proceedings of the HumanLanguage Technology Conference of the NAACL,Short Papers, pages 57?60.Zhiheng Huang, Wei Xu, and Kai Yu.
+2015.
+Bidi-rectional LSTM-CRF models for sequence tagging.arXiv preprint arXiv:1508.01991.John Judge, Aoife Cahill, and Josef van Genabith.2006.
+Questionbank: Creating a corpus of parse-annotated questions.
+In Proceedings of the 21st In-ternational Conference on Computational Linguis-tics and 44th Annual Meeting of the Association forComputational Linguistics, pages 497?504.John Lafferty, Andrew McCallum, and FernandoPereira.
+2001.
+Conditional random fields: Prob-abilistic models for segmenting and labeling se-quence data.
+In Proceedings of the Eighteenth In-ternational Conference on Machine Learning, pages282?289.2451Yann Le Cun, L?eon Bottou, Yoshua Bengio, andPatrick Haffner.
+1998.
+Gradient based learningapplied to document recognition.
+Proceedings ofIEEE, 86(11):2278?2324.Tao Lei, Yu Xin, Yuan Zhang, Regina Barzilay, andTommi Jaakkola.
+2014.
+Low-rank tensors for scor-ing dependency structures.
+In Proceedings of the52nd Annual Meeting of the Association for Com-putational Linguistics, pages 1381?1391.Percy Liang, Hal Daum?e, III, and Dan Klein.
+2008.Structure compilation: Trading structure for fea-tures.
+In Proceedings of the 25th International Con-ference on Machine Learning, pages 592?599.Wang Ling, Chris Dyer, Alan W Black, Isabel Tran-coso, Ramon Fermandez, Silvio Amir, Luis Marujo,and Tiago Luis.
+2015.
+Finding function in form:Compositional character models for open vocabu-lary word representation.
+In Proceedings of the 2015Conference on Empirical Methods in Natural Lan-guage Processing, pages 1520?1530.Mitchell P. Marcus, Beatrice Santorini, and Mary AnnMarcinkiewicz.
+1993.
+Building a large annotatedcorpus of English: The Penn Treebank.
+Computa-tional Linguistics, 19(2):313?330.Andre Martins, Miguel Almeida, and Noah A. Smith.2013.
+Turning on the turbo: Fast third-order non-projective turbo parsers.
+In Proceedings of the 51stAnnual Meeting of the Association for Computa-tional Linguistics, pages 617?622.Joakim Nivre.
+2006.
+Inductive Dependency Parsing.Springer-Verlag New York, Inc.Joakim Nivre.
+2009.
+Non-projective dependency pars-ing in expected linear time.
+In Proceedings of theJoint Conference of the 47th Annual Meeting of theACL and the 4th International Joint Conference onNatural Language Processing of the AFNLP, pages351?359.Jian Peng, Liefeng Bo, and Jinbo Xu.
+2009.
+Condi-tional neural fields.
+In Advances in Neural Informa-tion Processing Systems 22, pages 1419?1427.Slav Petrov and Ryan McDonald.
+2012.
+Overview ofthe 2012 shared task on parsing the web.
+Notes ofthe First Workshop on Syntactic Analysis of Non-Canonical Language (SANCL).St?ephane Ross, Geoffrey J. Gordon, and J. AndrewBagnell.
+2011.
+No-regret reductions for imitationlearning and structured prediction.
+AISTATS.Noah Smith and Mark Johnson.
+2007.
+Weighted andprobabilistic context-free grammars are equally ex-pressive.
+Computational Linguistics, pages 477?491.Ashish Vaswani and Kenji Sagae.
+2016.
+Effi-cient structured inference for transition-based pars-ing with neural networks and error states.
+Transac-tions of the Association for Computational Linguis-tics, 4:183?196.Oriol Vinyals, ?ukasz Kaiser, Terry Koo, Slav Petrov,Ilya Sutskever, and Geoffrey Hinton.
+2015.
+Gram-mar as a foreign language.
+In Advances in Neu-ral Information Processing Systems 28, pages 2755?2763.Taro Watanabe and Eiichiro Sumita.
+2015.
+Transition-based neural constituent parsing.
+In Proceedingsof the 53rd Annual Meeting of the Association forComputational Linguistics and the 7th InternationalJoint Conference on Natural Language Processing,pages 1169?1179.David Weiss, Chris Alberti, Michael Collins, and SlavPetrov.
+2015.
+Structured training for neural net-work transition-based parsing.
+In Proceedings of the53rd Annual Meeting of the Association for Compu-tational Linguistics, pages 323?333.Kaisheng Yao, Baolin Peng, Geoffrey Zweig, DongYu, Xiaolong Li, and Feng Gao.
+2014.
+Recurrentconditional random field for language understand-ing.
+In IEEE International Conference on Acoustics,Speech, and Signal Processing (ICASSP ?14).Majid Yazdani and James Henderson.
+2015.
+Incre-mental recurrent neural network dependency parserwith search-based discriminative training.
+In Pro-ceedings of the Nineteenth Conference on Computa-tional Natural Language Learning, pages 142?152.Hao Zhang and Ryan McDonald.
+2014.
+Enforcingstructural diversity in cube-pruned dependency pars-ing.
+In Proceedings of the 52nd Annual Meetingof the Association for Computational Linguistics,pages 656?661.Shuai Zheng, Sadeep Jayasumana, BernardinoRomera-Paredes, Vibhav Vineet, Zhizhong Su,Dalong Du, Chang Huang, and Philip H. S. Torr.2015.
+Conditional random fields as recurrent neuralnetworks.
+In The IEEE International Conference onComputer Vision (ICCV), pages 1529?1537.Jie Zhou and Wei Xu.
+2015.
+End-to-end learning ofsemantic role labeling using recurrent neural net-works.
+In Proceedings of the 53rd Annual Meet-ing of the Association for Computational Linguisticsand the 7th International Joint Conference on Natu-ral Language Processing, pages 1127?1137.Hao Zhou, Yue Zhang, and Jiajun Chen.
+2015.
+Aneural probabilistic structured-prediction model fortransition-based dependency parsing.
+In Proceed-ings of the 53rd Annual Meeting of the Associationfor Computational Linguistics, pages 1213?1222.2452

@@ -1,0 +1,222 @@
+Human Language Technologies: The 2015 Annual Conference of the North American Chapter of the ACL, pages 820?829,Denver, Colorado, May 31 ?
+June 5, 2015.c?2015 Association for Computational LinguisticsPragmatic Neural Language Modelling in Machine TranslationPaul BaltescuUniversity of Oxfordpaul.baltescu@cs.ox.ac.ukPhil BlunsomUniversity of OxfordGoogle DeepMindphil.blunsom@cs.ox.ac.ukAbstractThis paper presents an in-depth investiga-tion on integrating neural language modelsin translation systems.
+Scaling neural lan-guage models is a difficult task, but crucialfor real-world applications.
+This paper eval-uates the impact on end-to-end MT qualityof both new and existing scaling techniques.We show when explicitly normalising neu-ral models is necessary and what optimisa-tion tricks one should use in such scenarios.We also focus on scalable training algorithmsand investigate noise contrastive estimationand diagonal contexts as sources for furtherspeed improvements.
+We explore the trade-offs between neural models and back-off n-gram models and find that neural models makestrong candidates for natural language appli-cations in memory constrained environments,yet still lag behind traditional models in rawtranslation quality.
+We conclude with a set ofrecommendations one should follow to build ascalable neural language model for MT.1 IntroductionLanguage models are used in translation systems toimprove the fluency of the output translations.
+Themost popular language model implementation is aback-off n-gram model with Kneser-Ney smooth-ing (Chen and Goodman, 1999).
+Back-off n-grammodels are conceptually simple, very efficient toconstruct and query, and are regarded as being ex-tremely effective in translation systems.Neural language models are a more recent class oflanguage models (Bengio et al, 2003) that have beenshown to outperform back-off n-gram models usingintrinsic evaluations of heldout perplexity (Chelbaet al, 2013; Bengio et al, 2003), or when used inaddition to traditional models in natural languagesystems such as speech recognizers (Mikolov et al,2011a; Schwenk, 2007).
+Neural language modelscombat the problem of data sparsity inherent to tra-ditional n-gram models by learning distributed rep-resentations for words in a continuous vector space.It has been shown that neural language modelscan improve translation quality when used as addi-tional features in a decoder (Vaswani et al, 2013;Botha and Blunsom, 2014; Baltescu et al, 2014;Auli and Gao, 2014) or if used for n-best list rescor-ing (Schwenk, 2010; Auli et al, 2013).
+These re-sults show great promise and in this paper we con-tinue this line of research by investigating the trade-off between speed and accuracy when integratingneural language models in a decoder.
+We also fo-cus on how effective these models are when usedas the sole language model in a translation system.This is important because our hypothesis is that mostof the language modelling is done by the n-grammodel, with the neural model only acting as a differ-entiating factor when the n-gram model cannot pro-vide a decisive probability.
+Furthermore, neural lan-guage models are considerably more compact andrepresent strong candidates for modelling languagein memory constrained environments (e.g.
+mobiledevices, commodity machines, etc.
+), where back-offn-gram models trained on large amounts of data donot fit into memory.Our results show that a novel combination ofnoise contrastive estimation (Mnih and Teh, 2012)820Figure 1: A 3-gram neural language model is used to pre-dict the word following the context the cat.and factoring the softmax layer using Brown clusters(Brown et al, 1992) provides the most pragmatic so-lution for fast training and decoding.
+Further, weconfirm that when evaluated purely on BLEU score,neural models are unable to match the benchmarkKneser-Ney models, even if trained with large hid-den layers.
+However, when the evaluation is re-stricted to models that match a certain memory foot-print, neural models clearly outperform the n-grambenchmarks, confirming that they represent a practi-cal solution for memory constrained environments.2 Model DescriptionAs a basis for our investigation, we implement aprobabilistic neural language model as defined inBengio et al (2003).1For every word w in thevocabulary V , we learn two distributed representa-tions qwand rwin RD.
+The vector qwcapturesthe syntactic and semantic role of the word w whenw is part of a conditioning context, while rwcap-tures its role as a prediction.
+For some word wiin agiven corpus, let hidenote the conditioning contextwi?1, .
+.
+.
+, wi?n+1.
+To find the conditional proba-bility P (wi|hi), our model first computes a contextprojection vector:p = f??n?1?j=1Cjqhij?
+?,where Cj?
+RD?Dare context specific transforma-tion matrices and f is a component-wise rectified1Our goal is to release a scalable neural language modellingtoolkit at the following URL: http://www.example.com.Model Training Exact DecodingStandard O(|V | ?D) O(|V | ?D)Class Factored O(?|V | ?D) O(?|V | ?D)Tree Factored O(log |V | ?D) O(log |V | ?D)NCE O(k ?D) O(|V | ?D)Table 1: Training and decoding complexities for the op-timization tricks discussed in section 2.linear activation.
+The model computes a set of sim-ilarity scores measuring how well each word w ?
+Vmatches the context projection of hi.
+The similarityscore is defined as ?
+(w, hi) = rTwp + bw, where bwis a bias term incorporating the prior probability ofthe word w. The similarity scores are transformedinto probabilities using the softmax function:P (wi|hi) =exp(?
+(wi, hi))?w?Vexp(?
+(w, hi)),The model architecture is illustrated in Figure 1.
+Theparameters are learned with gradient descent to max-imize log-likelihood with L2regularization.Scaling neural language models is hard becauseany forward pass through the underlying neural net-work computes an expensive softmax activation inthe output layer.
+This operation is performed dur-ing training and testing for all contexts presented asinput to the network.
+Several methods have beenproposed to alleviate this problem: some applicableonly during training (Mnih and Teh, 2012; Bengioand Senecal, 2008), while others may also speed uparbitrary queries to the language model (Morin andBengio, 2005; Mnih and Hinton, 2009).In the following subsections, we present severalextensions to this model, all sharing the goal of re-ducing the computational cost of the softmax step.Table 1 summarizes the complexities of these meth-ods during training and decoding.2.1 Class Based FactorisationThe time complexity of the softmax step is O(|V | ?D).
+One option for reducing this excessive amountof computation is to rely on a class based factori-sation trick (Goodman, 2001).
+We partition thevocabulary into K classes {C1, .
+.
+.
+, CK} such thatV =?Ki=1Ciand Ci?
+Cj= ?, ?1 ?
+i < j ?
+K.821We define the conditional probabilities as:P (wi|hi) = P (ci|hi)P (wi|ci, hi),where ciis the class the word wibelongs to, i.e.wi?
+Cci.
+We adjust the model definition to alsoaccount for the class probabilities P (ci|hi).
+We as-sociate a distributed representation scand a bias termtcto every class c. The class conditional probabil-ities are computed reusing the projection vector pwith a new scoring function ?
+(c, hi) = sTcp + tc.The probabilities are normalised separately:P (ci|hi) =exp(?
+(ci, hi))?Kj=1exp(?
+(cj, hi))P (wi|ci, hi) =exp(?
+(wi, hi))?w?Cciexp(?
+(w, hi))WhenK ?
+?|V | and the word classes have roughlyequal sizes, the softmax step has a more manageabletime complexity of O(?|V | ?D) for both trainingand testing.2.2 Tree Factored ModelsOne can take the idea presented in the previous sec-tion one step further and construct a tree over thevocabulary V .
+The words in the vocabulary are usedto label the leaves of the tree.
+Let n1, .
+.
+.
+, nkbe thenodes on the path descending from the root (n1) tothe leaf labelled with wi(nk).
+The probability of theword wito follow the context hiis defined as:P (wi|hi) =k?j=2P (nj|n1, .
+.
+.
+, nj?1, hi).We associate a distributed representation snand biasterm tnto each node in the tree.
+The conditionalprobabilities are obtained reusing the scoring func-tion ?
+(nj, hi):P (nj|n1, .
+.
+.
+, nj?1, hi) =exp(?
+(nj, hi))?n?S(nj)exp(?
+(n, hi)),where S(nj) is the set containing the siblings of njand the node itself.
+Note that the class decomposi-tion trick described earlier can be understood as atree factored model with two layers, where the firstlayer contains the word classes and the second layercontains the words in the vocabulary.The optimal time complexity is obtained by usingbalanced binary trees.
+The overall complexity of thenormalisation step becomesO(log |V |?D) becausethe length of any path is bounded by O(log |V |) andbecause exactly two terms are present in the denom-inator of every normalisation operation.Inducing high quality binary trees is a difficultproblem which has received some attention in theresearch literature (Mnih and Hinton, 2009; Morinand Bengio, 2005).
+Results have been somewhatunsatisfactory, with the exception of Mnih and Hin-ton (2009), who did not release the code they usedto construct their trees.
+In our experiments, we useHuffman trees (Huffman, 1952) which do not haveany linguistic motivation, but guarantee that a mini-mum number of nodes are accessed during training.Huffman trees have depths that are close to log |V |.2.3 Noise Contrastive EstimationTraining neural language models to maximise datalikelihood involves several iterations over the entiretraining corpus and applying the backpropagationalgorithm for every training sample.
+Even with theprevious factorisation tricks, training neural mod-els is slow.
+We investigate an alternative approachfor training language models based on noise con-trastive estimation, a technique which does not re-quire normalised probabilities when computing gra-dients (Mnih and Teh, 2012).
+This method has al-ready been used for training neural language modelsfor machine translation by Vaswani et al (2013).The idea behind noise contrastive training is totransform a density estimation problem into a classi-fication problem, by learning a classifier to discrim-inate between samples drawn from the data distri-bution and samples drawn for a known noise distri-bution.
+Following Mnih and Teh (2012), we set theunigram distribution Pn(w) as the noise distributionand use k times more noise samples than data sam-ples to train our models.
+The new objective is:J(?)
+=m?i=1logP (C = 1|?, wi, hi)+m?i=1k?j=1logP (C = 0|?, nij, hi),where nijare the noise samples drawn from Pn(w).The posterior probability that a word is generated822Language pairs # tokens # sentencesfr?en 113M 2Men?cs 36.5M 733.4ken?de 104.9M 1.95MTable 2: Statistics for the parallel corpora.from the data distribution given its context is:P (C = 1|?, wi, hi) =P (wi|?, hi)P (wi|?, hi) + kPn(wi).Mnih and Teh (2012) show that the gradient of J(?
+)converges to the gradient of the log-likelihood ob-jective when k ?
+?.When using noise contrastive estimation, addi-tional parameters can be used to capture the normal-isation terms.
+Mnih and Teh (2012) fix these param-eters to 1 and obtain the same perplexities, therebycircumventing the need for explicit normalisation.However, this method does not provide any guar-antees that the models are normalised at test time.In fact, the outputs may sum up to arbitrary values,unless the model is explicitly normalised.Noise contrastive estimation is more efficient thanthe factorisation tricks at training time, but at testtime one still has to normalise the model to obtainvalid probabilities.
+We propose combining this ap-proach with the class decomposition trick resultingin a fast algorithm for both training and testing.
+Inthe new training algorithm, when we account forthe class conditional probabilities P (ci|hi), we drawnoise samples from the class unigram distribution,and when we account for P (wi|ci, hi), we samplefrom the unigram distribution of only the words inthe class Cci.3 Experimental SetupIn our experiments, we use data from the 2014 ACLWorkshop in Machine Translation.2We train stan-dard phrase-based translation systems for French?English, English ?
+Czech and English ?
+Germanusing the Moses toolkit (Koehn et al, 2007).We used the europarl and the newscommentary corpora as parallel data for training2The data is available here: http://www.statmt.org/wmt14/translation-task.html.Language # tokens VocabularyEnglish (en) 2.05B 105.5kCzech (cs) 566M 214.9kGerman (de) 1.57B 369kTable 3: Statistics for the monolingual corpora.the translation systems.
+The parallel corpora weretokenized, lowercased and sentences longer than 80words were removed using standard text processingtools.3Table 2 contains statistics about the trainingcorpora after the preprocessing step.
+We tuned thetranslation systems on the newstest2013 datausing minimum error rate training (Och, 2003) andwe used the newstest2014 corpora to reportuncased BLEU scores averaged over 3 runs.The monolingual training data used for traininglanguage models consists of the europarl,news commentary and the news crawl2007-2013 corpora.
+The corpora were tokenizedand lowercased using the same text processingscripts and the words not occuring the in the targetside of the parallel data were replaced with a special<unk> token.
+Statistics for the monolingual dataafter the preprocessing step are reported in Table 3.Throughout this paper we report results for 5-gram language models, regardless of whether theyare back-off n-gram models or neural models.
+Toconstruct the back-off n-gram models, we useda compact trie-based implementation available inKenLM (Heafield, 2011), because otherwise wewould have had difficulties with fitting these modelsin the main memory of our machines.
+When train-ing neural language models, we set the size of thedistributed representations to 500, we used diagonalcontext matrices and we used 10 negative samplesfor noise contrastive estimation, unless otherwise in-dicated.
+In cases where we perform experiments ononly one language pair, the reader should assume weused French?English data.4 NormalisationThe key challenge with neural language models isscaling the softmax step in the output layer of the3We followed the first two steps from http://www.cdec-decoder.org/guide/tutorial.html.823Model fr?en en?cs en?deKenLM 33.01 (120.446) 19.11 19.75NLM 31.55 (115.119) 18.56 18.33Table 4: A comparison between standard back-off n-grammodels and neural language models.
+The perplexities forthe English language models are shown in parentheses.network.
+This operation is especially problematicwhen the neural language model is incorporated asa feature in the decoder, as the language model isqueried several hundred thousand times for any sen-tence of average length.Previous publications on neural language modelsin machine translation have approached this prob-lem in two different ways.
+Vaswani et al (2013)and Devlin et al (2014) simply ignore normalisationwhen decoding, albeit Devlin et al (2014) alter theirtraining objective to learn self-normalised models,i.e.
+models where the sum of the values in the out-put layer is (hopefully) close to 1.
+Vaswani et al(2013) use noise contrastive estimation to speed uptraining, while Devlin et al (2014) train their modelswith standard gradient descent on a GPU.The second approach is to explicitly normalise themodels, but to limit the set of words over which thenormalisation is performed, either via class-basedfactorisation (Botha and Blunsom, 2014; Baltescuet al, 2014) or using a shortlist containing only themost frequent words in the vocabulary and scoringthe remaining words with a back-off n-gram model(Schwenk, 2010).
+Tree factored models follow thesame general approach, but to our knowledge, theyhave never been investigated in a translation systembefore.
+These normalisation techniques can be suc-cessfully applied both when training the models andwhen using them in a decoder.Table 4 shows a side by side comparison of out ofthe box neural language models and back-off n-grammodels.
+We note a significant drop in quality whenneural language models are used (roughly 1.5 BLEUfor fr?en and en?de and 0.5 BLEU for en?
+cs).This result is in line with Zhao et al (2014) andshows that by default back-off n-gram models aremuch more effective in MT.
+An interesting observa-tion is that the neural models have lower perplexitiesthan the n-gram models, implying that BLEU scoresNormalisation fr?en en?cs en?deUnnormalised 33.89 20.06 20.25Class Factored 33.87 19.96 20.25Tree Factored 33.69 19.52 19.87Table 5: Qualitative analysis of the proposed normalisa-tion schemes with an additional back-off n-gram model.Normalisation fr?en en?cs en?deUnnormalised 30.98 18.57 18.05Class Factored 31.55 18.56 18.33Tree Factored 30.37 17.19 17.26Table 6: Qualitative analysis of the proposed normal-isation schemes without an additional back-off n-grammodel.and perplexities are only loosely correlated.Table 5 and Table 6 show the impact on transla-tion quality for the proposed normalisation schemeswith and without an additional n-gram model.
+Wenote that when KenLM is used, no significant differ-ences are observed between normalised and unnor-malised models, which is again in accordance withthe results of Zhao et al (2014).
+However, whenthe n-gram model is removed, class factored modelsperform better (at least for fr?en and en?de), de-spite being only an approximation of the fully nor-malised models.
+We believe this difference in notobserved in the first case because most of the lan-guage modelling is done by the n-gram model (asindicated by the results in Table 4) and that the neu-ral models only act as a differentiating feature whenthe n-gram models do not provide accurate probabil-ities.
+We conclude that some form of normalisationis likely to be necessary whenever neural models areused alone.
+This result may also explain why Zhaoet al (2014) show, perhaps surprisingly, that normal-isation is important when reranking n-best lists withrecurrent neural language models, but not in othercases.
+(This is the only scenario where they use neu-ral models without supporting n-gram models.
+)Table 5 and Table 6 also show that tree factoredmodels perform poorly compared to the other can-didates.
+We believe this is likely to be a result ofthe artificial hierarchy imposed by the tree over thevocabulary.824Normalisation Clustering BLEUClass Factored Brown clustering 31.55Class Factored Frequency binning 31.07Tree Factored Huffman encoding 30.37Table 7: Qualitative analysis of clustering strategies onfr?en data.Model Average decoding timeKenLM 1.64 sUnnormalised NLM 3.31 sClass Factored NLM 42.22 sTree Factored NLM 18.82 sTable 8: Average decoding time per sentence for the pro-posed normalisation schemes.Table 7 compares two popular techniques forobtaining word classes: Brown clustering (Brownet al, 1992; Liang, 2005) and frequency binning(Mikolov et al, 2011b).
+From these results, we learnthat the clustering technique employed to partitionthe vocabulary into classes can have a huge impacton translation quality and that Brown clustering isclearly superior to frequency binning.Another thing to note is that frequency binningpartitions the vocabulary in a similar way to Huff-man encoding.
+This observation implies that theBLEU scores we report for tree factored models arenot optimal, but we can get an insight on how muchwe expect to lose in general by imposing a tree struc-ture over the vocabulary (on the fr?en setup, welose roughly 0.7 BLEU points).
+Unfortunately, weare not able to report BLEU scores for factored mod-els using Brown trees because the time complexityfor constructing such trees is O(|V |3).We report the average time needed to decode asentence for each of the models described in this pa-per in Table 8.
+We note that factored models are slowcompared to unnormalised models.
+One option forspeeding up factored models is using a GPU to per-form the vector-matrix operations.
+However, GPUintegration is architecture specific and thus againstour goal of making our language modelling toolkitusable by everyone.Training Perplexity BLEU DurationSGD 116.596 31.75 9.1 daysNCE 115.119 31.55 1.2 daysTable 9: A comparison between stochastic gradient de-scent (SGD) and noise contrastive estimation (NCE) forclass factored models on the fr?en data.Model Training timeUnnormalised NCE 1.23 daysClass Factored NCE 1.20 daysTree Factored SGD 1.4 daysTable 10: Training times for neural models on fr?endata.5 TrainingIn this section, we are concerned with finding scal-able training algorithms for neural language mod-els.
+We investigate noise contrastive estimation asa much more efficient alternative to standard maxi-mum likelihood training via stochastic gradient de-scent.
+Class factored models enable us to conductthis investigation at a much larger scale than previ-ous results (e.g.
+the WSJ corpus used by Mnih andTeh (2012) has slightly over 1M tokens), therebygaining useful insights on how this method trulyperforms at scale.
+(In our experiments, we use a2B words corpus and a 100k vocabulary.)
+Table 9summarizes our findings.
+We obtain a slightly bet-ter BLEU score with stochastic gradient descent, butthis is likely to be just noise from tuning the trans-lation system with MERT.
+On the other hand, noisecontrastive training reduces training time by a factorof 7.Table 10 reviews the neural models described inthis paper and shows the time needed to train eachone.
+We note that noise contrastive training re-quires roughly the same amount of time regardlessof the structure of the model.
+Also, we note thatthis method is at least as fast as maximum likeli-hood training even when the latter is applied to treefactored models.
+Since tree factored models havelower quality, take longer to query and do not yieldany substantial benefits at training time when com-pared to unnormalised models, we conclude theyrepresent a suboptimal language modelling choice825Contexts Perplexity BLEU Training timeFull 114.113 31.43 3.64 daysDiagonal 115.119 31.55 1.20 daysTable 11: A side by side comparison of class factoredmodels with and without diagonal contexts trained withnoise contrastive estimation on the fr?en data.for machine translation.6 Diagonal Context MatricesIn this section, we investigate diagonal context ma-trices as a source for reducing the computationalcost of calculating the projection vector.
+In the stan-dard definition of a neural language model, this costis dominated by the softmax step, but as soon astricks like noise contrastive estimation or tree orclass factorisations are used, this operation becomesthe main bottleneck for training and querying themodel.
+Using diagonal context matrices when com-puting the projection layer reduces the time com-plexity from O(D2) to O(D).
+A similar optimiza-tion is achieved in the backpropagation algorithm, asonly O(D) context parameters need to be updatedfor every training instance.Devlin et al (2014) also identified the need forfinding a scalable solution for computing the pro-jection vector.
+Their approach is to cache the prod-uct between every word embedding and every con-text matrix and to look up these terms in a table asneeded.
+Devlin et al (2014)?s approach works wellwhen decoding, but it requires additional memoryand is not applicable during training.Table 11 compares diagonal and full context ma-trices for class factored models.
+Both models havesimilar BLEU scores, but the training time is re-duced by a factor of 3 when diagonal context matri-ces are used.
+We obtain similar improvements whendecoding with class factored models, but the speedup for unnormalised models is over 100x!7 Quality vs. Memory Trade-offNeural language models are a very appealing optionfor natural language applications that are expectedto run on mobile phones and commodity comput-ers, where the typical amount of memory avail-able is limited to 1-2 GB.
+Nowadays, it is becom-Figure 2: A graph highlighting the quality vs. memorytrade-off between traditional n-gram models and neurallanguage models.ing more and more common for these devices toinclude reasonably powerful GPUs, supporting theidea that further scaling is possible if necessary.
+Onthe other hand, fitting back-off n-gram models onsuch devices is difficult because these models storethe probability of every n-gram in the training data.In this section, we seek to gain further understandingon how these models perform under such conditions.In this analysis, we used Heafield (2011)?s trie-based implementation with quantization for con-structing memory efficient back-off n-gram models.A 5-gram model trained on the English monolin-gual data introduced in section 3 requires 12 GB ofmemory.
+We randomly sampled sentences with anacceptance ratio ranging between 0.01 and 1 to con-struct smaller models and observe their performanceon a larger spectrum.
+The BLEU scores obtained us-ing these models are reported in Figure 2.
+We notethat the translation quality improves as the amountof training data increases, but the improvements areless significant when most of the data is used.The neural language models we used to reportresults throughout this paper are roughly 400 MBin size.
+Note that we do not use any compressiontechniques to obtain smaller models, although thisis technically possible (e.g.
+quantization).
+We areinterested to see how these models perform for vari-ous memory thresholds and we experiment with set-ting the size of the word embeddings between 100826and 5000.
+More importantly, these experiments aremeant to give us an insight on whether very largeneural language models have any chance of achiev-ing the same performance as back-off n-gram mod-els in translation tasks.
+A positive result would im-ply that significant gains can be obtained by scalingthese models further, while a negative result signalsa possible inherent inefficiency of neural languagemodels in MT.
+The results are shown in Figure 2.From Figure 2, we learn that neural models per-form significantly better (over 1 BLEU point) whenthere is under 1 GB of memory available.
+This is ex-actly the amount of memory generally available onmobile phones and ordinary computers, confirmingthe potential of neural language models for applica-tions designed to run on such devices.
+However, atthe other end of the scale, we can see that back-offmodels outperform even the largest neural languagemodels by a decent margin and we can expect onlymodest gains if we scale these models further.8 ConclusionThis paper presents an empirical analysis of neurallanguage models in machine translation.
+The ex-periments presented in this paper help us draw sev-eral useful conclusions about the ideal usage of theselanguage models in MT systems.The first problem we investigate is whether nor-malisation has any impact on translation quality andwe survey the effects of some of the most frequentlyused techniques for scaling neural language mod-els.
+We conclude that normalisation is not necessarywhen neural models are used in addition to back-offn-gram models.
+This result is due to the fact thatmost of the language modelling is done by the n-gram model.
+(Experiments show that out of the boxn-gram models clearly outperform their neural coun-terparts.)
+The MT system learns a smaller weightfor neural models and we believe their main use isto correct the inaccuracies of the n-gram models.On the other hand, when neural language modelsare used in isolation, we observe that normalisationdoes matter.
+We believe this result generalizes toother neural architectures such as neural translationmodels (Sutskever et al, 2014; Cho et al, 2014).
+Weobserve that the most effective normalisation strat-egy in terms of translation quality is the class-baseddecomposition trick.
+We learn that the algorithmused for partitioning the vocabulary into classes hasa strong impact on the overall quality and that Brownclustering (Brown et al, 1992) is a good choice.
+De-coding with class factored models can be slow, butthis issue can be corrected using GPUs, or if a com-prise in quality is acceptable, unnormalised modelsrepresent a much faster alternative.
+We also con-clude that tree factored models are not a strong can-didate for translation since they are outperformed byunnormalised models in every aspect.We introduce noise contrastive estimation forclass factored models and show that it performs al-most as well as maximum likelihood training withstochastic gradient descent.
+To our knowledge, thisis the first side by side comparison of these two tech-niques on a dataset consisting of a few billions oftraining examples and a vocabulary with over 100ktokens.
+On this setup, noise contrastive estimationcan be used to train standard or class factored mod-els in a little over 1 day.We explore diagonal context matrices as an opti-mization for computing the projection layer in theneural network.
+The trick effectively reduces thetime complexity of this operation from O(D2) toO(D).
+Compared to Devlin et al (2014)?s approachof caching vector-matrix products, diagonal contextmatrices are also useful for speeding up training anddo not require additional memory.
+Our experimentsshow that diagonal context matrices perform just aswell as full matrices in terms of translation quality.We also explore the trade-off between neural lan-guage models and back-off n-gram models.
+We ob-serve that in the memory range that is typically avail-able on a mobile phone or a commodity computer,neural models outperform n-gram models with morethan 1 BLEU point.
+On the other hand, when mem-ory is not a limitation, traditional n-gram modelsoutperform even the largest neural models by a siz-able margin (over 0.5 BLEU in our experiments).Our work is important because it reviews the mostimportant scaling techniques used in neural lan-guage modelling for MT.
+We show how these meth-ods compare to each other and we combine them toobtain neural models that are fast to both train andtest.
+We conclude by exploring the strengths andweaknesses of these models into greater detail.827AcknowledgmentsThis work was supported by a Xerox FoundationAward and EPSRC grant number EP/K036580/1.ReferencesMichael Auli and Jianfeng Gao.
+Decoder integra-tion and expected bleu training for recurrent neu-ral network language models.
+In Proceedings ofthe 52nd Annual Meeting of the Association forComputational Linguistics (ACL ?14), pages 136?142, Baltimore, Maryland, June 2014.
+Associa-tion for Computational Linguistics.Michael Auli, Michel Galley, Chris Quirk, and Ge-offrey Zweig.
+Joint language and translation mod-eling with recurrent neural networks.
+In Pro-ceedings of the 2013 Conference on EmpiricalMethods in Natural Language Processing, pages1044?1054, Seattle, Washington, USA, October2013.
+Association for Computational Linguistics.Paul Baltescu, Phil Blunsom, and Hieu Hoang.Oxlm: A neural language modelling frameworkfor machine translation.
+The Prague Bulletin ofMathematical Linguistics, 102(1):81?92, October2014.Yoshua Bengio and Jean-Sbastien Senecal.
+Adap-tive importance sampling to accelerate trainingof a neural probabilistic language model.
+IEEETransactions on Neural Networks, 19(4):713?722, 2008.Yoshua Bengio, R?ejean Ducharme, Pascal Vincent,and Christian Janvin.
+A neural probabilistic lan-guage model.
+Journal of Machine Learning Re-search, 3:1137?1155, 2003.Jan A. Botha and Phil Blunsom.
+Compositionalmorphology for word representations and lan-guage modelling.
+In Proceedings of the 31st Inter-national Conference on Machine Learning (ICML?14), Beijing, China, 2014.Peter F. Brown, Peter V. deSouza, Robert L. Mer-cer, Vincent J. Della Pietra, and Jenifer C. Lai.Class-based n-gram models of natural language.Computational Linguistics, 18(4):467?479, 1992.Ciprian Chelba, Tomas Mikolov, Mike Schuster,Qi Ge, Thorsten Brants, and Phillipp Koehn.
+Onebillion word benchmark for measuring progress instatistical language modeling.
+CoRR, 2013.Stanley F. Chen and Joshua Goodman.
+An empir-ical study of smoothing techniques for languagemodeling.
+Computer Speech & Language, 13(4):359?393, 1999.KyungHyun Cho, Bart van Merrienboer, DzmitryBahdanau, and Yoshua Bengio.
+On the propertiesof neural machine translation: Encoder-decoderapproaches.
+CoRR, 2014.Jacob Devlin, Rabih Zbib, Zhongqiang Huang,Thomas Lamar, Richard M. Schwartz, and JohnMakhoul.
+Fast and robust neural network jointmodels for statistical machine translation.
+In Pro-ceedings of the 52nd Annual Meeting of the Asso-ciation for Computational Linguistics (ACL?14),Baltimore, MD, USA, June 2014.Joshua Goodman.
+Classes for fast maximum en-tropy training.
+CoRR, 2001.Kenneth Heafield.
+Kenlm: Faster and smaller lan-guage model queries.
+In Proceedings of theSixth Workshop on Statistical Machine Transla-tion (WMT ?11), pages 187?197, Edinburgh, Scot-land, July 2011.
+Association for ComputationalLinguistics.David A. Huffman.
+A method for the construction ofminimum-redundancy codes.
+Proceedings of theInstitute of Radio Engineers, 40(9):1098?1101,September 1952.Philipp Koehn, Hieu Hoang, Alexandra Birch,Chris Callison-Burch, Marcello Federico, NicolaBertoldi, Brooke Cowan, Wade Shen, ChristineMoran, Richard Zens, Chris Dyer, Ondrej Bojar,Alexandra Constantin, and Evan Herbst.
+Moses:Open source toolkit for statistical machine trans-lation.
+In Proceedings of the 45th Annual Meetingof the Association for Computational Linguistics(ACL ?07), pages 177?180, Prague, Czech Re-public, June 2007.
+Association for ComputationalLinguistics.P.
+Liang.
+Semi-supervised learning for natural lan-guage.
+Master?s thesis, Massachusetts Institute ofTechnology, 2005.Tomas Mikolov, Anoop Deoras, Daniel Povey,Lukas Burget, and Jan Cernocky.
+Strategies fortraining large scale neural network language mod-els.
+In Proceedings of the 2011 Automatic Speech828Recognition and Understanding Workshop, pages196?201.
+IEEE Signal Processing Society, 2011a.Tom Mikolov, Stefan Kombrink, Luk Burget, Jan er-nock, and Sanjeev Khudanpur.
+Extensions of re-current neural network language model.
+In Pro-ceedings of the 2011 IEEE International Confer-ence on Acoustics, Speech, and Signal Process-ing, ICASSP 2011, pages 5528?5531.
+IEEE Sig-nal Processing Society, 2011b.Andriy Mnih and Geoffrey Hinton.
+A scalable hier-archical distributed language model.
+In Advancesin Neural Information Processing Systems, vol-ume 21, pages 1081?1088, 2009.Andriy Mnih and Yee Whye Teh.
+A fast andsimple algorithm for training neural probabilis-tic language models.
+In Proceedings of the 29thInternational Conference on Machine Learning(ICML ?12), pages 1751?1758, Edinburgh, Scot-land, 2012.Frederic Morin and Yoshua Bengio.
+Hierarchicalprobabilistic neural network language model.
+InProceedings of the 10th International Workshopon Artificial Intelligence and Statistics (AISTATS?05), pages 246?252.
+Society for Artificial Intelli-gence and Statistics, 2005.Franz Josef Och.
+Minimum error rate training instatistical machine translation.
+In Proceedings ofthe 41st Annual Meeting on Association for Com-putational Linguistics (ACL?03), pages 160?167.Association for Computational Linguistics, 2003.Holger Schwenk.
+Continuous space language mod-els.
+Computer Speech & Language, 21(3):492?518, 2007.Holger Schwenk.
+Continuous-space language mod-els for statistical machine translation.
+Prague Bul-letin of Mathematical Linguistics, 93:137?146,2010.Ilya Sutskever, Oriol Vinyals, and Quoc V. Le.Sequence to sequence learning with neural net-works.
+CoRR, 2014.Ashish Vaswani, Yinggong Zhao, Victoria Fossum,and David Chiang.
+Decoding with large-scaleneural language models improves translation.
+InProceedings of the 2013 Conference on EmpiricalMethods in Natural Language Processing, pages1387?1392, Seattle, Washington, USA, October2013.
+Association for Computational Linguistics.Yinggong Zhao, Shujian Huang, Huadong Chen,and Jiajun Chen.
+An investigation on statisticalmachine translation with neural language mod-els.
+In Chinese Computational Linguistics andNatural Language Processing Based on Natu-rally Annotated Big Data - 13th China NationalConference, CCL 2014, and Second InternationalSymposium, NLP-NABD, pages 175?186, Wuhan,China, October 2014.829

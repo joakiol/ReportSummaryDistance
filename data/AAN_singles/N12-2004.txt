@@ -1,0 +1,146 @@
+Proceedings of the NAACL HLT 2012 Student Research Workshop, pages 17?22,Montre?al, Canada, June 3-8, 2012. c?2012 Association for Computational LinguisticsIndexing Google 1T for low-turnaround wildcarded frequency queriesSteinar Vitters?
+KaldagerUniversity of Oslo, Department of Informaticssteinavk@ifi.uio.noAbstractWe propose a technique to prepare the Google1T n-gram data set for wildcarded frequencyqueries with a very low turnaround time, mak-ing unbatched applications possible.
+Ourmethod supports token-level wildcarding and?
+given a cache of 3.3 GB of RAM ?
+requiresonly a single read of less than 4 KB from thedisk to answer a query.
+We present an index-ing structure, a way to generate it, and sug-gestions for how it can be tuned to particularapplications.1 Background and motivationThe ?Google 1T?
+data set (LDC #2006T13) is acollection of 2-, 3-, 4-, and 5-gram frequencies ex-tracted at Google from around 1012 tokens of rawweb text.
+Wide access to web-scale data being a rel-ative novelty, there has been considerable interest inthe research community in how this resource can beput to use (Bansal and Klein, 2011; Hawker et al,2007; Lin et al, 2010, among others).We are concerned with facilitating approacheswhere a large number of frequency queries (op-tionally with token-by-token wildcarding) are madeautomatically in the context of a larger naturallanguage-based system.
+Our motivating exampleis Bansal and Klein (2011) who substantially im-prove statistical parsing by integrating frequency-based features from Google 1T, taken as indica-tive of associations between words.
+In this work,however, parser test data is preprocessed ?off-line?to make n-gram queries tractable, hampering thepractical utility of this work.
+Our technique elimi-nates such barriers to application, making it feasibleto answer previously unseen wildcarded frequencyqueries ?on-line?, i.e.
+when parsing new inputs.
+Wedevise a structure to achieve this, making each queryapproximately the cost of a single random disk ac-cess, using an in-memory cache of about 3 GB.Our own implementation will be made availableto other researchers as open source.2 Prior workSekine and Dalwini (2010) have built a high-quality?1T search engine?
+that can return lists of n-gram/frequency pairs matching various types of pat-terns, but they operate on a wider scale of queriesthat makes their reported performance (0.34 s perquery) insufficient for our desired use.Hawker, Gardiner and Bennetts (2007) have ex-plored the same problem and devised a ?lossy com-pression?
+strategy, deriving from the data set alookup table fitting in RAM indexed by hashes ofentries, with cells corresponding to more than oneentry in the n-gram set filled with a ?compromise?value appropriate to the application.
+Although theyobtain very fast queries, in our estimation the errorintroduced by this method would be problematic forour desired use.
+Furthermore, the authors do not ad-dress wildcarding for this strategy.Talbot and Osborne (2007b; 2007a) have exploredapplications of Bloom filters to making compara-tively small probabilistic models of large n-gramdata sets.
+Though their method too is randomizedand subject to false positives, they discuss ways ofcontrolling the error rate.Finally, several researchers including Bansal andKlein (2011) and Hawker, Gardiner and Ben-netts (2007) describe ways of working ?off-line?,without low-turnaround querying.
+However, sys-tems built along these lines will be unable to effi-ciently solve single small problems as they arise.3 The indexing structureThe Google 1T data set consists of entries for n-grams for n ?
+{1, 2, 3, 4, 5}.
+We have not ap-17plied our methods to the unigrams, as these are fewenough in number that they can be held in RAM andstructured by a standard method such as a hash table.For the n-grams for n ?
+{2, 3, 4, 5}, we use sep-arate carefully tuned and generated B-trees(Bayerand McCreight, 1972), caching nodes near the rootin RAM and keeping the rest on disk.3.1 PreprocessingWe apply preprocessing to the Google 1T data intwo ways.
+Firstly, in almost any application ofGoogle 1T it will be desirable to perform prepro-cessing to discard unimportant details, both in orderto obtain a more manageable set of data and to makepatterns evident that would otherwise be obscuredby data scarcity.
+We identify and collapse to classtokens IP addresses, email addresses, prefixed hex-adecimal numbers, and various kinds of URIs.
+Wealso collapse all decimal numeric data by mappingall digits to the digit zero.The preprocessing we apply (which is used togenerate the data set described in the rest of this arti-cle) reduces the vocabulary size by about 37.6%.
+Itis our belief that, seen as a whole, this preprocess-ing is quite mild, considering the amount of almostuniversally unnecessary detail in the input data (e.g.26% of the ?words?
+begin with a digit).Secondly, we use preprocessing in an entirelydifferent way, as a brute-force approach to sup-porting wildcarded queries.
+The lookup structureconstructed does not provide any wildcarding fea-tures ?
+instead we use the preprocessing phase toadd entries for each of the 2n possible variously-wildcarded queries (all the possible configurationswith each position either wildcarded or not) match-ing each of the n-grams in the data.After this preprocessing, the wildcard token <*>can be treated just like any other token.3.2 DictionaryFor cheaper processing and storage, our indexingstructure deals in integers, not string tokens.
+Thecomponents of the structure describing this mappingare the dictionaries.
+These are associative arraysthat are kept in RAM at runtime.The main dictionary uniquely maps preprocessedtokens to integers (e.g., <EMAIL> ??
+137).
+Thereare fewer than 224 unique tokens in the 1T data set,so each integer requires only 3 bytes of storage.During generation of the structure, we have founda second ?transforming?
+dictionary useful.
+Thisdictionary maps unpreprocessed tokens to integers,e.g., john@example.com ??
+137, avoidingstring processing entirely.
+Unlike the normal dictio-nary, the transforming dictionary describes a many-to-one mapping.The dictionaries are stored on disk simply as textfiles, with one line for each key/value pair.
+The ap-propriate dictionary is preloaded into an appropriatein-memory Judy array (Baskins, 2004) during ini-tialization, taking up around 300 MB of memory.The main and the transforming dictionaries havearound 8 and 13 million entries respectively.3.3 Search treeOur central structure is a search tree, with the keysbeing fixed-length sequences of integer tokens.Owing to the static nature of the data set, the treecan be constructed whole.
+For this reason there is noneed to support insertions or deletions, and we donot account for them.
+Apart from the lack of sup-port for mutation, the structure is a conventional B-tree (Bayer and McCreight, 1972).
+Our main contri-bution is identifying what sort of B-tree solves ourproblem, describing how it can be implemented ef-fectively, and how it practically can be generatedwhen dealing with a very large number of entries.The tree should be broad to account for the dif-ference in speed between searching within an in-memory node and retrieving the next node fromdisk.
+We use a branching factor limit of 127.
+Withparameters like ours the tree will generally have aheight (counting the root and the leaves, but notindividual n-gram entries) of 5.
+It will be abouthalf-filled, meaning ?
+due to the generation methodoutlined in Subsection 4.3 ?
+that the root will havearound 1272 children.
+Figure 2 illustrates the pattern?
+rightmost nodes may have fewer children.A larger node size for the leaves would meanlower memory requirements at the cost of having tomake larger reads from the disk.18P r e p r o c e s s i n gDict ionary Transforming  d ic t ionaryU n s o r t e d  l i s t  # 1 U n s o r t e d  l i s t  # 2 U n s o r t e d  l i s t  # 3 .. .Google  1T data  se tU n i g r a m  c o u n t sSor t ed  l i s t  #1 Sor t ed  l i s t  #2 Sor t ed  l i s t  #3 .. .S o r t i n g  m e r g eS e a r c h  t r e eN o d e  c a c h eQuery ingFigure 1: An overview of the steps involved in generatingthe indexing structure.
+The dotted portions indicate howit is later used.4 Generating the structure4.1 Creating the dictionariesThe dictionaries are created by simply iteratingthrough the 1T vocabulary file, preprocessing andassigning integral labels.During development we have performed it inPython and in Common Lisp, with the complexityof the preprocessing being on the order of 8 class-recognizer regular expressions and a character re-placement pass for digits.
+One pass over the vocab-ulary with this setup takes around 18 minutes.4.2 Creating sorted partial listsWe now seek to generate all the entries to be enteredinto our structure, ordered lexicographically by thenumeric n-tuples that constitute the entry keys.However, preprocessing portions of the (sorted)raw data set disturbs its ordering and introduces du-plicate keys.
+After wildcarding it is also a concernthat the list is very long ?
+about 3.5 ?
+1010 entries forthe 5-grams after wildcarding and before merging.As directly sorting a list of this size is impractical,we use an external sorting (Knuth, 1998) technique,dividing the input of length N into sections of Kentries, then sort and merge duplicates in each oneseparately, producing dNK e separately sorted lists.For sorting and merging, we use nested integer-based Judy arrays.
+For each batch of input we firstfill such a structure ?
+merging duplicate keys as theyare encountered ?
+and then traverse it in order, writ-ing a sorted list.We have found 1.5 ?
+108 to be a suitable value forK, using about 4.2 GB of memory per list-sortingprocess.
+In our development environment we use 10such processes and produce 160 lists in 130 wall-clock minutes (1233 CPU minutes) for the full dataset with full wildcarding.4.3 Merging and creating the treeThe next step encompasses two subtasks ?
+mergingthe sorted lists generated into one large sorted list(with duplicate entries merged), and using that largesorted list to generate an indexing tree.The merging task involves, in our configuration,a P -way merge with P ?
+160.
+We perform thismerge using a binary heap for replacement selec-tion in logP time as outlined in Knuth (1998).
+Eachnode in the heap consists of a file handle, one ?ac-tive?
+entry (which determines the value of the node),and a read buffer.
+After being popped from the heap,a node is reinserted if a next entry can be read fromthe read buffer or the file.As they emerge in order from the merging sec-tion of the program, entries with duplicate keys aremerged with their values added.The tree-building routine receives all the entries tobe stored correctly ordered and merged.
+It proceedsaccording to the following algorithm:1.
+Space is left for the root node at the beginningof the file.
+We note the offset after this spaceas the ?current generation offset?.
+An empty?current node?
+is created.2.
+For each input entry:(a) The entry is added as the last entry in thecurrent node.
+(b) If the current node is now full, or if thereare no more input entries, it is written todisk and then cleared.3.
+We note down the current file offset (as usedfor writing) as the ?next generation offset?.
+Weseek back to the current generation offset, andbegin reading through the nodes until we reachthe next generation offset, obtaining an in-ordersequence of all nodes in the current generation19Figure 2: Illustration of the ?all but leaves?
+caching strat-egy.
+Filled nodes are kept in memory, unfilled ones areleft on disk.
+The maximal branching factor is 3 here (ascompared to 127 in our trees).
+(initially all leaf nodes).
+The sequence is readin lazily.4.
+If this sequence is shorter than the number ofentries in a node, it is used to construct the rootnode, which is then written to disk, and the pro-cess returns.5.
+Otherwise, we repeat the process from the sec-ond step, with the following value replace-ments:?
+The next generation offset becomes thenew current generation offset.?
+Each node read in from the file generates anew ?input entry?, with the key of the firstentry of the node as the key, and the fileoffset pointing to the node as the value.In our development environment this task cur-rently takes around 283 minutes.5 Using the indexing structure5.1 Initialization and cachingThe dictionary is loaded into a Judy array in RAM.The unigram counts are loaded into an integer array.Finally, the upper levels of the trees are loadedinto memory to be used as a cache.
+Since it is pos-sible with only 3.3 GB of RAM, we recommendcaching all nodes that are not leaves, as seen inFigure 2.
+Since we use broad trees, the number ofleaves we can reach is relatively large compared tothe number of internal nodes we need to cache.5.2 Performing a queryThe querying machinery assumes that queries areformulated in terms of integer tokens, and offersan interface to the dictionary so the caller can per-form this transformation.
+This enables the caller toreuse integer mappings over multiple queries, andleaves the querying system loosely coupled to theapplication-specific preprocessing.When a query arrives, all the tokens are firstmapped to integers (using preprocessing and/or adictionary).
+If this process fails for any token, thequery returns early with frequency zero.Otherwise, a conventional B-tree lookup is per-formed.
+This entails performing a binary searchthrough the children of each node (with the value ofeach node considered as the value of its first entry,with entries in leaves identified by keys).
+In an in-ternal node, after such a search, the node which hasbeen located is loaded (from disk or memory cache)and the process repeats.
+In a leaf, it is checkedwhether the match found is exact, returning eitherits associated frequency value or 0 accordingly.Empirically we have found usage of lseek(2)and read(2) to be the most performant way to per-form the disk reads practically.
+For threaded appli-cations mmap(2) may be more appropriate, as ourmethod would require synchronization.6 Performance6.1 Testing setupThe development environment referred to else-where, A, is a high-performance computer with foureight-core 2.2GHz CPUs, 256 GB of RAM, and anumber of 10 000 RPM hard disk drives.
+We alsotested on B which is the same system augmentedwith 500 GB of solid state storage, and C which isan off-the-shelf PC with 8 GB of RAM, a 7200 RPMHDD and a single 2.93GHz CPU.In development and preliminary testing, however,we discovered that the impact of disk caching madestraightforward time measurements misleading.
+Asseen in Figure 3, these measurements tended to bedrastically affected by accumulation of large partsof the disk structure into cache, and as such showedever-decreasing query times.However, we have also observed that the requiredrandom disk access (a potentially ?far?
+seek, fol-lowed by a read) dominates all other factors in thequerying process in terms of cost.
+Our performancein terms of required random read accesses need notbe measured: as noted in Subsection 5.1 we usea caching strategy which makes it self-evident thatexactly one read access is required per query.
+Our200 2000000 6000000 100000002000600012000Queries performedTime per query (microseconds)Figure 3: A test run of around 10 000 000 queries inA, illustrating how caching distorts timing information inlengthy tests.
+The wide line is cumulative average, thenarrow one query-time average for the last 1 000 queries.The test run does not reach the stable state of a fullycached file.performance testing, then, focuses on justifying ourassertion that random disk access time is dominant.With this shown, we will have justified random-disk-access-count as a valid way to measure performance,and thus established our chief result.We generated lists of test queries from the 1T dataset with the same distribution as the preprocessedand merged entries in our structure.6.2 ResultsTable 1 shows measurements of time required forqueries vs. time required to read a random leaf node(selected from a uniform distribution) without anyquerying logic.
+The random-read tests were inter-leaved with the querying tests, alternating batchesof 100 queries with batches of 100 random reads.This process was chosen to avoid distorting factorssuch as differences in fragmentation and size of thearea of the disk being read, memory available andused for caching it, as well as variable system loadover time.As can be seen in Table 1, the measurements in-dicate that time per random read times number ofrandom reads is a very good approximation for timeper query.
+The querying overhead seems to be onthe order of 15?s, which is around 5% of the timeper node access on the SSD, and less than 0.2% ofthe access time on the hard drives.
+It seems justi-fied to measure the performance of our system byrandom disk access count.N ?R ?Q ?|Q?R|A 10 6 089.41 6 069.55 260.05A 100 6 135.54 6 149.60 640.05A 1 000 6 094.83 6 097.82 477.35B 10 299.50 313.59 11.09B 100 298.43 317.14 15.02B 1 000 308.39 326.00 9.62C 10 14 763.60 14 924.81 818.90C 100 14 763.11 14 769.24 634.99C 1 000 14 776.43 14 708.51 817.47Table 1: Performance measurements.
+N is test size, inbatches of 100 queries and 100 random node-reads.
+Allmeasurements in ?s.
+?Q is mean time to make a testquery.
+?R is mean time to read a random leaf node.
+?|Q?R| is the sample standard deviation for the differenceQi ?Ri between corresponding samples.
+(By definition,?|Q?R| = ?Q ?
+?R.
+)Tree breadth 127Caching strategy All but leavesTotal memory use 3.3 GBDisk accesses per search 1Leaf size 2 923 bytesGeneration time 431 minutesTable 2: Vital numbers for our implementation.
+Genera-tion time is based on adding up the measured wall-clocktimes reported elsewhere and is of course dependent onour development environment.We have justified our central assertion that our in-dexing structure can answer queries using exactlyone random disk access per query, as well as the un-derlying assumption that this is a meaningful way tomeasure its performance.
+The performance of oursystem on any particular hardware can then be es-timated from the time the system uses for normalrandom disk accesses.In terms of random reads per search, our resultis clearly the best worst-case result achievable with-out loading the entire data set into memory: a singledisk read (well below the size of a disk sector ona modern disk) per search.
+Naturally, further im-provements could still be made in average-case per-formance, as well as in achieving equivalent resultswhile using less resources.The disk space required for the lookup structure21Wildcarding 2 3 4 5 TotalFull 3.6 23 80 221 327None 3.4 15 24 24 65Table 3: Disk space, in gigabytes, required for trees withand without wildcarding, by n and in total.as a whole is summarized in Table 3.
+The full tree setwith full wildcarding requires 327 GB.
+Wildcardinggreatly affects the distribution of the entries: beforewildcarding, the 4-grams are in fact more numerousthan the 5-grams.
+Many real applications would notrequire full wildcarding capabilities.7 Application adaptation and future workOur method may be improved in several ways, leav-ing avenues open for future work.Firstly and most importantly, it is natural to at-tempt applying our indexing structure to a real task.The work of Bansal and Klein (2011) has served asa motivating example.
+Implementing their methodwith ?on-line?
+lookup would be a natural next step.For other researchers who wish to use our in-dexing machinery, it has been made available asfree software and may be retrieved at http://github.com/svk/lib1tquery.If wildcarding is not required, a lowering of stor-age and memory requirements can be achieved bydisabling it.
+This will reduce storage costs to about21.52% or around 75 GB (and memory require-ments approximately proportionally).
+Generaliz-ing from this, if only certain kinds of wildcardedqueries will be performed, similar benefits can beachieved by certain kinds of wildcarded (or evennon-wildcarded) queries.
+For instance, less than40% of the structure would suffice to perform thequeries used by Bansal and Klein (2011).Disk and memory efficiency could be improvedby applying compression techniques to the nodes,though this is a balancing act as it would also in-crease computational load.Furthermore, performance could be increased byusing a layered approach that would be able to re-solve some queries without accessing the disk at all.This is more feasible for an application where infor-mation is available about the approximate distribu-tion of the coming queries.ReferencesMohit Bansal and Dan Klein.
+2011.
+Web-scale fea-tures for full-scale parsing.
+In Proceedings of the 49thAnnual Meeting of the Association for ComputationalLinguistics: Human Language Technologies - Volume1, HLT ?11, pages 693?702, Stroudsburg, PA, USA.Association for Computational Linguistics.Doug Baskins.
+2004.
+Judy arrays.
+http://judy.sourceforge.net/index.html.
+(Online; ac-cessed November 18, 2011).R.
+Bayer and E. M. McCreight.
+1972.
+Organization andmaintenance of large ordered indexes.
+Acta Informat-ica, 1:173?189.
+10.1007/BF00288683.Tobias Hawker, Mary Gardiner, and Andrew Bennetts.2007.
+Practical queries of a massive n-gram database.In Proceedings of the Australasian Language Technol-ogy Workshop 2007, pages 40?48, Melbourne, Aus-tralia, December.Donald E. Knuth.
+1998.
+The Art of Computer Pro-gramming, volume 3: Sorting and Searching.
+AddisonWesley, second edition.Dekang Lin, Kenneth Church, Heng Ji, Satoshi Sekine,David Yarowsky, Shane Bergsma, Kailash Patil, EmilyPitler, Rachel Lathbury, Vikram Rao, Kapil Dalwani,and Sushant Narsale.
+2010.
+New tools for web-scalen-grams.
+In Proceedings of the Seventh conferenceon International Language Resources and Evaluation(LREC?10), Valletta, Malta, may.Satoshi Sekine and Kapil Dalwani.
+2010.
+Ngram searchengine with patterns combining token, POS, chunk andNE information.
+In Proceedings of the Seventh In-ternational Conference on Language Resources andEvaluation (LREC?10), Valletta, Malta, may.D.
+Talbot and M. Osborne.
+2007a.
+Smoothed bloom fil-ter language models: Tera-scale LMs on the cheap.In Proceedings of the 2007 Joint Conference on Em-pirical Methods in Natural Language Processing andComputational Natural Language Learning (EMNLP-CoNLL), pages 468?476.David Talbot and Miles Osborne.
+2007b.
+Randomisedlanguage modelling for statistical machine translation.In Proceedings of the 45th Annual Meeting of the Asso-ciation of Computational Linguistics, pages 512?519,Prague, Czech Republic, June.
+Association for Com-putational Linguistics.22

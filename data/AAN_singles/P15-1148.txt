@@ -1,0 +1,466 @@
+Proceedings of the 53rd Annual Meeting of the Association for Computational Linguisticsand the 7th International Joint Conference on Natural Language Processing, pages 1534?1544,Beijing, China, July 26-31, 2015.c?2015 Association for Computational LinguisticsOptimal Shift-Reduce Constituent Parsing with Structured PerceptronLe Quang ThangHanoi University of Scienceand Technology{lelightwin@gmail.com}Hiroshi Noji and Yusuke MiyaoNational Institute of Informatics,The Graduate University forAdvanced Studies{noji,yusuke}@nii.ac.jpAbstractWe present a constituent shift-reduceparser with a structured perceptron thatfinds the optimal parse in a practical run-time.
+The key ideas are new feature tem-plates that facilitate state merging of dy-namic programming and A* search.
+Oursystem achieves 91.1 F1 on a standardEnglish experiment, a level which cannotbe reached by other beam-based systemseven with large beam sizes.11 IntroductionA parsing system comprises two components: ascoring model for a tree and a search algorithm.In shift-reduce parsing, the focus of most previ-ous studies has been the former, typically by en-riching feature templates, while the search qualityhas often been taken less seriously.
+For example,the current state-of-the-art parsers for constituency(Zhu et al, 2013; Wang and Xue, 2014) and de-pendency (Bohnet et al, 2013) both employ beamsearch with a constant beam size, which may suf-fer from severe search errors.
+This is contrary toordinary PCFG parsing which, while it often usessome approximations, has nearly optimal quality(Petrov and Klein, 2007).In this paper, we instead investigate the questionof whether we can obtain a practical shift-reduceparser with state-of-the-art accuracy by focusingon optimal search quality like PCFG parsing.
+Webase our system on best-first search for shift-reduce parsing formulated in Zhao et al (2013),but it differs from their approach in two points.First, we focus on constituent parsing while theyuse dependency grammar.
+Second, and more cru-cially, they use a locally trained MaxEnt model,which is simple but not strong, while we explore1The open source software of our system is available athttps://github.com/mynlp/optsr.a structured perceptron, the current state-of-the-artin shift-reduce parsing (Zhu et al, 2013).As we will see, this model change makes searchquite hard, which motivates us to invent new fea-ture templates as well as to improve the searchalgorithm.
+In existing parsers, features are com-monly exploited from the parsing history, suchas the top k elements on the stack.
+However,such features are expensive in terms of search ef-ficiency.
+Instead of relying on features primarilyfrom the stack, our features mostly come from thespan of the top few nodes, an idea inspired by therecent empirical success in CRF parsing (Hall etal., 2014).
+We show that these span features alsofit quite well in the shift-reduce system and leadto state-of-the-art accuracy.
+We further improvesearch with new A* heuristics that make optimalsearch for shift-reduce parsers with a structuredperceptron tractable for the first time.The primary contribution of this paper is todemonstrate the effectiveness and the practicalityof optimal search for shift-reduce parsing, espe-cially when combined with appropriate featuresand efficient search.
+In English Penn Treebank ex-periments, our parser achieves an F1 score of 91.1on test set at a speed of 13.6 sentences per second.This score is in excess of that of a beam-based sys-tem with larger beam size and same speed.2 Background and Related Work2.1 Shift-Reduce Constituent ParsingWe first introduce the shift-reduce algorithm forconstituent structures.
+For space reasons, our ex-position is rather informal; See Zhang and Clark(2009) for details.
+A shift-reduce parser parses asentence through transitions between states, eachof which consists of two data structures of a stackand a queue.
+The stack preserves intermediateparse results, while the queue saves unprocessedtokens.
+At each step, a parser selects an action,1534which changes the current state into the new one.For example, SHIFT pops the front word from thequeue and pushes it onto the stack, while RE-DUCE(X) combines the top two elements on thestack into their parent.2For example, if the toptwo elements on the stack are DT and NN, RE-DUCE(NP) combines these by applying the CFGrule NP?
+DT NN.Unary Action The actions above are essentiallythe same as those in shift-reduce dependency pars-ing (Nivre, 2008), but a special action for con-stituent parsing UNARY(X) complicates the sys-tem and search.
+For example, if the top elementon the stack is NN, UNARY(NP) changes it to NPby applying the rule NP?
+NN.
+In particular, thiscauses inconsistency in the numbers of actions be-tween derivations (Zhu et al, 2013), which makesit hard to apply the existing best first search for de-pendency grammar to our system.
+We revisit thisproblem in Section 3.1.Model The model of a shift-reduce parser givesa score to each derivation, i.e., an action sequencea = (a1, ?
+?
+?
+, a|a|), in which each aiis a shift orreduce action.
+Let p = (p1, ?
+?
+?
+, p|a|) be the se-quence of states, where piis the state after apply-ing aito pi?1.
+p0is the initial state for input sen-tence w. Then, the score for a derivation ?
+(a) iscalculated as the total score of every action:?
+(a) =?1?i?|a|?
+(ai, pi?1).
+(1)There are two well-known models, in which thecrucial difference is in training criteria.
+The Max-Ent model is trained locally to select the correctaction at each step.
+It assigns a probability for eachaction aiasP (ai|pi?1) ?
+exp(?
+?f(ai, pi?1)), (2)where ?
+and f(a, p) are weight and feature vec-tors, respectively.
+Note that the probability of anaction sequence a under this model is the productof local probabilities, though we can cast the totalscore in summation form (1) by using the log of(2) as a local score ?
+(ai, pi?1).The structured perceptron is instead trainedglobally to select the correct action sequence givenan input sentence.
+It does not use probability and2Many existing constituent parsers use two kinds of re-duce actions for selecting the direction of its head child whilewe do not distinguish these two.
+In our English experiments,we found no ambiguity for head selection in our binarizedgrammar (See Section 4).the local score is just ?
+(ai, pi?1) = ?
+?f(ai, pi?1).In practice, this global model is much strongerthan the local MaxEnt model.
+However, train-ing this model without any approximation is hard,and the common practice is to rely on well-knownheuristics such as an early update with beamsearch (Collins and Roark, 2004).
+We are notaware of any previous study that succeeded intraining a structured perceptron for parsing with-out approximation.
+We will show how this be-comes possible in Section 3.2.2 Previous Best-First Shift-Reduce ParsingThe basic idea behind best-first search (BFS) forshift-reduce parsing is assuming each parser stateas a node on a graph and then searching for theminimal cost path from a start state (node) to thefinal state.
+This is the idea of Sagae and Lavie(2006), and it was later refined by Zhao et al(2013).
+BFS gives a priority to each state, and astate with the highest priority (lowest cost) is al-ways processed first.
+BFS guarantees that the firstfound goal is the best (optimality) if the superior-ity condition is satisfied: a state never has a lowercost than the costs of its previous states.Though the found parse is guaranteed to be op-timal, in practice, current BFS-based systems arenot stronger than other systems with approximatesearch (Zhu et al, 2013; Wang and Xue, 2014)since all existing systems are based on the MaxEntmodel.
+With this model, the speriority can easilybe accomplished by using the negative log of (2),which is always positive and becomes smaller withhigher probability.
+We focus instead on the struc-tured perceptron, but achieving superiority withthis model is not trivial.
+We resolve this problemin Section 3.1.In addition to the mathematical convenience,the MaxEnt model itself helps search.
+Sagae andLavie ascribe the empirical success of their BFS tothe sparseness of the distribution over subsequentactions in the MaxEnt model.
+In other words,BFS is very efficient when only a few actions havedominant probabilities in each step, and the Max-Ent model facilitates this with its exponential oper-ation (2).
+Unfortunately, this is not the case in ourglobal structured perceptron because the score ofeach action is just the sum of the feature weights.Resolving this search difficulty is the central prob-lem of this paper; we illustrate this problem in Sec-tion 4 and resolve it in Section 5.15352.3 Hypergraph Search of Zhao et al (2013)The worst time complexity of BFS in Sagae andLavie (2006) is exponential.
+For dependency pars-ing, Zhao et al (2013) reduce it to polynomial byconverting the search graph into a hypergraph byusing the state merging technique of Huang andSagae (2010).
+This hypergraph search is the basisof our parser, so we will briefly review it here.The algorithm is closely related to agenda-based best-first parsing algorithms for PCFGs(Klein and Manning, 2001; Pauls and Klein,2009).
+As in those algorithms, it maintains twodata structures: a chart C that preserves processedstates as well as a priority queue (agenda) Q. Thedifference is in the basic items processed in C andQ.
+In PCFG parsing, they are spans.
+Each spanabstracts many derivations on that span and thechart maps a span to the best (lowest cost) deriva-tion found so far.
+In shift-reduce parsing, the basicitems are not spans but states, i.e., partial represen-tations of the stack.3We denote p = ?i, j, sd...s0?where siis the i-th top subtree on the stack and s0spans i to j.
+We extract features from sd...s0.
+Notethat d is constant and a state usually does not con-tain full information about a derivation.
+In fact, itonly keeps atomic features, the minimal informa-tion on the stack necessary to recover the full fea-tures and packs many derivations.
+The chart mapsa state to the current best derivation.
+For example,if we extract features only from the root symbol ofs0, each state looks the same as a span of PCFGs.Differently from the original shift-reduce algo-rithm, during this search, reduce actions are de-fined between two states p and q.
+The basic oper-ation of the algorithm is to pop the best (top) statep from the queue, push it into the chart, and thenenqueue every state that can be obtained by a re-duce action between p and other states in the chartor a shift action from p. The left states L(p) andright statesR(p) are important concepts.
+L(p) is aset of states in the chart, with which p can reducefrom the right side.
+Formally,L(?i, j, sd...s0?)
+={?h, i, s?d...s?0?|?k ?
+[1, d], fk(s?k?1) = fk(sk)},where fk(?)
+returns atomic features on the k-th topnode.
+See Figure 4 for how they look like in con-stituent parsing.
+R(p) is defined similarly; p can3Although Zhao et al (2013) explained that the items inQ are derivations (not states), we can implement Q as a setof states by keeping backpointers in a starndard way.reduce q ?
+R(p) from the left side.
+When p ispopped, it searches for every L(p) andR(p) in thechart and tries to expand the current derivation.The priority for each state is a pair (c, v).
+c isthe prefix cost that is the total cost to reach thatstate, while v is the inside cost, a cost to build thetop node s0.
+The top state in the queue has thelowest prefix cost, or the lowest inside cost if thetwo prefix costs are the same.3 Best-First Shift-Reduce ConstituentParsing with Structured PerceptronThis section describes our basic parsing system,i.e., shift-reduce constituent parsing with BFS andthe structured perceptron.
+We have to solve twoproblems.
+The first is how to achieve BFS withthe structured perceptron, and the second is howto apply that BFS to constituent parsing.
+Interest-ingly, the solution to the first problem makes thesecond problem relatively trivial.3.1 Superiority of Structured PerceptronWe must design each priority of a state to sat-isfy the superiority condition.
+?
+(ai, pi?1) =?
+?f(ai, pi?1) is the usual local score employed instructured perceptrons (Huang and Sagae, 2010)but we cannot use it as a local cost for two rea-sons.
+First, in our system, the best parse shouldhave the lowest cost; it is opposite in the ordinarysetting (Collins, 2002).
+We can resolve this con-flict by changing the direction of structured per-ceptron training so that the best parse has the low-est score.4Second, each ?
+(ai, pi?1) can take anegative value but the cost should always be pos-itive.
+This is in contrast to the MaxEnt model inwhich the negative log probability is always pos-itive.
+Our strategy is to add a constant offset ?
+toevery local cost.
+If ?
+is large enough so that ev-ery score is positive, the superiority condition issatisfied.5Unary Merging Though this technique solvesthe problem with the structured perceptron for asimpler shift-reduce system, say for dependencygrammar, the existence of unary actions, as men-tioned in Section 2.1, requires additional effort inorder to apply it to constituent parsing.
+In particu-lar, constituent parsing takes different numbers of4This is easily accomplished by inverting all signs of theupdate equations.5To find this value, we train our system using beam searchwith several beam sizes, choosing the maximum value of theaction score during training.1536SHstate p:?
+, j, sd...s0?
+: (c, )?j, j + 1, sd?1...s0|tj(wj)?
+: (c+ csh(p), csh(p))j < nSHU(X)state p:?
+, j, sd...s0?
+: (c, )?j, j + 1, sd?1...s0|X(tj(wj))?
+: (c+ cshu(X)(p), cshu(X)(p))j < nRE(X)state q:?k, i, s?d...s?0?
+: (c?, v?
+)state p:?i, j, sd...s0?
+: (c, v)?k, j, s?d...s?1|X(s?0, s0)?
+: (c?+ v + cre(X)(p), v?+ v + cre(X)(p))q ?
+L(p)REU(Y, X)state q:?k, i, s?d...s?0?
+: (c?, v?
+)state p:?i, j, sd...s0?
+: (c, v)?k, j, s?d...s?1|Y(X(s?0, s0))?
+: (c?+ v + creu(Y, X)(p), v?+ v + creu(Y, X)(p))q ?
+L(p)Figure 1: The deductive system of our best-first shift-reduce constituent parsing explaining how theprefix cost and inside cost are calculated.
+FIN is omitted.
+| on the stack means an append operation anda(b) means a subtree a ?
+b. tjis the POS tag of j-th token while wjis the surface form.
+ca(p) is thecost for an action a of which features are extracted from p. Each ca(p) implicitly includes an offset ?.actions for each derivation, which means that thescores of two final states may contain different off-set values.
+The existing modification to alleviatethis inconsistency (Zhu et al, 2013) cannot be ap-plied here because it is designed for beam search.We instead develop a new transition system, inwhich the number of actions to reach the final stateis always 2n (n is the length of sentence).
+Thebasic idea is merging a unary action into each shiftor reduce action.
+Our system uses five actions:?
+SH: original shift action;?
+SHU(X): shift a node, then immediately ap-ply a unary rule to that node;?
+RE(X): original reduce action;?
+REU(Y, X): do reduce to X first, then imme-diately apply an unary rule Y?
+X to it;?
+FIN: finish the process.Though the system cannot perform consecutiveunary actions, in practice it can generate any unarychains as long as those in the training corpus bycollapsing a chain into one rule.
+We preprocessthe corpus in this way along with binarization (SeeSection 4).Note that this system is quite similar to the tran-sition system for dependency parsing.
+The onlychanges are that we have several varieties of shiftand reduce actions.
+This modification also makesit easy to apply an algorithm developed for de-pendency parsing to constituent parsing, such asdynamic programming with beam search (Huangand Sagae, 2010), which has not been applied intoconstituent parsing until quite recently (Mi andHuang, 2015) (See Section 7).Algorithm 1 BFS for Constituent Parsing; Onlydifferences from Zhao et al (2013)1: procedure SHIFT(x,Q)2: TRYADD(sh(x), Q)3: for y ?
+shu(x) do4: TRYADD(y,Q)5: procedure REDUCE(A,B,Q)6: for (x, y) ?
+A?B do7: for z ?
+re(x, y) ?
+reu(x, y) do8: TRYADD(z,Q)3.2 BFS with Dynamic ProgrammingNow applying BFS of Zhao et al (2013) for de-pendency parsing into constituent parsing is nothard.
+Figure 1 shows the deductive system of dy-namic programming, which is much similar to thatin dependency parsing.
+One important change isthat we include a cost for a shift (SH or SHU) ac-tion in the prefix cost in a shift step, not a reducestep as in Zhao et al (2013), since it is unknownwhether the top node s0of a state p is instantiatedwith SH or SHU.
+This modification keeps the cor-rectness of the algorithm and has been employedin another system (Kuhlmann et al, 2011).The algorithm is also slightly changed.
+Weshow only the difference from Zhao et al (2013)(Algorithm 1) in Algorithm 1. shu(x) is a func-tion which returns the set of states that can be ar-rived at by possible SHU rules applied to the statex.
+re(x, y) and reu(x, y) are similar, and they re-turn the set of states arrived at through one of REor REU actions.
+As a speed up, we can apply a lazyexpansion technique (we do so in our experiment).1537Model F1 Speed (Sent./s.
+)SP (reduced features) 88.9 0.8ME (reduced features) 85.1 4.8ME (full features) 86.3 2.5Table 1: Results of BFS systems with dynamicprogramming for the Penn Treebank developmentset with different models and features.
+SP = thestructured perceptron; ME = the MaxEnt.Another difference is in training.
+The previ-ous best-first shift-reduce parsers are all trainedin the same way as a parser with greedy searchsince the model is local MaxEnt.
+In our case, wecan use structured perceptron training with exactsearch (Collins, 2002); that is, at each iteration foreach sentence, we find the current argmin deriva-tion with BFS, then update the parameters if it dif-fers from the gold derivation.
+Note that at the be-ginning of training, BFS is inefficient due to theinitial flat parameters.
+We use a heuristic to speedup this process: For a few iterations (five, in ourcase), we train the model with beam search and anearly update (Collins and Roark, 2004).
+We findthat this approximation does not affect the perfor-mance, while it greatly reduces the training time.4 Evaluation of Best-First Shift-ReduceConstituent ParsingThis section evaluates the empirical performanceof our best-first constituent parser that we built inthe previous section.
+As mentioned in Section 2.2,the previous empirical success of best-first shift-reduce parsers might be due to the sparsity prop-erty of the MaxEnt model, which may not holdtrue in the structured perceptron.
+We investigatethe validity of this assumption by comparing twosystems, a locally trained MaxEnt model and aglobally trained structured perceptron.Setting We follow the standard practice andtrain each model on section 2-21 of the WSJ PennTreebank (Marcus et al, 1993), which is binarizedusing the algorithm in Zhang and Clark (2009)with the head rule of Collins (1999).
+We reportthe F1 scores for the development set of section22.
+The Stanford POS tagger is used for part-of-speech tagging.6We used the EVALB programto evaluate parsing performance.7Every exper-iment reported here was performed on hardware6http://nlp.stanford.edu/software/tagger.shtml7http://nlp.cs.nyu.edu/evalb0 20 40 60Sentence length04080120160#processedstates(x1000)PerceptronMaxEntFigure 2: Comparison of the average number ofthe processed states of the structured perceptronwith those of the MaxEnt model.equipped with an Intel Corei5 2.5GHz processorand 16GB of RAM.Feature We borrow the feature templates fromSagae and Lavie (2006).
+However, we found thefull feature templates make training and decodingof the structured perceptron much slower, and in-stead developed simplified templates by removingsome, e.g., that access to the child information onthe second top node on the stack.8Result Table 1 summarizes the results that indi-cate our assumption is true.
+The structured per-ceptron has the best score even though we restrictthe features.
+However, its parsing speed is muchslower than that of the local MaxEnt model.
+To seethe difference in search behaviors between the twomodels, Figure 2 plots the number of processed(popped) states during search.Discussion This result may seem somewhat de-pressing.
+We have devised a new method that en-ables optimal search for the structured perceptron,but it cannot handle even modestly large featuretemplates.
+As we will see below, the time com-plexity of the system depends on the used fea-tures.
+We have tried features from Sagae and Lavie(2006), but their features are no longer state-of-the-art.
+For example, Zhu et al (2013) reporthigher scores by using beam search with muchricher feature templates, though, as we have exam-ined, it seems implausible to apply such featuresto our system.
+In the following, we find a practi-cal solution for improving both parse accuracy andsearch efficiency in our system.
+We will see thatour new features not only make BFS tractable, butalso lead to comparable or even superior accuracyrelative to the current mainstream features.
+When8The other features that we removed are features 9?14 de-fined in Figure 1 of Sagae and Lavie (2006).15382Figure 3: A snippet of the hypergraph for the sys-tem that simulates a simple PCFG.
+p is the poppedstate, which is being expanded with a state of itsleft states L(p) using a reduce rule.it is combined with A* search, the speed reaches apractical level.5 Improving Optimal Search Efficiency5.1 Span FeaturesThe worst time complexity of hypergraph searchfor shift-reduce parsing can be analyzed with thededuction rule of the reduce step.
+Figure 3 showsan example.
+In this case, the time complexityis O(n3?
+|G| ?
+|N |) since there are three indices(i, j, k) and four nonterminals (A,B,C,D), onwhich three comprise a rule.
+The extra factor |N |compared with ordinary CKY parsing comes fromthe restriction that we extract features only fromone state (Huang and Sagae, 2010).Complexity increases when we add new atomicfeatures to each state.
+For example, if we lexical-ize this model by adding features that depend onthe head indices of s0and/or s1, it increases toO(n6?
+|G| ?
+|N |) since we have to maintain threehead indices of A, B, and C. This is why Sagae andLavie?s features are too expensive for our system;they rely on head indices of s0, s1, s2, s3, the leftand right children of s0and s1, and so on, lead-ing prohibitively huge complexity.
+Historicallyspeaking, the success of shift-reduce approach inconstituent parsing has been led by its success independency parsing (Nivre, 2008), in which thehead is the primary element, and we suspect this isthe reason why the current constituent shift-reduceparsers mainly rely on deeper stack elements andtheir heads.The features we propose here are extracted fromfundamentally different parts from these recenttrends.
+Figure 4 explains how we extract atomicfeatures from a state and Table 2 shows the full listof feature templates.
+Our system is unlexicalized;3...  a  subsidiary  of  ITT  Corp    .4 5 6 7 8 9NNP   .NNPNPINPP10NPDTNNFigure 4: Atomic features of our system largelycome from the span of a constituency.
+For eachspan (s0and s1), we extract the surface form andPOS tag of the preceding word (bw, bt), the firstword (fw, ft), the last word (lw, lt), and the subse-quent word (aw, at).
+shape is the same as that inHall et al (2014).
+Bold symbols are additional in-formation from the system of Figure 3.
+The timecomplexity is O(n4?
+|G|3?
+|N |).q0.w ?
+q0.t q1.w ?
+q1.t q2.w ?
+q2.t q3.w ?
+q3.ts0.c ?
+s0.ft s0.c ?
+s0.fw s0.c ?
+s0.lt s0.c ?
+s0.lws0.c ?
+s0.at s0.c ?
+s0.aw s0.c ?
+s0.ft ?
+s0.lt s0.c ?
+s0.ft ?
+s0.lws0.c ?
+s0.fw ?
+s0.lt s0.c ?
+s0.fw ?
+s0.lw s0.c ?
+s0.len s0.c ?
+s0.shapes0.rule s0.shape ?
+s0.rules1.c ?
+s1.ft s1.c ?
+s1.fw s1.c ?
+s1.lt s1.c ?
+s1.lws1.c ?
+s1.bt s1.c ?
+s1.bw s1.c ?
+s1.ft ?
+s1.lt s1.c ?
+s1.ft ?
+s1.lws1.c ?
+s1.fw ?
+s1.lt s1.c ?
+s1.fw ?
+s1.lw s1.c ?
+s1.len s1.c ?
+s1.shapes1.rule s1.shape ?
+s1.rules1.lw ?
+s0.fw s0.ft ?
+s1.lw s1.lt ?
+s0.fw s1.lt ?
+s0.fts1.c ?
+s0.fw s0.c ?
+s1.fw s1.c ?
+s0.lw s0.c ?
+s1.lws0.fw ?
+q0.w s0.lw ?
+q0.w q0.t ?
+s0.fw q0.t ?
+s0.lws0.c ?
+q0.w s0.c ?
+q0.t s1.fw ?
+q0.w s1.lw ?
+q0.wq0.t ?
+s1.fw q0.t ?
+s1.lw s1.c ?
+q0.w s1.c ?
+q0.tq0.w ?
+q1.w q0.t ?
+q1.w q0.w ?
+q1.t q0.t ?
+q1.ts0.c ?
+s1.c ?
+q0.t s0.c ?
+s1.c ?
+q0.w s1.c ?
+q0.t ?
+s0.fw s1.c ?
+q0.t ?
+s0.lws0.c ?
+q0.t ?
+s1.fw s0.c ?
+q0.t ?
+s1.fwTable 2: All feature templates in our span model.See Figure 4 for a description of each element.
+qiis the i-th top token on the queue.i.e., it does not use any head indices.
+This featuredesign is largely inspired by the recent empiricalsuccess of span features in CRF parsing (Hall etal., 2014).
+Their main finding is that the surface in-formation on a subtree, such as the first or the lastword of a span, has essentially the same amountof information as its head.
+For our system, suchspan features are much cheaper, so we expect theywould facilitate our dynamic programming with-out sacrificing accuracy.We customize their features for fitting in theshift-reduce framework.
+Unlike the usual settingof PCFG parsing, shift-reduce parsers receive aPOS-tagged sentence as input, so we use both thePOS tag and surface form for each word on thespan.
+One difficult part is using features with anapplied rule.
+We include this feature by memoriz-1539ing the previously applied rule for each span (sub-tree).
+This is a bit costly, because it means wehave to preserve labels of the left and right chil-dren for each node, which lead to an additional|G|2factor of complexity.
+However, we will seethat this problem can be alleviated by our heuris-tic cost functions in A* search described below.5.2 A* SearchWe now explain our A* search, another key tech-nique for speeding up our search.
+To our knowl-edge, this is the first work to successfully apply A*search to shift-reduce parsing.A* parsing (Klein and Manning, 2003a) mod-ifies the calculation of priority ?
+(pi) for state pi.In BFS, it is basically the prefix cost, the sum ofevery local cost (Section 3.1), which we denote as?pi:?pi=?1?j?i(?
+(aj, pj?1) + ?
+).In A* parsing, ?
+(pi) = ?pi+ h(pi) where h(pi)is a heuristic cost.
+?picorresponds to the Viterbiinside cost of PCFG parsing (Klein and Manning,2003a) while h(pi) is the Viterbi outside cost, anapproximation of the cost for the future best path(action sequence) from pi.h(pi) must be a lower bound of the true Viterbioutside cost.
+In PCFG parsing, this is oftenachieved with a technique called projection.
+LetG?be a projected, or relaxed, grammar of the orig-inal G; then, a rule weight in the relaxed gram-mar wr?will become wr?= minr?G:pi(r)=r?
+wr,where pi(r) is a projection function which returnsthe set of rules that correspond to r in G?.In feature-based shift-reduce parsing, a ruleweight corresponds to the sum of feature weightsfor an action a, that is, ?
+(a, pi) = ?
+?f(a, pi).We calculate h(pi) with a relaxed feature function??
+(a, pi), which always returns a lower bound:??
+(a, pi) = ??
+?f(a, ci) ?
+?
+?f(a, pi) = ?
+(a, pi).Note that we only have to modify the weight vec-tor.
+If a relaxed weight satisfies ??
+(k) ?
+?
+(k) forall k, that projection is correct.Our A* parsing is essentially hierarchical A*parsing (Pauls and Klein, 2009), and we calculatea heuristic cost h(p) on the fly using another chartfor the relaxed space when a new state p is pushedinto the priority queue.
+Below we introduce twodifferent projection methods, which are orthogo-nal and later combined hierarchically.a ?
+s1.c ?
+s1.ft ?
+?GP?LFSH ?
+VP ?
+NN 10.53 -5.82 -5.82SH ?
+SBAR ?
+NN 1.98 -5.82 -5.82SH ?
+NP ?
+NN -5.82 -5.82 -5.82?
+?
+?SH ?
+VP ?
+DT 3.25 1.12 -5.82SH ?
+SBAR ?
+DT 1.12 1.12 -5.82SH ?
+NP ?
+DT 1.98 1.12 -5.82?
+?
+?Table 3: Example of our feature projection.
+?GPisa weight vector with the GP, which collapses everyc.
+?LFis with the LF, which collapses all elementsin Table 4.s1.c s1.ft s1.fw s1.bt s1.bws1.len s1.shape s1.rule s0.ruleTable 4: List of feature elements ignored in the LF.Grammar Projection (GP) Our first projectionborrows the idea from the filter projection of Kleinand Manning (2003a), in which the grammar sym-bols (nonterminals) are collapsed into a single la-bel X.
+Our projection, however, does not collapseall the labels into X; instead, we utilize constituentlabels in level 2 from Charniak et al (2006), inwhich labels that tend to be head, such as S or VPare collapsed into HP and others are collapsed intoMP.
+?Gin Table 3 is an example of how featureweights are relaxed with this projection.
+Here weshow each feature as a tuple including action name(a).
+Let piGPbe a feature projection function: e.g.,((a ?
+s1.c ?
+s1.ft) = (SH ?
+VP ?
+NN))7?piGP((a ?
+s1.c ?
+s1.ft) = (SH ?
+HP ?
+NN)).Formally, for k-th feature, the weight ?GP(k) isdetermined by minimizing over the features col-lapsed by piGP:?GP(k) = min1?k??K:piGP(gk?)=gk?(k?
+),where gkis the value of the k-th feature.Less-Feature Projection (LF) The basic idea ofour second projection is to ignore some of theatomic features in a feature template so that wecan reduce the time complexity for computing theheuristics.
+We apply this technique to the featureelements in Table 4.
+We can do so by not filling inthe actual value in each feature template: e.g.,((a ?
+s1.c ?
+s1.ft) = (SH ?
+VP ?
+NN))7?piLF((a ?
+s1.c ?
+s1.ft) = (SH ?
+s1.c ?
+s1.ft)).15400 20 40 60Sentence length0.01.02.03.04.0Avg.parsingtime(sec.
+)BFSA*-LFA*-GPA*-HPFigure 5: Comparison of parsing times betweendifferent A* heuristics.The elements in Table 4 are selected so that allbold elements in Figure 4 would be eliminated;the complexity is O(n3?
+|G| ?
+|N |).
+In practice,this is still expensive.
+However, we note that theeffects of these two heuristics are complementary:The LF reduces complexity to a cubic time bound,while the GP greatly reduces the size of grammar|G|; We combine these two ideas below.Hierarchical Projection (HP) The basic idea ofthis combined projection is to use the heuristicsgiven by the GP to lead search of the LF.
+Thisis similar to the hierarchical A* for PCFGs withmultilevel symbol refinements (Pauls and Klein,2009).
+The difference is that their hierarchy is onthe grammar symbols while our projection targetsare features.
+When a state p is created, its heuris-tic score h(p) is calculated with the LF, which re-quires search for the outside cost in the space ofthe LF, but its worst time complexity is cubic.
+TheGP is used to guide this search.
+For each state pLFin the space of the LF, the GP calculates the heuris-tic score.
+We will see that this combination worksquite well in practice in the next section.6 ExperimentWe build our final system by combining the ideasin Section 5 and the system in Section 3.
+Wealso build beam-based systems with or without dy-namic programming (DP) and with the ordinary orthe new span features.
+All systems are trained withthe structured perceptron.
+We use the early updatefor training beam-based systems.Effect of A* heuristics Figure 5 shows the ef-fects of A* heuristics.
+In terms of search quality,the LF is better; it prunes 92.5% of states com-pared to naive BFS, while the GP prunes 75%.However, the LF takes more time to calculate0 20 40 60Sentence length0.000.050.100.150.200.250.30Avg.parsingtime(sec.
+)b=16b=32b=64A*-HPFigure 6: Comparison of parsing times betweenA* and beam search (with DP).Feaure Z&C feature set Span (this work)DP X XF1 F1 Sent./s.
+F1 F1 Sent./s.b=16 89.1 90.1 34.6 88.6 89.9 31.9b=32 89.6 89.9 20.0 89.3 90.2 17.0b=64 89.7 90.2 10.6 89.6 90.2 9.1A* - - - - 90.7 13.6BFS - - - - 90.7 1.1Table 5: Results for the Penn Treebank develop-ment set.
+Z&C = feature set of Zhang and Clark(2009).
+The speeds of non-DP and DP are thesame, so we omit them from the comparison.heuristics than the GP.
+The HP combines the ad-vantages of both, achieving the best result.Accuracy and Speed The F1 scores for the de-velopment set are summarized in Table 5.
+We cansee that the systems with our new feature (span)perform surprisingly well, at a competitive levelwith the more expensive features of Zhang andClark (2009) (Z&C).
+This is particularly true withDP; it sometimes outperforms Z&C, probably be-cause our simple features facilitate state mergingof DP, which expands search space.
+However, ourmain result that the system with optimal searchgets a much higher score (90.7 F1) than beam-based systems with a larger beam size (90.2 F1)indicates that ordinary beam-based systems sufferfrom severe search errors even with the help of DP.Though our naive BFS is slow (1.12 sent./s.
+), A*search considerably improves parsing speed (13.6sent./s.
+), and is faster than the beam-based systemwith a beam size of 64 (Figure 6).Unary Merging We have not mentioned the ef-fect of our unary merging (Section 3), but the re-sult indicates it has almost the same effect as thepreviously proposed padding method (Zhu et al,1541Shift-reduce (closed) LR LP F1 Sent./s.Sagae (2005)?
+86.0 86.1 86.0 3.7Sagae (2006)?
+88.1 87.8 87.9 2.2Zhu (2013) (Z&C) 90.2 90.7 90.4 93.4Span (b=64, DP) 90.2 90.6 90.4 8.4Span (A*) 90.9 91.2 91.1 13.6Other (closed)Berkeley (2007) 90.1 90.3 90.2 6.1Stanford (2013) (RNN) 90.3 90.7 90.5 3.3Hall (2014) (CRF) 89.0 89.5 89.3 0.7External/RerankingCharniak (2005) 91.2 91.8 91.5 2.1McClosky (2006) 92.2 92.6 92.4 1.2Zhu (2013) +semi 91.1 91.5 91.3 47.6Table 6: The final results for section 23 of thePenn Treebank.
+The systems with ?
+are re-ported by authors running on different hardware.We divide baseline state-of-the-art systems intothree categories: shift-reduce systems (Sagae andLavie, 2005; Sagae and Lavie, 2006; Zhu etal., 2013), other chart-based systems (Petrov andKlein, 2007; Socher et al, 2013), and the systemswith external semi supervised features or rerank-ing (Charniak and Johnson, 2005; McClosky et al,2006; Zhu et al, 2013).2013).
+The score with the non-DP beam size = 16and Z&C (89.1 F1) is the same as that reported intheir paper (the features are the same).Final Experiment Table 6 compares our pars-ing system with those of previous studies.
+Whenwe look at closed settings, where no external re-source other than the training Penn Treebank isused, our system outperforms all other systemsincluding the Berkeley parser (Petrov and Klein,2007) and the Stanford parser (Socher et al, 2013)in terms of F1.
+The parsing systems with exter-nal features or reranking outperform our system.However, it should be noted that our system couldalso be improved by external features.
+For exam-ple, the feature of type-level distributional sim-ilarity, such as Brown clustering (Brown et al,1992), can be incorporated with our system with-out changing the theoretical runtime.7 Related Work and DiscussionThough the framework is shift-reduce, we cannotice that our system is strikingly similar tothe CKY-based discriminative parser (Hall et al,2014) because our features basically come fromtwo nodes on the stack and their spans.
+From thisviewpoint, it is interesting to see that our systemoutperforms theirs by a large margin (Figure 6).Identifying the source of this performance changeis beyond the scope of this paper, but we believethis is an important question for future parsingresearch.
+For example, it is interesting to seewhether there is any structural advantage for shift-reduce over CKY by comparing two systems withexactly the same feature set.As shown in Section 4, the previous optimalparser on shift-reduce (Sagae and Lavie, 2006)was not so strong because of the locality of themodel.
+Other optimal parsing systems are oftenbased on relatively simple PCFGs, such as unlex-icalized grammar (Klein and Manning, 2003b) orfactored lexicalized grammar (Klein and Manning,2003c) in which A* heuristics from the unlexical-ized grammar guide search.
+However, those sys-tems are not state-of-the-art probably due to thelimited context captured with a simple PCFG.
+Arecent trend has thus been extending the contextof each rule (Petrov and Klein, 2007; Socher et al,2013), but the resulting complex grammars makeexact search intractable.
+In our system, the mainsource of information comes from spans as in CRFparsing.
+This is cheap yet strong, and leads to afast and accurate parsing system with optimality.Concurrently with this work, Mi and Huang(2015) have developed another dynamic program-ming for constituent shift-reduce parsing by keep-ing the step size for a sentence to 4n ?
+2, insteadof 2n, with an un-unary (stay) action.
+Their finalscore is 90.8 F1 on WSJ.
+Though they only experi-ment with beam-search, it is possible to build BFSwith their transition system as well.8 ConclusionsTo date, all practical shift-reduce parsers have re-lied on approximate search, which suffers fromsearch errors but also allows to utilize unlimitedfeatures.
+The main result of this paper is to showanother possibility of shift-reduce by proceedingin an opposite direction: By selecting features andimproving search efficiency, a shift-reduce parserwith provable search optimality is able to find veryhigh quality parses in a practical runtime.AcknowledgementsWe would like to thank Katsuhiko Hayashi foranswering our questions about dynamic program-ming on shift-reduce parsing.1542ReferencesBernd Bohnet, Joakim Nivre, Igor M. Boguslavsky,Rich?ard Farkas, and Jan Haji?c.
+2013.
+Joint Mor-phological and Syntactic Analysis for Richly In-flected Languages.
+Transactions of the Associationfor Computational Linguistics, 1(Oct):429?440.Peter F. Brown, Peter V. deSouza, Robert L. Mercer,Vincent J. Della Pietra, and Jenifer C. Lai.
+1992.Class-based N-gram Models of Natural Language.Comput.
+Linguist., 18(4):467?479, December.Eugene Charniak and Mark Johnson.
+2005.
+Coarse-to-Fine n-Best Parsing and MaxEnt DiscriminativeReranking.
+In Proceedings of the 43rd Annual Meet-ing of the Association for Computational Linguis-tics (ACL?05), pages 173?180, Ann Arbor, Michi-gan, June.
+Association for Computational Linguis-tics.Eugene Charniak, Mark Johnson, Micha Elsner, JosephAusterweil, David Ellis, Isaac Haxton, CatherineHill, R. Shrivaths, Jeremy Moore, Michael Pozar,and Theresa Vu.
+2006.
+Multilevel Coarse-to-FinePCFG Parsing.
+In Proceedings of the Human Lan-guage Technology Conference of the NAACL, MainConference, pages 168?175, New York City, USA,June.
+Association for Computational Linguistics.Michael Collins and Brian Roark.
+2004.
+Incremen-tal Parsing with the Perceptron Algorithm.
+In Pro-ceedings of the 42nd Meeting of the Association forComputational Linguistics (ACL?04), Main Volume,pages 111?118, Barcelona, Spain, July.M.
+Collins.
+1999.
+Head-Driven Statistical Models forNatural Language Parsing.
+Ph.D. thesis, Universityof Pennsylvania.Michael Collins.
+2002.
+Discriminative Training Meth-ods for Hidden Markov Models: Theory and Ex-periments with Perceptron Algorithms.
+In Proceed-ings of the 2002 Conference on Empirical Methodsin Natural Language Processing, pages 1?8.
+Asso-ciation for Computational Linguistics, July.David Hall, Greg Durrett, and Dan Klein.
+2014.
+LessGrammar, More Features.
+In Proceedings of the52nd Annual Meeting of the Association for Compu-tational Linguistics (Volume 1: Long Papers), pages228?237, Baltimore, Maryland, June.
+Associationfor Computational Linguistics.Liang Huang and Kenji Sagae.
+2010.
+Dynamic Pro-gramming for Linear-Time Incremental Parsing.
+InProceedings of the 48th Annual Meeting of the Asso-ciation for Computational Linguistics, pages 1077?1086, Uppsala, Sweden, July.
+Association for Com-putational Linguistics.Dan Klein and Christopher D. Manning.
+2001.
+Pars-ing and Hypergraphs.
+In Proceedings of the Sev-enth International Workshop on Parsing Technolo-gies (IWPT-2001), 17-19 October 2001, Beijing,China.Dan Klein and Christopher D. Manning.
+2003a.
+A*Parsing: Fast Exact Viterbi Parse Selection.
+In Pro-ceedings of the 2003 Conference of the North Amer-ican Chapter of the Association for ComputationalLinguistics on Human Language Technology - Vol-ume 1, NAACL ?03, pages 40?47, Stroudsburg, PA,USA.
+Association for Computational Linguistics.Dan Klein and Christopher D. Manning.
+2003b.
+Accu-rate Unlexicalized Parsing.
+In Proceedings of the41st Annual Meeting of the Association for Com-putational Linguistics, pages 423?430, Sapporo,Japan, July.
+Association for Computational Linguis-tics.Dan Klein and Christopher D. Manning.
+2003c.
+Fac-tored A*Search for Models over Sequences andTrees.
+In IJCAI-03, Proceedings of the EighteenthInternational Joint Conference on Artificial Intelli-gence, Acapulco, Mexico, August 9-15, 2003, pages1246?1251.Marco Kuhlmann, Carlos G?omez-Rodr?
+?guez, and Gior-gio Satta.
+2011.
+Dynamic Programming Algorithmsfor Transition-Based Dependency Parsers.
+In Pro-ceedings of the 49th Annual Meeting of the Associ-ation for Computational Linguistics: Human Lan-guage Technologies, pages 673?682, Portland, Ore-gon, USA, June.
+Association for Computational Lin-guistics.Mitchell P. Marcus, Beatrice Santorini, and Mary AnnMarcinkiewicz.
+1993.
+Building a Large AnnotatedCorpus of English: The Penn Treebank.
+COMPU-TATIONAL LINGUISTICS, 19(2):313?330.David McClosky, Eugene Charniak, and Mark John-son.
+2006.
+Reranking and Self-Training for ParserAdaptation.
+In Proceedings of the 21st Interna-tional Conference on Computational Linguistics and44th Annual Meeting of the Association for Compu-tational Linguistics, pages 337?344, Sydney, Aus-tralia, July.
+Association for Computational Linguis-tics.Haitao Mi and Liang Huang.
+2015.
+Shift-Reduce Con-stituency Parsing with Dynamic Programming andPOS Tag Lattice.
+In Proceedings of the 2015 Con-ference on the North American Chapter of the Asso-ciation for Computational Linguistics Human Lan-guage Technologies, Denver, Colorado, May.
+Asso-ciation for Computational Linguistics.Joakim Nivre.
+2008.
+Algorithms for Deterministic In-cremental Dependency Parsing.
+Computational Lin-guistics, 34(4):513?553.Adam Pauls and Dan Klein.
+2009.
+HierarchicalSearch for Parsing.
+In Proceedings of Human Lan-guage Technologies: The 2009 Annual Conferenceof the North American Chapter of the Associa-tion for Computational Linguistics, pages 557?565,Boulder, Colorado, June.
+Association for Computa-tional Linguistics.1543Slav Petrov and Dan Klein.
+2007.
+Improved Inferencefor Unlexicalized Parsing.
+In Human LanguageTechnologies 2007: The Conference of the NorthAmerican Chapter of the Association for Computa-tional Linguistics; Proceedings of the Main Confer-ence, pages 404?411, Rochester, New York, April.Association for Computational Linguistics.Kenji Sagae and Alon Lavie, 2005.
+Proceedings of theNinth International Workshop on Parsing Technol-ogy, chapter A Classifier-Based Parser with LinearRun-Time Complexity, pages 125?132.
+Associationfor Computational Linguistics.Kenji Sagae and Alon Lavie.
+2006.
+A Best-First Prob-abilistic Shift-Reduce Parser.
+In Proceedings of theCOLING/ACL 2006 Main Conference Poster Ses-sions, pages 691?698, Sydney, Australia, July.
+As-sociation for Computational Linguistics.Richard Socher, John Bauer, Christopher D. Manning,and Ng Andrew Y.
+2013.
+Parsing with Compo-sitional Vector Grammars.
+In Proceedings of the51st Annual Meeting of the Association for Compu-tational Linguistics (Volume 1: Long Papers), pages455?465, Sofia, Bulgaria, August.
+Association forComputational Linguistics.Zhiguo Wang and Nianwen Xue.
+2014.
+Joint POSTagging and Transition-based Constituent Parsingin Chinese with Non-local Features.
+In Proceed-ings of the 52nd Annual Meeting of the Associationfor Computational Linguistics (Volume 1: Long Pa-pers), pages 733?742, Baltimore, Maryland, June.Association for Computational Linguistics.Yue Zhang and Stephen Clark.
+2009.
+Transition-BasedParsing of the Chinese Treebank using a GlobalDiscriminative Model.
+In Proceedings of the 11thInternational Conference on Parsing Technologies(IWPT?09), pages 162?171, Paris, France, October.Association for Computational Linguistics.Kai Zhao, James Cross, and Liang Huang.
+2013.
+Op-timal Incremental Parsing via Best-First DynamicProgramming.
+In Proceedings of the 2013 Confer-ence on Empirical Methods in Natural LanguageProcessing, pages 758?768, Seattle, Washington,USA, October.
+Association for Computational Lin-guistics.Muhua Zhu, Yue Zhang, Wenliang Chen, Min Zhang,and Jingbo Zhu.
+2013.
+Fast and Accurate Shift-Reduce Constituent Parsing.
+In Proceedings of the51st Annual Meeting of the Association for Compu-tational Linguistics (Volume 1: Long Papers), pages434?443, Sofia, Bulgaria, August.
+Association forComputational Linguistics.1544

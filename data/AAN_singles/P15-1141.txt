@@ -1,0 +1,353 @@
+Proceedings of the 53rd Annual Meeting of the Association for Computational Linguisticsand the 7th International Joint Conference on Natural Language Processing, pages 1460?1469,Beijing, China, July 26-31, 2015.c?2015 Association for Computational LinguisticsA Computationally Efficient Algorithm for Learning Topical CollocationModelsZhendong Zhao1, Lan Du1, Benjamin B?orschinger1,2, John K Pate1,Massimiliano Ciaramita2, Mark Steedman3and Mark Johnson11Department of Computing, Macquarie University, Australia2Google, Zurich, Switzerland3School of Informatics, University of Edinburgh, ScotlandAbstractMost existing topic models make the bag-of-words assumption that words are gener-ated independently, and so ignore poten-tially useful information about word or-der.
+Previous attempts to use collocations(short sequences of adjacent words) intopic models have either relied on a pipe-line approach, restricted attention to bi-grams, or resulted in models whose infer-ence does not scale to large corpora.
+Thispaper studies how to simultaneously learnboth collocations and their topic assign-ments.
+We present an efficient reformula-tion of the Adaptor Grammar-based topi-cal collocation model (AG-colloc) (John-son, 2010), and develop a point-wise sam-pling algorithm for posterior inference inthis new formulation.
+We further improvethe efficiency of the sampling algorithmby exploiting sparsity and parallelising in-ference.
+Experimental results derived intext classification, information retrievaland human evaluation tasks across a rangeof datasets show that this reformulationscales to hundreds of thousands of docu-ments while maintaining the good perfor-mance of the AG-colloc model.1 IntroductionProbabilistic topic models like Latent DirichletAllocation (LDA) (Blei et al, 2003) are com-monly used to study the meaning of text by iden-tifying a set of latent topics from a collection ofdocuments and assigning each word in these doc-uments to one of the latent topics.
+A document ismodelled as a mixture of latent topics, and eachtopic is a distribution over a finite vocabulary ofwords.
+It is common for topic models to treatdocuments as bags-of-words, ignoring any inter-nal structure.
+While this simplifies posterior infer-ence, it also ignores the information encoded in,for example, syntactic relationships (Boyd-Graberand Blei, 2009), word order (Wallach, 2006) andthe topic structure of documents (Du et al, 2013).Here we are interested in topic models that capturedependencies between adjacent words in a topicdependent way.
+For example, the phrase ?whitehouse?
+can be interpreted compositionally in areal-estate context, but not in a political context.Several extensions of LDA have been proposedthat assign topics not only to individual words butalso to multi-word phrases, which we call topicalcollocations.
+However, as we will discuss in sec-tion 2, most of those extensions either rely on apre-processing step to identify potential colloca-tions (e.g., bigrams and trigrams) or limit attentionto bigram dependencies.
+We want a model that canjointly learn collocations of arbitrary length andtheir corresponding topic assignments from a largecollection of documents.
+The AG-colloc model(Johnson, 2010) does exactly this.
+However, be-cause the model is formulated within the AdaptorGrammar framework (Johnson et al, 2007), thetime complexity of its inference algorithm is cu-bic in the length of each text fragment, and so it isnot feasible to apply the AG-colloc model to largecollections of text documents.In this paper we show how to reformulatethe AG-colloc model so it is no longer relieson a general Adaptor Grammar inference proce-dure.
+The new formulation facilitates more ef-ficient inference by extending ideas developedfor Bayesian word segmentation (Goldwater etal., 2009).
+We adapt a point-wise sampling algo-rithm from Bayesian word segmentation, whichhas also been used in Du et al (2013), to simul-taneously sample collocation boundaries and col-location topic assignments.
+This algorithm retainsthe good performance of the AG-colloc model indocument classification and information retrieval1460tasks.
+By exploiting the sparse structure of bothcollocation and topic distributions, using tech-niques inspired by Yao et al (2009), our new in-ference algorithm produces a remarkable speedupin running time and allows our reformulation toscale to a large number of documents.
+This algo-rithm can also be easily parallelised to take advan-tage of multiple cores by combining the ideas ofthe distributed LDA model (Newman et al, 2009).Thus, the contribution of this paper is three-fold:1) a novel reformulation of the AG-colloc model,2) an easily parallelisable and fast point-wise sam-pling algorithm exploiting sparsity and 3) system-atic experiments with both qualitative and quanti-tative analysis.The structure of the paper is as follows.
+In Sec-tion 2 we briefly discuss prior work on learningtopical collocations.
+We then present our reformu-lation of the AG-colloc model in Section 3.
+Sec-tion 4 derives a point-wise Gibbs sampler for themodel and shows how this sampler can take advan-tage of sparsity and be parallelised across multiplecores.
+Experimental results are reported in Section5.
+Section 6 concludes this paper and discusses fu-ture work.2 Related WorkThere are two main approaches to incorporat-ing topical collocations in LDA: 1) pipeline ap-proaches that use a pre-processing step prior toLDA, and 2) extensions to LDA, which modify thegenerative process.
+In this section we discuss priorwork that falls into these two categories and theirlimitations.Pipeline Approaches (Lau et al, 2013), denotedhere by PA, involve two steps.
+The first step iden-tifies a set of bigrams that are potentially rele-vant collocations from documents by using sim-ple heuristics for learning collocations, e.g., theStudent?s t-test method of Banerjee and Peder-sen (2003).
+For each identified bigram ?w1w2?,a new pseudo word ?w1w2?
+is added to the vo-cabulary and the documents are re-tokenised totreat every instance of this bigram as a new to-ken.
+LDA is then applied directly to the mod-ified corpus without any changes to the model.While Lau et al demonstrated that this two-stepapproach improves performance on a documentclassification task, it is limited in two ways.
+First,it can identify only collocations of a fixed length(i.e., bigrams).
+Second, the pre-processing stepthat identifies collocation candidates has no accessto contextual cues (e.g.
+the topic of the context inwhich a bigram occurs),A variety of extensions to the LDA model havebeen proposed to address this second shortcom-ing.
+Most extensions add some ability to captureword-to-word dependencies directly into the un-derlying generative process.
+For example, Wal-lach (2006) incorporates a hierarchical Dirichletlanguage model (MacKay and Peto, 1995), en-abling her model to automatically cluster functionwords together.
+The model proposed by Griffithset al (2004) combines a hidden Markov modelwith LDA, using the former to model syntax andthe latter to model semantics.The LDA collocation model (LDACOL) (Grif-fiths et al, 2007) infers both the per-topic worddistribution in the standard LDA model and, foreach word in the vocabulary, a distribution over thewords that follow it.
+The generative process of theLDACOL model allows words in a document to begenerated in two ways.
+A word is generated eitherby drawing it directly from a per-topic word distri-bution corresponding to its topic as in LDA, or bydrawing it from the word distribution associatedwith its preceding word w. The two alternativesare controlled by a set of Bernoulli random vari-ables associated with individual words.
+Sequencesof words generated from their predecessors consti-tute topical collocations.Wang et al (2007) extended the LDACOLmodel to generate the second word of a colloca-tion from a distribution that conditions on not onlythe first word but also the first word?s topic assign-ment, proposing the topical N-gram (TNG) model.In other words, whereas LDACOL only adds a dis-tribution for every word-type to LDA, TNG addsa distribution for every possible word-topic pair.Wang et al found that this modification allowedTNG to outperform LDACOL on a standard in-formation retrieval task.
+However, both LDACOLand TNG do not require words within a sequenceto share the same topic, which can result in seman-tically incoherent collocations.Subsquent models have sought to encouragetopically coherent collocations, including Phrase-Discovering LDA (Lindsey et al, 2012), the time-based topical n-gram model (Jameel and Lam,2013a) and the n-gram Hierarchical Dirichlet Pro-cess (HDP) model (Jameel and Lam, 2013b).Phrase-Discovering LDA is a non-parametric ex-1461tension of TNG inspired by Bayesian N-grammodels Teh (2006) that incorporate a Pitman-YorProcess prior.
+The n-gram HDP is a nonparametricextension of LDA-colloc, putting an HDP prior onthe per-document topic distribution.
+Both of thesenon-parametric extensions use the Chinese Fran-chise representation for posterior inference.Our work here is based on the AG-colloc modelproposed by Johnson (2010).
+He showed howAdaptor Grammars can generalise LDA to learntopical collocations of unbounded length whilejointly identifying the topics that occur in eachdocument.
+Unfortunately, because the AdaptorGrammar inference algorithm uses ProbabilisticContext-Free Grammar (PCFG) parsing as a sub-routine, the time complexity of inference is cu-bic in the length of individual text fragments.
+Inorder to improve the efficiency of the AG-collocmodel, we re-express it using ideas from Bayesianword segmentation models.
+This allows us to de-velop an efficient inference algorithm for the AG-colloc model that scales to large corpora.
+Finally,we evaluate our model in terms of classification,information retrieval, and topic intrusion detectiontasks; to our knowledge, we are the first to evalu-ate topical collocation models along all the threedimensions.3 Topical Collocation ModelIn this section we present our reformulation of theAG-colloc model, which we call the Topical Col-location Model (TCM) to emphasise that we arenot using a grammar-based formulation.
+We startwith the Unigram word segmentation model andAdaptor Grammar model of topical collocations,and then present our reformulation.Goldwater et al (2009) introduced a Bayesianmodel for word segmentation known as the Uni-gram model.
+This model is based on the DirichetProcess (DP) and assumes the following genera-tive process for a sequence of words.G ?
+DP (?0, P0), wi| G ?
+GHere, P0is some distribution over the countablyinfinite set of all possible word forms (which arein turn sequences of a finite number of charac-ters), and G is a draw from a Dirichlet Process.Inference is usually performed under a collapsedmodel in which G is integrated out, giving riseto a Chinese Restaurant Process (CRP) represen-tation.
+The CRP is defined by the following pre-dictive probability of wigiven w1:i?1:p(wi= l|w1:i?1) =nli?
+1 + ?0+?0P0(l)i?
+1 + ?0,where nlis the number of times word form l ap-pears in the first n?
+1 words.During inference, the words are not known, andthe model observes only a sequence of charac-ters.
+Goldwater et al (2009) derived a linear timeGibbs sampler that samples from the posterior dis-tribution over possible segmentations of a givencorpus according to the model.
+Their key insightis that sampling can be performed over a vectorof Boolean boundary indicator variables ?
+not in-cluded in the original description of the model ?that indicates which adjacent characters are sepa-rated by a word boundary.
+We will show how thisidea can be generalised to yield an inference algo-rithm for the AG-colloc model.Adaptor Grammars (Johnson et al, 2007) area generalisation of PCFGs.
+In a PCFG, a non-terminal A is expanded by selecting a rule A?
+?with probability P (?|A), where ?
+is a sequence ofterminal and non-terminal node labels.
+Becausethe rules are selected independently, PCFGs in-troduce strong conditional independence assump-tions.
+In an Adaptor Grammar, some of the non-terminal labels are adapted.
+These nodes can beexpanded either by selecting a rule, as in PCFGs,or by retrieving an entire subtree from a DirichletProcess cache specific to that node?s non-terminallabel,1breaking the conditional independence as-sumptions and capturing longer-range statisticalrelationships.The AG-colloc model can be concisely ex-pressed using context free grammar rule schemata,where adapted non-terminals are underlined:Top?
+DocmDocm?
+?m| DocmTopiciTopici?Word+Here m ranges over the documents, i ranges overtopics, ?|?
+separates possible expansions, and ?+?means ?one or more?.
+As in LDA, each documentis defined as a mixture of K topics with the mix-ture probabilities corresponding to the probabili-1Strictly speaking, Adaptor Grammars are defined usingthe Pitman-Yor process.
+In this paper we restrict ourselves toconsidering the Dirichlet Process which is a special case ofthe PYP where the discount parameter is set to 0.
+For moredetails, refer to Johnson et al (2007) and Johnson (2010).1462ties of the different expansions of Docm.
+How-ever, the topic distributions are modelled usingan adapted non-terminal Topici.
+This means thatthere is an infinite number of rules expandingTopici, one for every possible sequence over thefinite vocabulary of words.
+Topicinon-terminalscache sequences of words, just as G caches se-quences of characters in the Unigram model.The base distribution of the AG-colloc model isa geometric distribution over sequences of a finitevocabulary of words: P0(c = (w1, .
+.
+.
+, wM)) =p#(1?p#)M?1?Mj=1Pw(wj),where Pw(?)
+is theuniform distribution over the finite set of words.This is the same base distribution used by Gold-water et al (2009), except characters have beenreplaced by words.
+p#is the probability of seeingthe end of a collocation, and so controls the lengthof collocations.
+With this, we can re-express theAG-colloc model as a slight modification of theUnigram model:1.
+For each topic k, 1 ?
+k ?
+K, ?k?
+DP(?0, P0)2.
+For each document d, 1 ?
+d ?
+D(a) Draw a topic distribution ?d|?
+?
+DirichletK(?
+)(b) For each collocation cd,nin document d, 1 ?
+n ?Ndi.
+Draw a topic assignment:zd,n| ?d?
+Discrete(?d)ii.
+Draw a collocation:cd,n| zd,n,?1, .
+.
+.
+,?K?
+?zd,nwhere the length of a collocation cd,nis greaterthan or equal to 1, i.e., |cd,n| ?
+1.
+Unlike previousmodels, the TCM associates each topic with a Un-igram model over topical collocations.
+Therefore,the TCM learns different vocabularies for differenttopics.24 Posterior InferenceWe develop an efficient point-wise sampling al-gorithm that can jointly sample collocations andtheir topics.
+The observed data consists of a se-quence of word tokens which are grouped into Ddocuments.
+We sample from the posterior distri-bution over segmentations of documents into col-locations, and assignments of topics to colloca-tions.
+Let each document d be a sequence of Ndwords wd,1, .
+.
+.
+, wd,Nd.
+We introduce a set of aux-iliary random variables bd,1, .
+.
+.
+, bd,Nd.
+The value2In the TCM, the vocabulary differs from topic to topic.Given a sequence of adjacent words, it is hard to tell if it is acollocation without knowing the topic of its context.
+There-fore, the Pointwise Mutual Information (PMI) (Newman etal., 2010) and its variant (Lau et al, 2014) are not applicableto our TCM in evaluation.of bd,jindicates whether there is a collocationboundary between wd,jand wd,j+1, and, if thereis, the topic of the collocation to the left of theboundary.
+If there is no boundary then bd,j= 0.Otherwise, there is a collocation to the left of theboundary consisting of the words wd,l+1, .
+.
+.
+, wd,jwhere l = max {i | 1 ?
+i ?
+j ?
+1 ?
+bd,i6= 0},and bd,j= k (1 ?
+k ?
+K) is the topic of the col-location.
+Note that bd,Ndmust not be 0 as the endof a document is always a collocation boundary.For example, consider the document consistingof the words ?the white house.?
+We use the K+1-valued variables b1, b2(after ?the?
+and ?white?)
+andthe K-valued variable b3(after ?house?)
+to de-scribe every possible segmentation of this docu-ment into topical collocations.3If there areK top-ics andN words, there are (K+1)N?1K possibletopical segmentations.
+To illustrate, see how eachof the following triples (b1, b2, b3) encodes a dif-ferent analysis of ?the white house?
+into bracketedcollocations and subscripted topic numbers:?
+(0, 0, 1) : (the white house)1?
+(1, 0, 2) : (the)1(white house)2?
+(2, 1, 1) : (the)2(white)1(house)1The next section elaborates the Gibbs sampler overthese K+1 boundary variables.4.1 A Point-wise Gibbs Sampler for the TCMWe consider a collapsed version of the TCM inwhich the document-specific topic mixtures ?1:Dand theK non-parametric topic distributions ?1:Kare integrated out.
+We introduce the samplingequations using a concrete example, consideringagain the toy document, ?the white house.
+?Let the sampler start in state b1= b2= 0, b3=z0, 1 ?
+z0?
+K. This corresponds to the analysis(the0white0housez0?
+??
+?c0) .This analysis consists of a single collocation c0which spans the entire document and is assignedto topic z0.
+For simplicity, we will not show howto model document boundaries.If we resample b1, we have to consider two dif-ferent hypotheses, i.e., putting or not putting a col-location boundary at b1.
+The analysis correspond-ing to not putting a boundary is the one we just3A similar strategy of using K-valued rather thanboolean boundary variables in Gibbs sampling was used inB?orschinger et al (2013) and Du et al (2014).1463saw.
+Putting a boundary corresponds to a new seg-mentation,(thez1)?
+??
+?c1(white0housez2?
+??
+?c2) .We need to consider the K possible topics for c1,for each of which we calculate the probability asfollows.
+If b1= 0 (i.e., there is no collocationboundary after ?the?)
+we havep(z0, c0|?)
+= p(z0|?
+)p(c0|?0, P0, z0) , (1)where ?
+= {?, ?0, P0}.
+p(c0|?0, P0, z0) is theprobability of generating collocation c0from topicz0with a CRP, i.e.,p(c0|?0, P0, z0) =n?c0z0+ ?0P0(c0)N?c0z0+ ?0, (2)where n?c0z0is the number of times that colloca-tion c0was assigned to topic z0and N?c0z0is thetotal number of collocations assigned to z0.
+Bothcounts exclude the parts of the analysis that are af-fected by the boundary c0.
+As in LDA,p(z0= k|?)
+=n?
+?c0k+ ??Kk=1n?
+?c0k+K?, (3)where n?
+?c0kis the total number of collocations as-signed to topic k in a document, again excludingthe count for the parts of the document that are af-fected by the current boundary.
+For the hypothesisthat b1= z1(with 1 ?
+z1?
+K), the full condi-tional to generate two adjacent collocations isp(z1, z2, c1, c2|?)
+?
+(4)p(z1|?
+)p(c1|?0, P0, z1)p(z2|?, z1)p(c2|?0, P0, c1, z1, z2) ,where p(z1|?)
+and p(c1|?0, P0, z1) can be com-puted with Eqs (3) and (2), respectively.
+The re-maining probabilities are computed asp(z2= k|?, z1) =n?
+?c1,c2k+ ?+ Iz2=z1?Kk=1n?
+?c1,c2k+K?+ 1, (5)p(c2|?0, P0, c1, z1, z2) =n?c1,c2z2+ Iz1=z2Ic1=c2+ ?0P0(c2)?0+N?c1,c2z2+ Iz1=z2(6)where Ix=yis an indicator function that is equalto 1 if x = y and 0 otherwise, n?c1,c2z2is thenumber of collocations c2assigned to topic z2,andN?c1,c2z2is the total number of collocations as-signed to topic z2.
+Both counts exclude the currentc2, and also exclude c1if z1= z2and c1= c2.
+Oursampler does random sweeps over all the bound-ary positions, and calculates the joint probabilityof the corresponding collocations and their topicassignment using Eqs (1) and (4) at each position.4.2 Parallelised Sparse Sampling AlgorithmThe word distributions and topic distributions inLDA are typically sparse, and Yao et al (2009)proposed a ?sparseLDA?
+Gibbs sampler that takesadvantage of this sparsity to substantially reducerunning time.
+These two distributions are evensparser for the TCM than LDA, because collo-cations are less frequent than unigrams.
+Here weshow how to modify our sampler to take advan-tage of sparsity.
+Sampling boundaries accordingthe two probabilities shown Eqs (1) and (4) re-quires the generation of a random number x froma uniform distribution, U(0,P), whereP = p(z0, c0) +K?z1=1p(z1, c1)p(z2, c2|c1, z1) .
+(7)Here the first term corresponds to the case thatthere is no collocation boundary, and the summa-tion corresponds to the case that there is a collo-cation boundary.
+Thus, if x is less than P (z0, c0),there will be no boundary.
+Otherwise, we need tosample z1according to Eq (4).The sampling algorithm requires calculation ofEq (7), even though the probability mass may beconcentrated on just a few topics.
+We have ob-served in our experiments that the denominators ofEqs (5) and (6) are often quite large and the indica-tor functions usually turn out to be zero, so we ap-proximate the two equations by removing the in-dicator functions.
+This approximation not only fa-cilitates the computation of Eq (7), but also meansthat p(z2, c2|c1, z1) no longer depends on z1andc1.
+Thus, Eq (7) can be approximated asP ?
+p(z0, c0) + p(z2, c2)K?z1=1p(z1, c1) .
+(8)Now that p(z0, c0) and p(z2, c2) are both out of thesummation; they can be pre-computed and cached.To reduce the computational complexity of thesummation term in Eq (8), we use the ?buckets?1464method (Yao et al, 2009).
+We divide the summa-tion term in p(z1, c1) into three parts as follows,each of which corresponds to a bucket:p(z1= k, c1)=n?
+?c1,c2k+ ??Kk=1n?
+?c1,c2k+K?n?c1,c2k+ ?0P0(c1)N?c1,c2k+ ?0?
+?0P0(c1)?N?c1,c2k+ ?0+n?
+?c1,c2k?0P0(c1)N?c1,c2k+ ?0+(n?
+?c1,c2k+ ?
+)n?c1,c2kN?c1,c2k+ ?0(9)Then, the summation in Eq (8) is proportional tothe sum of the following three equations:s =K?k=1?0P0(c1)?N?c1,c2k+ ?0(10)r =K?k=1n?
+?c1,c2k?0P0(c1)N?c1,c2k+ ?0(11)q =K?k=1(n?
+?c1,c2k+ ?
+)n?c1,c2kN?c1,c2k+ ?0(12)We can now use the sampling techniques usedin the sparse-LDA model to sample z1.
+Firstly,sample U ?
+U(0, s + r + q).
+If U < s wehave hit bucket s. In this case, we need to com-pute the probability for each possible topic.
+Ifs < x < (s + r) we have hit the second bucketr.
+In this case, we compute probabilities only fortopics such that n?
+?c1,c2k6= 0.
+If x > (s + r) wehave hit bucket q, which is the ?topic collection?bucket, and we need only consider topics such thatn?c1,c2k6= 0.
+Although we use an approximationin computing the full conditionals, experimentalresults have shown that our TCM is as accurate asthe original AG-colloc model, see Section 5.Our sparse sampling algorithm can be easilyparallelised with the same multi-threading strat-egy used by Newman et al (2009) in their dis-tributed LDA (AD-LDA).
+In AD-LDA, documentsare distributed evenly across P processors, each ofwhich also has a copy of the word-topic count ma-trix.
+Gibbs updates are performed simultaneouslyon each of the P processors.
+At the end of eachGibbs iteration, the P copies of the word-topiccount matrices are collected and summed into theglobal word-topic count matrix.In the TCM, collocations in each topic are gen-erated from a CRP.
+Hence, distributing the word-topic count matrix in AD-LDA now correspondsto distributing a set of Chinese restaurants in theparallelised TCM.
+The challenge is how to mergethe Chinese Restaurant copies from the P proces-sors into a single global restaurant for each topic,similar to the merging problem in Du et al (2013).However, Eqs (2) and (6) show that the statisticsthat need to be collected are the number of col-locations generated for each topic.
+The numberof tables in a restaurant does not matter.4There-fore, we can adapt the summation technique usedin AD-LDA.We further observed that if P is large, using asingle processor to perform the summation oper-ation could result in a large overhead.
+The sum-mation step could be even costlier in TCM thanin LDA, since the number of distinct collocationsis much larger than the number of distinct words.Thus we also parallelise the summation step usingall the processors that are free in this step.5 Experimental ResultsIn this section we evaluate the effectivenessand efficiency of our Topical Collocation Model(TCM) on different tasks, i.e., a document clas-sification task, an information retrieval task and atopic intrusion detection task.
+All the empirical re-sults show that our TCM performs as well as theAG-colloc model and outperforms other colloca-tion models (i.e., LDACOL (Griffiths et al, 2007),TNG (Wang et al, 2007), PA (Lau et al, 2013)).The TCM also runs much faster than the othermodels.
+We also compared the TCM with the Mal-let implementation of AD-LDA (Newman et al,2009), denoted by Mallet-LDA, for completeness.Following Griffiths et al (2007), we used punc-tuation and Mallet?s stop words to split the docu-ments into subsequences of word tokens, then re-moved those punctuation and stop words from theinput.
+All experiments were run on a cluster with80 Xeon E7-4850 processors (2.0GHz) and 96 GBmemory.5.1 Classification EvaluationIn the classification task, we used three datasets:the movie review dataset (Pang and Lee, 2012)(MReviews), the 20 Newsgroups dataset, and theReuters-21578 dataset.
+The movie review datasetincludes 1,000 positive and 1,000 negative re-views.
+The 20 Newsgroups dataset is organised4The number of tables is used only when sampling theconcentration parameters, ?0, see Blunsom et al (2009).1465Task Classification IRDataset MReview SJMN-2kMallet-LDA 71.30 18.85LDACOL 71.75 19.03TNG 71.40 19.06PA 72.74 19.16AG-colloc 73.15 19.37Non-sparse TCM 73.14 19.30Sparse TCM 73.13 19.31Table 1: Comparison of all models in the classi-fication task (accuracy in %) and the informationretrieval task (MAP scores in %) on small corpora.Bold face indicates scores not significantly differ-ent from the best score (in italics) according to aWilcoxon signed rank test (p < 0.05).Mallet-LDA PA TCMPolitics 89.1 89.2 89.2Comp 86.3 87.4 87.9Sci 92.0 93.2 93.4Sports 91.6 91.7 92.6Reuter-21578 97.3 97.5 97.6Table 2: Classification accuracy (%) on largerdatasets.
+Bold face indicates scores not signifi-cantly different from the best score (in italics) ac-cording to a Wilcoxon signed rank test (p < 0.05).into 20 different categories according to differenttopics.
+We further partitioned the 20 newsgroupsdataset into four subsets, denoted by Comp, Sci,Sport, and Politics.
+They have 4, 891, 3, 952,1, 993, and 2, 625 documents respectively.
+We ap-plied document classification to each subset.
+TheReuters-21578 dataset has 21,578 Reuters newsarticles which are split into 10 categories.The classification evaluation was carried out asfollows.
+First, we ran each model on each datasetto derive point estimates of documents?
+topic dis-tributions (?
+), which were used as the only fea-tures in classification.
+We then randomly selectedfrom each dataset 80% documents for trainingand 20% for testing.
+A Support Vector Machine(SVM) with a linear-kernel was used.
+We ran allmodels for 10,000 iterations with 50 topics on themovie review dataset and 100 on the other two.We set ?
+= 1/K and ?
+= 0.02 for Mallet-LDA,LDACOL, TNG and PA. We used the reported set-tings in Johnson (2010) for the AG-colloc model.For the TCM, we used ?
+= 1/K.
+The concentra-Mallet-LDA PA TCMSJMN 20.7 20.9 21.2AP 24.0 24.5 24.8Table 3: Mean average Precision (MAP in %)scores in the information retrieval task.
+Scores inbold and italics are the significantly best MAPscores according to a Wilcoxon signed rank test(p < 0.05).tion parameter ?0was initially set to 100 and re-sampled using approximated table counts (Blun-som et al, 2009).Since efficient inference is unavailable forLDACOL, TNG and AG-colloc, making it imprac-tical to evaluate them on the large corpora, wecompared our TCM with them only on the MRe-views dataset.
+The first column of Table 1 showsthe classification accuracy of those models.
+All thecollocation models outperform Mallet-LDA.
+TheAG-colloc model yields the highest classificationaccuracy, and our TCM with/without sparsity per-forms as well as the AG-colloc model according tothe Wilcoxon signed rank test.
+The Pipeline Ap-proach (PA) is always better than LDACOL andTNG.
+Therefore, in the following experiments wewill focus on the comparison among our TCM,Mallet-LDA and PA.Table 2 shows the classification accuracy ofthose three models on the larger datasets, i.e., the20 Newsgroups dataset, and the Reuters-21578dataset.
+The TCM outperforms both Mallet-LDAand PA on 3 out of 5 datasets, and performsequally well as PA on the Politics and Reuter-21578 datasets according to a Wilcoxon signedrank test (p < 0.05).5.2 Information Retrieval EvaluationFor the information retrieval task, we used themethod presented by Wei and Croft (2006) andWang et al (2007) to calculate the probability ofa query given a document.
+We used the San JoseMercury News (SJMN) dataset and the AP Newsdataset from TREC.
+The former has 90,257 docu-ments, the latter has 242,918 documents.
+Queries51-150 were used.
+We ran all the models for10,000 iteration with 100 topics.
+The other param-eter settings were the same as those used in Sec-tion 5.1.
+Queries were tokenised using unigramsfor Mallet-LDA and collocations for all colloca-tion models.1466Models p(w|t) p(t|w)Mallet-LDA 71.9 73.2PA 72.8 76.7TCM 73.2 79.7Table 4: The model precision (%) derived from theintrusion detection experiments.On a small subset of the SJMN data, whichcontains 2,000 documents (SJMN-2k), we findagain that TCM and AG-colloc perform equallywell and outperform all other models (LDACOL,TNG, PA), as shown in the second column of Ta-ble 1.
+We further compare the TCM, Mallet-LDAand PA on the full SJMN dataset and the AP newsdataset, as these models can run on large scale.
+Ta-ble 3 shows the mean average precision (MAP)scores.
+The TCM significantly outperforms bothMallet-LDA and the PA approach, and yields thehighest MAP score.5.3 Topic Coherence EvaluationWe ran a set of topic intrusion detection experi-ments (Chang et al, 2009) that provide a humanevaluation of the coherence of the topics learnt byMallet-LDA, PA and TCM on the SJMN dataset.This set of experiments was use to measure howwell the inferred topics match human concepts.Each subject recruited from Amazon MechanicalTurk was presented with a randomly ordered listof 10 tokens (either words or collocations).
+Thetask of the subject was to identify the token whichis semantically different from the others.To generate the 10-token lists, we experimentedwith two different methods for selecting tokens(either words or collocations) most strongly asso-ciated with a topic t. The standard method choosesthe tokens w that maximise p(w|t).
+This methodis biased toward high frequency tokens, sincelow-frequency tokens are unlikely to have a largep(w|t).
+We also tried choosing words and colloca-tionsw that maximise p(t|w).
+This method findswthat are unlikely to appear in any other topic exceptt, and is biased towards low frequency w. We re-duce this low-frequency bias by using a smoothedestimate for p(t|w) with a Dirichlet pseudo-count?
+= 5.An intruder token was randomly selected froma set of tokens that had low probability in the cur-rent topic but high probability in some other topic.We then randomly selected one of the 10 tokensDataset MReview SJMN-2k#Topic 100 800 100 800AG-colloc 84.9 1305 37.5 692Non-sparse TCM 13.8 233 6.6 85.7Sparse TCM 0.28 0.35 0.14 0.2Table 5: The average running time (in seconds)per iteration.Figure 1: Plot of speedup in running time for theMallet-LDA and our TCM.to be replaced by the intruder token.
+We expectcollocations to be more useful in lists that are con-structed using p(t|w) than lists constructed usingp(w|t).
+This is because p(w|t) can be dominatedby the frequency of w, but individual collocationsare rare.The performance was measured by model pre-cision (Chang et al, 2009), which measures thefraction of subjects that agreed with the model.Table 4 shows that our TCM outperforms both PAand Mallet-LDA under both ways of constructingthe intrusion lists.
+As expected, the collocationmodels PA and TCM perform better with lists con-structed according to p(t|w) than lists constructedaccording to p(w|t).5.4 Efficiency of the TCMIn this section we study the efficiency of our TCMmodel in terms of running time.
+We first comparethe efficiency of our TCM model with and withoutsparsity with the AG-colloc model on the MRe-view dataset and the SJMN-2k dataset.
+Table 5shows the average running time per iteration forthe two models.
+We used 100 and 800 topics.
+TheTCM algorithm that does not exploit sparsity insampling runs about 6 times faster than the AG-colloc model.
+Our sparse sampler runs even faster,1467and takes less than a second per iteration.
+There-fore, Tables 1 and 5 jointly show that our refor-mulation runs an order of magnitude faster thanAG-colloc without losing performance, therebymaking the AG-colloc model inference feasible atlarge scales.We further studied the scalability of our sam-pling algorithm after parallelisation on the SJMNdataset and the AP news dataset.
+We fixed thenumber of topics to 100, and varied the number ofprocessors from 1 to 24 for the SJMN dataset andfrom 1 to 80 for the AP dataset.
+The plots in Fig-ure 1 show that our parallelised sampler achieveda remarkable speedup.
+We have also observed thatthere is a point at which using additional proces-sors actually slows running time.
+This is com-mon in parallel algorithms when communicationand synchronisation take more time than the timesaved by parallelisation.
+This slowdown occursin the highly-optimized Mallet implementation ofLDA with fewer cores than it does in our imple-mentation.
+The speedup achieved by our TCMalso shows the benefit of parallelising the summa-tion step mentioned in Section 4.2.6 ConclusionIn this paper we showed how to represent theAG-colloc model without using Adaptor Gram-mars, and how to adapt Gibbs sampling tech-niques from Bayesian word segmentation to per-form posterior inference under the new represen-tation.
+We further accelerated the sampling algo-rithm by taking advantage of the sparsity in thecollocation count matrix.
+Experimental results de-rived in different tasks showed that 1) our newrepresentation performs as well as the AG-collocmodel and outperforms the other collocation mod-els, 2) our point-wise sampling algorithm scaleswell to large corpora.
+There are several ways inwhich our model can be extended.
+For example,our algorithm could be further sped up by usingthe sampling techniques presented by Smola andNarayanamurthy (2010), Li et al (2014) and Bun-tine and Mishra (2014).
+One can also consider us-ing a hybrid of MCMC and variational inferenceas in Ke et al (2014).AcknowledgmentsThis research was supported by a Google awardthrough the Natural Language UnderstandingFocused Program, and under the AustralianResearch Council?s Discovery Projects fund-ing scheme (project numbers DP110102506 andDP110102593).ReferencesSatanjeev Banerjee and Ted Pedersen.
+2003.
+The de-sign, implementation, and use of the ngram statisticspackage.
+In Computational Linguistics and Intelli-gent Text Processing, volume 2588, pages 370?381.D.M.
+Blei, A.Y.
+Ng, and M.I.
+Jordan.
+2003.
+LatentDirichlet alocation.
+Journal of Machine LearningResearch, 3:993?1022.Phil Blunsom, Trevor Cohn, Sharon Goldwater, andMark Johnson.
+2009.
+A note on the implementationof hierarchical dirichlet processes.
+In Proceedingsof the ACL-IJCNLP 2009 Conference Short Papers,pages 337?340.Benjamin B?orschinger, Mark Johnson, and KatherineDemuth.
+2013.
+A joint model of word segmentationand phonological variation for english word-final /t/-deletion.
+In Proceedings of the 51st Annual Meet-ing of the Association for Computational Linguistics(Volume 1: Long Papers), pages 1508?1516, Sofia,Bulgaria.Jordan L Boyd-Graber and David Blei.
+2009.
+Syntac-tic topic models.
+In Advances in Neural InformationProcessing Systems 21, pages 185?192.Wray L Buntine and Swapnil Mishra.
+2014.
+Exper-iments with non-parametric topic models.
+In Pro-ceedings of the 20th ACM SIGKDD internationalconference on Knowledge discovery and data min-ing, pages 881?890.Jonathan Chang, Sean Gerrish, Chong Wang, Jordan L.Boyd-graber, and David M. Blei.
+2009.
+Readingtea leaves: How humans interpret topic models.
+InAdvances in Neural Information Processing Systems22, pages 288?296.Lan Du, Wray Buntine, and Mark Johnson.
+2013.Topic segmentation with a structured topic model.In Proceedings of the 2013 Conference of the NorthAmerican Chapter of the Association for Computa-tional Linguistics: Human Language Technologies,pages 190?200.Lan Du, John Pate, and Mark Johnson.
+2014.
+Topicmodels with topic ordering regularities for topic seg-mentation.
+In Proceedings of the IEEE InternationalConference on Data Mining, pages 803?808.Sharon Goldwater, Thomas L. Griffiths, and MarkJohnson.
+2009.
+A Bayesian framework for wordsegmentation: Exploring the effects of context.Cognition, 112(1):21?53.Thomas L Griffiths, Mark Steyvers, David M Blei, andJoshua B Tenenbaum.
+2004.
+Integrating topics and1468syntax.
+In Advances in neural information process-ing systems, pages 537?544.Thomas L. Griffiths, Mark Steyvers, and Joshua B.Tenenbaum.
+2007.
+Topics in semantic representa-tion.
+Psychological Review, 114(2):211?244.Shoaib Jameel and Wai Lam.
+2013a.
+An n-gram topicmodel for time-stamped documents.
+In Proceedingsof the 35th European Conference on Advances in In-formation Retrieval, pages 292?304.Shoaib Jameel and Wai Lam.
+2013b.
+A nonparametricn-gram topic model with interpretable latent topics.In Information Retrieval Technology, pages 74?85.M.
+Johnson, T.L.
+Griffiths, and S. Goldwater.
+2007.Adaptor grammars: A framework for specifyingcompositional nonparametric Bayesian models.
+InAdvances in Neural Information Processing Systems19, pages 641?648.Mark Johnson.
+2010.
+Pcfgs, topic models, adaptorgrammars and learning topical collocations and thestructure of proper names.
+In Proceedings of the48th Annual Meeting of the Association for Compu-tational Linguistics, pages 1148?1157.Zhai Ke, Boyd-Graber Jordan, and Cohen Shay B.2014.
+Online adaptor grammars with hybrid infer-ence.
+Transactions of the Association of Computa-tional Linguistics, 2:465?476.Jey Han Lau, Timothy Baldwin, and David Newman.2013.
+On collocations and topic models.
+ACMTransactions on Speech and Language Processing(TSLP), 10(3):10.Jey Han Lau, David Newman, and Timothy Baldwin.2014.
+Machine reading tea leaves: Automaticallyevaluating topic coherence and topic model quality.In Proceedings of the 14th Conference of the Euro-pean Chapter of the Association for ComputationalLinguistics, pages 530?539.Aaron Q Li, Amr Ahmed, Sujith Ravi, and Alexan-der J Smola.
+2014.
+Reducing the sampling com-plexity of topic models.
+In Proceedings of the 20thACM SIGKDD international conference on Knowl-edge discovery and data mining, pages 891?900.Robert Lindsey, William Headden, and MichaelStipicevic.
+2012.
+A phrase-discovering topic modelusing hierarchical Pitman-Yor processes.
+In Pro-ceedings of the 2012 Joint Conference on EmpiricalMethods in Natural Language Processing and Com-putational Natural Language Learning, pages 214?222.David JC MacKay and Linda C Bauman Peto.
+1995.A hierarchical Dirichlet language model.
+Naturallanguage engineering, 1(3):289?308.David Newman, Arthur Asuncion, Padhraic Smyth,and Max Welling.
+2009.
+Distributed algorithmsfor topic models.
+Journal of Machine Learning Re-search, 10:1801?1828.David Newman, Youn Noh, Edmund Talley, SarvnazKarimi, and Timothy Baldwin.
+2010.
+Evaluatingtopic models for digital libraries.
+In Proceedingsof the 10th Annual Joint Conference on Digital Li-braries, pages 215?224.Bo Pang and Lillian Lee.
+2012.
+Cornell Movie ReviewData.Alexander Smola and Shravan Narayanamurthy.
+2010.An architecture for parallel topic models.
+Proc.VLDB Endow., 3(1-2):703?710.Y.
+W. Teh.
+2006.
+A hierarchical Bayesian languagemodel based on Pitman-Yor processes.
+In Proceed-ings of the 21st International Conference on Com-putational Linguistics and the 44th annual meetingof the Association for Computational Linguistics,pages 985?992.Hanna M. Wallach.
+2006.
+Topic modeling: beyondbag-of-words.
+In Proceedings of the 23rd interna-tional conference on Machine learning, pages 977?984.Xuerui Wang, Andrew McCallum, and Xing Wei.2007.
+Topical n-grams: Phrase and topic discov-ery, with an application to information retrieval.
+InProceedings of the 2007 Seventh IEEE InternationalConference on Data Mining, pages 697?702.Xing Wei and W. Bruce Croft.
+2006.
+LDA-based doc-ument models for ad-hoc retrieval.
+In Proceedingsof the 29th annual international ACM SIGIR confer-ence on Research and development in informationretrieval, pages 178?185.Limin Yao, David Mimno, and Andrew McCallum.2009.
+Efficient methods for topic model inferenceon streaming document collections.
+In Proceedingsof the 15th ACM SIGKDD International Conferenceon Knowledge Discovery and Data Mining, pages937?946.1469

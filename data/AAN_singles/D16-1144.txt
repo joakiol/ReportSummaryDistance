@@ -1,0 +1,364 @@
+Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, pages 1369?1378,Austin, Texas, November 1-5, 2016. c?2016 Association for Computational LinguisticsAFET: Automatic Fine-Grained Entity Typing byHierarchical Partial-Label EmbeddingXiang Ren??
+Wenqi He??
+Meng Qu?
+Lifu Huang] Heng Ji] Jiawei Han??
+University of Illinois at Urbana-Champaign, Urbana, IL, USA] Computer Science Department, Rensselaer Polytechnic Institute, USA?
+{xren7, wenqihe3, mengqu2, hanj}@illinois.edu ]{huangl7, jih}@rpi.eduAbstractDistant supervision has been widely used incurrent systems of fine-grained entity typ-ing to automatically assign categories (en-tity types) to entity mentions.
+However, thetypes so obtained from knowledge bases areoften incorrect for the entity mention?s localcontext.
+This paper proposes a novel em-bedding method to separately model ?clean?and ?noisy?
+mentions, and incorporates thegiven type hierarchy to induce loss functions.We formulate a joint optimization problemto learn embeddings for mentions and type-paths, and develop an iterative algorithm tosolve the problem.
+Experiments on three pub-lic datasets demonstrate the effectiveness androbustness of the proposed method, with anaverage 15% improvement in accuracy overthe next best compared method1.1 IntroductionAssigning types (e.g., person, organization)to mentions of entities in context is an importanttask in natural language processing (NLP).
+The ex-tracted entity type information can serve as primi-tives for relation extraction (Mintz et al, 2009) andevent extraction (Ji and Grishman, 2008), and as-sists a wide range of downstream applications in-cluding knowledge base (KB) completion (Dong etal., 2014), question answering (Lin et al, 2012) andentity recommendation (Yu et al, 2014).
+While?Equal contribution.1Codes and datasets used in this paper can be down-loaded at https://github.com/shanzhenren/AFET.Mention: ?Schwarzenegger?
+; Context: S3;Candidate Type Set: {person, politician, artist,actor, author, businessman, althete}ID SentenceS1S2S3...Governor Arnold Schwarzenegger gives a speech atMission Serve's serv ice project on Veterans Day 2010.The fourth movie in the Predator series entitled 'ThePredator' may see the return of action-movie star ArnoldSchwarzenegger to the franchise.Schwarzenegger?s first property investment was a blockof six units, for which he scraped together $US27,000....Entity: Arnold SchwarzeneggerKnowledge BasesNoisy Training ExamplesCandidate TypeSet (Sub-tree)rootproduct person location organization......politician artist businessman...... ...author actor singer ...Target TypeHierarchyMention: ?Arnold Schwarzenegger?
+; Context: S1;Candidate Type Set: {person, politician, artist,actor, author, businessman, althete}...Mention: ?Arnold Schwarzenegger?
+; Context: S2;Candidate Type Set: {person, politician, artist,actor, author, businessman, althete}S1DistantSupervisionaltheteS2S3Figure 1: Current systems may detect ArnoldSchwarzenegger in sentences S1-S3 and assign the sametypes to all (listed within braces), when only some typesare correct for context (blue labels within braces).traditional named entity recognition systems (Rati-nov and Roth, 2009; Nadeau and Sekine, 2007) fo-cus on a small set of coarse types (typically fewerthan 10), recent studies (Ling and Weld, 2012;Yosef et al, 2012) work on a much larger set offine-grained types (usually over 100) which forma tree-structured hierarchy (see the blue region ofFig.
+1).
+Fine-grained typing allows one mentionto have multiple types, which together constitute atype-path (not necessarily ending in a leaf node)in the given type hierarchy, depending on the lo-cal context (e.g., sentence).
+Consider the example inFig.
+1, ?Arnold Schwarzenegger?
+could be labeled as{person, businessman} in S3 (investment).
+Buthe could also be labeled as {person, politician}in S1 or {person, artist, actor} in S2.
+Suchfine-grained type representation provides more in-formative features for other NLP tasks.
+For exam-1369ple, since relation and event extraction pipelines relyon entity recognizer to identify possible argumentsin a sentence, fine-grained argument types help dis-tinguish hundreds or thousands of different relationsand events (Ling and Weld, 2012).Traditional named entity recognition systemsadopt manually annotated corpora as trainingdata (Nadeau and Sekine, 2007).
+But the processof manually labeling a training set with large num-bers of fine-grained types is too expensive and error-prone (hard for annotators to distinguish over 100types consistently).
+Current fine-grained typing sys-tems annotate training corpora automatically usingknowledge bases (i.e., distant supervision) (Lingand Weld, 2012; Ren et al, 2016a).
+A typical work-flow of distant supervision is as follows (see Fig.
+1):(1) identify entity mentions in the documents; (2)link mentions to entities in KB; and (3) assign, tothe candidate type set of each mention, all KB typesof its KB-linked entity.
+However, existing distantsupervision methods encounter the following limi-tations when doing automatic fine-grained typing.?
+Noisy Training Labels.
+Current practice of dis-tant supervision may introduce label noise to train-ing data since it fails to take a mention?s local con-texts into account when assigning type labels (e.g.,see Fig.
+1).
+Many previous studies ignore the la-bel noises which appear in a majority of train-ing mentions (see Table.
+1, row (1)), and assumeall types obtained by distant supervision are ?cor-rect?
+(Yogatama et al, 2015; Ling and Weld, 2012).The noisy labels may mislead the trained modelsand cause negative effect.
+A few systems try todenoise the training corpora using simple pruningheuristics such as deleting mentions with conflictingtypes (Gillick et al, 2014).
+However, such strate-gies significantly reduce the size of training set (Ta-ble 1, rows (2a-c)) and lead to performance degrada-tion (later shown in our experiments).
+The larger thetarget type set, the more severe the loss.?
+Type Correlation.
+Most existing methods (Yo-gatama et al, 2015; Ling and Weld, 2012) treat ev-ery type label in a training mention?s candidate typeset equally and independently when learning theclassifiers but ignore the fact that types in the givenhierarchy are semantically correlated (e.g., actoris more relevant to singer than to politician).As a consequence, the learned classifiers may biasDataset Wiki OntoNotes BBN NYT# of target types 113 89 47 446(1) noisy mentions (%) 27.99 25.94 22.32 51.81(2a) sibling pruning (%) 23.92 16.09 22.32 39.26(2b) min.
+pruning (%) 28.22 8.09 3.27 32.75(2c) all pruning (%) 45.99 23.45 25.33 61.12Table 1: A study of label noise.
+(1): %mentions withmultiple sibling types (e.g., actor, singer); (2a)-(2c):%mentions deleted by the three pruning heuristics (2014)(see Sec.
+4), for three experiment datasets and New YorkTimes annotation corpus (2014).toward popular types but perform poorly on infre-quent types since training data on infrequent types isscarce.
+Intuitively, one should pose smaller penaltyon types which are semantically more relevant to thetrue types.
+For example, in Fig.
+1 singer shouldreceive a smaller penalty than politician does,by knowing that actor is a true type for ?ArnoldSchwarzenegger?
+in S2.
+This provides classifierswith additional information to distinguish betweentwo types, especially those infrequent ones.In this paper, we approach the problem of auto-matic fine-grained entity typing as follows: (1) Usedifferent objectives to model training mentions withcorrect type labels and mentions with noisy labels,respectively.
+(2) Design a novel partial-label loss tomodel true types within the noisy candidate type setwhich requires only the ?best?
+candidate type to berelevant to the training mention, and progressivelyestimate the best type by leveraging various text fea-tures extracted for the mention.
+(3) Derive type cor-relation based on two signals: (i) the given type hier-archy, and (ii) the shared entities between two typesin KB, and incorporate the correlation so induced byenforcing adaptive margins between different typesfor mentions in the training set.
+To integrate theseideas, we develop a novel embedding-based frame-work called AFET.
+First, it uses distant supervisionto obtain candidate types for each mention, and ex-tract a variety of text features from the mentionsthemselves and their local contexts.
+Mentions arepartitioned into a ?clean?
+set and a ?noisy?
+set basedon the given type hierarchy.
+Second, we embedmentions and types jointly into a low-dimensionalspace, where, in that space, objects (i.e., featuresand types) that are semantically close to each otheralso have similar representations.
+In the proposedobjective, an adaptive margin-based rank loss is pro-1370posed to model the set of clean mentions to capturetype correlation, and a partial-label rank loss is for-mulated to model the ?best?
+candidate type for eachnoisy mention.
+Finally, with the learned embeddings(i.e., mapping matrices), one can predict the type-path for each mention in the test set in a top-downmanner, using its text features.
+The major contribu-tions of this paper are as follows:1.
+We propose an automatic fine-grained entity typ-ing framework, which reduces label noise in-troduced by distant supervision and incorporatestype correlation in a principle way.2.
+A novel optimization problem is formulated tojointly embed entity mentions and types to thesame space.
+It models noisy type set with apartial-label rank loss and type correlation withadaptive-margin rank loss.3.
+We develop an iterative algorithm for solving thejoint optimization problem efficiently.4.
+Experiments with three public datasets demon-strate that AFET achieves significant improve-ment over the state of the art.2 Automatic Fine-Grained Entity TypingOur task is to automatically uncover the type infor-mation for entity mentions (i.e., token spans repre-senting entities) in natural language sentences.
+Thetask takes a document collection D (automaticallylabeled using a KB ?
+in conjunction with a targettype hierarchy Y) as input and predicts a type-pathin Y for each mention from the test set Dt.Type Hierarchy and Knowledge Base.
+Two keyfactors in distant supervision are the target type hi-erarchy and the KB.
+A type hierarchy, Y , is a treewhere nodes represent types of interests from ?.Previous studies manually create several clean typehierarchies using types from Freebase (Ling andWeld, 2012) or WordNet (Yosef et al, 2012).
+In thisstudy, we adopt the existing hierarchies constructedusing Freebase types2.
+To obtain types for entitiesE?
+in ?, we use the human-curated entity-type factsin Freebase, denoted as F?
+= {(e, y)} ?
+E?
+?
+Y .2We use the Freebase dump as of 2015-06-30.Clean TrainingMentionsNoisy TrainingMentionsMention: ?^1_ Arnold Schwarzenegger?
+; Context: S1;Candidate Type Set : {person, politician, artist, actor,author, businessman, althete}Text Features : { HEAD _ Arnold , CXT 1 _ B: Governor , CXT 1 _ A :gives ,P OS :NN, TKN_ arnold , TKN_ schwarzenegger , SHA PE _ Aa , .. .
+}Training mentions with extracted featureslc( mi )Hierarchical Partial -label EmbeddingType In ferencerootproduct person location organization......politician artist businessman...... ...author actor singer ...actorpoliticianS1 _ ArnoldSchwarzeneggerpersonJointEmbeddingSpaceCXT 1 _ B:GovernorHEAD _ arnoldMention: ?^2_ Arnold Schwarzenegger?
+; Context: S2;Candidate Type Set : {person, politician, artist, actor,author, businessman, althete}Text Features : { HEAD _ Arnold , CXT 1 _ B: s tar , CXT 2 _ B:action- mov ie st ar , CXT 3 _ A : to t he franchise , P OS :NN, SHA PE _ Aa , .. .
+}...Mention: ?d??
+????
+; Context: Sn;Candidate Type Set : {person, politician}Text Features : { HEAD _ Ted , CXT 1 _ B: senator , CXT 1 _ B: told ,CXT 3 _ B:campaign of senator , P OS :NN, SHA PE _ Aa , .. .
+}CXT 1 _ B: s tarartistCXT 3 _ A :play the roleSHA PE :AaCXT 1 _ A :givesCXT 1 _ B:SenatorPartitiontrainingmentionsFigure 2: Framework Overview of AFET.Automatically Labeled Training Corpora.
+Thereexist publicly available labeled corpora such as Wik-ilinks (Singh et al, 2012) and ClueWeb (Gabrilovichet al, 2013).
+In these corpora, entity mentions areidentified and mapped to KB entities using anchorlinks.
+In specific domains (e.g., product reviews)where such public corpora are unavailable, one canutilize distant supervision to automatically label thecorpus (Ling and Weld, 2012).
+Specifically, an en-tity linker will detect mentions mi and map themto one or more entity ei in E?.
+Types of ei in KBare then associated with mi to form its type set Yi,i.e., Yi = {y | (ei, y) ?
+F?, y ?
+Y}.
+Formally, atraining corpus D consists of a set of extracted entitymentionsM = {mi}Ni=1, the context (e.g., sentence,paragraph) of each mention {ci}Ni=1, and the candi-date type sets {Yi}Ni=1 for each mention.
+We repre-sent D using a set of triples D = {(mi, ci,Yi)}Ni=1.Problem Description.
+For each test mention, weaim to predict the correct type-path in Y based onthe mention?s context.
+More specifically, the test setT is defined as a set of mention-context pairs (m, c),where mentions in T (denoted asMt) are extractedfrom their sentences using existing extractors suchas named entity recognizer (Finkel et al, 2005).
+Wedenote the gold type-path for a test mention m asY?.
+This work focuses on learning a typing modelfrom the noisy training corpus D, and estimating Y?from Y for each test mention m (in set Mt), basedon mention m, its context c, and the learned model.Framework Overview.
+At a high level, the AFETframework (see also Fig.
+2) learns low-dimensionalrepresentations for entity types and text features, and1371infers type-paths for test mentions using the learnedembeddings.
+It consists of the following steps:1.
+Extract text features for entity mentions in train-ing set M and test set Mt using their surfacenames as well as the contexts.
+(Sec.
+3.1).2.
+Partition training mentions M into a clean set(denoted asMc) and a noisy set (denoted asMn)based on their candidate type sets (Sec.
+3.2).3.
+Perform joint embedding of entity mentionsM and type hierarchy Y into the same low-dimensional space where, in that space, close ob-jects also share similar types (Secs.
+3.3-3.6).4.
+For each test mention m, estimate its type-pathY?
+(on the hierarchy Y) in a top-down mannerusing the learned embeddings (Sec.
+3.6).3 The AFET FrameworkThis section introduces the proposed framework andformulates an optimization problem for learning em-beddings of text features and entity types jointly.3.1 Text Feature GenerationWe start with a representation of entity mentions.To capture the shallow syntax and distributional se-mantics of a mention mi ?
+M, we extract variousfeatures from both mi itself and its context ci.
+Ta-ble 2 lists the set of text features used in this work,which is similar to those used in (Yogatama et al,2015; Ling and Weld, 2012).
+We denote the set ofM unique features extracted from D as F = {fj}Mj=1.3.2 Training Set PartitionA training mention mi (in setM) is considered as a?clean?
+mention if its candidate type set obtained bydistant supervision (i.e., Yi) is not ambiguous, i.e.,candidate types in Yi can form a single path in treeY .
+Otherwise, a mention is considered as ?noisy?mention if its candidate types form multiple type-paths in Y .
+Following the above hypothesis, wejudge each mention mi (in set M) and place it ineither the ?clean?
+set Mc, or the ?noisy?
+set Mn.Finally, we haveM =Mc ?Mn.3.3 The Joint Mention-Type ModelWe propose to learn mappings into low-dimensionalvector space, where, both entity mentions and type...Example Type-TypeCorrelation ScoresKnowledge Base(Ben Affleck, actor)(Ben Affleck, director)(Woody Al len, actor)(Woody Al len, director)(J. K. Rowling, author)(Kobe B ryant, athlete)...Entity-type factsBen AffleckWoody AllenJ.
+K. RowlingKobe BryantpersondirectoractorauthorathleteCorr =(0.6+0.6)/2=0.6Corr =(0.25+0.55)/2=0.4personpoliticianartistactorbusinessmanauthorsinger directorathletecoachAdaptive MarginSn_Ted CruzContext in Sn: ?d??
+?ff???i?
+?end of Ted Cruz 's presidential?????i??
+????
+??
+?
+????
+?
+?politicianathletebusinessmanScoreSn_Ted CruzScoreScore Sn_Ted CruzMargin = 1 /sim(politician,athlete) = 3Margin = 1 / sim(politician,businessman) = 1.5Figure 3: An illustration of KB-based type correlationcomputation, and the proposed adaptive margin.labels (in the training set) are represented, and in thatspace, two objects are embedded close to each otherif and only if they share similar types.
+In doing so,we later can derive the representation of a test men-tion based on its text features and the learned map-pings.
+Mapping functions for entity mentions andentity type labels are different as they have differ-ent representations in the raw feature space, but arejointly learned by optimizing a global objective ofinterests to handle the aforementioned challenges.Each entity mention mi ?
+M can be representedby aM -dimensional feature vector mi ?
+RM , wheremi,j is the number of occurrences of feature fj (in setF) formi.
+Each type label yk ?
+Y is represented by aK-dimensional binary indicator vector yk ?
+{0, 1}K ,where yk,k = 1, and 0 otherwise.Specifically, we aim to learn a mapping func-tion from the mention?s feature space to a low-dimensional vector space, i.e., ?M(mi) : RM 7?
+Rdand a mapping function from type label space to thesame low-dimensional space, i.e., ?Y(yk) : RK 7?Rd.
+In this work, we adopt linear maps, as similar tothe mapping functions used in (Weston et al, 2011).
+?M(mi) = Umi; ?Y(yk) = Vyk, (1)where U ?
+Rd?M and V ?
+Rd?K are the projectionmatrices for mentions and type labels, respectively.3.4 Modeling Type CorrelationIn type hierarchy (tree) Y , types closer to each other(i.e., shorter path) tend to be more related (e.g.,actor is more related to artist than to personin the right column of Fig.
+2).
+In KB ?, types as-signed to similar sets of entities should be more re-lated to each other than those assigned to quite dif-ferent entities (Jiang et al, 2015) (e.g., actor is1372Feature Description ExampleHead Syntactic head token of the mention ?HEAD Turing?Token Tokens in the mention ?Turing?, ?Machine?POS Part-of-Speech tag of tokens in the mention ?NN?Character All character trigrams in the head of the mention ?
+:tu?, ?tur?, ..., ?ng:?Word Shape Word shape of the tokens in the mention ?Aa?
+for ?Turing?Length Number of tokens in the mention ?2?Context Unigrams/bigrams before and after the mention ?CXT B:Maserati ,?, ?CXT A:and the?Brown Cluster Brown cluster ID for the head token (learned using D) ?4 1100?, ?8 1101111?, ?12 111011111111?Dependency Stanford syntactic dependency (Manning et al, 2014) associatedwith the head token ?GOV:nn?, ?GOV:turing?Table 2: Text features used in this paper.
+?Turing Machine?
+is used as an example mention from ?The band?s former drummer Jerry Fuchs?whowas also a member of Maserati, Turing Machine and The Juan MacLean?died after falling down an elevator shaft.
+?.more related to director than to author in theleft column of Fig.
+3).
+Thus, type correlation be-tween yk and yk?
+(denoted as wkk?)
+can be measuredeither using the one over the length of shortest pathin Y , or using the normalized number of shared en-tities in KB, which is defined as follows.wkk?
+=(?
+?Ek ?
+Ek???/??Ek??
++?
+?Ek ?
+Ek???/??Ek???)/2.
+(2)Although a shortest path is efficient to compute,its accuracy is limited?It is not always true that atype (e.g., athlete) is more related to its parenttype (i.e., person) than to its sibling types (e.g.,coach), or that all sibling types are equally re-lated to each other (e.g., actor is more related todirector than to author).
+We later comparethese two methods in our experiments.With the type correlation computed, we proposeto apply adaptive penalties on different negativetype labels (for a training mention), instead of treat-ing all of the labels equally as in most existingwork (Weston et al, 2011).
+The hypothesis is intu-itive: given the positive type labels for a mention, weforce the negative type labels which are related to thepositive type labels to receive smaller penalty.
+Forexample, in the right column of Fig.
+3, negative la-bel businessman receives a smaller penalty (i.e.,margin) than athele does, since businessmanis more related to politician.Hypothesis 1 (Adaptive Margin) For a mention, ifa negative type is correlated to a positive type, themargin between them should be smaller.We propose an adaptive-margin rank loss tomodel the set of ?clean?
+mentions (i.e., Mc), basedon the above hypothesis.
+The intuition is simple: foreach mention, rank all the positive types ahead ofnegative types, where the ranking score is measuredby similarity between mention and type.
+We denoteTypes ranked w .
+r. t. miPartial -Label Rank Loss for Noisy MentionsMention: mi = ?^?
+_ Ted Cruz?Context in Sn: ?d??
+?ff???i??
+???
+?f Ted Cruz  's???si????i??
+?????i??
+????
+??
+?
+????
+?
+?Mention: ?i?
+= ?^1_ Arnold Schwarzenegger?Context in S1 : ?
+Governor Arnold Schwarzenegger givesa speech at Mission Serve's service project  .
+???Full?
+Rank Loss for Clean MentionsDistance between mi and typesDistance between mi and typesPersonPoliticianBusinessArtistAthleteActorAuthorDoctorScore(mi, yk )0.850.770.530.420.400.330.210.05miperson PoliticianBusinessmanAthleteArtistActormipersonPoliticianBusinessmanAthleteArtistActorLocationAthleteAthletePoliticianCoachChiefDoctorOrganizationLocationPoliticianPersonBusinessArtistAthleteActorAuthorTypes ranked w .
+r. t. mi ?Best?
+candidate type0.880.740.550.410.330.310.25PositivetypesNegativetypesCoachNoisy candidate type setFigure 4: An illustration of the partial-label rank loss.fk(mi) as the similarity between (mi, yk) and is de-fined as the inner product of ?M(mi) and ?Y(yk).`c(mi,Yi,Yi) =?yk?Yi?yk??YiL?rankyk(f(mi))??i,k,k?;?i,k,k?
+= max{0, ?k,k?
+?
+fk(mi) + fk?(mi)};rankyk(f(mi))=?yk??Yi1(?k,k?
++ fk?
+(mi) > fk(mi)).Here, ?k,k?
+is the adaptive margin between positivetype k and negative type k?, which is defined as ?k,k?
+=1 + 1/(wk,k?
++?)
+with a smooth parameter ?.
+L(x) =?xi=11i transforms rank to a weight, which is thenmultiplied to the max-margin loss ?i,k,k?
+to optimizeprecision at x (Weston et al, 2011).3.5 Modeling Noisy Type LabelsTrue type labels for noisy entity mentionsMn (i.e.,mentions with ambiguous candidate types in thegiven type hierarchy) in each sentence are not avail-able in knowledge bases.
+To effectively model theset of noisy mentions, we propose not to treat all1373candidate types (i.e., {Yi} as true labels.
+Instead, wemodel the ?true?
+label among the candidate set aslatent value, and try to infer that using text features.Hypothesis 2 (Partial-Label Loss) For a noisymention, the maximum score associated with itscandidate types should be greater than the scoresassociated with any other non-candidate typesWe extend the partial-label loss in (Nguyen andCaruana, 2008) (used to learn linear classifiers) toenforce Hypothesis 2, and integrate with the adap-tive margin to define the loss for mi (in setMn).`n(mi,Yi,Yi) =?k??YiL?rankyk?(f(mi))??i,k?
+;?i,k = max{0, ?k?,k?
+?
+fk?
+(mi) + fk?(mi)};rankyk?(f(mi))=?yk??Yi1(?k?,k?
++ fk?
+(mi) > fk?
+(mi))where we define .
+yk?
+= argmaxyk?Yi fk(mi) andyk??
+= argmaxyk?Yi fk(mi).Minimizing `n encourages a large margin be-tween the maximum scores maxyk?Yi fyk(mi) andmaxyk?
+?Yi fyk(mi).
+This forces mi to be embed-ded closer to the most ?relevant?
+type in the noisycandidate type set, i.e., y?
+= argmaxyk?Yi fyk(mi),than to any other non-candidate types (i.e., Hypoth-esis 2).
+This constrasts sharply with multi-labellearning (Yosef et al, 2012), where a large marginis enforced between all candidate types and non-candidate types without considering noisy types.3.6 Hierarchical Partial-Label EmbeddingOur goal is to embed the heterogeneous graphG intoa d-dimensional vector space, following the threeproposed hypotheses in the section.
+Intuitively, onecan collectively minimize the objectives of the twokinds of loss functions `c and `n, across all the train-ing mentions.
+To achieve the goal, we formulate ajoint optimization problem as follows.minU, VO =?mi?Mc`c(mi,Yi,Yi) +?mi?Mn`n(mi,Yi,Yi).We use an alternative minimization algorithm basedon block-wise coordinate descent (Tseng, 2001) tojointly optimize the objective O.
+One can also applystochastic gradient descent to do online update.Type Inference.
+With the learned mention embed-dings {ui} and type embeddings {vk}, we performData sets Wiki OntoNotes BBN#Types 113 89 47#Documents 780,549 13,109 2,311#Sentences 1.51M 143,709 48,899#Training mentions 2.69M 223,342 109,090#Ground-truth mentions 563 9,604 121,001#Features 644,860 215,642 125,637#Edges in graph 87M 5.9M 2.9MTable 3: Statistics of the datasets.top-down search in the given type hierarchy Y toestimate the correct type-path Y?i .
+Starting from thetree?s root, we recursively find the best type amongthe children types by measuring the dot product ofthe corresponding mention and type embeddings,i.e., sim(ui,vk).
+The search process stops when wereach a leaf type, or the similarity score is below apre-defined threshold ?
+> 0.4 Experiments4.1 Data PreparationDatasets.
+Our experiments use three public datasets.
+(1) Wiki (Ling and Weld, 2012): consists of 1.5Msentences sampled from Wikipedia articles; (2)OntoNotes (Weischedel et al, 2011): consists of13,109 news documents where 77 test documentsare manually annotated (Gillick et al, 2014); (3)BBN (Weischedel and Brunstein, 2005): consists of2,311 Wall Street Journal articles which are man-ually annotated using 93 types.
+Statistics of thedatasets are shown in Table 3.Training Data.
+We followed the process in (Lingand Weld, 2012) to generate training data for theWiki dataset.
+For the BBN and OntoNotes datasets,we used DBpedia Spotlight3 for entity linking.
+Wediscarded types which cannot be mapped to Free-base types in the BBN dataset (47 of 93).Table 2 lists the set of features used in our experi-ments, which are similar to those used in (Yogatamaet al, 2015; Ling and Weld, 2012) except for top-ics and ReVerb patterns.
+We discarded the featureswhich occur only once in the corpus.4.2 Evaluation SettingsFor the Wiki and OntoNotes datasets, we used theprovided test set.
+Since BBN corpus is fully anno-tated, we followed a 80/20 ratio to partition it into3http://spotlight.dbpedia.org/1374training/test sets.
+We report Accuracy (Strict-F1),Micro-averaged F1 (Mi-F1) and Macro-averaged F1(Ma-F1) scores commonly used in the fine-grainedtype problem (Ling and Weld, 2012; Yogatama etal., 2015).
+Since we use the gold mention set fortesting, the Accuracy (Acc) we reported is the sameas the Strict F1.Baselines.
+We compared the proposed method(AFET) and its variant with state-of-the-art typ-ing methods, embedding methods and partial-labellearning methods 4: (1) FIGER (Ling and Weld,2012); (2) HYENA (Yosef et al, 2012); (3)FIGER/HYENA-Min (Gillick et al, 2014): re-moves types appearing only once in the docu-ment; (4) ClusType (Ren et al, 2015): predictstypes based on co-occurring relation phrases; (5)HNM (Dong et al, 2015): proposes a hybrid neu-ral model without hand-crafted features; (6) Deep-Walk (Perozzi et al, 2014): applies Deep Walk toa feature-mention-type graph by treating all nodesas the same type; (7) LINE (Tang et al, 2015b):uses a second-order LINE model on feature-type bi-partite graph; (8) PTE (Tang et al, 2015a): ap-plies the PTE joint training algorithm on feature-mention and type-mention bipartite graphs.
+(9) WS-ABIE (Yogatama et al, 2015): adopts WARP lossto learn embeddings of features and types; (10) PL-SVM (Nguyen and Caruana, 2008): uses a margin-based loss to handle label noise.
+(11) CLPL (Couret al, 2011): uses a linear model to encourage largeaverage scores for candidate types.We compare AFET and its variant: (1) AFET:complete model with KB-induced type correlation;(2) AFET-CoH: with hierarchy-induced correlation(i.e., shortest path distance); (3) AFET-NoCo: with-out type correlation (i.e., all margin are ?1?)
+in theobjective O; and (4) AFET-NoPa: without labelpartial loss in the objective O.4.3 Performance Comparison and AnalysesTable 4 shows the results of AFET and its variants.Comparison with the other typing methods.AFET outperforms both FIGER and HYENA sys-tems, demonstrating the predictive power of the4We used the published code for FIGER, ClusType, HNM,LINE, PTE, and DeepWalk, and implemented other baselineswhich have no public code.
+Our implementations yield compa-rable performance as those reported in the original papers.learned embeddings, and the effectiveness of mod-eling type correlation information and noisy candi-date types.
+We also observe that pruning methods donot always improve the performance, since they ag-gressively filter out rare types in the corpus, whichmay lead to low Recall.
+ClusType is not as goodas FIGER and HYENA because it is intended forcoarse types and only utilizes relation phrases.Comparison with the other embedding methods.AFET performs better than all other embeddingmethods.
+HNM does not use any linguistic features.None of the other embedding methods consider thelabel noise issue and treat the candidate type sets asclean.
+Although AFET adopts the WARP loss inWSABIE, it uses an adaptive margin in the objec-tive to capture the type correlation information.Comparison with partial-label learning methods.Compared with PL-SVM and CLPL, AFET obtainssuperior performance.
+PL-SVM assumes that onlyone candidate type is correct and does not considertype correlation.
+CLPL simply averages the modeloutput for all candidate types, and thus may gener-ate results biased to frequent false types.
+Superiorperformance of AFET mainly comes from modelingtype correlation derived from KB.Comparison with its variants.
+AFET always out-performs its variant on all three datasets.
+It gainsperformance from capturing type correlation, as wellas handling type noise in the embedding process.4.4 Case AnalysesExample output on news articles.
+Table 5 showsthe types predicted by AFET, FIGER, PTE andWSABIE on two news sentences from OntoNotesdataset: AFET predicts fine-grained types with bet-ter accuracy (e.g., person title) and avoidsoverly-specific predictions (e.g., news company).Figure 5 shows the types estimated by AFET,PTE and WSABIE on a training sentence fromOntoNotes dataset.
+We found AFET could discoverthe best type from noisy candidate types....	his	friend	[Travis]	would	take	a	psychiatrist	on	a	date	to	analyze	...
+Candidate	Types:	{organization,	music,	person,	artist} WSABIE:					 {organization}PTE:	 {music,	person,	artist}AFET:	 {person}Figure 5: Example output of AFET and the comparedmethods on a training sentence from OntoNotes dataset.1375Typing Wiki OntoNotes BBNMethod Acc Ma-F1 Mi-F1 Acc Ma-F1 Mi-F1 Acc Ma-F1 Mi-F1CLPL (Cour et al, 2011) 0.162 0.431 0.411 0.201 0.347 0.358 0.438 0.603 0.536PL-SVM (Nguyen and Caruana, 2008) 0.428 0.613 0.571 0.225 0.455 0.437 0.465 0.648 0.582FIGER (Ling and Weld, 2012) 0.474 0.692 0.655 0.369 0.578 0.516 0.467 0.672 0.612FIGER-Min (Gillick et al, 2014) 0.453 0.691 0.631 0.373 0.570 0.509 0.444 0.671 0.613HYENA (Yosef et al, 2012) 0.288 0.528 0.506 0.249 0.497 0.446 0.523 0.576 0.587HYENA-Min 0.325 0.566 0.536 0.295 0.523 0.470 0.524 0.582 0.595ClusType (Ren et al, 2015) 0.274 0.429 0.448 0.305 0.468 0.404 0.441 0.498 0.573HNM (Dong et al, 2015) 0.237 0.409 0.417 0.122 0.288 0.272 0.551 0.591 0.606DeepWalk (Perozzi et al, 2014) 0.414 0.563 0.511 0.479 0.669 0.611 0.586 0.638 0.628LINE (Tang et al, 2015b) 0.181 0.480 0.499 0.436 0.634 0.578 0.576 0.687 0.690PTE (Tang et al, 2015a) 0.405 0.575 0.526 0.436 0.630 0.572 0.604 0.684 0.695WSABIE (Yogatama et al, 2015) 0.480 0.679 0.657 0.404 0.580 0.527 0.619 0.670 0.680AFET-NoCo 0.526 0.693 0.654 0.486 0.652 0.594 0.655 0.711 0.716AFET-NoPa 0.513 0.675 0.642 0.463 0.637 0.591 0.669 0.715 0.724AFET-CoH 0.433 0.583 0.551 0.521 0.680 0.609 0.657 0.703 0.712AFET 0.533 0.693 0.664 0.551 0.711 0.647 0.670 0.727 0.735Table 4: Study of typing performance on the three datasets.Text?...
+going to be an im-minent easing of mon-etary policy, ?
+saidRobert Dederick , chiefeconomist at NorthernTrust Co. in Chicago....It?s terrific for adver-tisers to know the readerwill be paying more , ?said Michael Drexler ,national media directorat Bozell Inc. ad agency.GroundTruthorganization,companyperson,person titleFIGER organization organizationWSABIEorganization,company,broadcastorganization,company,news companyPTE organization personAFET organization,companyperson,person titleTable 5: Example output of AFET and the comparedmethods on two news sentences from OntoNotes dataset.Testing the effect of training set size and dimen-sion.
+Experimenting with the same settings formodel learning, Fig.
+6(a) shows the performancetrend on the Wiki dataset when varying the samplingratio (subset of mentions randomly sampled fromthe training set D).
+Fig.
+6(b) analyzes the perfor-mance sensitivity of AFET with respect to d?theembedding dimension on the BBN dataset.
+Accu-racy of AFET improves as d becomes large but thegain decreases when d is large enough.Testing sensitivity of the tuning parameter.Fig.
+7(b) analyzes the sensitivity of AFET with re-spect to ?
+on the BBN dataset.
+Performance in-creases as ?
+becomes large.
+When ?
+is large than0.5, the performance becomes stable.Testing at different type levels.
+Fig.
+7(a) reportsthe Ma-F1 of AFET, FIGER, PTE and WSABIE atdifferent levels of the target type hierarchy (e.g., per-0 20 40 60 80 100Sampling Ratio0.350.400.450.500.550.60Micro-F1FIGERWSABIEAFET(a) Varying training set size0 50 100 150 200 250 300Embedding Size0.500.550.600.650.700.75AccuracyPTEWSABIEAFET(b) Varying dFigure 6: Performance change with respect to (a) sam-pling ratio of training mentions on the Wiki dataset; and(b) embedding dimension d on the BBN dataset.Level-1 Level-2 Level-30.00.10.20.30.40.50.60.70.8AccuracyFIGERWSABIEPTEAFET(a) Test at different levels0.0 0.2 0.4 0.6 0.8 1.0Alpha0.600.650.700.750.80 AccuracyMacro-F1Micro-F1(b) Varying ?Figure 7: Performance change (a) at different levels ofthe type hierarchy on the OntoNotes dataset; and (b) withrespect to smooth parameter ?
+on the BBN dataset.son and location on level-1, politician and artist onlevel-2, author and actor on level-3).
+The resultsshow that it is more difficult to distinguish amongmore fine-grained types.
+AFET always outperformsthe other two method, and achieves a 22.36% im-provement in Ma-F1, compared to FIGER on level-3types.
+The gain mainly comes from explicitly mod-eling the noisy candidate types.Testing for frequent/infrequent types.
+We also1376Type animal city# of Training Mentions 1882 12421# of Test Mentions 8 240WSABIE 0.176 0.546FIGER 0.167 0.648PTE 0.222 0.677AFET 0.400 0.766Table 6: Example output of AFET and other methods onfrequent/infrequent type from OntoNotes dataset.evaluate the performance on frequent and rare types(Table 6).
+Note that we use a different evaluationmetric, which is introduced in (Yosef et al, 2012)to calculate the F1 score for a type.
+We find AFETcan always perform better than other baselines andit works for both frequent and rare types.5 Related WorkThere has been considerable work on named entityrecognition (NER) (Manning et al, 2014), which fo-cuses on three types (e.g., person, location)and cast the problem as multi-class classification fol-lowing the type mutual exclusion assumption (i.e.,one type per mention) (Nadeau and Sekine, 2007).Recent work has focused on a much larger setof fine-grained types (Yosef et al, 2012; Ling andWeld, 2012).
+As the type mutual exclusion assump-tion no longer holds, they cast the problem as multi-label multi-class (hierarchical) classification prob-lems (Gillick et al, 2014; Yosef et al, 2012; Lingand Weld, 2012).
+Embedding techniques are alsorecently applied to jointly learn feature and type rep-resentations (Yogatama et al, 2015; Dong et al,2015).
+Del Corro et al (2015) proposed an unsuper-vised method to generate context-aware candidatestypes, and subsequently select the most appropriatetype.
+Gillick et al (2014) discuss the label noise is-sue in fine-grained typing and propose three pruningheuristics.
+However, these heuristics aggressivelydelete training examples and may suffer from lowrecall (see Table.
+4).In the context of distant supervision, label noiseissue has been studied for other information extrac-tion tasks such as relation extraction (Takamatsu etal., 2012).
+In relation extraction, label noise is intro-duced by the false positive textual matches of en-tity pairs.
+In entity typing, however, label noisecomes from the assignment of types to entity men-tions without considering their contexts.
+The formsof distant supervision are different in these two prob-lems.
+Recently, (Ren et al, 2016b) has tackled theproblem of label noise in fine-grained entity typing,but focused on how to generate a clean training setinstead of doing entity typing.Partial label learning (PLL) (Zhang, 2014;Nguyen and Caruana, 2008; Cour et al, 2011) dealswith the problem where each training example is as-sociated with a set of candidate labels, where onlyone is correct.
+Unlike existing PLL methods, ourmethod considers type hierarchy and correlation.6 Conclusion and Future WorkIn this paper, we study automatic fine-grained en-tity typing and propose a hierarchical partial-labelembedding method, AFET, that models ?clean?and ?noisy?
+mentions separately and incorporates agiven type hierarchy to induce loss functions.
+AFETbuilds on a joint optimization framework, learns em-beddings for mentions and type-paths, and itera-tively refines the model.
+Experiments on three pub-lic datasets show that AFET is effective, robust, andoutperforms other comparing methods.As future work, it would be interesting to studytopical features as the context cues of the entity men-tions, to leverage multi-sensing embedding to repre-sent linguistic features with multiple senses, and toexploits other effective modeling methods to injecttype hierarchy information.
+The proposed objectivefunction is general and can be considered to incorpo-rate various language features, to conduct integratedmodeling of multiple sources, and to be extended todistantly-supervised relation extraction.7 AcknowledgmentsResearch was sponsored in part by the U.S. ArmyResearch Lab.
+under Cooperative AgreementNo.
+W911NF-09-2-0053 (NSCTA), DARPA DEFTNo.
+FA8750-13-2-0041, National Science Foun-dation IIS-1017362, IIS-1320617, IIS-1354329,and IIS-1523198, HDTRA1-10-1-0120, and grant1U54GM114838 awarded by NIGMS through fundsprovided by the trans-NIH Big Data to Knowledge(BD2K) initiative (www.bd2k.nih.gov).
+Theviews and conclusions contained in this paper arethose of the authors and should not be interpreted asrepresenting any funding agencies.1377ReferencesTimothee Cour, Ben Sapp, and Ben Taskar.
+2011.
+Learn-ing from partial labels.
+JMLR, 12:1501?1536.Luciano Del Corro, Abdalghani Abujabal, RainerGemulla, and Gerhard Weikum.
+2015.
+Finet:Context-aware fine-grained named entity typing.
+InEMNLP.Xin Luna Dong, Thomas Strohmann, Shaohua Sun, andWei Zhang.
+2014.
+Knowledge vault: A web-scaleapproach to probabilistic knowledge fusion.
+In KDD.Li Dong, Furu Wei, Hong Sun, Ming Zhou, and Ke Xu.2015.
+A hybrid neural model for type classification ofentity mentions.
+In IJCAI.Jesse Dunietz and Dan Gillick.
+2014.
+A new en-tity salience task with millions of training examples.EACL.Jenny Rose Finkel, Trond Grenager, and ChristopherManning.
+2005.
+Incorporating non-local informationinto information extraction systems by gibbs sampling.In ACL.Evgeniy Gabrilovich, Michael Ringgaard, and AmarnagSubramanya.
+2013.
+Facc1: Freebase annotation ofclueweb corpora.Dan Gillick, Nevena Lazic, Kuzman Ganchev, JesseKirchner, and David Huynh.
+2014.
+Context-dependent fine-grained entity type tagging.
+arXivpreprint arXiv:1412.1820.Heng Ji and Ralph Grishman.
+2008.
+Refining event ex-traction through cross-document inference.
+In ACL.Jyun-Yu Jiang, Chin-Yew Lin, and Pu-Jen Cheng.
+2015.Entity-driven type hierarchy construction for freebase.In WWW.Thomas Lin, Oren Etzioni, et al 2012.
+No noun phraseleft behind: detecting and typing unlinkable entities.In EMNLP.Xiao Ling and Daniel S Weld.
+2012.
+Fine-grained entityrecognition.
+In AAAI.Christopher D Manning, Mihai Surdeanu, John Bauer,Jenny Finkel, Steven J Bethard, and David McClosky.2014.
+The stanford corenlp natural language process-ing toolkit.
+ACL.Mike Mintz, Steven Bills, Rion Snow, and Dan Jurafsky.2009.
+Distant supervision for relation extraction with-out labeled data.
+In ACL.David Nadeau and Satoshi Sekine.
+2007.
+A survey ofnamed entity recognition and classification.
+Lingvisti-cae Investigationes, 30:3?26.Nam Nguyen and Rich Caruana.
+2008.
+Classificationwith partial labels.
+In KDD.Bryan Perozzi, Rami Al-Rfou, and Steven Skiena.
+2014.Deepwalk: Online learning of social representations.In KDD.Lev Ratinov and Dan Roth.
+2009.
+Design challenges andmisconceptions in named entity recognition.
+In ACL.Xiang Ren, Ahmed El-Kishky, Chi Wang, Fangbo Tao,Clare R Voss, Heng Ji, and Jiawei Han.
+2015.Clustype: Effective entity recognition and typing byrelation phrase-based clustering.
+In KDD.Xiang Ren, Ahmed El-Kishky, Chi Wang, and JiaweiHan.
+2016a.
+Automatic entity recognition and typingin massive text corpora.
+In WWW.Xiang Ren, Wenqi He, Meng Qu, Clare R Voss, Heng Ji,and Jiawei Han.
+2016b.
+Label noise reduction in en-tity typing by heterogeneous partial-label embedding.In KDD.Sameer Singh, Amarnag Subramanya, Fernando Pereira,and Andrew McCallum.
+2012.
+Wikilinks: A large-scale cross-document coreference corpus labeled vialinks to wikipedia.
+UM-CS-2012-015.Shingo Takamatsu, Issei Sato, and Hiroshi Nakagawa.2012.
+Reducing wrong labels in distant supervisionfor relation extraction.
+In ACL.Jian Tang, Meng Qu, and Qiaozhu Mei.
+2015a.
+Pte: Pre-dictive text embedding through large-scale heteroge-neous text networks.
+In KDD.Jian Tang, Meng Qu, Mingzhe Wang, Ming Zhang, JunYan, and Qiaozhu Mei.
+2015b.
+Line: Large-scale in-formation network embedding.
+In WWW.Paul Tseng.
+2001.
+Convergence of a block coordi-nate descent method for nondifferentiable minimiza-tion.
+JOTA, 109(3):475?494.Ralph Weischedel and Ada Brunstein.
+2005.
+Bbn pro-noun coreference and entity type corpus.
+LinguisticData Consortium, 112.Ralph Weischedel, Eduard Hovy, Mitchell Marcus,Martha Palmer, Robert Belvin, Sameer Pradhan,Lance Ramshaw, and Nianwen Xue.
+2011.Ontonotes: A large training corpus for enhanced pro-cessing.Jason Weston, Samy Bengio, and Nicolas Usunier.
+2011.Wsabie: Scaling up to large vocabulary image annota-tion.
+In IJCAI.Dani Yogatama, Dan Gillick, and Nevena Lazic.
+2015.Embedding methods for fine grained entity type clas-sification.
+In ACL.Mohamed Amir Yosef, Sandro Bauer, Johannes Hoffart,Marc Spaniol, and Gerhard Weikum.
+2012.
+Hyena:Hierarchical type classification for entity names.
+InCOLING.Xiao Yu, Xiang Ren, Yizhou Sun, Quanquan Gu, BradleySturt, Urvashi Khandelwal, Brandon Norick, and Ji-awei Han.
+2014.
+Personalized entity recommenda-tion: A heterogeneous information network approach.In WSDM.Min-Ling Zhang.
+2014.
+Disambiguation-free partial la-bel learning.
+In SDM.1378

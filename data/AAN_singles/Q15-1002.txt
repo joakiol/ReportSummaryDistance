@@ -1,0 +1,492 @@
+Cross-Document Co-Reference Resolution using Sample-Based Clusteringwith Knowledge EnrichmentSourav DuttaMax Planck Institute for InformaticsSaarbru?cken, Germanysdutta@mpi-inf.mpg.deGerhard WeikumMax Planck Institute for InformaticsSaarbru?cken, Germanyweikum@mpi-inf.mpg.deAbstractIdentifying and linking named entities acrossinformation sources is the basis of knowledgeacquisition and at the heart of Web search, rec-ommendations, and analytics.
+An importantproblem in this context is cross-document co-reference resolution (CCR): computing equiv-alence classes of textual mentions denotingthe same entity, within and across documents.Prior methods employ ranking, clustering, orprobabilistic graphical models using syntacticfeatures and distant features from knowledgebases.
+However, these methods exhibit limita-tions regarding run-time and robustness.This paper presents the CROCS frameworkfor unsupervised CCR, improving the state ofthe art in two ways.
+First, we extend theway knowledge bases are harnessed, by con-structing a notion of semantic summaries forintra-document co-reference chains using co-occurring entity mentions belonging to differ-ent chains.
+Second, we reduce the computa-tional cost by a new algorithm that embedssample-based bisection, using spectral clus-tering or graph partitioning, in a hierarchi-cal clustering process.
+This allows scaling upCCR to large corpora.
+Experiments with threedatasets show significant gains in output qual-ity, compared to the best prior methods, andthe run-time efficiency of CROCS.1 Introduction1.1 Motivation and Problem StatementWe are witnessing another revolution in Web search,user recommendations, and data analytics: tran-sitioning from documents and keywords to data,knowledge, and entities.
+Examples of this mega-trend are the Google Knowledge Graph and its ap-plications, and the IBM Watson technology for deepquestion answering.
+To a large extent, these ad-vances have been enabled by the construction ofhuge knowledge bases (KB?s) such as DBpedia,Yago, or Freebase; the latter forming the core of theKnowledge Graph.
+Such semantic resources providehuge collections of entities: people, places, compa-nies, celebrities, movies, etc., along with rich knowl-edge about their properties and relationships.Perhaps the most important value-adding com-ponent in this setting is the recognition and dis-ambiguation of named entities in Web and usercontents.
+Named Entity Disambiguation (NED)(see, e.g., (Cucerzan, 2007; Milne & Witten, 2008;Cornolti et al., 2013)) maps a mention string (e.g., aperson name like ?Bolt?
+or a noun phrase like ?light-ning bolt?)
+onto its proper entity if present in a KB(e.g., the sprinter Usain Bolt).A related but different task of co-reference reso-lution (CR) (see, e.g., (Haghighi & Klein, 2009; Ng,2010; Lee et al., 2013)) identifies all mentions ina given text that refer to the same entity, includinganaphoras such as ?the president?s wife?, ?the firstlady?, or ?she?.
+This task when extended to processan entire corpus is then known as cross-documentco-reference resolution (CCR) (Singh et al., 2011).It takes as input a set of documents with entity men-tions, and computes as output a set of equivalenceclasses over the entity mentions.
+This does not in-volve mapping mentions to the entities of a KB.
+Un-like NED, CCR can deal with long-tail or emergingentities that are not captured in the KB or are merelyin very sparse form.State of the Art and its Limitations.
+CR methods,for co-references within a document, are generallybased on rules or supervised learning using differ-15Transactions of the Association for Computational Linguistics, vol.
+3, pp.
+15?28, 2015.
+Action Editor: Hwee Tou Ng.Submission batch: 9/2014; Revision batch 11/2014; Published 1/2015.
+c?2015 Association for Computational Linguistics.ent kinds of linguistic features like syntactic pathsbetween mentions, the distances between them, andtheir semantic compatibility as derived from co-occurrences in news and Web corpora (Haghighi &Klein, 2009; Lee et al., 2013).
+Some methods ad-ditionally use distant labels from knowledge bases(KB?s).
+Cluster-ranking and multi-sieve methods in-crementally expand groups of mentions and exploitrelatedness features derived from semantic types,alias names, and Wikipedia categories (Rahman &Ng, 2011a; Ratinov & Roth, 2012).The CCR task - computing equivalence classesacross documents - is essentially a clustering prob-lem using a similarity metric between mentionswith features like those discussed above.
+However,standard clustering (e.g., k-means or EM variants,CLUTO, etc.)
+lacks awareness of the transitivityof co-reference equivalence classes and suffers fromknowledge requirement of model dimensions.
+Prob-abilistic graphical models like Markov Logic net-works (Richardson & Domingos, 2006; Domingoset al., 2007; Domingos & Lowd, 2009) or factorgraphs (Loeliger, 2008; Koller & Friedman, 2009)take into consideration constraints such as transi-tivity, while spectral clustering methods (Luxburg,2007) implicitly consider transitivity in the underly-ing eigenspace decomposition, but suffer from highcomputational complexity.
+In particular, all methodsneed to precompute features for the data points andsimilarity values between all pairs of data points.The latter may be alleviated by pruning heuristics,but only at the risk of degrading output quality.Note that CCR cannot be addressed by simplyapplying local CR to a ?super-document?
+that con-catenates all documents in the corpus.
+Within adocument, identical mentions typically refer to thesame entity, while in different documents, identicalmentions can have different meanings.
+Although across-document view gives the opportunity to spotjoint cues from different contexts for an entity, doc-uments vary in their styles of referring to entities andmerely combining the local co-reference chains intoa super-group might lead to substantial noise intro-duction.
+In addition, CR methods are not designedfor scaling to huge ?super-documents?
+correspond-ing to millions of web pages or news articles.Problem Statement.
+We aim to overcome the abovelimitations by proposing a CCR method that makesrich use of distant KB features, considers transitiv-ity, and is computationally efficient.1.2 Approach and ContributionIn this paper, we efficiently tackle the CCR problemby considering co-occurring mentions and richfeatures from external knowledge bases, and usinga transitivity-aware sampling-based hierarchicalclustering approach.
+We developed the CROCS(CROss-document Co-reference reSolution) frame-work with unsupervised hierarchical clusteringby repeated bisection using spectral clustering orgraph partitioning.
+CROCS harnesses semanticfeatures derived from KB?s by constructing anotion of semantic summaries (semsum?s) for theintra-document co-reference chains.
+In additionto incorporating KB labels as features for the co-referring mentions, we also consider co-occurringmentions belonging to other entities and utilize theirfeatures.
+Consider the text: Hillary livedin the White House and backed Billdespite his affairs.
+containing 3 men-tion groups: {?Hillary?
+}, {?Bill?
+}, and {?WhiteHouse?}.
+Merely obtaining distant KB featuresfor the first mention group, the sparse informationleads to high ambiguity, e.g., may refer to themountaineer Sir Edmund Hillary.
+But by alsoobtaining features from KB for ?White House?
+(co-occurring mention), we obtain much strongercues towards the correct solution.CROCS adopts a bisection based clusteringmethod and invokes it repeatedly in a top-down hi-erarchical procedure with an information-theoreticstopping criterion for cluster splitting.
+We escapethe quadratic run-time complexity for pair-wise sim-ilarity computations by using a sampling techniquefor the spectral eigenspace decomposition or forgraph partitioning.
+This is inspired by the recentwork of (Krishnamurty et al., 2012; Wauthier etal., 2012) on active clustering techniques.
+Similar-ity computations between mention groups are per-formed lazily on-demand for the dynamically se-lected samples.In a nutshell, the novel contributions are:?
+CROCS, a framework for cross-document co-reference resolution using sample-based spectralclustering or graph partitioning embedded in ahierarchical bisection process;?
+semsum?s, a method for incorporating distantfeatures from KB?s also considering the cou-pling between co-occurring mentions in differ-ent co-reference chains;16?
+experimental evaluation with benchmark cor-pora demonstrating substantial gains over priormethods in accuracy and run-time.2 Computational FrameworkThe CROCS model assumes an input set oftext documents D = {d1, d2, .
+.
+.
+}, withmarkup of entity mentions M = {m11,m12,.
+.
+.
+,m21,m22, .
+.
+.
+}, mij ?
+dj , present in thedocuments.
+CROCS computes an equivalencerelation over M with equivalence classes Cj , whereCj ?
+Ck = ?
+for j 6= k and ?jCj = M .
+Thenumber of desired classes is apriori unknown; itneeds to be determined by the algorithm.
+Detectingthe mentions and marking their boundaries withinthe text is a problem by itself, referred to as NER(Named Entity Recognition).
+This paper does notaddress this issue and relies on established methods.The CROCS framework consists of 4 stages:1.
+Intra-document CR: Given an input corpus, Dwith mentions M , we initially perform intra-document co-reference resolution.2.
+Knowledge enrichment: For each of the localmention groups ({mij}) obtained in the previ-ous step, we combine the sentences of the men-tions to determine the best matching entity in aKB and retrieve its features.
+Analogous steps areperformed for co-occurring mentions (of {mij})and their features included.
+We term this featureset of {mij} as semantic summary (semsum?s).3.
+Similarity computation: We compute similar-ity scores between mention groups based on thefeatures extracted above.
+These are computedon-demand, and only for a sampled subset ofmentions (avoiding quadratic computation cost).4.
+Sampling-based clustering: We perform spec-tral clustering or balanced graph partitioning(using the similarity metric) in a hierarchi-cal fashion to compute the cross-document co-reference equivalence classes of mentions.3 Intra-Document CRCROCS initially pre-processes input documentsto cast them into plain text (using standardtools like (https://code.google.com/p/boilerpipe/), (www.jsoup.org), etc.).
+Itthen uses the Stanford CoreNLP tool suite todetect mentions and anaphors (http://nlp.stanford.edu/software/).
+The detectedmentions are also tagged with coarse-grained lexi-cal types (person, organization, location, etc.)
+bythe Stanford NER Tagger (Finkel et al., 2005).
+Thisforms the input to the intra-document CR step,where we use the state-of-the-art open-source CRtool (based on multi-pass sieve algorithm) fromStanford to compute the local mention co-referencechains (Raghunathan et al., 2010; Lee et al., 2011;Lee et al., 2013).
+The tagged texts and the local co-reference chains are then passed to the second stage.This local CR step may produce errors (e.g., in-correct chaining of mentions or omissions) whichpropagate to the later stages.
+However, improvingintra-document CR is orthogonal to our problem andthus out of the scope of this paper.
+Our experimentslater show that CROCS is robust and produces high-quality output even with moderate errors encoun-tered during the local-CR stage.4 Knowledge EnrichmentThe knowledge enrichment phase starts with thelocal co-reference chains per document.
+Assumethat we have obtained mention groups (chains){Michelle, she, first lady} and {the president?s wife,first lady} from two documents.
+To assess whetherthese two chains should be combined, i.e., theyboth refer to the same entity, we compute seman-tic features by tapping into knowledge bases (KB?s).Specifically, we harness labels and properties fromfreebase.com entries, for possibly matching enti-ties, to enrich the features of a mention group.
+TheKB features form a part of the semantic summary orsemsum?s for each local mention group.
+Features de-rived from the constructed semsum?s are later usedto compare different mention groups via a similaritymeasure (described in Section 5).Formally, a mention m is a text string at a partic-ular position in a document.
+m belongs to a mentiongroup M(m) consisting of all equivalent mentions,with the same string (at different positions) or differ-ent strings.
+For a given m, the basic semsum of m,Sbasic(m), is defined asSbasic(m) = {t ?
+sentence(m?)|m?
+?M(m)}?
+{t ?
+label(m?)|m?
+?M(m)}where t are text tokens (words or phrases),sentence(m?)
+is the sentence in which mention m?occurs, and label(m?)
+is the semantic label for m?obtained from the KB.
+Note that Sbasic(m) is a bag17of tokens, as different mentions inM(m) can obtainthe same tokens or labels and there could be multi-ple occurrences of the same mention string inM(m)anyway.Prior works on CR (e.g., (Rahman & Ng, 2011a;Ratinov & Roth, 2012; Hajishirzi et al., 2013; Zhenget al., 2013)) and NED (e.g., (Cucerzan, 2007; Milne& Witten, 2008; Ratinov et al., 2011; Hoffart et al.,2011; Hajishirzi et al., 2013)) have considered suchform of distant features.
+CROCS extends these pre-vious methods by also considering distant featuresfor co-occurring mention groups, and not just thegroup at hand.
+We now introduce a general frame-work for knowledge enrichment in our CCR setting.Strategies for knowledge enrichment involve de-cision making along the following dimensions:?
+Target: items (single mentions, local mentiongroups, or global mention groups across docu-ments) for which semantic features are obtained.?
+Source: the resource from where semantic fea-tures are extracted.
+Existing methods consider avariety of choices: i) input corpora, ii) externaltext corpus, e.g., Wikipedia, and iii) knowledgebases such as Freebase, DBpedia, or Yago.?
+Scope: the neighborhood of the target consid-ered for enrichment.
+It can either be restrictedto the target itself or can consider co-occurringitems (other mention groups connected to thetarget).?
+Match: involves mapping the target to one ormore relevant items in the source, and can in-volve simple name queries to full-fledged NEDbased on relevance or score confidence.Existing methods generally consider individualmentions or local mention groups as target.
+Ex-tended scopes like co-occurring entities based onautomatic NER and IE techniques have been pro-posed (Mann & Yarowsky, 2003; Niu et al., 2004;Chen & Martin, 2007; Baron & Freedman, 2008),but use only the input corpus as the enrichmentsource.
+Recent methods (Rahman & Ng, 2011a;Ratinov & Roth, 2012; Hajishirzi et al., 2013; Zhenget al., 2013) harness KB?s, but consider only lo-cal mention groups.
+Also, these methods rely onhigh-quality NED for mapping mentions to KB en-tries.
+In contrast, CROCS considers extendedscopes that include mention groups along with co-occurring mention groups when tapping into KB?s.We make only weak assumptions on matching men-tions against KB entities, by filtering on confidenceand merely treating semsum?s as features rather thanrelying on perfectly mapped entities.
+Specifically,our CROCS method handles the four dimensionsof knowledge enrichment as follows:Enrichment Target: We use per-document mentiongroups, after the local CR step, as target.
+In princi-ple, we could repeat the enrichment during the itera-tions of the CCR algorithm.
+However, as CROCSperforms top-down splitting of groups rather thanbottom-up merging, there is no added value.Enrichment Source: We include all the sentencesof a mention group in its semsum?s, thus drawing onthe input document itself.
+The main enrichment har-nesses entity-structured KB?s like Freebase or Yagoby querying them with phrases derived from themention groups?
+summaries.
+The features that areextracted from the best-matching entity include se-mantic types or categories (e.g., ?politician?, ?awardnominee?
+), alias names (e.g., ?Michelle Robinson?
+),titles (e.g., ?First Lady of the United States?)
+andgender of people.
+These features are appended tothe semsum?s and form the core of a mention group?ssemantic summary.Enrichment Scope: CROCS includes co-occurring mention groups as additional targetsfor semantic features.
+Consider the 4 examplesentences in Figure 1.
+Suppose the local CR finds4 mention groups as shown.
+The mentions and thesentences in which they occur are represented asa bipartite graph depicting their connections (rightside of Fig.
+1).
+Consider the mention group of?president?s wife?
+(m11) and ?first lady?
+(m21).Together with their immediate sentence neighborsin the bipartite graph, these mentions form what wecall the basic scope for knowledge enrichment, i.e.,{m11, s1,m21, s2}.The sentences of this mention group containother mentions which can be in mention groupsspanning further sentences.
+We utilize this co-occurrence as additional cues for characterizing themention group at hand.
+The union of the currentscope with that of all the two-hop neighbors inthe bipartite graph form the extended scope.
+Forthe group {m11, s1,m21, s2}, the two-hop men-tion neighbors are {m12,m22,m23,m31}.
+Hence,we include the scopes of these groups, the men-tions and sentences, yielding the extended scope{m11, s1,m21, s2,m22,m23,m31, s3}.Formally, for mention m in mention group18M(m), its extended semsum Sextended(m) is:Sextended(m) = Sbasic(m) ?(?m?(Sbasic(m?)
+| ?s : m?
+?
+s ?m ?
+s))where s is a sentence in which bothm andm?
+occur.In principle, we could consider even more aggres-sive expansions, like 4-hop neighbors or transitiveclosures.
+However, our experiments show that the2-hop extension is a sweet spot that gains substan-tial benefits over the basic scope.Enrichment Matching: For each local mentiongroup, CROCS first inspects the coarse-grainedtypes (person, organization, location) as determinedby the Stanford NER Tagger.
+We consider pronounsto derive additional cues for person mentions.
+If alltags in a group agree, we mark the group by this tag;otherwise the group as a whole is not type-tagged.To match a mention group against a KB entity,we trigger a phrase query comprising tagged phrasesfrom the mention group to the KB interface1.
+Weremove non-informative words from the phrases,dropping articles, stop-words, etc.
+For example, thefirst mention group, {m11,m21} in Fig.
+1 leads tothe query "president wife first lady".
+Thequery results are filtered by matching the result type-tag with the type tag of the mention group.
+Forthe extended scope, we construct analogous queriesfor the co-occurring mentions: "White House USpresident residence" and "husband" in theexample.
+The results are processed as follows.We primarily rely on the KB service itself torank the matching entities by confidence and/or rele-vance/importance.
+We simply accept the top-rankedentity and its KB properties, and extend the sem-sum?s on this basis.
+This is also done for the co-occurring mention groups, leading to the extendedscope of the original mention group considered.To avoid dependency on the ranking of the KB,we can alternatively obtain the top-k results for eachquery and also the KB?s confidence for the entitymatching.
+We then re-rank the candidates by oursimilarity measures and prune out candidates withlow confidence.
+We introduce a confidence thresh-old, ?, such that all candidates having matching con-fidence below the threshold are ignored, i.e., the1For example, (https://gate.d5.mpi-inf.mpg.de/webyagospotlx/WebInterface) or (www.freebase.com/query)m22s1s2s3s4m11 m12m21m23 m31 m32m33m43m41 m42s1s2s3s4m43m41m42m33m31m32m23m21m22m11m12 The president?s wife lives in the White House.The first lady helps her husband with theduties in the president?s residence.The White House is located in Washington DCand is the home of the US president.The American president and his wifelive in Washington.Figure 1: Example of local mention groups.Algorithm 1:ExtendedKnowledge EnrichmentRequire: Text T , Set G of mention groups (fromStanford CoreNLP), KB Match Threshold ?,Knowledge base KBEnsure: semsum for each group in G1: for each mention group, M ?
+G do2: Basic Scope: semsumM ?
+sentences fromT containing mentions in M3: Extract and add KB features for mentionsand phrases in semsumM (Sbasic(M))4: Extended Scope: Append context of 2-hopco-occurring mentions (from bipartite graph)to semsumM5: Matching: Extract phrases from semsumMfor query generation to KB6: Retrieve highest ranked KB result entity e7: if match confidence of e > ?
+then8: Extract set of features for e, Le from KB9: Append Le to semsumM (Sextended(M))10: end if11: end for12: Output semsumM for all M ?
+Gentire mention group is disregarded in the semsumconstruction.
+This makes extended scope robust tonoise.
+For example, the mention group {husband}having low confidence would likely degrade thesemsum?s quality and is thus dropped.Feature Vector: The semsum?s of the mentiongroups comprise sentences and bags of phrases.
+Forthe example mention group {m11,m21}, we includethe sentences {s1, s2, s3} during the extended-scopeenrichment, and obtain phrases from the KB like:?Michelle Obama?, ?First Lady of United States?,?capital of the United States?, etc.
+Algorithm 1shows the pseudo-code for constructing semsum?s.CROCS next casts each semsum into two forms,(i) a bag of words, and (ii) a bag of keyphrases, anduses both for constructing a feature vector.195 Similarity ComputationCROCS compares mention groups by a similaritymeasure to infer whether they denote the same entityor not.
+The similarity is based on the feature vec-tors of mention groups (constructed as in Section 4).Each feature in a mention group?s vector is weightedusing IR-style measures according to the bag-of-words (BoW ) model or the keyphrases (KP ) modelfor the semsum?s.
+Empirically, the best approach isa mixture of both the words and keyphrases model,which is employed by CROCS.
+Similarity compar-isons are computed on-demand and only for a smallsampled set of mention groups, as required duringthe hierarchical clustering procedure (see Section 6).The similarity of two mentions groups G1, G2 is,sim(G1, G2) = ??
+simBoW (G1, G2) +(1?
+?)?
+simKP (G1, G2)where ?
+is a tunable hyper-parameter.
+Whenevertwo mention groups are to be combined (referring tothe same entity), their feature vectors are combinedby computing a bag union of their words and/orphrases, and then recomputing the weights.
+With-out loss of generality, our default setting is ?
+= 0.5.Bag-of-Words Model (BoW): For this model, wecompute the term frequency, tf(w) for each wordw in the semsum?s, and also the inverse documentfrequency, idf(w), of the word across all semsum?s(i.e., all mention groups from all input documents).The weight of w , wgt(w) = tf(w) ?
+idf(w).
+Asthe semsum?s are short, we use the simple productrather than dampening tf values or other variations.Alternatively, more advanced IR weighting modelssuch as Okapi BM25 or statistical language modelscan be used.
+However, the classical tf?idf measureworks quite well.
+CROCS computes the similarityof two feature vectors by their cosine distance.Keyphrases Model (KP): The keyphrases of a men-tion group are obtained by extracting proper names,titles, alias names, locations, organization, etc., fromits semsum?s.
+Similar to the BoW model, CROCSsupports tf?idf style weights for entire keyphrases.For computing the similarity of keyphrases be-tween two mention groups G1 and G2, CROCSmatches the keyphrases of G1 in the semsum?s ofG2, and vice versa.
+However, entire phrases rarelymatch exactly.
+For example, the keyphrase ?PeaceNobel?
+match only partially in the text ?Nobel prizefor Peace?.
+To consider such partial matches andreward both high overlap of words and short dis-tances between matching words (locality), we adoptthe scoring model of (Taneva et al., 2011).
+The scorefor a partial match of keyphrase p in text x is,S(p|x) = # match wordslen.
+of cov(p|x)(?w?cov(p)wgt(w)?w?pwgt(w))1+?where the cover (cov) of p in x is the shortest wordspan (in x) containing all the words of p present inx (with a bound of 10-20 words).
+For the exampleabove, the cover of p = ?Peace Nobel?
+in the textx is ?Nobel prize for Peace?
+(all 2 words matchingwith cover length 4).
+The parameter ?, (0 < ?
+< 1)serves to tune the progression of penalizing missingwords.
+In our experiments, ?
+was set to 0.5 and stop-words such as ?a?, ?the?, etc.
+were removed withonly keywords being considered.For mention groups G1 and G2, we compute,sim(G1|G2) =?p?KP (G1)wgt(p)?
+S(p|semsum?s(G2))Finally, we resolve the asymmetry in similarity mea-sure due to the ordering of the two groups by setting,sim(G1, G2) = max{sim(G1|G2), sim(G2|G1)}6 Clustering AlgorithmThe final stage of CROCS takes the mentiongroups and the semsum?s as input.
+It performs a top-down hierarchical bisection process, based on sim-ilarity scores among entities, to cluster together co-referring mention groups at each splitting level.Initially all mention groups are placed in a singlecluster, and are then recursively split until a stoppingcriterion finalizes a cluster as leaf.
+At each level,cluster splitting is performed by using either spectralclustering (Luxburg, 2007) or balanced graph parti-tioning (Karypis & Kumar, 1998).
+Both these meth-ods implicitly consider transitivity, which is essen-tial as the equivalence classes of mentions should betransitively closed.
+The challenge of this seeminglysimple procedure lies in (i) judiciously choosing andoptimizing the details (model selection and stoppingcriterion), and (ii) reducing the computational cost.The latter is crucial as spectral clustering has cubiccomplexity, graph partitioning heuristics computa-tions are expensive, and CCR (unlike CR) needs tocope with Web-scale inputs consisting of millions ofdocuments and entities.20Clustering is invoked for each of the coarse-grained entity types separately (as obtained fromStanford NER tagger): people, places, and organiza-tions.
+The benefit is twofold: gaining efficiency andimproving accuracy, as two different entity typeswould not co-refer in reality.
+However, the risk isthat two differently tagged mention groups mightactually refer to the same entity, with at least onetag being incorrect.
+Our experiments show that thebenefits clearly outweigh this risk.
+Without loss ofgenerality, we only consider chains that are taggedinto one of the above types, and other co-referencechains are ignored.
+Although this might lead to cer-tain mentions being overlooked, improving the ac-curacy and recall of NER tagging approaches are or-thogonal to our current scope of work.Active spectral clustering: Spectral cluster-ing (Luxburg, 2007) uses the eigenspace of the sim-ilarity graph?s Laplacian matrix to compute graphpartitions as clusters.
+CROCS adopts the recentlyproposed Active Spectral Clustering technique (Kr-ishnamurty et al., 2012; Wauthier et al., 2012),which approximates the eigenspace of a Laplacianwith a small subset of sampled data points (mentiongroups in CROCS).
+For n data points and samplesize s in the order of O(log n), this technique re-duces the cost of spectral clustering from O(n3) toO(log3 n) (with bounded error).
+CROCS initializeseach bisection step by selecting s mention groupsfrom a cluster and computes all pair-wise similari-ties among the sampled groups.
+Spectral clusteringis then performed on this subset to obtain a split into2 clusters.
+The non-sampled mention groups are as-signed to the closest cluster in terms of average dis-tance to cluster centroids.
+The children clusters areiteratively split further at next levels until the stop-ping criterion fires.Balanced graph partitioning: Balanced graphpartitioning assigns the vertices of a graph into com-ponents of nearly the same size having few edgesacross components.
+The problem is NP-complete,and several approximation algorithms have beenproposed (Buluc et al., 2013).
+CROCS uses theMETIS software (http://glaros.dtc.umn.edu/gkhome/metis/metis/overview) toobtain mention group partitioning at each level ofthe hierarchical clustering.The underlying mention similarity graph is con-structed by sampling s mention groups, and sim-ilarities among them represented as edge weights.For mention groups not selected in the sample, sim-ilarities to only the s sample points are computedand corresponding edges created.
+The graph isthen partitioned using METIS (Karypis & Kumar,1998) (multi-level recursive procedure) to minimizethe edge-cuts thereby partitioning dissimilar men-tion groups.Specifics of CROCS: Active spectral clustering(Krishnamurty et al., 2012) uses random sampling,chooses the number of final clusters, k based oneigengap, and enforces a balancing constraint forthe k clusters to be of similar sizes.
+CROCS judi-ciously deviates from the design of (Krishnamurtyet al., 2012) as:?
+Model selection: We choose a fixed number ofpartitions k at each cluster-splitting step of thehierarchical process.
+We use a small k value,typically k = 2.
+This avoids selecting model di-mension parameters, allowing the stopping cri-terion to decide the final number of clusters.?
+Form of graph cut: CROCS uses balanced nor-malized cut for graph partitioning (Karypis &Kumar, 1998).
+However, unbalanced clustersizes with several singleton clusters (having onlyone mention group) might be formed.
+In ourCCR setting, this is actually a natural outcomeas many long-tail entities occur only once in thecorpus.
+Such mention groups significantly differin semantic and contextual features compared tothe other mention groups.
+Hence, singleton clus-ter mentions have low similarity score (basedon semsum?s) with other mentions groups.
+Thistranslates to low edge weights in the underlyingsimilarity graph structure (between mentions),thus forming favorable candidates in the initialphases of cluster splitting using minimum edge-cut based graph partitioning.
+Therefore, CROCSinherently incorporates early partition (duringthe clustering phase) of such possibly singletonmention clusters from the ?main data?, therebyhelping in de-noising and efficiency.?
+Sampling: Instead of sampling data points uni-formly randomly, we use biased sampling sim-ilar to initialization used in k-means clustering.Starting with a random point, we add points tothe sample set such that their average similarityto the already included points is minimized, thusmaximizing the diversity among the samples.Stopping criterion of CROCS: The sample-based21hierarchical clustering process operates without anyprior knowledge of the number of clusters (entities)present in the corpus.
+We use the Bayesian Infor-mation Criteria (BIC) (Schwarz, 1978; Hourdakis etal., 2010) as the stopping criterion to decide whethera cluster should be further split or finalized.
+BICis a Bayesian variant of the Minimum DescriptionLength (MDL) principle (Grunwald, 2007), assum-ing the points in a cluster to be Gaussian distributed.The BIC score of a cluster C with s (sampled) datapoints, xi and cluster centroid C?
+is:BIC(C) =?i=1,???
+,slog2(xi ?
+C?
+)2 + log2 sThe BIC score for a set of clusters is the micro-averaged BIC of the clusters.
+CROCS splits a clus-ter C into sub-clusters C1, .
+.
+.
+, Ck iff the combinedBIC value of the children is greater than that of theparent, else C is marked as leaf.7 Experimental EvaluationBenchmark Datasets: We performed experimentswith the following three publicly available bench-marking datasets, thereby comparing the perfor-mance of CROCS against state-of-the-art baselinesunder various input characteristics.?
+John Smith corpus: the classical benchmark forCCR (Bagga & Baldwin, 1998) comprising 197articles selected from the New York Times.
+Itincludes mentions of 35 different ?John Smith?person entities.
+All mentions pertaining to JohnSmith within a document refer to the same per-son.
+This provides a small-scale but demandingsetting for CCR, as most John Smiths are long-tail entities unknown to Wikipedia or any KB.?
+WePS-2 collection: a set of 4,500 Web pagesused in the Web People Search 2 competition(Artiles et al., 2009).
+The documents comprisethe top 150 Web search results (using Yahoo!search (as of 2008)) for each of 30 differentpeople (obtained from Wikipedia, ACL?08, andUS Census), covering both prominent entities(e.g., Ivan Titov, computer science researcher)and long-tailed entities (e.g., Ivan Titov, actor).?
+New York Times (NYT) archive: a set ofaround 1.8 million news article from the archivesof the newspaper (Sandhaus, 2008) extracted be-tween January 1987 and June 2007.
+We ran-domly select 220, 000 articles from the timerange of January 1, 2004 through June 19, 2007,which contain about 3.71 million mentions, or-ganized into 1.57 million local mention chainsafter the intra-document CR step.In our experiments, we consider mentions of personentities as this is the most predominant and demand-ing class of entities in the datasets.
+The John Smithand WePS-2 datasets have explicit ground truth an-notations, while the NYT contains editorial annota-tions for entities present in each article.
+For knowl-edge enrichment, we used Freebase; although sensi-tivity studies explore alternative setups with Yago.Evaluation Measures: We use the established mea-sures to assess output quality of CCR methods:?
+B3 F1 score (Bagga & Baldwin, 1998): mea-sures the F1 score as a harmonic mean of preci-sion and recall of the final equivalence classes.Precision is defined as the ratio of the num-ber of correctly reported co-references (for eachmention) to the total number; while recall com-putes the fraction of actual co-references cor-rectly identified.
+Both the final precision and re-call are computed by averaging over all mentiongroups.?
+?3-CEAF score (Luo, 2005): an alternate wayof computing precision, recall, and F1 scores us-ing the best 1-to-1 mapping between the equiv-alence classes obtained and those in the groundtruth.
+The best mapping of ground-truth to out-put classes exhibits the highest mention overlap.All experiments were conducted on a 4 core Inteli5 2.50 GHz processor with 8 GB RAM runningUbuntu 12.04.7.1 Parameter TuningThe use of external features extracted from KB?s (formention groups) forms an integral part in the work-ing of CROCS, and is represented by the choice ofthe threshold, ?.
+Given an input corpus, we now dis-cuss the tuning of ?
+based on splitting the availabledata into training and testing subsets.We randomly partition the input data into 3 parts(assumed to be labeled as A, B, and C).
+One ofthe data parts is the training data and the other twoparts are the test data.
+Using the gold annotations ofthe training dataset, we empirically learn the valueof ?, that provides the best B3 F1 score for CCR,using a simple line search.
+Initially, ?
+is set to 1 (noKB usage) and is subsequently decreased using 0.0122Method P (%) R (%) F1 (%)CROCS 78.54 72.12 75.21Stream (Rao, 2010) 84.7 59.2 69.7Inference (Singh, 2011) - - 66.4Table 1: B3 F1 results on John Smith dataset.as the step size for each of the learning phase itera-tions.
+As soon as the performance of CROCS is seento degrade (compared to the previous iteration), theprocedure is terminated and the previous value of ?is considered as the learned parameter value.
+Thefinal results we report are averaged over 3 indepen-dent runs, each considering different data partitions(among A, B, and C) as the training data.
+Althoughmore advanced learning algorithms might also beused, this simple approach is observed to work well.Learning of the ?
+value might converge to a localmaximum, or may be distorted due to presence ofnoise in the training data.
+However, we later show(in Section 7.5) that the performance of CROCS isrobust to small variations of ?.7.2 John-Smith Corpus: Long-Tail EntitiesTable 1 compares CROCS with two state-of-the-art methods achieving the best published results forthis benchmark.
+66 randomly selected documentswere used as the training set (while the rest formedthe test set) and the subsequent ?
+value learned (asdescribed in Section 7.1) was 0.96.
+Since the corpuscontained mostly long-tail entities not present in anyKB (only 5-6 of the 35 different John Smith?s are inWikipedia, eg.
+the explorer John Smith etc.
+), the KBmatches were too unreliable and led to the introduc-tion of noise.
+Hence, a high value of ?
+was obtained(i.e.
+KB features mostly disregarded).CROCS (using sample-based spectral cluster-ing) achieves an F1 score of 75.21%, while Stream(Rao et al., 2010) and Inference (Singh et al., 2011)reach only 69.7% and 66.4% resp.
+CROCS alsohas a high ?3-CEAF score of 69.89% exhibitingsubstantial gains over prior methods2.
+Our novelnotion of semsum?s with extended scope (mentionsand co-occurring mention groups) proved essentialfor outperforming the existing methods (see Sec-tion 7.6).
+The runtime of CROCS was only around6 seconds.2Data and detailed CROCS output results are availableat (www.dropbox.com/s/1grribug15yghys/John_Smith_Dataset.zip?dl=0)Method P (%) R (%) F1 (%)CROCS 85.3 81.75 83.48PolyUHK (Artiles, 2009) 87 79 82UVA 1 (Artiles, 2009) 85 80 81Table 2: B3 F1 results on WePS-2 dataset.7.3 WePS-2 Corpus: Web ContentsWe compared sampled spectral clustering basedCROCS on the WePS-2 corpus against the bestmethods reported in (Artiles et al., 2009).
+We em-pirically obtained the KB match parameter ?
+= 0.68according to the train-test setup described earlier(with 1500 training documents).CROCS achieves a B3 based F1 score of83.48% and a ?3-CEAF score of 74.02% (Table 2),providing an improvement of about 1.5 F1 scorepoints3.
+The gain observed is not as high as that forthe John Smith dataset, as in the WePS-2 corpus doc-uments are longer, giving richer context with fewerambiguous entity mentions.
+Thus, simpler methodsalso perform fairly well.
+The runtime of CROCS onWePS-2 corpus was about 90 seconds.7.4 New York Times Corpus: Web ScaleThe previous two datasets, John Smith and WePS-2 are too small to assess the robustness of CROCSfor handling large data.
+We therefore ran CROCS(with sample-based spectral clustering) on a randomsample of 220,000 NYT news articles.
+The knowl-edge enrichment threshold ?
+was learned to be 0.45with 73K training documents.CROCS achieved a B3 F1 score of 59.17%(with P = 56.18% and R = 62.49%) and a ?3-CEAF score of 50.0%.
+No prior methods reportF1 performance figures for this large dataset.
+How-ever, the factor graph based approach of (Singh etal., 2010) measures the mention co-reference ac-curacy for a sample of 1,000 documents.
+Accu-racy is defined as the ratio of document clusters as-signed to an entity to the ground truth annotations.We also sampled 1,000 documents considering onlymentions with multiple entity candidates.
+CROCSachieved an accuracy of 81.71%, as compared to69.9% for (Singh et al., 2010).As for run-time, CROCS took 14.3 hours to pro-cess around 150,000 news articles selected as thetest corpus.
+We also compared this result against al-3Data and detailed CROCS output results are avail-able at (www.dropbox.com/s/1i9ot4seavcfdyc/WePS-2_Dataset.zip?dl=0)23CROCS configuration WePS-2 NYTSentences only 50.35 39.52Basic Scope 64.14 53.88Extended Scope 83.48 59.17NED baseline 61.25 59.62Table 3: B3 F1 scores for CROCS enrichment variants.ternative algorithms within our framework (see Sec-tion 7.6).
+Hence, CROCS efficiently handles Webscale input data.7.5 Sensitivity StudiesThe CROCS framework involves a number of tun-able hyper-parameters adjusting the precise perfor-mance of the components.
+We now study the robust-ness of CROCS (sample-based spectral clusteringvariant) for varying parameter values.Knowledge Enrichment Scope:CROCS supports several levels of knowledge en-richment for semsum?s construction: i) includingonly sentences of a mention group (disregardingthe KB), ii) using distant KB labels for the givenmention group only (basic scope), and iii) addingdistant KB labels for co-occurring mention groups(extended scope).
+We compared these configura-tions among each other and also against a state-of-the-art NED method alone.
+The results areshown in Table 3.
+We used AIDA (Hoffart et al.,2011) open-source software (https://github.com/yago-naga/aida) for NED, and combinedmentions mapped to the same KB entity.
+We use thetrained value of ?
+obtained previously (for the re-spective datasets) for constructing the basic and ex-tended scope of semsum?s, and report the bestB3 F1scores.
+Note that the Sentences only and NED con-figurations are independent of the choice of ?
+value.Real-life Web articles contain a mixture of promi-nent entities, ambiguous names, and long-tail en-tities; hence sole reliance on NED for CCR farespoorly.
+The extended scope semsum?s constructionproduces superior results compared to other models.Knowledge Enrichment Matching Threshold:To study the influence of different degrees of dis-tant KB feature extraction, we varied the enrich-ment matching threshold ?
+from 0.0 (accept all KBmatches) to 1.0 (no import from KB).
+The JohnSmith dataset largely containing long-tail entitiesuses ?
+?
+1 (trained value), and operates on sem-sum?s containing practically no feature inclusionfrom external KB?s.
+Hence, we only consider thescenario when the KB is completely disregarded (i.e.Dataset ?0.0 0.25 0.5 0.65 0.75 0.9 1.0WePS-2 76.9 77.3 82.4 83.9 75.7 68.9 63.5NYT 60.5 61.5 62.2 62.2 60.0 52.1 48.4Table 4: B3 F1 scores (%) for different choices of ?.Dataset ?
+used P(%) R(%) F1(%)WePS-2 0.45 83.46 80.21 81.9NYT 0.68 59.42 64.2 61.8Table 5: ?
+error sensitivity of CROCS?
+= 1.0) and obtain a B3 F1 score of 76.47%.For the other two datasets, the B3 F1 results forvarying ?
+are shown in Table 4.
+We observe that KBfeatures help the CCR process and the best resultsare obtained for ?
+between 0.6 and 0.7.
+We observethat the exact choice of ?
+is not a sensitive issue, andany choice between 0.25 and 0.75 yields fairly goodF1 scores (within 10% of the empirically optimal F1results).
+Hence, our approach is robust regarding pa-rameter tuning.We observe that the trained value of ?
+(obtainedpreviously) for both the WePS-2 and the NYTdatasets are close to the optimal setting as seen fromTable 4 and provide nearly similar F1 score perfor-mance.
+Therefore, we set ?
+= 0.65 and consider theentire input corpora as test set for the remainder ofour experiments.To reconfirm the robustness of CROCS to ?value ranges, we use the KB threshold trained onWePS-2 dataset, and test it on the NYT dataset (andvice versa).
+From Table 5 we observe CROCS torender comparable performance in presence of er-rors during the ?
+learning phase.Clustering Hyper-Parameters:We study the effect of varying k, the number of sub-clusters for the bisection procedure invoked at eachlevel of the hierarchical clustering.
+By default, thisis set to 2 (i.e.
+bisection).
+Table 6 shows the B3F1 scores for different choices of k, for the threedatasets (with ?
+= 1.0 for John Smith and ?
+= 0.65for the other two datasets).
+We observe that k = 2performs best in all cases.
+The output quality mono-tonically drops with increase in k, as this forces evensimilar mention groups to form separate clusters.Hence, bisection allows the hierarchical process toadjust the model selection at the global level.Alternative KB:To assess the impact of dependency on Freebase(feature extraction of best matching entity), we24Dataset k=2 k=3 k=4 k=5John Smith 76.47 73.24 65.29 60.7WePS-2 83.92 82.61 78.37 73.19NYT 62.24 59.34 52.60 46.64Table 6: B3 F1 scores (%) for different # sub-clusters k.Dataset Freebase YagoP(%) R(%) F1 P(%) R(%) F1WePS-2 86.3 82.1 83.9 86.6 82.5 84.0NYT 59.8 64.9 62.2 61.3 60.8 61.0Table 7: CROCS B3 F1 scores with Freebase vs. Yagoran alternative experiments on the WePS-2 andNYT datasets with the Yago KB (www.yago-knowledge.org).
+We obtain all approximatematches for a mention group and rank them basedon the keyphrase similarity model (Section 5) us-ing sentences of the mention group and extractedfeatures (from the Yago hasLabel property and in-foboxes in Wikipedia pages of the sameAs link).Results in Table 7 show similar performance, depict-ing no preference of CROCS to any particular KB.7.6 Algorithmic VariantsThe CROCS framework supports a variety of al-gorithmic building blocks, most notably, clusteringmethods (eg., k-means) or graph partitioning forthe bisection steps, and most importantly, sampling-based methods versus methods that fully process alldata points.
+The comparative results for the threedifferent datasets are presented in Table 8.For the John Smith corpus (with ?
+= 1.0), allalgorithms except sample-based k-means achievedsimilar performances in accuracy and runtime.
+Thebest method was the full-fledged spectral clustering,with about 2% F1 score improvement.With the WePS-2 dataset, we obtain a similar pic-ture w.r.t.
+output quality.
+However, this dataset islarge enough to bring out the run-time differences.Sampling-based methods, including CROCS, wereabout 4?
+faster than their full-fledged counterparts,albeit with a meager loss of about 2% in F1 score.The NYT dataset finally portrays the scenario onhuge datasets.
+Here, only the sample-based methodsran to completion, while all the full-fledged methodswere terminated after 20 hours.
+The fastest of them,the simple k-means method, had processed onlyabout 5% of the data at this point (needing about400 hours on extrapolation).
+In contrast, CROCS,using sample-based spectral clustering or graph par-titioning, needed about 19.6 hours for the 220,000documents.
+The sampling-based k-means competi-tor was slightly faster (17.8 hours), but lost dramat-ically on output quality: with only about 42% F1score compared to 62% F1 score for CROCS.Hence, we observe that CROCS is indeed welldesigned for scalable sampling-based CCR, whereasother simpler methods like k-means, lacking transi-tivity awareness, fail to deliver good output quality.8 Related WorkCo-reference Resolution (CR): Existing intra-document CR methods combine syntactic with se-mantic features for identifying the best antecedent(preceding name or phrase) for a given mention(name, phrase, or pronoun).
+Syntactic features areusually derived from deep parsing of sentences andnoun group parsing.
+Semantic features are obtainedby mapping mentions to background knowledge re-sources such as Wikipedia.
+An overview of CRmethods is given in (Ng, 2010).
+Recent methodsadopt the paradigm of multi-phase sieves, apply-ing a cascade of rules to narrow down the choiceof antecedents for a mention (e.g., (Haghighi &Klein, 2009; Raghunathan et al., 2010; Ratinov &Roth, 2012)).
+The cluster-ranking family of methods(e.g., (Rahman & Ng, 2011b)) extends this paradigmfor connecting mentions with a cluster of precedingmentions.
+Person name disambiguation in CR dealswith only person names, title, nicknames, and sur-face forms variations (Chen & Martin, 2007).Distant Knowledge Labels for CR: To obtainsemantic features, additional knowledge resourcessuch as Wikipedia, Yago ontology, and FrameNetcorpus have been considered (Suchanek et al., 2007;Rahman & Ng, 2011a; Baker, 2012).
+To identify theentity candidate(s) that a mention (group) should usefor distant supervision, CR methods such as (Rati-nov & Roth, 2012; Lee et al., 2013) use matchingheuristics based on the given mention alone to iden-tify a single entity or all matching entities with con-fidence above some threshold.
+Zheng et al.
+(2013)generalizes this by maintaining a ranked list of en-tities for distant labeling, as mention groups are up-dated.
+Unlike CROCS, prior methods utilize onlythe candidates for the given mention (group) it-self and distant knowledge features for co-occurringmentions are not considered.Cross-Document CR (CCR): Early works (Gooi& Allan, 2004) on CCR, introduced by (Bagga &25Dataset Clustering Method B3 measure ?3 measure (%) Run-timeP (%) R (%) F1 (%)Spectral clustering 79.6 80.1 79.85 73.52 8.11 seck-means clustering 71.27 83.83 77.04 71.94 8.01 secJohn Balanced graph partition 75.83 79.56 77.65 70.63 7.83 secSmith Sampled k-means 63.57 65.52 64.53 59.61 5.12 secSampled spectral clustering 79.53 73.64 76.47 70.25 6.5 secSampled graph partitioning 71.42 77.83 74.49 68.36 6.86 secWePS-2Spectral clustering 88.2 85.61 86.88 77.91 331 seck-means clustering 85.7 84.01 84.85 76.45 296.56 secBalanced graph partition 86.56 82.78 84.63 77.73 324.64 secSampled k-means 72.67 68.56 70.56 66.92 72 secSampled spectral clustering 86.2 82.11 83.92 74.7 85.8 secSampled graph partitioning 85.3 82.2 83.72 74.5 83.65 seck-means clustering* 39.34* 49.17* 43.72* 31.45* >20 hrsNew York Sampled k-means 40.45 45.34 42.76 40.61 17.8 hrsTimes Sampled spectral clustering 59.78 64.92 62.24 51.02 19.6 hrsSampled graph partitioning 61.45 62.71 62.07 50.88 19.7 hrs* results after run terminated at 20 hrs (?5% mentions processed)Table 8: Accuracy and scalability of various algorithms embedded in CROCSBaldwin, 1998), used IR-style similarity measures(tf?idf cosine, KL divergence, etc.)
+on features,similar to intra-document CR.
+Recent works such as(Culotta et al., 2007; Singh et al., 2010; Singh et al.,2011) are based on probabilistic graphical modelsfor jointly learning the mappings of all mentions intoequivalence classes.
+The features for this learningtask are essentially like the ones in local CR.
+Baronand Freedman (2008) proposed a CCR method in-volving full clustering coupled with statistical learn-ing of parameters.
+However, this method does notscale to large corpora making it unsuitable for Webcontents.
+A more light-weight online method by(Rao et al., 2010) performs well on large bench-mark corpora.
+It is based on a streaming cluster-ing algorithm, which incrementally adds mentions toclusters or merges mention groups into single clus-ters, and has linear time complexity; albeit with infe-rior clustering quality compared to advanced meth-ods like spectral clustering.
+Several CCR methodshave harnessed co-occurring entity mentions, espe-cially for the task of disambiguating person names(Mann & Yarowsky, 2003; Niu et al., 2004; Chen& Martin, 2007; Baron & Freedman, 2008).
+How-ever, these methods do not utilize knowledge bases,but use information extraction (IE) methods on theinput corpus itself; thus facing substantial noise dueto IE quality variance on stylistically diverse docu-ments like Web articles.Spectral Clustering: (Luxburg, 2007) provides adetailed study on spectral clustering models and al-gorithms.
+Yan et al.
+(2009) proposed two approxi-mation algorithms, based on the k-means techniqueand random projections, reducing the O(n3) timecomplexity to O(k3) + O(kn) where k is the num-ber of clusters.
+In CCR, the number of clusters (trulydistinct entities) can be huge and typically unknown;hence (Shamir & Tishby, 2011; Krishnamurty etal., 2012; Wauthier et al., 2012) developed activespectral clustering, where the expensive clusteringstep is based on data samples and other data pointsare merely ?folded in?.
+The term ?active?
+refers tothe active learning flavor of choosing the samples(notwithstanding that these methods mostly adoptuniform random sampling).9 ConclusionsWe have presented the CROCS framework forcross-document co-reference resolution (CCR).
+Itperforms sample-based spectral clustering or graphpartitioning in a hierarchical bisection process to ob-tain the mention equivalence classes, thereby avoid-ing model-selection parameters and the high costof clustering or partitioning.
+CROCS constructsfeatures for mention groups by considering co-occurring mentions and obtaining distant semanticlabels from KB?s (for semsum?s).Feature generation from multiple KB?s and cater-ing to streaming scenarios (e.g., news feeds or socialmedia) are directions of future work.26ReferencesJ.
+Artiles, J. Gonzalo, S. Sekine: 2009.
+WePS 2 Evalua-tion Campaign: Overview of the Web People SearchClustering Task.
+WWW 2009.A.
+Bagga, B. Baldwin: 1998.
+Entity-Based Cross-Document Coreferencing Using the Vector SpaceModel.
+In COLING-ACL, pages 79?85.C.
+F. Baker: 2012.
+FrameNet, Current Collaborations &Future Goals.
+LREC, 46(2):269?286.A.
+Baron, M. Freedman: 2008. Who is Who &What is What: Experiments in Cross-Document Co-Reference.
+In EMNLP, pages 274?283.A.
+Buluc, H. Meyerhenke, I. Safro, P. Sanders, C. Schulz:2013.
+Recent Advances in Graph Partitioning.
+Karl-sruhe Institute of Technology, Technical Report.J.
+Cai, M. Strube: 2010.
+Evaluation Metrics for End-to-End Coreference Resolution Systems.
+In SIGDIAL,pages 28?36.Y.
+Chen, J. Martin: 2007.
+Towards Robust UnsupervisedPersonal Name Disambiguation.
+In EMNLP-CoNLL,pages 190?198.M.
+Cornolti, P. Ferragina, M. Ciaramita: 2013.
+A Frame-work for Benchmarking Entity-Annotation Systems.In WWW, pages 249?260.S.
+Cucerzan: 2007.
+Large-Scale Named Entity Dis-ambiguation Based on Wikipedia Data.
+In EMNLP-CoNLL, pages 708?716.A.
+Culotta, M. L. Wick, A. McCallum: 2007.
+First-OrderProbabilistic Models for Coreference Resolution.
+InHLT-NAACL, pages 81?88.P.
+Domingos, S. Kok, D. Lowd, H. Poon, M. Richard-son, P. Singla: 2007.
+Markov Logic.
+Probabilistic ILP.Springer-Verlag, pages 92?117.P.
+Domingos, D. Lowd: 2009.
+Markov Logic: An In-terface Layer for Artificial Intelligence.
+Morgan andClaypool Publishers, 2009.J.
+R. Finkel, T. Grenager, C. D. Manning: 2005.
+Incor-porating Non-local Information into Information Ex-traction Systems by Gibbs Sampling.
+In ACL, pages363?370.C.
+H. Gooi, J. Allan: 2004.
+Cross-Document Coreferenceon a Large Scale Corpus.
+In HLT-NAACL, pages 9?16.P.
+D. Gru?nwald: 2007.
+The Minimum Description LengthPrinciple.
+MIT University Press.A.
+Haghighi, D. Klein: 2009.
+Simple Coreference Reso-lution with Rich Syntactic and Semantic Features.
+InEMNLP, pages 1152?1161.A.
+Haghighi, D. Klein: 2010.
+Coreference Resolution ina Modular, Entity-Centered Model.
+In HLT-NAACL,pages 385?393.H.
+Hajishirzi, L. Zilles, D. S. Weld, L. S. Zettlemoyer:2013.
+Joint Coreference Resolution and Named-EntityLinking with Multi-Pass Sieves.
+In EMNLP, pages289?299.J.
+Hoffart, M. A. Yosef, I. Bordino, H. Fu?rstenau, M.Pinkal, M. Spaniol, B. Taneva, S. Thater, G. Weikum:2011.
+Robust Disambiguation of Named Entities inText.
+In EMNLP, pages 782?792.N.
+Hourdakis, M. Argyriou, G. M. Petrakis, E. E. Mil-ios: 2010.
+Hierarchical Clustering in Medical Docu-ment Collections: the BIC-Means Method.
+Journal ofDigital Information Management, 8(2):71?77.G.
+Karypis, V. Kumar: 1998.
+A Fast and Highly QualityMultilevel Scheme for Partitioning Irregular Graphs.Journal on Scientific Computing, 20(1):359?392.B.
+W. Kernighan, S. Lin: 1970.
+An efficient heuristic pro-cedure for partitioning graphs.
+Bell System TechnicalJournal.D.
+Koller, N. Friedman: 2009.
+Probabilistic GraphicalModels: Principles and Techniques.
+MIT Press.A.
+Krishnamurty, S. Balakrishnan, M. Xu, A. Singh:2012.
+Efficient Active Algorithms for HierarchicalClustering.
+In ICML, pages 887?894.H.
+Lee, Y. Peirsman, A. Chang, N. Chambers, M. Sur-deanu, D. Jurafsky: 2011.
+Stanford?s Multi-Pass SieveCoreference Resolution System at the CoNLL-2011Shared Task.
+In CoNLL, pages 28?34.H.
+Lee, A. Chang, Y. Peirsman, N. Chambers, M. Sur-deanu, D. Jurafsky: 2013.
+Deterministic CoreferenceResolution based on Entity-centric, Precision-rankedRules.
+Computational Linguistics Journal, 39(4):885?916.H.
+Lee, M. Recasens, A. X. Chang, M. Surdeanu, D. Ju-rafsky: 2012.
+Joint Entity and Event Coreference Res-olution across Documents.
+In EMNLP-CoNLL, pages489?500.H.
+A. Loeliger: 2008.
+An Introduction to Factor Graphs.In MLSB.X.
+Luo: 2005.
+On Coreference Resolution PerformanceMetrics.
+In HLT-EMNLP, pages 25?32.U.
+von Luxburg: 2007.
+A Tutorial on Spectral Clustering.Statistics and Computing Journal, 17(4):395?416.G.
+S. Mann, D. Yarowsky: 2003.
+Unsupervised PersonalName Disambiguation.
+In CoNLL,HLT-NAACL, pages33?40.D.
+N. Milne, I. H. Witten: 2008.
+Learning to Link withWikipedia.
+In CIKM, pages 509?518.V.
+Ng: 2010.
+Supervised Noun Phrase Coreference Re-search: The First Fifteen Years.
+In ACL, pages 1396?1411.C.
+Niu, W. Li, R. K. Srihari: 2004.
+Weakly Super-vised Learning for Cross-document Person Name Dis-ambiguation Supported by Information Extraction.
+InACL, article 597.27K.
+Raghunathan, H. Lee, S. Rangarajan, N. Chambers,M.
+Surdeanu, D. Jurafsky, C. Manning: 2010.
+A Multi-Pass Sieve for Coreference Resolution.
+In EMNLP,pages 492?501.A.
+Rahman, V. Ng: 2011a.
+Coreference Resolution withWorld Knowledge.
+In ACL, pages 814?824.A.
+Rahman, V. Ng: 2011b.
+Ensemble-Based CoreferenceResolution.
+In IJCAI, pages 1884?1889.D.
+Rao, P. McNamee, M. Dredze: 2010.
+Streaming CrossDocument Entity Coreference Resolution.
+In COL-ING, pages 1050?1058.L.
+A. Ratinov, D. Roth, D. Downey, M. Anderson: 2011.Local and Global Algorithms for Disambiguation toWikipedia.
+In ACL, pages 1375?1384 .L.
+A. Ratinov, D. Roth: 2012.
+Learning-based Multi-Sieve Co-reference Resolution with Knowledge.
+InEMNLP-CoNLL, pages 1234?1244.M.
+Richardson, P. Domingos: 2006.
+Markov Logic Net-works.
+Journal of Machine Learning, 62(1-2):107?136.E.
+Sandhaus: 2008.
+The New York Times Annotated Cor-pus Overview.
+Linguistic Data Consortium.G.
+E. Schwarz: 1978.
+Estimating the Dimension of aModel.
+Annals of Statistics, 6(2):461?464.O.
+Shamir, N. Tishby: 2011.
+Spectral Clustering on aBudget.
+Journal of Machine Learning Research - Pro-ceedings Track 15:661?669.S.
+Singh, M. L. Wick, A. McCallum: 2010.
+Distantly La-beling Data for Large Scale Cross-Document Corefer-ence.
+CoRR abs/1005.4298.S.
+Singh, A. Subramanya, F. Pereira, A. McCallum:2011.
+Large-Scale Cross-Document Coreference Us-ing Distributed Inference and Hierarchical Models.
+InACL, pages 793?803.F.
+M. Suchanek, G. Kasneci, G. Weikum: 2007.
+YAGO:a Core of Semantic Knowledge.
+In WWW, pages 697?706.B.
+Taneva, M. Kacimi, G. Weikum: 2011.
+Finding Im-ages of Difficult Entities in the Long Tail.
+In CIKM,pages 189?194.F.
+L. Wauthier, N. Jojic, M. I. Jordan: 2012.
+Active Spec-tral Clustering via Iterative Uncertainty Reduction.
+InKDD, pages 1339?1347.D.
+Yan, L. Huang, M. I. Jordan: 2009.
+Fast approximatespectral clustering.
+In KDD, pages 907?916.J.
+Zheng, L. Vilnis, S. Singh, J. D. Choi, A. McCal-lum: 2013.
+Dynamic Knowledge-Base Alignment forCoreference Resolution.
+In CoNLL, pages 153?162.28

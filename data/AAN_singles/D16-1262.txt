@@ -1,0 +1,341 @@
+Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, pages 2366?2376,Austin, Texas, November 1-5, 2016. c?2016 Association for Computational LinguisticsGlobal Neural CCG Parsing with Optimality GuaranteesKenton Lee Mike Lewis Luke ZettlemoyerComputer Science & EngineeringUniversity of WashingtonSeattle, WA 98195{kentonl,mlewis,lsz}@cs.washington.eduAbstractWe introduce the first global recursive neuralparsing model with optimality guarantees dur-ing decoding.
+To support global features, wegive up dynamic programs and instead searchdirectly in the space of all possible subtrees.Although this space is exponentially large inthe sentence length, we show it is possibleto learn an efficient A* parser.
+We augmentexisting parsing models, which have informa-tive bounds on the outside score, with a globalmodel that has loose bounds but only needsto model non-local phenomena.
+The globalmodel is trained with a novel objective that en-courages the parser to search both efficientlyand accurately.
+The approach is applied toCCG parsing, improving state-of-the-art accu-racy by 0.4 F1.
+The parser finds the optimalparse for 99.9% of held-out sentences, explor-ing on average only 190 subtrees.1 IntroductionRecursive neural models perform well for manystructured prediction problems, in part due to theirability to learn representations that depend globallyon all parts of the output structures.
+However, globalmodels of this sort are incompatible with existingexact inference algorithms, since they do not de-compose over substructures in a way that allows ef-fective dynamic programming.
+Existing work hastherefore used greedy inference techniques such asbeam search (Vinyals et al, 2015; Dyer et al, 2015)or reranking (Socher et al, 2013).
+We introducethe first global recursive neural parsing approachwith optimality guarantees for decoding and use itto build a state-of-the-art CCG parser.To enable learning of global representations, wemodify the parser to search directly in the space ofall possible parse trees with no dynamic program-ming.
+Optimality guarantees come from A?
+search,which provides a certificate of optimality if run tocompletion with a heuristic that is a bound on thefuture cost.
+Generalizing A?
+to global models ischallenging; these models also break the locality as-sumptions used to efficiently compute existing A?heuristics (Klein and Manning, 2003; Lewis andSteedman, 2014).
+Rather than directly replacing lo-cal models, we show that they can simply be aug-mented by adding a score from a global model thatis constrained to be non-positive and has a trivialupper bound of zero.
+The global model, in effect,only needs to model the remaining non-local phe-nomena.
+In our experiments, we use a recent fac-tored A?
+CCG parser (Lewis et al, 2016) for thelocal model, and we train a Tree-LSTM (Tai et al,2015) to model global structure.Finding a model that achieves these A?
+guar-antees in practice is a challenging learning prob-lem.
+Traditional structured prediction objectives fo-cus on ensuring that the gold parse has the high-est score (Collins, 2002; Huang et al, 2012).
+Thiscondition is insufficient in our case, since it doesnot guarantee that the search will terminate in sub-exponential time.
+We instead introduce a new ob-jective that optimizes efficiency as well as accuracy.Our loss function is defined over states of the A?search agenda, and it penalizes the model wheneverthe top agenda item is not a part of the gold parse.2366?FruitNP fliesS\NP like(S\S)/NPfliesNP\NP FruitNP/NP fliesNP like(S\NP )/NP bananasNPFruit flies?NP like bananas?S\NPlike bananas?S\SFruit flies?SFruit flies like bananas?Sexploredagendaunexplored(a) The search space in chart parsing, with one node foreach labeling of a span.
+?FruitNP fliesS\NP like(S\S)/NPfliesNP\NP FruitNP/NP fliesNP like(S\NP )/NP bananasNPFruit fliesNP/NP NP>NPFruit fliesNP NP\NP<NPlike bananas(S\NP )/NP NP >S\NPlike bananas(S\S)/NP NP >S\SFruit fliesNP S\NP<SFruit flies like bananasNP/NP NP (S\NP )/NP NP> >NP S\NP <SFruit flies like bananasNP NP\NP (S\NP )/NP NP< >NP S\NP <SFruit flies like bananasNP S\NP (S\S)/NP NP< >S S\S <S(b) The search space in this work, with one node for eachpartial parse.Figure 1: Illustrations of CCG parsing as hypergraph search, showing partial views of the search space.
+Weighted hyperedgesfrom child nodes to a parent node represent rule productions scored by a parsing model.
+A path starting at ?, for example theset of bolded hyperedges, represents the derivation of a parse.
+During decoding, we find the highest scoring path to a completeparse.
+Both figures show an ideal exploration that efficiently finds the optimal path.
+Figure 1a depicts the traditional search space,and Figure 1b depicts the search space in this work.
+Hyperedge scores can only depend on neighboring nodes, so our model cancondition on the entire parse structure, at the price of an exponentially larger search space.Minimizing this loss encourages the model to returnthe correct parse as quickly as possible.The combination of global representations andoptimal decoding enables our parser to achievestate-of-the-art accuracy for Combinatory Catego-rial Grammar (CCG) parsing.
+Despite being in-tractable in the worst case, the parser in practice ishighly efficient.
+It finds optimal parses for 99.9% ofheld out sentences while exploring just 190 subtreeson average?allowing it to outperform beam searchin both speed and accuracy.2 OverviewParsing as hypergraph search Many parsing al-gorithms can be viewed as a search problem, whereparses are specified by paths through a hypergraph.A node y in this hypergraph is a labeled span, rep-resenting structures within a parse tree, as shown inFigure 1.
+Each hyperedge e in the hypergraph rep-resents a rule production in a parse.
+The head nodeof the hyperedge HEAD(e) is the parent of the ruleproduction, and the tail nodes of the hyperedge arethe children of the rule production.
+For example,consider the hyperedge in Figure 1b whose head islike bananas.
+This hyperedge represents a forwardapplication rule applied to its tails, like and bananas.To define a path in the hypergraph, we first in-clude a special start node ?
+that represents an emptyparse.
+?
+has outgoing hyperedges that reach ev-ery leaf node, representing assignments of labels towords (supertag assignments in Figure 1).
+We thendefine a path to be a set of hyperedges E starting at?
+and ending at a single destination node.
+A paththerefore specifies the derivation of the parse con-structed from the labeled spans at each node.
+Forexample, in Figure 1, the set of bolded hyperedgesform a path deriving a complete parse.Each hyperedge e is weighted by a score s(e)from a parsing model.
+The score of a path E is the2367sum of its hyperedge scores:g(E) =?e?Es(e)Viterbi decoding is equivalent to finding the highestscoring path that forms a complete parse.Search on parse forests Traditionally, the hyper-graph represents a packed parse chart.
+In this work,our hypergraph instead represents a forest of parses.Figure 1 contrasts the two representations.In the parse chart, labels on the nodes representlocal properties of a parse, such as the category of aspan in Figure 1a.
+As a result, multiple parses thatcontain the same property include the same node intheir path, (e.g.
+the node spanning the phrase Fruitflies with category NP).
+The number of nodes inthis hypergraph is polynomial in the sentence length,permitting exhaustive exploration (e.g.
+CKY pars-ing).
+However, the model scores can only depend onlocal properties of a parse.
+We refer to these modelsas locally factored models.In contrast, nodes in the parse forest are labeledwith entire subtrees, as shown in Figure 1b.
+For ex-ample, there are two nodes spanning the phrase Fruitflies with the same category NP but different inter-nal substructures.
+While the parse forest requires anexponential number of nodes in the hypergraph, themodel scores can depend on entire subtrees.A?
+parsing A?
+parsing has been successfully ap-plied in locally factored models (Klein and Man-ning, 2003; Lewis and Steedman, 2014; Lewis etal., 2015; Lewis et al, 2016).
+We present a specialcase of A?
+parsing that is conceptually simpler, sincethe parse forest constrains each node to be reachablevia a unique path.
+During exploration, we maintainthe unique (and therefore highest scoring) path to ahyperedge e, which we define as PATH(e).Similar to the standard A?
+search algorithm, wemaintain an agenda A of hyperedges to explore anda forest F of explored nodes that initially containsonly the start node ?.Each hyperedge e in the agenda is sorted by thesum of its inside score g(PATH(e)) and an admissibleheuristic h(e).
+A heuristic h(e) is admissible if itis an upper bound of the sum of hyperedge scoresleading to any complete parse reachable from e (theViterbi outside score).
+The efficiency of the searchimproves when this bound is tighter.At every step, the parser removes the top of theagenda, emax = argmaxe?A(g(PATH(e)) + h(e)).emax is expanded by combining HEAD(emax) withpreviously explored parses from F to form new hy-peredges.
+These new hyperedges are inserted intoA, and HEAD(emax) is added it to F .
+We repeatthese steps until the first complete parse y?
+is ex-plored.
+The bounds provided by h(e) guarantee thatthe path to y?
+has the highest possible score.
+Fig-ure 1b shows an example of the agenda and the ex-plored forest at the end of perfectly efficient search,where only the optimal path is explored.Approach The enormous search space describedabove presents a challenge for an A?
+parser, sincecomputing a tight and admissible heuristic is diffi-cult when the model does not decompose locally.Our key insight in addressing this challenge is thatexisting locally factored models with an informativeA?
+heuristic can be augmented with a global score(Section 3).
+By constraining the global score to benon-positive, the A?
+heuristic from the locally fac-tored model is still admissible.While the heuristic from the local model offerssome estimate of the future cost, the efficiency ofthe parser requires learning a well-calibrated globalscore, since the heuristic becomes looser as theglobal score provides stronger penalties (Section 5).As we explore the search graph, we incrementallyconstruct a neural network, which computes repre-sentations of the parses and allows backpropagationof errors from bad search steps (Section 4).In the following sections, we present our ap-proach in detail, assuming an existing locally fac-tored model slocal(e) for which we can efficientlycompute an admissible A?
+heuristic h(e).In the experiments, we apply our model to CCGparsing, using the locally factored model and A?heuristic from Lewis et al (2016).3 ModelOur model scores a hyperedge e by combining thescore from the local model with a global score thatconditions on the entire parse at the head node:s(e) = slocal(e) + sglobal(e)2368In sglobal(e), we first compute a hidden representa-tion encoding the parse structure of y = HEAD(e).We use a variant of the Tree-LSTM (Tai et al, 2015)connected to a bidirectional LSTM (Hochreiter andSchmidhuber, 1997) at the leaves.
+The combinationof linear and tree LSTMs allows the hidden repre-sentation of partial parses to condition on both thepartial structure and the full sentence.
+Figure 2 de-picts the neural network that computes the hiddenrepresentation for a parse.Formally, given a sentence ?w1, w2, .
+.
+.
+, wn?, wecompute hidden states ht and cell states ct in the for-ward LSTM for 1 < t ?
+n:it =?
+(Wi[ct?1, ht?1, xt] + bi)ot =?
+(Wo[c?t, ht?1, xt] + bo)c?t =tanh(Wc[ht?1, xt] + bc)ct =it ?
+c?t + (1?
+it) ?
+ct?1ht =ot ?
+tanh(ct)where ?
+is the logistic sigmoid, ?
+is the component-wise product, and xt denotes a learned word embed-ding for wt.
+We also construct a backward LSTM,which produces the analogous hidden and cell statesstarting at the end of the sentence, which we denoteas c?t and h?t respectively.
+The start and end latentstates, c?1, h?1, c?n+1, and h?n+1, are learned embed-dings.
+This variant of the LSTM includes peepholeconnections and couples the input and forget gates.The bidirectional LSTM over the words servesas a base case when we recursively compute a hid-den representation for the parse y using the tree-structured generalization of the LSTM:iy = ?
+(WRi [cl, hl, cr, hr, xy] + bRi )fy = ?
+(WRf [cl, hl, cr, hr, xy] + bRf )oy = ?
+(WRo [c?y, hl, hr, xy] + bRo )clr = fy ?
+cl + (1?
+fy) ?
+crc?y = tanh(WRc [hl, hr, xy] + bRc )cy = iy ?
+c?y + (1?
+iy) ?
+clrhy = oy ?
+tanh(cy)where the weights and biases are parametrized bythe rule R that produces y from its children, and xydenotes a learned embedding for the category at theroot of y.
+For example, in CCG, the rule would cor-respond to the CCG combinator, and the label wouldFruitNP/NPfliesNPlike(S\NP)/NPbananasNPSNP S\NPFigure 2: Visualization of the Tree-LSTM which computesvector embeddings for each parse node.
+The leaves of the Tree-LSTM are connected to a bidirectional LSTM over words, en-coding lexical information within and outside of the parse.correspond to the CCG category.We assume that nodes are binary, unary, or leaves.Their left and right latent states, cl, hl, cr, and hr aredefined as follows:?
+In a binary node, cl and hl are the cell and hid-den states of the left child, and cr and hr arethe cell and hidden states of the right child.?
+In a unary node, cl and hl are learned embed-dings, and cr and hr are the cell and hiddenstates of the singleton child.?
+In a leaf node, let w denote the index of thecorresponding word.
+Then cl and hl are cw andhw from the forward LSTM, and cr and hr arec?w and h?w from the backward LSTM.The cell state of the recursive unit is a linear com-bination of the intermediate cell state c?y, the left cellstate cl, and the right cell state cr.
+To preserve thenormalizing property of coupled gates, we performcoupling in a hierarchical manner: the input gate iydecides the weights for c?y, and the forget gate fyshares the remaining weights between cl and cr.Given the hidden representation hy at the root, wescore the global component as follows:sglobal(e) = log(?
+(W ?
+hy))This definition of the global score ensures that it isnon-positive?an important property for inference.4 InferenceUsing the hyperedge scoring model s(e) describedin Section 3, we can find the highest scoring paththat derives a complete parse tree by using the A?parsing algorithm described in Section 2.2369FruitNP/NP fliesNPFruit fliesNP/NP NP>NPFruit flies like bananasNP/NP NP (S\NP )/NP NP> >NP S\NP <Ssglobal(e)+ slocal(e)?FruitNP/NP fliesNPFruit fliesNP/NP NP>NPFruit fliesNP/NP NP>NPFruit flies like bananasNP/NP NP (S\NP )/NP NP> >NP S\NP <Ssglobal(eglobal)slocal(elocal)Figure 3: The hyperedge on the left requires computing boththe local and global score when placed on the agenda.
+Splittingthe hyperedge, as shown on the right, saves expensive compu-tation of the global score if the local score alone indicates thatthe parse is not worth exploring.Admissible A?
+heuristic Since our full modeladds non-positive global scores to the existing lo-cal scores, path scores under the full model cannotbe greater than path scores under the local model.Upper bounds for path scores under the local modelalso hold for path scores under the full model, andwe simply reuse the A?
+heuristic from the localmodel to guide the full model during parsing withoutsacrificing optimality guarantees.Incremental neural network construction Therecursive hidden representations used in sglobal(e)can be computed in constant time during parsing.When scoring a new hyperedge, its children musthave been previously scored.
+Instead of computingthe full recursion, we reuse the existing latent statesof the children and compute sglobal(e) with an in-cremental forward pass over a single recursive unitin the neural network.
+By maintain the latent statesof each parse, we incrementally build a single DAG-structured LSTM mirroring the explored subset ofthe hypergraph.
+This not only enables quick for-ward passes during decoding, but also allows back-propagation through the search space after decoding,which is crucial for efficient learning (see Section 5).Lazy global scoring The global score is expensiveto compute.
+We introduce an optimization to avoidcomputing it when provably unnecessary.
+We spliteach hyperedge e into two successive hyperedges,elocal and eglobal, as shown in Figure 3.
+The scorefor e, previously s(e) = slocal(e) + sglobal(e), isalso split between the two new hyperedges:s(elocal) = slocal(elocal)s(eglobal) = sglobal(eglobal)Intuitively, this transformation requires A?
+to verifythat the local score is good enough before comput-ing the global score, which requires an incrementalforward pass over a recursive unit in the neural net-work.
+In the example, this involves first summingthe supertag scores of Fruit and flies and insertingthe result back into the agenda.
+The score for ap-plying the forward application rule to the recursiverepresentations is only computed if that item appearsagain at the head of the agenda.
+In practice, the lazyglobal scoring reduces the number of recursive unitsby over 91%, providing a 2.4X speed up.5 LearningDuring training (Algorithm 1), we assume access tosentences labeled with gold parse trees y?
+and goldderivations E?.
+The gold derivation E?
+is a path from?
+to y?
+in the parse forest.A?
+search with our global model is not guar-anteed to terminate in sub-exponential time.
+Thiscreates challenges for learning?for example, it isnot possible in practice to use the standard struc-tured perceptron update (Collins, 2002), because thesearch procedure rarely terminates early in training.Other common loss functions assume inexact search(Huang et al, 2012), and do not optimize efficiency.Instead, we optimize a new objective that istightly coupled with the search procedure.
+Duringparsing, we would like hyperedges from the goldderivation to appear at the top of the agenda A.When this condition does not hold, A?
+is searchinginefficiently, and we refer to this as a violation of theagenda, which we formally define as:v(E?,A) = maxe?A(g(PATH(e)) + h(e))?
+maxe?A?E?
+(g(PATH(e)) + h(e))where g(PATH(e)) is the score of the unique path toe, and h(e) is the A?
+heuristic.
+If all violations arezero, we find the gold parse without exploring anyincorrect partial parses?maximizing both accuracyand efficiency.
+Figure 1b shows such a case?if anyother nodes were explored, they would be violations.2370Update LOSS(V)Greedy V1Max violation maxTt=1 VtAll violations ?Tt=1 VtTable 1: Loss functions optimized by the different update meth-ods.
+The updates depend on the list of T non-zero violations,V = ?V1,V2, .
+.
+.
+,VT ?, as defined in Section 5.In existing work on violation-based updates, com-parisons are only made between derivations with thesame number of steps (Huang et al, 2012; Clark etal., 2015)?whereas our definition allows subtreesof arbitrary spans to compete with each other, be-cause hyperedges are not explored in a fixed order.Our violations also differ from Huang et al?s in thatwe optimize efficiency as well as accuracy.We define loss functions over these violations,which are minimized to encourage correct and ef-ficient search.
+During training, we parse each sen-tence until either the gold parse is found or we reachcomputation limits.
+We record V , the list of non-zero violations of the agenda A observed:V = ?v(E?,A) | v(E?,A) > 0?We can optimize several loss functions over V , asdefined in Table 1.
+The greedy and max-violationupdates are roughly analogous to the violation-fixing updates proposed by Huang et al (2012), butadapted to exact agenda-based parsing.
+We alsointroduce a new all-violations update, which min-imizes the sum of all observed violations.
+The all-violations update encourages correct parses to be ex-plored early (similar to the greedy update) while be-ing robust to parses with multiple deviations fromthe gold parse (similar to the max-violation update).The violation losses are optimized with subgra-dient descent and backpropagation.
+For our experi-ments, slocal(e) and h(e) are kept constant.
+Only theparameters ?
+of sglobal(e) are updated.
+Therefore, asubgradient of a violation v(E?,A) can be computedby summing subgradients of the global scores.?v(E?,A)??
+=?e?PATH(emax)?sglobal(e)??
+??e?PATH(e?max)?sglobal(e)?
+?where emax denotes the hyperedge at the top of theagenda A and e?max denotes the hyperedge in thegold derivation E?
+that is closest to the top of A.Algorithm 1 Violation-based learning algorithmDefinitions D is the training data containing input sentencesx and gold derivations E?.
+e variables denote scored hyper-edges.
+TAG(x) returns a set of scored pre-terminals for everyword.
+ADD(F , y) adds partial parse y to forest F .
+RULES(F ,y) returns the set of scored hyperedges that can be created bycombining y with entries in F .
+SIZE OK(F ,A) returns whetherthe sizes of the forest and agenda are within predefined limits.1: function VIOLATIONS(E?, x, ?
+)2: V ?
+?
+.
+Initialize list of violations V3: F ?
+?
+.
+Initialize forest F4: A?
+?
+.
+Initialize agenda A5: for e ?
+TAG(x) do6: PUSH(A, e)7: while |A ?
+E?| > 0 and SIZE OK(F ,A) do8: if v(E?,A) > 0 then9: APPEND(V, v(E?,A)) .
+Record violation10: emax?
+EXTRACT MAX(A) .
+Pop agenda11: ADD(F , HEAD(emax)) .
+Explore hyperedge12: for e ?
+RULES(F , HEAD(emax), ?)
+do13: PUSH(A, e) .
+Expand hyperedge14: return V15:16: function LEARN(D)17: for i = 1 to T do18: for x, E?
+?
+D do19: V ?
+VIOLATIONS(E?, x, ?
+)20: L?
+LOSS(V)21: ??
+OPTIMIZE(L, ?
+)22: return ?6 Experiments6.1 DataWe trained our parser on Sections 02-21 of CCG-bank (Hockenmaier and Steedman, 2007), usingSection 00 for development and Section 23 for test.To recover a single gold derivation for each sentenceto use during training, we find the right-most branch-ing parse that satisfies the gold dependencies.6.2 Experimental SetupFor the local model, we use the supertag-factoredmodel of Lewis et al (2016).
+Here, slocal(e) cor-responds to a supertag score if a HEAD(e) is a leafand zero otherwise.
+The outside score heuristic iscomputed by summing the maximum supertag scorefor every word outside of each span.
+In the reportedresults, we back off to the supertag-factored modelafter the forest size exceeds 500,000, the agenda sizeexceeds 2 million, or we build more than 200,000 re-cursive units in the neural network.2371Model Dev F1 Test F1C & C 83.8 85.2C & C + RNN 86.3 87.0Xu (2016) 87.5 87.8Vaswani et al (2016) 87.8 88.3Supertag-factored 87.5 88.1Global A?
+88.4 88.7Table 2: Labeled F1 for CCGbank dependencies on the CCG-bank development and test set for our system Global A?
+andthe baselines.Our full system is trained with all-violations up-dates.
+During training, we lower the forest sizelimit to 2000 to reduce training times.
+The model istrained for 30 epochs using ADAM (Kingma and Ba,2014), and we use early stopping based on develop-ment F1.
+The LSTM cells and hidden states have 64dimensions.
+We initialize word representations withpre-trained 50-dimensional embeddings from Turianet al (2010).
+Embeddings for categories have 16 di-mensions and are randomly initialized.
+We also ap-ply dropout with a probability of 0.4 at the word em-bedding layer during training.
+Since the structure ofthe neural network is dynamically determined, wedo not use mini-batches.
+The neural networks areimplemented using the CNN library,1 and the CCGparser is implemented using the EasySRL library.2The code is available online.36.3 BaselinesWe compare our parser to several baseline CCGparsers: the C&C parser (Clark and Curran, 2007);C&C + RNN (Xu et al, 2015), which is the C&Cparser with an RNN supertagger; Xu (2016), aLSTM shift-reduce parser; Vaswani et al (2016)who combine a bidirectional LSTM supertaggerwith a beam search parser using global features(Clark et al, 2015); and supertag-factored (Lewiset al, 2016), which uses deterministic A?
+decodingand an LSTM supertagging model.6.4 Parsing ResultsTable 2 shows parsing results on the test set.
+Ourglobal features let us improve over the supertag-factored model by 0.6 F1.
+Vaswani et al (2016) also1https://github.com/clab/cnn2https://github.com/mikelewis0/EasySRL3https://github.com/kentonl/neuralccgModel Dev F1 Optimal ExploredSupertag-factored 87.5 100.0% 402.5?
+dynamic program 87.5 97.1% 17119.6Span-factored 87.9 99.9% 176.5?
+dynamic program 87.8 99.5% 578.5Global A?
+88.4 99.8% 309.6?
+lexical inputs 87.8 99.6% 538.5?
+lexical context 88.1 99.4% 610.5Table 3: Ablations of our full model (Global A?)
+on the de-velopment set.
+Explored refers to the size of the parse forest.Results show the importance of global features and lexical in-formation in context.use global features, but our optimal decoding leadsto an improvement of 0.4 F1.Although we observed an overall improvement inparsing performance, the supertag accuracy was notsignificantly different after applying the parser.On the test data, the parser finds the optimal parsefor 99.9% sentences before reaching our computa-tional limits.
+On average, we parse 27.1 sentencesper second,4 while exploring only 190.2 subtrees.6.5 Model AblationsWe ablate various parts of the model to determinehow they contribute to the accuracy and efficiency ofthe parser, as shown in Table 3.
+For each model, thecomparisons include the average number of parsesexplored and the percentage of sentences for whichan optimal parse can be found without backing off.Structure ablation We first ablate the globalscore, sglobal(y), from our model, thus relying en-tirely on the local supertag-factors that do not explic-itly model the parse structure.
+This ablation allowsdynamic programming and is equivalent to the back-off model (supertag-factored in Table 3).
+Surpris-ingly, even in the exponentially larger search space,the global model explores fewer nodes than thesupertag-factored model?showing that the globalmodel efficiently prune large parts of the searchspace.
+This effect is even larger when not using dy-namic programming in the supertag-factored model.Global structure ablation To examine the impor-tance of global features, we ablate the recursive hid-den representation (span-factored in Table 3).
+Themodel in this ablation decomposes over labels for4We use a single 3.5GHz CPU core.2372U.S.
+small business is oneN/N (N/N)\(N/N) N (Sdcl\NP )/NP N<N/N NP> >N Sdcl\NPNP<SdclFigure 4: Example of an incorrect partial parse that appearssyntactically plausible in isolation.
+The full sentence is ?Indeed,for many Japanese trading companies, the favorite U.S. smallbusiness is one whose research and development can be milkedfor future Japanese use.?
+The global model heavily penalizesthis garden path, thereby avoiding regions that lead to dead endsand allowing the global model to explore fewer nodes.spans, as in Durrett and Klein (2015).
+In this model,the recursive unit uses, instead of latent states fromits children, the latent states of the backward LSTMat the start of the span and the latent states of the for-ward LSTM at the end of the span.
+Therefore, thismodel encodes the lexical information available inthe full model but does not encode the parse struc-ture beyond the local rule production.
+While the dy-namic program allows this model to find the optimalparse with fewer explorations, the lack of global fea-tures significantly hurts its parsing accuracy.Lexical ablation We also show lexical ablationsinstead of structural ablations.
+We remove the bidi-rectional LSTM at the leaves, thus delexicalizing theglobal model.
+This ablation degrades both accuracyand efficiency, showing that the model uses lexicalinformation to discriminate between parses.To understand the importance of contextual infor-mation, we also perform a partial lexical ablation byusing word embeddings at the leaves instead of thebidirectional LSTM, thus propagating only lexicalinformation from within the span of each parse.
+Thedegradation in F1 is about half of the degradationfrom the full lexical ablation, suggesting that a sig-nificant portion of the lexical cues comes from thecontext of a parse.
+Figure 4 illustrates the impor-tance of context with an incorrect partial parse thatappears syntactically plausible in isolation.
+Thesebottom-up garden paths are typically problematicfor parsers, since their incompatibility with the re-maining sentence is difficult to recognize until laterstages of decoding.
+However, our global modellearns to heavily penalize these garden paths by us-ing the context provided by the bidirectional LSTMUpdate Dev F1 Optimal ExploredGreedy 87.9 99.2% 2313.8Max-violation 88.1 99.9% 217.3All-violations 88.4 99.8% 309.6Table 4: Parsing results trained with different update methods.Our system uses all-violations updates and is the most accurate.1 2 3838485868788Training epochF1%All violationsGreedyMax violationFigure 5: Learning curves for the first 3 training epochs on thedevelopment set when training with different updates strategies.The all-violations update shows the fastest convergence.and avoid paths that lead to dead ends or bad regionsof the search space.6.6 Update ComparisonsTable 4 compares the different violation-basedlearning objectives, as discussed in Section 5.
+Ournovel all-violation updates outperform the alterna-tives.
+We attribute this improvement to the robust-ness over poor search spaces, which the greedy up-date lacks, and the incentive to explore good parsesearly, which the max-violation update lacks.
+Learn-ing curves in Figure 5 show that the all-violationsupdate also converges more quickly.6.7 Decoder ComparisonsLastly, to show that our parser is both more accurateand efficient than other decoding methods, we de-code our full model using best-first search, rerank-ing, and beam search.
+Table 5 shows the F1 scoreswith and without the backoff model, the portion ofthe sentences that each decoder is able to parse, andthe time spent decoding relative to the A?
+parser.In the best-first search comparison, we do not in-clude the informative A?
+heuristic, and the parsercompletes very few parses before reaching computa-tional limits?showing the importance of heuristicsin large search spaces.
+In the reranking comparison,2373Decoder Dev F1 Dev F1 Relative?
+backoff TimeGlobal A?
+88.4 88.4 (99.8%) 1XBest-first 87.5 2.8 (6.7%) 293.4X10-best reranking 87.9 87.9 (99.7%) 8.5X100-best reranking 88.2 88.0 (99.4%) 72.3X2-best beam search 88.2 85.7 (94.0%) 2.0X4-best beam search 88.3 88.1 (99.2%) 6.7X8-best beam search 88.2 86.8 (98.1%) 26.3XTable 5: Comparison of various decoders using the same modelfrom our full system (Global A?).
+We report F1 with and with-out the backoff model, the percentage of sentences that the de-coder can parse, and the time spent decoding relative to A?.we obtain n-best lists from the backoff model andrerank each result with the full model.
+In the beamsearch comparison, we use the approach from Clarket al (2015) which greedily finds the top-n parsesfor each span in a bottom-up manner.
+Results indi-cate that both approximate methods are less accurateand slower than A?.7 Related WorkMany structured prediction problems are basedaround dynamic programs, which are incompatiblewith recursive neural networks because of their real-valued latent variables.
+Some recent models haveneural factors (Durrett and Klein, 2015), but thesecannot condition on global parse structure, makingthem less expressive.
+Our search explores fewernodes than dynamic programs, despite an exponen-tially larger search space, by allowing the recursiveneural network to guide the search.Previous work on structured prediction with re-cursive or recurrent neural models has used beamsearch?e.g.
+in shift reduce parsing (Dyer et al,2015), string-to-tree transduction (Vinyals et al,2015), or reranking (Socher et al, 2013)?at the costof potentially recovering suboptimal solutions.
+Forour model, beam search is both less efficient andless accurate than optimal A?
+decoding.
+In thenon-neural setting, Zhang et al (2014) showed thatglobal features with greedy inference can improvedependency parsing.
+The CCG beam search parserof Clark et al (2015), most related to this work, alsouses global features.
+By using neural representationsand exact search, we improve over their results.A?
+parsing has been previously proposed for lo-cally factored models (Klein and Manning, 2003;Pauls and Klein, 2009; Auli and Lopez, 2011; Lewisand Steedman, 2014).
+We generalize these methodsto enable global features.
+Vaswani and Sagae (2016)apply best-first search to an unlabeled shift-reduceparser.
+Their use of error states is related to ourglobal model that penalizes local scores.
+We demon-strated that best-first search is infeasible in our set-ting, due to the larger search space.A close integration of learning and decoding hasbeen shown to be beneficial for structured predic-tion.
+SEARN (Daume?
+III et al, 2009) and DAG-GER (Ross et al, 2011) learn greedy policies to pre-dict structure by sampling classification examplesover actions from single states.
+We similarly gen-erate classification examples over hyperedges in theagenda, but actions from multiple states competeagainst each other.
+Other learning objectives that up-date parameters based on a beam or agenda of par-tial structures have also been proposed (Collins andRoark, 2004; Daume?
+III and Marcu, 2005; Huang etal., 2012; Andor et al, 2016; Wiseman and Rush,2016), but the impact of search errors is unclear.8 ConclusionWe have shown for the first time that a parsing modelwith global features can be decoded with optimal-ity guarantees.
+This enables the use of powerful re-cursive neural networks for parsing without resort-ing to approximate decoding methods.
+Experimentsshow that this approach is effective for CCG pars-ing, resulting in a new state-of-the-art parser.
+In fu-ture work, we will apply our approach to other struc-tured prediction tasks, where neural networks?andgreedy beam search?have become ubiquitous.AcknowledgementsWe thank Luheng He, Julian Michael, and MarkYatskar for valuable discussion, and the anonymousreviewers for feedback and comments.This work was supported by the NSF (IIS-1252835, IIS-1562364), DARPA under the DEFTprogram through the AFRL (FA8750-13-2-0019),an Allen Distinguished Investigator Award, and agift from Google.2374ReferencesDaniel Andor, Chris Alberti, David Weiss, AliakseiSeveryn, Alessandro Presta, Kuzman Ganchev, SlavPetrov, and Michael Collins.
+2016.
+Globally Normal-ized Transition-Based Neural Networks.
+In Proceed-ings of the 54th Annual Meeting of the Association forComputational Linguistics, pages 2442?2452.Michael Auli and Adam Lopez.
+2011.
+Efficient CCGparsing: A* versus Adaptive Supertagging.
+In Pro-ceedings of the 49th Annual Meeting of the Associa-tion for Computational Linguistics: Human LanguageTechnologies-Volume 1.Stephen Clark and James R Curran.
+2007.
+Wide-coverage Efficient Statistical Parsing with CCG andLog-Linear Models.
+Computational Linguistics,33(4).Stephen Clark, Darren Foong, Luana Bulat, and WenduanXu.
+2015.
+The Java Version of the C&C Parser: Ver-sion 0.95.
+Technical report, University of CambridgeComputer Laboratory, August.Michael Collins and Brian Roark.
+2004.
+IncrementalParsing with the Perceptron Algorithm.
+In Proceed-ings of the 42nd Annual Meeting on Association forComputational Linguistics, page 111.
+Association forComputational Linguistics.Michael Collins.
+2002.
+Discriminative Training Meth-ods for Hidden Markov Models: Theory and Experi-ments with Perceptron Algorithms.
+In Proceedings ofthe ACL-02 conference on Empirical methods in nat-ural language processing-Volume 10.
+Association forComputational Linguistics.Hal Daume?
+III and Daniel Marcu.
+2005.
+Learningas search optimization: Approximate Large MarginMethods for Structured Prediction.
+In Proceedings ofthe 22nd international conference on Machine learn-ing, pages 169?176.
+ACM.Hal Daume?
+III, John Langford, and Daniel Marcu.
+2009.Search-based structured prediction.
+Machine learn-ing, 75(3):297?325.Greg Durrett and Dan Klein.
+2015.
+Neural CRF Parsing.In Proceedings of the Association for ComputationalLinguistics.Chris Dyer, Miguel Ballesteros, Wang Ling, AustinMatthews, and Noah A. Smith.
+2015.
+Transition-based Dependency Parsing with Stack Long Short-Term Memory.
+In Proc.
+ACL.Sepp Hochreiter and Ju?rgen Schmidhuber.
+1997.
+LongShort-term Memory.
+Neural computation, 9(8):1735?1780.Julia Hockenmaier and Mark Steedman.
+2007.
+CCG-bank: a Corpus of CCG derivations and DependencyStructures Extracted from the Penn Treebank.
+Com-putational Linguistics, 33(3).Liang Huang, Suphan Fayong, and Yang Guo.
+2012.Structured Perceptron with Inexact Search.
+In Pro-ceedings of the 2012 Conference of the North Ameri-can Chapter of the Association for Computational Lin-guistics: Human Language Technologies, pages 142?151.
+Association for Computational Linguistics.Diederik Kingma and Jimmy Ba.
+2014.
+Adam: AMethod for Stochastic Optimization.
+arXiv preprintarXiv:1412.6980.Dan Klein and Christopher D Manning.
+2003.
+A* Pars-ing: Fast Exact Viterbi Parse Selection.
+In Proceed-ings of the 2003 Conference of the North AmericanChapter of the Association for Computational Linguis-tics on Human Language Technology-Volume 1.Mike Lewis and Mark Steedman.
+2014.
+A* CCG Pars-ing with a Supertag-factored Model.
+In Proceedings ofthe 2014 Conference on Empirical Methods in NaturalLanguage Processing.Mike Lewis, Luheng He, and Luke Zettlemoyer.
+2015.Joint A* CCG Parsing and Semantic Role Labelling.In Empirical Methods in Natural Language Process-ing.Mike Lewis, Kenton Lee, and Luke Zettlemoyer.
+2016.LSTM CCG Parsing.
+In Proceedings of the 15th An-nual Conference of the North American Chapter of theAssociation for Computational Linguistics.Adam Pauls and Dan Klein.
+2009.
+K-best A* Pars-ing.
+In Proceedings of the Joint Conference of the 47thAnnual Meeting of the ACL and the 4th InternationalJoint Conference on Natural Language Processing ofthe AFNLP: Volume 2-Volume 2, pages 958?966.
+As-sociation for Computational Linguistics.Ste?phane Ross, Geoffrey J. Gordon, and Drew Bagnell.2011.
+A Reduction of Imitation Learning and Struc-tured Prediction to No-Regret Online Learning.
+InProceedings of the Fourteenth International Confer-ence on Artificial Intelligence and Statistics, AISTATS2011, Fort Lauderdale, USA, April 11-13, 2011, pages627?635.Richard Socher, John Bauer, Christopher D Manning, andAndrew Y Ng.
+2013.
+Parsing with CompositionalVector Grammars.
+In Proceedings of the ACL confer-ence.Kai Sheng Tai, Richard Socher, and Christopher D Man-ning.
+2015.
+Improved Semantic Representations fromTree-structured Long Short-term Memory Networks.arXiv preprint arXiv:1503.00075.Joseph Turian, Lev Ratinov, and Yoshua Bengio.
+2010.Word representations: A Simple and General Methodfor Semi-supervised Learning.
+In Proceedings of the48th Annual Meeting of the Association for Computa-tional Linguistics.Ashish Vaswani and Kenji Sagae.
+2016.
+Efficient Struc-tured Inference for Transition-Based Parsing with2375Neural Networks and Error States.
+Transactions of theAssociation for Computational Linguistics.Ashish Vaswani, Yonatan Bisk, Kenji Sagae, and RyanMusa.
+2016.
+Supertagging With LSTMs.
+In Pro-ceedings of the 15th Annual Conference of the NorthAmerican Chapter of the Association for Computa-tional Linguistics.Oriol Vinyals, Lukasz Kaiser, Terry Koo, Slav Petrov,Ilya Sutskever, and Geoffrey Hinton.
+2015.
+Gram-mar as a Foreign Language.
+In Advances in NeuralInformation Processing Systems.Sam Wiseman and Alexander M Rush.
+2016.
+Sequence-to-Sequence Learning as Beam-Search Optimization.In Proceedings of EMNLP.Wenduan Xu, Michael Auli, and Stephen Clark.
+2015.CCG Supertagging with a Recurrent Neural Network.Volume 2: Short Papers, page 250.Wenduan Xu.
+2016.
+LSTM Shift-Reduce CCG Parsing.
+In Empirical Methods in Natural Language Process-ing.Yuan Zhang, Tao Lei, Regina Barzilay, and TommiJaakkola.
+2014.
+Greed is Good if Randomized: NewInference for Dependency Parsing.
+In Proceedings ofEMNLP.2376

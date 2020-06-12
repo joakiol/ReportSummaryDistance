@@ -1,0 +1,84 @@
+Proceedings of the 8th International Workshop on Semantic Evaluation (SemEval 2014), pages 556?559,Dublin, Ireland, August 23-24, 2014.ShrdLite: Semantic Parsing Using a Handmade GrammarPeter Ljungl?fDepartment of Computer Science and EngineeringUniversity of Gothenburg and Chalmers University of TechnologyGothenburg, Swedenpeter.ljunglof@cse.gu.seAbstractThis paper describes my approach forparsing robot commands, which wastask 6 at SemEval 2014.
+My solutionis to manually create a compact unifica-tion grammar.
+The grammar is highly am-biguous, and relies heavily on filtering theparse results by checking their consistencywith the current world.The grammar is small, consisting of notmore than 25 grammatical and 60 lexicalrules.
+The parser uses simple error correc-tion together with a straightforward itera-tive deepening search.
+Nevertheless, withthese very basic algorithms, the systemstill managed to get 86.1% correctness onthe evaluation data.
+Even more interestingis that by making the parser slightly morerobust, the accuracy of the system risesto 93.5%, and by adding one single wordto the lexicon, the accuracy is boosted to98.0%.1 IntroductionSemEval 2014, task 6, was about parsing com-mands to a robot operating in a blocks world.
+Thegoal is to parse utterances in natural language intocommands in a formal language, the Robot Con-trol Language (RCL).
+As a guide the system canuse a spatial planner which can tell whether anRCL command is meaningful in a given blocksworld.The utterances are taken from the Robot Com-mands Treebank (Dukes, 2013), which pairs 3409sentences with semantic annotations consisting ofan RCL command together with a description ofThis work is licensed under a Creative Commons Attribu-tion 4.0 International Licence.
+Page numbers and proceed-ings footer are added by the organisers.
+Licence details:http://creativecommons.org/licenses/by/4.0/a world where the command is meaningful.
+Thecorpus was divided into 2500 training sentencesand 909 evaluation sentences.The system that is described in this paper, to-gether with the evaluation data, is available onlinefrom GitHub:https://github.com/heatherleaf/semeval-2014-task62 System DescriptionThe Shrdlite system is based on a small unificationgrammar, together with a naive robust parser im-plemented using iterative deepening.
+After pars-ing, the resulting parse trees are modified accord-ing to six extra-grammatical semantic rules.The grammar and the semantic rules were hand-crafted using manual analysis of the available2500 training sentences, and an incremental anditerative process to select and fine-tune the gram-mar.
+The total amount of work for creating thegrammar consisted of about 3?4 days for one per-son.
+This excludes programming the robust parserand the rest of the system, which took another 2?3days.I did not have any access to the 909 evalua-tion sentences while developing the grammar orthe other parts of the system.2.1 GrammarThe grammar is a Prolog DCG unification gram-mar (Pereira and Warren, 1980) which builds a se-mantic parse tree during parsing.
+The core gram-mar is shown in figure 1.
+For presentation pur-poses, the DCG arguments (including the semanticparse trees) are left out of the figure.
+The lexiconconsists of ca 150 surface words (or multi-wordunits) divided into 23 lexical categories.
+The lex-ical categories are the lowercase italic symbols inthe core grammar.556Main ??
+Event ?periodsEvent ??
+take-verb Entity take-suffix| drop-verb Entity drop-suffix| move-verb Entity ?commas move-suffix Destination| take-verb Entity take-suffix and-then move-verb RefEntity move-suffix DestinationRefEntity ??
+?reference-pronounDestination ??
+SpatialRelationSpatialRelation ??
+(Measure | entity-relation | Measure entity-relation) EntityRelativeClause ??
+?commas relative-pronoun SpatialRelationMeasure ??
+EntityEntity ??
+?determiner BasicEntityBasicEntity ??
+(cardinal | indicator | color | cube-group-indicator) BasicEntity| (type | one) ?RelativeClause| ?
+(its | the) region-indicator ?of-boardFigure 1: The core grammar.
+Lowercase italic symbols are lexicon entries, and a question mark indicatesthat the following symbol is optional.
+DCG arguments (semantic trees and syntactic coordination) areleft out for presentation reasons.2.2 Semantic Modifications After ParsingAfter parsing, each resulting semantic parse treeis modified according to the following rules.
+Mostof these rules should be possible to implement asgrammar rules, but I felt that this would make thegrammar unnecessarily complicated.?
+If a color is specified before an indicator,change the order between them.?
+If an entity of type CUBE is described usingtwo colours, its type is changed to CUBE-GROUP.?
+Relation words such as ?above?, ?oppo-site?, ?over?, etc., correspond to the relationWITHIN() if the entity is of type CORNER orREGION; for all other entities the relation willbe ABOVE().?
+The relation FRONT() is changed to FOR-WARD() if the entity is of type TILE.?
+Add a reference id to the subject of a TAKE-AND-DROP command sequence, unless it al-ready has a reference id.?
+If the destination of a move commandis of type TYPE-REFERENCE or TYPE-REFERENCE-GROUP, add a reference id tothe subject; unless the subject is of typePRISM and it has a spatial relation, in whichcase the reference id is added to its spatial re-lation instead.2.3 Robust ParsingThe parser is a standard Prolog recursive-descentparser, augmented with simple support for han-dling robustness.
+The algorithm is shown in fig-ure 2.2.3.1 Misspellings and Junk WordsThe parser tries to compensate for misspellingsand junk words.
+Any word can be recognizedas a misspelled word, penalized using the Leven-shtein edit distance (Levenshtein, 1966), or it canbe skipped as a junk word with a fixed penalty.1The parser first tries to find an exact match ofthe sentence in the grammar, then it gradually al-lows higher penalties until the sentence is parsed.This is done using iterative deepening on the editpenalty of the sentence, until it reaches the maxi-mum edit penalty ?
+if the sentence still cannot beparsed, it fails.
+In the original evaluation I used amaximum edit penalty of 5, but by just increasingthis penalty, the accuracy was boosted consider-ably as discussed in sections 2.4 and 3.1.2.3.2 Filtering Through the Spatial PlannerThe parser uses the spatial planner that was dis-tributed together with the task as a black box.
+Ittakes a semantic parse tree and the current worldconfiguration, and decides if the tree is meaningfulin the given world.When the sentence is recognized, all its parsetrees are filtered through the spatial planner.
+If1The penalty of skipping over a word is 3 if the word isalready in the lexicon, and 2 otherwise.557function robust-parse(sentence, world):for penalty in 0. .
+.
+5:trees = { t?| t ?
+parse-dcg(sentence, edit-penalty=penalty),t?= modify-tree(t),spatial-planner(t?, world) = MEANINGFUL }if trees 6= /0:return min(trees, key=treesize)return FAILUREFigure 2: The robust parsing algorithm.none of the trees are meaningful in the world, theparser tries to parse the sentence with a higher editpenalty.2.3.3 Selecting the Best TreeIf there is more than one possible semantic tree,the system returns the tree with the smallest num-ber of nodes.2.4 Minor Modifications After EvaluationAs explained in section 3.1, the error analysis ofthe final evaluation revealed one construction andone lexical item that did not occur in the trainingcorpus:?
+Utterances can start with 2?3 periods.
+Thereason why this was not caught by the robustparser is that each of these periods are consid-ered a word of its own, and as mentioned insection 2.3.1, the penalty for skipping a lex-icon word is 3 which means that the penaltyfor parsing a sentence with 2?3 initial periodsis 6 or 9.
+Unfortunately I had chosen a maxi-mum penalty of 5 which meant that the orig-inal evaluation missed all these sentences.By just increasing the maximum penaltyfrom 5 to 9, the accuracy increased from86.1% to 93.5%.?
+The word ?cell?
+occurs in the evaluationdata as a synonym for the entity typeTILE, in addition to the existing tile words?square?, ?grid?, ?space?, etc.
+Unfortu-nately, the parser tries to correct ?cell?
+intothe Levenshtein-similar ?cube?, giving thewrong semantics.By adding ?cell?
+to the lexicon, the accuracyincreased further from 93.5% to 98.0%.The results of these minimal modifications aresubstantial, and are discussed further in sec-tion 3.2.3 EvaluationThe system was evaluated on 909 sentences fromthe treebank, and I only tested for exact matches.The result of the initial evaluation was that 86% ofthe sentences returned a correct result, when usingthe spatial planner as a guide for selecting parses.Without the planner, the accuracy was only 51%.The results are shown in the top rows in tables 1and 2.The grammar is ambiguous and the system re-lies heavily on the spatial planner to filter out can-didates.
+Without the planner, 42% of the utter-ances are ambiguous returning between 2 and 18trees, but with the planner, only 4 utterances areambiguous (i.e., 0.4%).3.1 Error AnalysisAs already mentioned in section 2.4, almost all ofthe errors that the system makes are of two formsthat are very easy to correct:?
+None of the training sentences start with a se-quence of periods, but 58 of the evaluationsentences do.
+This was solved by increasingthe maximum edit penalty to 9.?
+The word ?cell?
+does not occur in the train-ing sentences, but in does appear in 45 of theevaluation sentences.
+To solve this error I justadded that word to the lexicon.3.2 Evaluation ResultsAs already mentioned, the accuracy of the initialgrammar was 86.1% with the spatial planner.
+Thetwo minor modifications described in section 2.4improve the results significantly, as can be seenin table 1.
+Increasing the maximum edit penaltysolves 67 of the 126 failing sentences, and addingthe word ?cell?
+solves 41 of the remaining sen-tences.
+These two improvements together solve108 sentences, leaving only 18 failing sentences.558Max.
+Correct Incorrectpenalty Unique Ambiguous Total Ambiguous Miss Fail TotalOriginal grammar 5 782 1 86.1% 0 19 107 13.9%Original grammar 9 845 5 93.5% 0 50 9 6.5%Adding ?cell?
+9 886 5 98.0% 0 10 8 2.0%Table 1: Evaluation results with the spatial planner.Max.
+Correct Incorrectpenalty Unique Ambiguous Total Ambiguous Miss Fail TotalOriginal grammar 5 450 18 51.5% 315 64 62 48.5%Original grammar 9 493 20 56.4% 330 65 1 43.6%Adding ?cell?
+9 498 24 57.4% 366 20 1 42.6%Table 2: Evaluation results without the spatial planner.The final accuracy was therefore boosted to an im-pressive 98.0%.The columns in the result tables are as follows:Unique are the number of sentences for which thesystem returns one single tree which is correct.Ambiguous are the number of sentences where theparser returns several trees, and the correct tree isamong them: if the tree that the system selects(i.e., the smallest tree) is correct, it is countedas a correct ambiguous sentence, otherwise it iscounted as incorrect.
+Miss are the number of sen-tences where all the returned trees are incorrect,and Fail are the sentences for which the systemcould not find a tree at all.Table 2 shows that the modifications also im-prove the accuracy when the spatial planner isnot used, but the improvement is not as impres-sive.
+The reason for this is that many of the failedsentences become ambiguous, and since the plan-ner cannot be used for disambiguation, there isstill a risk that the returned tree is not the cor-rect one.
+The number of sentences for which thesystem returns the correct tree somewhere amongthe results is the sum of all unique and ambigu-ous sentences, which amounts to 450+18+315 =783 (i.e., 86.1%) for the original grammar and498+24+366 = 888 (i.e., 97.7%) for the updatedgrammar.
+Note that these are almost the same re-sults as in table 1, which is consistent with the factthat the system uses the planner to filter out incor-rect interpretations.4 DiscussionIn this paper I have showed that a traditionalsymbol-based grammatical approach can be asgood as, or even superior to, a data-based machinelearning approach, in specific domains where thelanguage and the possible actions are restricted.The grammar-based system gets an accuracy of86.1% on the evaluation data.
+By increasing thepenalty threshold the accuracy rises to 93.5%, andwith a single addition to the lexicon it reaches98.0%.This suggests that grammar-based approachescan be useful when developing interactive systemsfor limited domains.
+In particular it seems thata grammar-based system could be well suited forsystems that are built using an iterative and incre-mental development process (Larman and Basili,2003), where the system is updated frequently andcontinuously evaluated by users.ReferencesKais Dukes.
+2013.
+Semantic annotation of robotic spa-tial commands.
+In Proceedings of LTC?13: 6th Lan-guage and Technology Conference, Pozna?n, Poland.Craig Larman and Victor R. Basili.
+2003.
+Iterativeand incremental development: A brief history.
+Com-puter, 36(6):47?56.Vladimir I. Levenshtein.
+1966.
+Binary codes capa-ble of correcting deletions, insertions, and reversals.Soviet Physics Doklady, 10(8):707?710.Fernando C. N. Pereira and David H. D. Warren.
+1980.Definie clause grammars for language analysis.
+Ar-tificial Intelligence, 13:231?278.559

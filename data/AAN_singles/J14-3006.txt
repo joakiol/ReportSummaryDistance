@@ -1,0 +1,721 @@
+Similarity-Driven Semantic Role Inductionvia Graph PartitioningJoel Lang?University of GenevaMirella Lapata?
+?University of EdinburghAs in many natural language processing tasks, data-driven models based on supervised learninghave become the method of choice for semantic role labeling.
+These models are guaranteed toperform well when given sufficient amount of labeled training data.
+Producing this data iscostly and time-consuming, however, thus raising the question of whether unsupervised methodsoffer a viable alternative.
+The working hypothesis of this article is that semantic roles canbe induced without human supervision from a corpus of syntactically parsed sentences basedon three linguistic principles: (1) arguments in the same syntactic position (within a specificlinking) bear the same semantic role, (2) arguments within a clause bear a unique role, and(3) clusters representing the same semantic role should be more or less lexically and distribu-tionally equivalent.
+We present a method that implements these principles and formalizes thetask as a graph partitioning problem, whereby argument instances of a verb are represented asvertices in a graph whose edges express similarities between these instances.
+The graph consistsof multiple edge layers, each one capturing a different aspect of argument-instance similarity,and we develop extensions of standard clustering algorithms for partitioning such multi-layergraphs.
+Experiments for English and German demonstrate that our approach is able to inducesemantic role clusters that are consistently better than a strong baseline and are competitive withthe state of the art.1.
+IntroductionRecent years have seen increased interest in the shallow semantic analysis of naturallanguage text.
+The term is often used to describe the automatic identification andlabeling of the semantic roles conveyed by sentential constituents (Gildea and Jurafsky2002).
+Semantic roles describe the relations that hold between a predicate and itsarguments (e.g., ?who?
+did ?what?
+to ?whom?, ?when?, ?where?, and ?how?
+)abstracting over surface syntactic configurations.
+This type of semantic information?
+Department of Computer Science, University of Geneva, 7 route de Drize, 1227 Carouge, Switzerland,E-mail: Joel.Lang@unige.ch.??
+Institute for Language, Cognition and Computation, School of Informatics, University of Edinburgh,10 Crichton Street, EH8 9AB, E-mail: mlap@inf.ed.ac.uk.Submission received: 26 December 2012; revised version received: 19 September 2013; accepted forpublication: 20 November 2013.doi:10.1162/COLI a 00195?
+2014 Association for Computational LinguisticsComputational Linguistics Volume 40, Number 3is shallow but relatively straightforward to infer automatically and useful for thedevelopment of broad-coverage, domain-independent language understandingsystems.
+Indeed, the analysis produced by existing semantic role labelers has beenshown to benefit a wide spectrum of applications ranging from information extraction(Surdeanu et al.
+2003) and question answering (Shen and Lapata 2007), to machinetranslation (Wu and Fung 2009) and summarization (Melli et al.
+2005).In the example sentences below, window occupies different syntactic positions?it isthe object of broke in sentences (1a,b), and the subject in (1c).
+In all instances, it bears thesame semantic role, that is, the patient or physical object affected by the breaking event.Analogously, ball is the instrument of break both when realized as a prepositional phrasein (1a) and as a subject in (1b).
+(1) a.
+[Jim]A0 broke the [window]A1 with a [ball]A2.b.
+The [ball]A2 broke the [window]A1.c.
+The [window]A1 broke [last night]TMP.Also notice that all three instances of break in Example (1) have apparently similarsurface syntax with a subject and a noun directly following the predicate.
+However,in sentence (1a) the subject of break expresses the agent role, in (1b) it expresses theinstrument role, and in (1c) the patient role.The examples illustrate the fact that predicates can license several alternate map-pings or linkings between their semantic roles and their syntactic realization.
+Pairs oflinkings allowed by a single predicate are often called diathesis alternations (Levin1993).
+Sentence pair (1a,b) is an example of the instrument subject alternation, andpair (1b,c) illustrates the causative alternation.
+Resolving the mapping between thesyntactic dependents of a predicate (e.g., subject, object) and the semantic roles that theyeach express is one of the major challenges faced by semantic role labelers.The semantic roles in the examples are labeled in the style of PropBank (Palmer,Gildea, and Kingsbury 2005), a broad-coverage human-annotated corpus of semanticroles and their syntactic realizations.
+Under the PropBank annotation framework eachpredicate is associated with a set of core roles (named A0, A1, A2, and so on) whoseinterpretations are specific to that predicate1 and a set of adjunct roles such as location ortime whose interpretation is common across predicates (e.g., last night in sentence (1c)).The availability of PropBank and related resources (e.g., FrameNet; Ruppenhofer et al.2006) has sparked the development of a variety semantic role labeling systems, mostof which conceptualize the task as a supervised learning problem and rely on role-annotated data for model training.
+Most of these systems implement a two-stage ar-chitecture consisting of argument identification (determining the arguments of theverbal predicate) and argument classification (labeling these arguments with semanticroles).
+Current approaches deliver reasonably good performance?a system will recallaround 81% of the arguments correctly and 95% of those will be assigned a correctsemantic role (see Ma`rquez et al.
+[2008] for details), although only on languages anddomains for which large amounts of role-annotated training data are available.Unfortunately, the reliance on labeled data, which is both difficult and expensiveto produce, presents a major obstacle to the widespread application of semantic rolelabeling across different languages and text genres.
+Although corpora with semantic1 More precisely, A0 and A1 have a common interpretation across predicates as proto-agent and proto-patientin the sense of Dowty (1991).634Lang and Lapata Similarity-Driven Semantic Role Induction via Graph Partitioningrole annotations exist nowadays in other languages (e.g., German, Spanish, Catalan,Chinese, Korean), they tend to be smaller than their English equivalents and of limitedvalue for modeling purposes.
+Even within English, a language for which two majorannotated corpora are available, systems trained on PropBank demonstrate a markeddecrease in performance (approximately by 10%) when tested on out-of-domain data(Pradhan, Ward, and Martin 2008).
+The data requirements for supervised systems andthe current paucity of such data has given impetus to the development of unsupervisedmethods that learn from unlabeled data.
+If successful, unsupervised approaches couldlead to significant resource savings and the development of semantic role labelersthat require less engineering effort.
+Besides being interesting on their own right, froma theoretical and linguistic perspective, unsupervised methods can provide valuablefeatures for downstream (supervised) processing and serve as a preprocessing step forapplications that require broad coverage understanding.
+In this article we study thepotential of unsupervised methods for semantic role labeling.
+As in the supervised case,we decompose the problem into an argument identification step and an argument clas-sification step.
+Our work primarily focuses on argument classification, which we termrole induction, because there is no predefined set of semantic roles in the unsupervisedcase, and these must be induced from data.
+The goal is to assign argument instances toclusters such that each cluster contains arguments corresponding to a specific semanticrole and each role corresponds to exactly one cluster.Unsupervised learning is known to be challenging for many natural languageprocessing problems and role induction is no exception.
+Firstly, it is difficult to definea learning objective function whose optimization will yield an accurate model.
+Thiscontrasts with the supervised setting, where the objective function can directly reflecttraining error (i.e., some estimate of the mismatch between model output and the goldstandard) and the model can be tuned to replicate human output for a given input undermathematical guarantees regarding the accuracy of the trained model.
+Secondly, it isalso more difficult to incorporate rich feature sets into an unsupervised model (Berg-Kirkpatrick et al.
+2010).
+Unless we explicitly know exactly how features interact, morefeatures may not necessarily lead to a more accurate model and may even decreaseperformance.
+In the supervised setting, feature interactions relevant for a particularlearning task can be determined to a large extent automatically and thus a large numberof them can be included even if their significance is not clear a priori.The lack of an extensional definition (in the form of training examples) of the targetconcept makes a strong case for the development of unsupervised methods that useproblem specific prior knowledge.
+The idea is to derive a strong inductive bias (Gordonand Desjardins 1995) based on this prior knowledge that will guide the learning towardsthe correct target concept.
+For semantic role induction, we propose to build on thefollowing linguistic principles:1.
+Semantic roles are unique within a particular frame.2.
+Arguments occurring in a specific syntactic position within a specific linkingall bear the same semantic role.3.
+The (asymptotic) distribution over argument heads is the same for twoclusters that represent the same semantic role.We hypothesize that these three principles are, at least in theory, sufficient forinducing high-quality semantic role clusters.
+A challenge, of course, lies in adequatelyoperationalizing them so that they guide the unsupervised learner towards meaningful635Computational Linguistics Volume 40, Number 3solutions.
+The approach taken in this article translates these principles into estimates ofsimilarity (or dissimilarity) between argument instances and/or clusters of argumentinstances.
+Principle (1) states that argument instances occurring in the same frame(i.e., clause) cannot bear the same semantic role, and are thus dissimilar.
+From Prin-ciple (2) it follows that arguments occurring in the same syntactic position within thesame linking can be considered similar (leaving aside for the moment the difficulty ofrepresenting linkings through syntactic cues observable in a corpus).
+Principle (3) statesthat two clusters of instances containing similar distributions over head words shouldbe considered similar.Based on these similarity estimates we construct a graph whose vertices representargument instances and whose edges express similarities between these instances.
+Thegraphs consist of multiple edge layers, each capturing one particular type of argument-instance similarity.
+For example, one layer will be used to represent whether argumentinstances occur in the same frame, and another layer will represent whether two argu-ments have a similar head word, and so on.
+Given this graph representation of the data,we formalize role induction as the problem of partitioning the graph into clusters of sim-ilar vertices.
+We present two algorithms for partitioning multi-layer graphs, which areadaptations of standard graph partitioning algorithms to the multi-layer setting.
+The al-gorithms differ in the way they exploit the similarity information encoded in the graph.The first one is based on agglomeration, where two clusters containing similar instancesare grouped into a larger cluster.
+The second one is based on propagation, where role-label information is transferred from one cluster to another based on their similarity.To understand how the aforementioned principles might allow us to handle theambiguity stemming from alternate linkings, consider again Example (1).
+The mostimportant thing to note is that, whereas the subject position is ambiguous with respectto the semantic roles it can express (it can be A0, A1, or A2), we can resolve theambiguity by exploiting overt syntactic cues of the underlying linking.
+For example,the predicate break is transitive in sentences (1a) and (1b), and intransitive in sentence(1c).
+Thus, by taking into account the argument?s syntactic position and the predicate?stransitivity, we can guess that the semantic role expressed by the subject in sentence (1c)is different from the roles expressed by the subjects in sentences (1a,b).
+Now considerthe more difficult case of distinguishing between the subjects in sentences (1a) and (1b).One linking cue that could help here is the prepositional phrase in sentence (1a), whichresults in a syntactic frame different from sentence (1b).
+Were the prepositional phraseomitted, we would attempt to disambiguate the linkings by resorting to lexical-semanticcues (e.g., by taking into account whether the subject is animate).
+In sum, if we encodesufficiently many linking cues, then the resulting fine-grained syntactic information willdiscriminate ambiguous semantic roles.
+In cases where syntactic cues are not discerningenough, we can exploit lexical information and group arguments together based ontheir lexical content.The remainder of this article is structured as follows.
+Section 2 provides an overviewof unsupervised methods for semantic role labeling.
+Sections 3 and 4 present the detailsof our method, that is, how the graphs are constructed and partitioned.
+Role inductionexperiments in English and German are described in sections 5 and 6, respectively.Discussion of future work concludes in section 7.2.
+Related WorkThe bulk of previous work on semantic role labeling has focused on supervised methods(Ma`rquez et al.
+2008), although a few semi-supervised and unsupervised approaches636Lang and Lapata Similarity-Driven Semantic Role Induction via Graph Partitioninghave been proposed.
+The majority of semi-supervised models have been developedwithin a framework known as annotation projection.
+The idea is to combine labeledand unlabeled data by projecting annotations from a labeled source sentence ontoan unlabeled target sentence within the same language (Fu?rstenau and Lapata 2009)or across different languages (Pado?
+and Lapata 2009).
+Beyond annotation projection,Gordon and Swanson (2007) propose to increase the coverage of PropBank to unseenverbs by finding syntactically similar (labeled) verbs and using their annotations assurrogate training data.Swier and Stevenson (2004) were the first to introduce an unsupervised se-mantic role labeling system.
+Their algorithm induces role labels following a boot-strapping scheme where the set of labeled instances is iteratively expanded usinga classifier trained on previously labeled instances.
+Their method starts with a dataset containing no role annotations at all, but crucially relies on VerbNet (Kipper,Dang, and Palmer 2000) for identifying the arguments of predicates and makinginitial role assignments.
+VerbNet is a manually constructed lexicon of verb classes,each of which is explicitly associated with argument realization and semantic rolespecifications.In this article we will not assume the availability of any role-semantic resources,although we do assume that sentences are syntactically analyzed.
+There have beentwo main approaches to role induction from parsed data.
+Under the first approach,semantic roles are modeled as latent variables in a (directed) graphical model thatrelates a verb, its semantic roles, and their possible syntactic realizations (Grenagerand Manning 2006).
+Role induction here corresponds to inferring the state of thelatent variables representing the semantic roles of arguments.
+Following up on thiswork, Lang and Lapata (2010) reformulate role induction as the process of detectingalternations and finding a canonical syntactic form for them.
+Verbal arguments arethen assigned roles, according to their position in this canonical form, because eachposition references a specific role.
+Their model extends the logistic classifier withhidden variables and is trained in a manner that takes advantage of the close re-lationship between syntactic functions and semantic roles.
+More recently, Garg andHenderson (2012) extend the latent-variable approach by modeling the sequential orderof roles.The second approach is similarity-driven and based on clustering.
+Lang and Lapata(2011a) propose an algorithm that first splits the set of all argument instances of a verbaccording to their syntactic position within a particular linking and then iterativelymerges clusters.
+A different clusstering algorithm is adopted in Lang and Lapata(2011b).
+Specifically, they induce semantic roles via graph partitioning: Each vertexin the graph corresponds to an argument instance and edges represent a heuristicallydefined measure of their lexical and syntactic similarity.
+The similarity-driven approachhas been recently adopted by Titov and Klementiev (2012a), who propose a Bayesianclustering algorithm based on the Chinese Restaurant Process.
+In addition, they presenta method that shares linking preferences across verbs using a distance-dependentChinese Restaurant Process prior which encourages similar verbs to have similarlinking preferences.
+Titov and Klementiev (2012b) further introduce the use of multi-lingual data for improving role induction.There has also been work on unsupervised methods for argument identification.Abend, Reichart, and Rappoport (2009) devise a method for recognizing the argumentsof predicates that relies solely on part of speech annotations, whereas Abend andRappoport (2010a) distinguish between core and adjunct roles, using an unsupervisedparser and part-of-speech tagger.
+More generally, shallow semantic representations637Computational Linguistics Volume 40, Number 3induced from syntactic information are commonly used in lexicon acquisition andinformation extraction tasks.
+For example, Lin and Pantel (2001) cluster syntactic re-lations between pairs of words as expressed by parse tree paths into semantic relationsby exploiting lexical distributional similarity.
+Although not compatible with PropBankor semantic roles as such, Poon and Domingos (2009) and Titov and Klementiev (2011)also induce semantic information from dependency parses and apply it to a questionanswering task for the biomedical domain.
+Another example is the work by Gamallo,Agustini, and Lopes (2005), who cluster similar syntactic positions in order to developmodels of selectional preferences to be used for word sense induction and the resolutionof attachment ambiguities.The work described here unifies the two clustering methods presented in Lang andLapata (2011a and 2011b) by reformulating them as graph partitioning algorithms.
+Italso extends them by utilizing multi-layer graphs which separate the similarities be-tween instances on different features (e.g., part-of-speech, argument head) into differentlayers.
+This has the advantage that similarity scores on individual features do not haveto be eagerly combined into a similarity score between instances.
+Instead, one can firstaggregate the similarity scores on each feature layer between two clusters and thencombine them into a similarity score between clusters.
+This is more robust, as the feature-wise similarity scores between clusters can be computed in a principled way and theheuristic combination step is deferred to the end (see Section 4 for details).
+Besidesproviding a general modeling framework for semantic role induction, we discuss indetail the linguistic principles guiding our modeling choices and assess their applica-bility across languages.
+Specifically, we show that the framework presented here (andthe aforementioned principles) can be readily applied to English and German withidentical parametrizations for both languages and without fundamentally changingthe underlying model features, despite major syntactic differences between the twolanguages.3.
+Graph ConstructionWe begin by explaining how we construct a graph that represents verbs and theirarguments.
+Next, we describe how edge weights are computed?these translate tosimilarity scores between argument instances?and then move on to provide the detailsof our graph-partitioning algorithms.As mentioned earlier, we formalize semantic role induction as a clustering problem.Clustering algorithms (see Jain, Murty, and Flynn [1999] for an overview) commonlytake a matrix of pairwise similarity scores between instances as input and producea set of output clusters, often satisfying some explicitly defined optimality criterion.The success or failure of the clustering approach is closely tied to the adequacy ofthe employed similarity function for the task at hand.
+The graph partitioning viewof clustering (see Schaeffer [2007] for a detailed treatment) arises when instances arerepresented as the vertices of a graph and the similarity matrix is interpreted as theweight matrix of the graph.
+For semantic role induction, a straightforward applicationof clustering would be to construct a graph for each verbal predicate such that verticescorrespond to argument instances of the verb and edge weights quantify the similaritybetween these instances.Lang and Lapata (2011b) hand-craft an instance similarity function by taking intoaccount different features such as the argument head or its syntactic position.
+Defin-ing an appropriate instance-wise similarity function is nevertheless problematic as638Lang and Lapata Similarity-Driven Semantic Role Induction via Graph PartitioningFigure 1A multi-layer graph consists of multiple edge layers, one for each similarity feature.
+Multi-layergraph partitioning algorithms exploit this representation by computing separate similarityscores between clusters for each feature layer and then combining them into a single overallsimilarity score.
+This is advantageous over single-layer graph partitioning because it avoidseagerly combining the similarity scores for individual features into a heuristic instance-wisesimilarity score.weights have to be chosen heuristically.
+Instead, we will represent similarities withrespect to different features on separate edge layers in the graph.
+For example, onelayer will represent the similarity between the head words of arguments and anotherone will represent the similarity between pars of speech.
+So, given M features, thegraph will consist of M layers, one for each feature.
+Edge weights on a particularlayer quantify the similarity between the instances with respect to that feature.
+Thisis illustrated in Figure 1 for two argument instances and three features.
+Formally, amulti-layer graph is defined as a pair (V, {E1, .
+.
+.
+, EM}) consisting of vertices V anda set of edge layers Ef for f = 1 .
+.
+.M.
+The set of vertices V = {v1, .
+.
+.
+, vN} consistsof all N argument instances for a particular verb.
+The edge layer Ef for feature fis constructed by connecting all vertex-pairs with non-zero similarity with respectto f :Ef = {(vi, vj) ?
+V ?
+V|?f (vi, vj) = 0}.
+(2)where ?f (vi, vj) is a similarity function for feature f , whose form will be discussed in thenext section.
+Each edge (vi, vj) ?
+Ef in layer f is weighted by ?f (vi, vj).3.1 Feature Similarity FunctionsSimilarities for a specific feature f are measured with a function ?f (vi, vj) which assignsa [?1, 1] value to any pair of instances (vi, vj).
+We assume similarities are measured onan interval scale?that is, while sums, differences, and averages of the values of somesimilarity function ?f express meaningful quantities, products and ratios do not.
+More-over, the values of two distinct similarity functions cannot necessarily be meaningfullycompared without rescaling.
+Positive similarity values indicate that the semantic rolesare likely to be the same, negative values indicate that roles are likely to differ, and zerovalues indicate that there is no evidence for either case.
+The magnitude of ?f expressesthe degree of confidence in the similarity judgment, with extreme values (i.e., ?1 and 1)indicating maximal confidence.In our model, we simply use indicator functions which output either 1 or ?1 ifffeature values are equal and 0 otherwise.
+Specifically, we define four feature similarityfunctions that we derive from the principles discussed in Section 1.
+Our similarityfunctions are based on the following features: the argument head words and their parts639Computational Linguistics Volume 40, Number 3of speech,2 the frame constraint, and the syntactic position within a particular linking.We measure lexical and part-of-speech similarity as follows:?lex(vi, vj) ={1 if vlexi = vlexj0 otherwise?pos(vi, vj) ={1 if vposi = vposj0 otherwise.
+(3)The constraint that two argument instances vi and vj occurring in the same framecannot have the same semantic role is captured by the following similarity function:?frame(vi, vj) ={?1 if vframei = vframej0 otherwise.
+(4)Finally, we also measure syntactic similarity through an indicator function?syn(vi, vj), which assumes value 1 if two instances occur in the same syntactic positionwithin the same linking:?syn(vi, vj) ={1 if vsyni = vsynj0 otherwise.
+(5)The syntactic position of an argument is directly given by the parse tree and canbe encoded, for example, by the full path from predicate to argument head, or forpractical purposes, in order to reduce sparsity, simply through the relation governingthe argument head and its linear position relative to the predicate (left or right).
+Incontrast, linkings are not directly observed, but we can resort to overt syntactic cuesas a proxy.
+Examples include the verb?s voice (active/passive), whether it is transitive,the part-of-speech of the subject, and so on.
+We argue that in principle, if sufficientlymany cues are taken into account, they will capture one particular linking, althoughthere may be several encodings for the same linking.
+Note that syntactic similarity isnot used to construct another graph layer; rather, it will be used for deriving initialclusters of instances, as we explain in Section 4.1.4.
+Graph PartitioningThe graph partitioning problem consists of finding a set of clusters {c1, .
+.
+.
+, cS} thatform a partition of the vertex-set, namely, ?ici = V and ci ?
+cj = ?
+for all i = j, such that(ideally) each cluster contains argument instances of only one particular semantic role,and the instances for a particular role are all assigned to one and the same cluster.
+In thefollowing sections we provide two algorithms for multi-layer graph partitioning, basedon standard clustering algorithms for single-layer graphs.
+Both algorithms operateon the same graph but differ in terms of the underlying clustering mechanism theyuse.
+The first algorithm is an adaptation of agglomerative clustering (Jain, Murty, andFlynn 1999) to the multi-layer setting: Starting from an initial clustering, the algorithm2 We include parts of speech as a simple means of alleviating the sparsity of head words.640Lang and Lapata Similarity-Driven Semantic Role Induction via Graph Partitioningiteratively merges vertex clusters in order to arrive at increasingly accurate representa-tions of semantic roles.
+Rather than greedily merging clusters, our second algorithm isbased on propagating cluster membership information among the set of initial clusters(Abney 2007).4.1 Agglomerative Graph PartitioningThe agglomerative algorithm induces clusters in a bottom?up manner starting from aninitial cluster assignment that we will subsequently discuss in detail.
+Our initializationresults in a clustering that has high purity but low collocation, that is, argumentinstances in each cluster tend to belong to the same role but argument instances ofa particular role are scattered among many clusters.3 The algorithm then improvescollocation by iteratively merging pairs of clusters.
+The agglomeration procedure isdescribed in Algorithm 1.
+As can be seen, pairs of clusters are merged iteratively untila termination criterion is met.
+The decision of which cluster pair to merge at eachstep is made by scoring a set of candidate cluster pairs and choosing the highest one(line 5).
+The scoring function s(ci, cj? )
+quantifies how likely two clusters are to containarguments of the same role.
+A key question is how to define this scoring function onthe basis of the underlying graph representation, that is, with reference to the instancesimilarities expressed by the edges.
+In order to collect evidence for or against a merge,we take into account the connectivity of a cluster pair at each feature layer of the graph.This crucially involves aggregating over all edges that connect the two clusters, andallows us to infer a cluster-level similarity score from the individual instance-levelsimilarities encoded in the edges.
+The evidence collected at each layer is then combinedtogether in order to arrive at an overall decision (see Figure 1 for an illustration).3 We define the terms purity and collocation more formally in Section 5.4.641Computational Linguistics Volume 40, Number 3Although it would be possible to enumerate and score all possible cluster pairsat each step, we apply a more efficient and effective procedure in which the set ofcandidates consists of pairs formed by combining a fixed cluster ci with all clusters c?jlarger than ci.
+This requires comparing only O(|C|) rather than O(|C|2) scores and, moreimportantly, it favors merges between large clusters whose score can be computed morereliably.
+As mentioned earlier, our scoring function implements an averaging procedureover the instances contained in the clusters, and thus yields less noisy scores whenclusters are large (i.e., contain many instances).
+This prioritization promotes reliablemerges over less reliable ones in the earlier phases of the algorithm with a positiveeffect on merges in the later phases.
+Moreover, by keeping ci fixed, we only require thatscores s(ci, x) and s(ci, z) are comparable (i.e., where one cluster is argument in bothscores), rather than comparisons between arbitrary cluster pairs (e.g., s(w, x) and s(y, z)).In the following, we will provide details on the initialization of the algorithm and thecomputation of the similarity scoring function.A standard agglomerative clustering algorithm forms clusters bottom?up by ini-tially placing each item of interest in its own cluster.
+In our case, initializing the algo-rithm with as many clusters as argument instances would result in a clustering withmaximal purity and minimal collocation.
+There are two reasons that justify a moresophisticated initialization procedure for our problem.
+Firstly, the scoring function weuse is more reliable for larger clusters than for smaller clusters (see the subsequentdiscussion).
+In fact, the standard initialization that creates clusters with a single instancewould not yield useful results as our scoring function crucially relies on initial clusterscontaining several instances on average.
+Secondly, the similarity scores for differentfeatures are not directly comparable.
+Recall from Section 3.1 that we introduced differenttypes of similarities based on the arguments?
+head words (?lex), parts-of-speech (?pos),syntactic positions (?syn), and frame constraints (?frame).
+As discussed earlier, engineer-ing a scoring function that integrates these into a single score without resorting toheuristic judgments on how to weight them poses a major challenge.
+In particular, itis difficult to weight the contribution of the two forms of positive evidence given bylexical and syntactic similarity.
+This motivates the idea of using syntactic similarityfor initialization, and lexical similarity (as well as the frame constraint) for scoring.This separation avoids the difficulty of defining the exact interaction between the two.Specifically, we obtain an initial clustering by grouping together all instances whichoccur in the same syntactic position within a linking?that is, all pairs (vi, vj) for which?syn(vi, vj) = 1 are grouped into the same cluster, assuming that arguments occurring ina specific syntactic position under a specific linking share the same role.We specify the syntactic position of an argument using four cues: the verb?s voice(active/passive), the argument?s linear position relative to the predicate (left/right),the syntactic relation of the argument to its governor (e.g., subject or object), and thepreposition used for realizing the argument (if any).
+Each argument is assigned a four-tuple consisting of these cues and two syntactic positions are assumed equal iff theyagree on all cues.Whereas the similarity functions defined in Section 3.1 measure role-semanticsimilarity between instances on a particular feature, the scoring function measures role-semantic similarity between clusters.
+Naturally, the similarity between two clusters isdefined in terms of the similarities of the instances contained in the clusters.
+Thisinvolves two aggregation stages.
+Initially, instance similarities are aggregated in eachfeature layer, resulting in an aggregate score for each feature.
+These layer-specific scoresare then integrated into a single score, which quantifies the overall similarity betweenthe two clusters (see Figure 1).642Lang and Lapata Similarity-Driven Semantic Role Induction via Graph PartitioningAn obvious way to determine the similarity between two clusters (with respect toa particular feature f ) would be to analyze their connectivity.
+For example, we coulduse edge density (Schaeffer 2007) to average over the weights of edges between twoclusters.
+However, edge density is an inappropriate measure of similarity in our case,because we cannot assume that arbitrary pairs of instances are similar with respect toa particular feature, even if two clusters represent the same semantic role.
+Consider forexample lexical similarity: Most head words will not agree (even within a cluster) andtherefore averaging between all pairs would yield low scores, regardless of whetherthe clusters represent the same role or not.
+Analogously, the vast majority of instancepairs from any two clusters will belong to different frames, and thus averaging overall possible pairs of instances would not yield indicative scores.We therefore adopt an averaging procedure which finds, for each instance in onecluster, the instance in the other cluster that is maximally similar or dissimilar andaverages over the scores of these alignments:sf (ck, cl) =1Nk + Nl??
+?vi?ckabs maxvj?cl?f (vi, vj) +?vj?clabs maxvi?ck?f (vi, vj)??
+(6)Here, abs max is a functional that returns the extreme value of its argument, eitherpositive or negative: abs maxx?X g(x) = g(arg maxx?X |g(x)|).
+Note that the alignmentsare unconstrained in the sense that va ?
+ck can be aligned to vb ?
+cl in the first termof Equation (6), while vb can be aligned to some other instance in the second term.Moreover, alignments in each term are many-to-one, namely, multiple instances from ckcan be aligned to the same vb ?
+cl in the first term and likewise in the second term.
+Thismeans that score aggregation does not reflect the distributional properties of clusters(e.g., the frequency of head words in each cluster).
+Consider for example two clusterswith an identical set of head words.
+Because many-to-one alignments are allowed, eachinstance can be aligned with maximal score to some other instance regardless of thefrequencies of these words.As an alternative, we also use the well-known cosine similarity function?althoughonly for the features based on argument head words (lex) and parts of speech (pos):sf (ck, cl) =x fk ?
+xfl?x fk ?
+?xfl ?.
+(7)Here x fk and xfl are vector representations of the cluster containing as componentsthe occurrence frequencies of a particular value of the feature f (i.e., lex and pos inour case).
+Another solution would be to enforce one-to-one alignments and redefineEquation (6) as the optimal bipartite matching between the two clusters.
+Althoughthis solution adheres to the graph formulation (in contrast to Equation (7)) we see notheoretical reason that makes it superior to cosine similarity.
+Moreover, its computationwould require cubic runtime in the number of vertices using the Hungarian algorithm(Munkres 1957), which is prohibitively slow for sufficiently large clusters.Layer-specific similarity scores must be combined into an overall cluster similar-ity score.
+Because similarity scores and their aggregates for different features are notdirectly comparable, their combination through summation would require weightingeach layer score according to its relative strength.
+Due to the difficulty of specifyingthese weights without access to labeled training data, we propose an alternative scheme643Computational Linguistics Volume 40, Number 3that is based on the distinction between positive and negative evidence.
+Negativeevidence is used to rule out a merge, whereas positive evidence provided by the lexicalscore is used to score merges that have not yet been ruled out:s(ck, cl) =???????
+?1 if sframe(ck, cl) < ?
+?1 if spos(ck, cl) < ?slex(ck, cl) if slex(ck, cl) > ?0 otherwise.
+(8)When the part-of-speech similarity is below a certain threshold ?, or when clause-levelconstraints are satisfied to a lesser extent than threshold ?, the score takes value ?1and the merge is ruled out.
+If the merge is not ruled out, the lexical similarity scoredetermines the magnitude of the overall score, provided that it is above threshold ?.Otherwise, the function returns 0, indicating that neither strong positive nor negativeevidence is available.
+The cluster-similarity scoring function can be viewed as thedecision function of a binary classifier for deciding on whether to merge a particularpair of clusters.
+The classifier is informed by the similarity scores for each featurelayer and outputs a confidence-weighted decision (positive/negative), where the signsgn(?f (vi, vj)) indicates the decision and the absolute value |?f (vi, vj)| quantifies confi-dence.
+The scoring function in Equation (8) essentially implements a simple decision listclassifier, whose decision rules are sequentially inspected from top to bottom, applyingthe first matching rule.Although our definition avoids weighting, it has introduced threshold parame-ters ?, ?, and ?
+that we need to somehow estimate.
+We propose a scheme in whichparameters ?
+and ?
+are iteratively adjusted, and ?, the threshold determining theextent to which the frame constraints can be violated, is kept fixed.
+We heuristically set?
+to ?0.05, based on the intuition that in principle frame constraints must be satisfiedalthough in practice, due to noise we expect a small number of violations (i.e., at most5% of instances can violate the constraint).
+Parameters ?
+and ?
+are initially set to theirmaximal value 1, thereby ruling out all merges except those with maximal confidence.The parameters then decrease iteratively according to a routine whose pseudo-codeis specified in Algorithm 2.
+The parameter ?
+decreases at each iteration by a smallamount (0.025) until it reaches  = 0.025, at which point its value is reset to 1.0 and ?is discounted by a factor close to one (0.9).
+This is repeated until ?
+falls below , uponwhich the algorithm terminates.644Lang and Lapata Similarity-Driven Semantic Role Induction via Graph PartitioningRuntime Analysis.
+As described in the previous section, Algorithm 1 stops when thethreshold ?
+falls below some small value .
+Both ?
+and ?
+iteratively decrease based ona fixed scheme.
+The outer loop and starting in line 1 is therefore computed in constanttime T. Each pass through the inner loop starting at line 4 iterates over O(|C|) clustersand for each one of them a score with O(|C|) other clusters is computed.
+Assume thatfi denotes the fraction of all V instances in cluster ci, namely, fiV = |ci| and?|C|i=1 fi = 1.Then, overall, the number of instance-wise similarities we need to evaluate is at mostO(|V|2):|C|?i=1|C|?j=i+1(fi|V|)(fj|V|) =12|C|?i=1|C|?j=1(fi|V|)(fj|V|) ?12|C|?i=1(fi|V|)2?|V|2|C|?i=1|C|?j=1fifj = |V|2|C|?i=1fi|C|?j=1fj = |V|2The total runtime in terms of the input is therefore O(T ?
+|V|2).
+Although this could beprohibitively inefficient for large data sets, we did not observe long runtimes in ourexperiments.
+Various optimizations are conceivable?for example, the cluster similarityscores in line 5 of Algorithm 1 can be cached such that they only need to be recomputedwhen a cluster changes (i.e., it is merged with another cluster).4.2 Multi-Layer Label PropagationOur second graph partitioning algorithm is based on the idea of propagating clustermembership information along the edges of a graph, subsequently referred to as propa-gation graph.
+As we explain in more detail subsequently, compared with agglomerativeclustering, this algorithm in principle is less prone to making false greedy decisionsthat cannot be later revoked.
+Moreover, it has lower runtime and thus scales better tolarger data sets.The propagation graph is created by collapsing vertices of the initial multi-layergraph.
+Vertices in the propagation graph represent an atomic set of instances of theoriginal graph, that is, a group of instances that are always assigned to the samecluster.
+For our induction problem, the vertices of the propagation graph correspondto the initial clusters of the agglomerative algorithm discussed in Section 4.1.
+Moreformally, let ai ?
+A denote the i-th vertex of the propagation graph, which referencesan atomic cluster of vertices {vi1 .
+.
+.
+viNi} of the original graph that occur in the samesyntactic position within the same linking.
+Because each vertex of the propagation graphcorresponds to a cluster of vertices in the original graph, the edges of the propagationgraph can be defined in terms of the edges between these vertices in the original graph.We reuse Equations (6) and (7) to define the edge weights of the propagation graphas aggregates over the edge weights in the original graph.
+For each feature layer wedefine the set of edges as:Bf = {(ai, aj) ?
+A ?
+A|sf (ai, aj) = 0} (9)Each edge (ai, aj) ?
+Bf in layer f is accordingly weighted by sf (ai, aj).
+Each vertex aiis associated with a label li, indicating the partition that ai and all the vertices in theoriginal graph that have been collapsed into ai belongs to.645Computational Linguistics Volume 40, Number 3Note that the label propagation algorithm is informed by the same similarity func-tions as agglomerative clustering and uses an identical initialization procedure but pro-vides an alternative means of cluster inference.
+Initially, each vertex of the propagationgraph belongs to its own cluster, that is, we let the number of clusters L = |A| and setli ?
+i.
+Given this initial vertex labeling, the algorithm proceeds by iteratively updatingthe label for each vertex (lines 4?10 in Algorithm 3).
+This crucially relies on a scoringprocedure in which a score s(l) is computed for each possible label l. We discuss thedetails of the scoring procedure below.The label scoring procedure required in line 5 of Algorithm 3 has parallels to thecluster pair scoring procedure of the agglomerative algorithm.
+It also consists of twostages: Initially, evidence is collected independently on each feature layer by computinglabel score aggregates with respect to each feature and then these feature scores arecombined in order to arrive at an overall score.Assume we are updating vertex ai.
+The first step is to compute the score for eachfeature f and each label l:sf (l) =?aj?Ni(l)sf (ai, aj) (10)where Ni(l) = {aj|(ai, aj) ?
+Bf ?
+l = lj ?
+|aj| > |ai|} denotes the set of ai?s neighbors withlabel l that are larger than ai.
+Intuitively, each neighboring vertex votes for the cluster itis currently assigned to, where the strength of the vote is determined by the similarityto the vertex (i.e., edge weight) being updated.
+The votes of all (larger) neighboringvertices are counted together, resulting in a score for each possible label.
+The conditionof including only larger vertices for computing the score is analogous to the prioriti-zation mechanism of the agglomerative algorithm (only merges with larger clusters areconsidered for a given candidate cluster).
+We impose this restriction for the same reason,namely, that scores for larger clusters are more reliable.Given the scores sf (l) for a particular label l on each layer f , our goal then is to com-bine them into a single overall score s(l) for the label.
+As in agglomerative partitioning,combining these scores through summation is not possible without ?guessing?
+theirweights, and therefore we use a sequential combination instead:s(l) =???????
+?1 if sframe(l) < ?
+?1 if spos(l) < ?slex(l) if slex(l) > ?0 otherwise.
+(11)Analogously to Equation (8), negative evidence that stems from part-of-speech informa-tion or frame constraints can veto a propagation, whereas positive evidence stemmingfrom argument head words can promote a propagation.
+If neither strong evidence(positive or negative) is available, the label is assigned a zero score.
+Note that thescoring function has three parameters with an identical interpretation to those in thescoring function of the agglomerative algorithm.
+The threshold update that takes placein line 11 of Algorithm 3 is therefore the same as the one described in Section 4.1 forthe agglomerative algorithm.We now analyze the runtime of our algorithm.
+Let T denote the number of iterationsof the outer loop starting at line 1 of Algorithm 3.
+The inner loop starting at line 4 iteratesover |A| clusters and for each one of them it has to evaluate at most |A| neighboring646Lang and Lapata Similarity-Driven Semantic Role Induction via Graph Partitioningnodes.
+Additionally, there are the one-time costs of computing the similarities betweenatomic clusters which take O(|V|2) time.
+The total runtime is therefore O(T|A|2 + |V|2).Because |A|2 << |V|2, label propagation is substantially faster than agglomerativeclustering.4.3 Relationship to Single-Layer Graph PartitioningClustering algorithms typically assume instance-wise similarities as input (i.e., single-layer graphs).
+For our role induction problem, this would require a heuristically definedsimilarity function that combines the similarities on individual features into a singlesimilarity score between instances.
+In other words, we would collapse the multiplegraph layers into a single layer and then partition the resulting single-layer graphaccording to a standard clustering algorithm.
+A main difference between the two ap-proaches is the order in which similarities are aggregated: Whereas multi-layer graphpartitioning aggregates similarities on each feature layer first and then combines theminto an overall cluster-wise similarity score, in the single-layer case feature similaritiesare eagerly combined into an overall instance-wise similarity score and then aggregated.Thus, in the multi-layer setting, aggregation can be done in a principled way by con-sidering the individual feature layers in isolation.
+For large clusters the resulting scoresfor each feature layer will provide reliable evidence for or against a merge.
+Combiningthese cluster-wise similarity scores is much less error-prone than the eager combinationat the instance-level used by the single-layer approach.
+We experimentally confirm thisintuition (see Section 5.5) by comparing against the single-layer partitioning algorithmpresented in Lang and Lapata (2011b).5.
+Role Induction Experiments on EnglishWe adopt the general architecture of supervised semantic role labeling systems whereargument identification and argument classification are treated separately.
+Our rolelabeler is fully unsupervised with respect to both tasks?it does not rely on any role647Computational Linguistics Volume 40, Number 3annotated data or semantic resources.
+However, our system does not learn from rawtext.
+In common with most semantic role labeling research, we assume that the input issyntactically analyzed.
+Our approach is not tied to a specific syntactic representation?both constituent- and dependency-based representations can be used.
+The bulk ofour experiments focus on English data and a dependency-based representation thatsimplifies argument identification considerably and is consistent with the CoNLL 2008benchmark data set used for evaluation in our experiments.
+To show that our methodcan be applied to other languages and across varying syntactic representations, wealso report experiments on German using a constituent-based representation (seeSection 6).Given the parse of a sentence, our system identifies argument instances and as-signs them to clusters.
+Thereafter, argument instances can be labeled with an identifiercorresponding to the cluster they have been assigned to, similar to PropBank core labels(e.g., A0, A1).
+We view argument identification as a syntactic processing step that can belargely undertaken deterministically through analysis of the syntactic tree.
+We thereforeuse a small set of rules to detect arguments with high precision and recall.
+In the follow-ing, we first describe the data set (Section 5.1) on which our experiments were carriedout.
+Next, we present the argument identification component of our system (Section 5.2)and the method used for comparison with our approach.
+Finally, we explain how systemoutput was evaluated (Section 5.4).5.1 DataFor evaluation purposes, we ran our method on the CoNLL 2008 shared task data set(Surdeanu et al.
+2008), which provides PropBank style gold standard annotations.
+Asour algorithm induces verb-specific roles, PropBank annotations are a natural choice ofgold standard for our problem.
+The data set contains annotations for verbal and nominalpredicate-argument constructions, but we only considered the former.
+The CoNLL dataset was taken from the Wall Street Journal portion of the Penn Treebank and convertedinto a dependency format (Surdeanu et al.
+2008).
+Input sentences are represented inthe dependency syntax specified by the CoNLL 2008 shared task (see Figure 2 for anexample).
+In addition to gold standard dependency parses, the data set also containsautomatic parses obtained from the MaltParser (Nivre et al.
+2007), which we will useas an alternative in our experiments in order to assess the impact of parse quality.
+Foreach argument only the head word is annotated with the corresponding semantic role,rather than the whole constituent.
+We assume that argument heads are content words(e.g., the head of a prepositional phrase is the nominal head rather than the preposition).We do not treat split arguments or co-referential arguments (e.g., in relative clauses).Specifically, we ignore arguments with roles preceded by the C- or R- prefix in thegold standard.
+All argument lemmas were normalized to lower case; we also replacednumerical quantities with a placeholder; to further reduce data sparsity, we identifiedFigure 2A sample dependency parse with dependency labels SBJ (subject), OBJ (object), NMOD(nominal modifier), OPRD (object predicative complement), PRD (predicative complement),and IM (infinitive marker).648Lang and Lapata Similarity-Driven Semantic Role Induction via Graph PartitioningTable 1Argument identification rules for English.1.
+Discard a candidate if it is a coordinating conjunction or punctuation.2.
+Discard a candidate if the path of relations from predicate to candidate ends withcoordination, subordination, etc.
+(see Appendix A for the full list of relations).3.
+Keep a candidate if it is the closest subject (governed by the subject-relation) to the left ofa predicate and the relations from predicate p to the governor g of the candidate are allupward-leading (directed as g ?
+p).4.
+Discard a candidate if the path between the predicate and the candidate, excluding thelast relation, contains a subject relation, adjectival modifier relation, etc.
+(see Appendix Afor the full list of relations).5.
+Discard a candidate if it is an auxiliary verb.6.
+Keep a candidate if it is directly connected to the predicate.7.
+Keep a candidate if the path from predicate to candidate leads along several verbal nodes(verb chain) and ends with an arbitrary relation.8.
+Discard all remaining candidates.the head of proper noun phrases heuristically as the most frequent lemma contained inthe phrase.5.2 Argument IdentificationIn the supervised setting, a classifier is used in order to decide for each node in the parsetree whether it represents a semantic argument or not.
+Nodes classified as argumentsare then assigned a semantic role.
+In the unsupervised setting, we slightly reformulateargument identification as the task of discarding as many non-semantic arguments aspossible.
+This means that the argument identification component does not make a finalpositive decision for any of the argument candidates; instead, this decision is deferred torole induction.4 We assume here that predicate identification is a precursor to argumentidentification and can be done relatively straightforwardly based on part-of-speechinformation.The rules given in Table 1 are used to discard or select argument candidates forEnglish.
+They primarily take into account the parts of speech and the syntactic relationsencountered when traversing the dependency tree from predicate to argument.
+A priori,all words in a sentence are considered argument candidates for a given predicate.
+Then,for each candidate, the rules are inspected sequentially and the first matching rule isapplied.
+We will exemplify how the argument identification component works for thepredicate expect in the sentence The company said it expects its sales to remain steady whoseparse tree is shown in Figure 2.
+Initially, all words except the predicate itself are treatedas argument candidates.
+Then, the rules from Table 1 are applied as follows.
+Firstly,the words the and to are discarded based on their part of speech (Rule 1); then, remainis discarded because the path ends with the relation IM and said is discarded as the4 A few supervised systems implement a similar definition (Koomen et al.
+2005), although in most casesthe argument identification component makes a final positive or negative decision regarding the status ofan argument candidate.649Computational Linguistics Volume 40, Number 3path ends with an upward-leading OBJ relation (Rule 2).
+Rule 3 matches to it, which istherefore added as a candidate.
+Next, steady is discarded because there is a downward-leading OPRD relation along the path and the words company and its are also discardedbecause of the OBJ relations along the path (Rule 4).
+Rule 5 does not apply but the wordsales is kept as a likely argument (Rule 6).
+Finally, Rule 7 does not apply, because thereare no candidates left.On the CoNLL 2008 training set, our argument identification rules obtain a pre-cision of 87.0% and a recall of 92.1% on gold standard parses.
+On automatic parses,precision is 79.3% and recall 84.8%.
+Here, precision measures the percentage of selectedarguments that are actual semantic arguments, and recall measures the percentage ofactual arguments that are not filtered out.Grenager and Manning (2006) also devise rules for argument identification, un-fortunately without providing any details on their implementation.
+More recently, at-tempts have been made to identify arguments without relying on a treebank-trainedparser (Abend and Rappoport 2010b; Abend, Reichart, and Rappoport 2009).
+The ideais to combine a part-of-speech tagger and an unsupervised parser in order to identifyconstituents.
+Likely arguments can be in turn identified based on a set of rules andthe degree of collocation with the predicate.
+Perhaps unsurprisingly, this method doesnot match the quality of a rule-based component operating over trees produced by asupervised parser.5.3 Baseline Method for Semantic Role InductionThe linking between semantic roles and syntactic positions is not arbitrary; specificsemantic roles tend to map onto specific syntactic positions such as subject or object(Levin and Rappaport 2005; Merlo and Stevenson 2001).
+We further illustrate thisobservation in Table 2, which shows how often individual semantic roles map ontocertain syntactic positions.
+The latter are simply defined as the relations governing theargument.
+The frequencies in the table were obtained from the CoNLL 2008 data set andare aggregates across predicates.
+As can be seen, semantic roles often approximatelycorrespond to a single syntactic position.
+For example, A0 is commonly mapped ontosubject (SBJ), whereas A1 is often realized as object (OBJ).This motivates a baseline that directly assigns instances to clusters according totheir syntactic position.
+The pseudo-code is given in Algorithm 4.
+For each verb weallocate N = 22 clusters (the maximal number of gold standard clusters together with adefault cluster).
+Apart from the default cluster, each cluster is associated with a syntacticposition and all instances occurring in that position are mapped into the cluster.
+Despitebeing relatively simple, this baseline has been previously used as a point of comparisonby other unsupervised semantic role labeling systems (Grenager and Manning 2006;Lang and Lapata 2010) and shown difficult to outperform.
+This is partly due to the factthat almost two thirds of the PropBank arguments are either A0 or A1.
+Identifying thesetwo roles correctly is therefore the most important distinction to make, and because thiscan be largely achieved on the basis of the arguments?
+syntactic position (see Table 2),the baseline yields high scores.5.4 EvaluationIn this section we describe how we assess the quality of a role induction method thatassigns labels to units that have been identified as likely arguments.
+We also discusshow we measure whether differences in model performance are statistically significant.650Lang and Lapata Similarity-Driven Semantic Role Induction via Graph PartitioningTable 2Contingency table between syntactic position and semantic roles.
+Only the eight most frequentsyntactic positions and their labels are listed (i.e., SBJ (Subject), OBJ (Object), ADV (Adverbial),TMP (Temporal), PMOD (Preposition and its child), OPRD (Object complement), LOC(Location), DIR (Direction)).
+Counts were obtained from the CoNLL 2008 training data set usinggold standard parses.
+The marginals in the right-most column include all syntactic positions(not only the eight most frequent ones).
+Boldface highlights the most frequent role per syntacticposition (e.g., SBJ is frequently A0, OBJ is A1).SBJ OBJ ADV TMP PMOD OPRD LOC DIR TotalA0 50,473 3,350 145 4 2,464 28 12 0 60,398A1 18,090 50,986 3,207 45 4,819 3,489 118 170 83,535A2 1,344 2,741 6,413 74 774 2,440 606 800 19,585A3 88 254 1,208 37 116 114 63 940 3,359A4 6 20 351 7 79 34 28 2,089 2,687A5 0 0 19 0 1 3 0 28 67AA 10 1 0 0 1 0 0 0 13ADV 7 46 7,364 33 55 31 103 2 8,070CAU 3 6 215 14 5 0 8 0 1,178DIR 0 3 304 2 5 1 19 639 1,123DIS 0 3 3,326 47 2 0 15 0 4,823EXT 1 6 418 0 6 3 23 4 621LOC 18 32 358 15 127 2 5,076 9 5,831MNR 7 54 2,285 22 59 36 154 6 6,238MOD 9 2,130 77 22 69 3 6 0 9,030NEG 0 0 3,078 39 0 0 0 0 3,172PNC 1 11 458 4 4 292 8 4 2,231PRD 0 2 41 0 0 11 2 0 66PRT 0 0 0 0 0 0 0 0 2REC 0 5 8 0 0 0 0 0 14TMP 14 93 969 14,465 141 1 42 15 16,086Total 70,071 59,744 30,248 14,830 8,730 6,488 6,285 4,706 228,129Arguments are labeled based on the cluster they have been assigned to, whichmeans that in contrast to the supervised setting we cannot verify the correctness ofthese labels directly (e.g., by comparing them to the gold standard).
+Instead, we willlook at the induced clusters as a whole and assess their quality in terms of how wellthey reflect the assumed gold standard.
+Specifically, for each verb, we determine theextent to which argument instances in the clusters share the same gold standard role(purity) and the extent to which a particular gold standard role is assigned to a singlecluster (collocation).More formally, for each group of verb-specific clusters we measure cluster purityas the percentage of instances belonging to the majority gold class in their respectivecluster.
+Let N denote the total number of instances, Gj the set of instances belonging tothe j-th gold class, and Ci the set of instances belonging to the i-th cluster.
+Purity can bethen written asPU = 1N?imaxj|Gj ?
+Ci| (12)Collocation is the inverse of purity (van Rijsbergen 1974) and defined as follows.For each gold role, we determine the cluster with the largest number of instances for651Computational Linguistics Volume 40, Number 3that role (the role?s primary cluster) and then compute the percentage of instances thatbelong to the primary cluster for each gold role:CO = 1N?jmaxi|Gj ?
+Ci| (13)Per-verb scores are aggregated into an overall score by averaging over all verbs.
+Weuse the micro-average obtained by weighting the scores for individual verbs propor-tionately to the number of instances for that verb.
+Finally, we use the harmonic mean ofpurity and collocation as a single measure of clustering quality:F1 = 2?CO?PUCO + PU(14)Purity and collocation measure essentially the same data traits as precision andrecall, which in the context of clustering are, however, defined on pairs of instances(Manning, Raghavan, and Schu?tze 2008), which makes them a bit harder to graspintuitively.
+We therefore prefer purity and collocation, arguing that these should beassessed in combination or together with F1 because they can be traded off against eachother.
+Purity can be trivially maximized by mapping each instance into its own cluster,and collocation can be trivially maximized by mapping all instances into a single cluster.Although it is desirable to report performance with a single score such as F1, itis equally important to assess how purity and collocation contribute to this score.
+Inparticular, if a hypothetical system were to be used for automatically annotating data,low collocation would result in higher annotation effort and low purity would result inlower data quality.
+Therefore high purity is imperative for an effective system whereas652Lang and Lapata Similarity-Driven Semantic Role Induction via Graph Partitioninghigh collocation contributes to efficient data labeling.
+For assessing our methods wetherefore introduce the following terminology.
+If a model attains higher purity thanthe baseline, we will say that it is adequate, because it induced roles that adequatelyrepresent semantic roles.
+If a model attains higher F1 than the baseline, we will saythat it is non-trivial, because it strikes a tradeoff between collocation and purity that isnon-trivial.
+Our goal then is to find models that are both adequate and non-trivial.In order to assess whether differences in performance between two models arestatistically significant, we used a sign test.
+Specifically, we obtained a series of scorepairs by testing two methods on a subsample of the test data.
+Each subsample corre-sponds to a random selection of M = 2, 000.
+We consider the resulting samples to be?sufficiently?
+independent to obtain indicative results from the test.
+As null hypothesis(H0) we assume that a model m attains scores equal to another model b.
+Under H0 theprobability that model m outperforms model b on a particular test set is 12 .
+The randomvariable S counting the number of times that scorem > scoreb in a sample of N score pairsis binomially distributed:S =N?i=11[score(i)m > score(i)b ] Bin(12 , N) (15)We can therefore use S as our test statistic and reject the null hypothesis H0 if S >> N2 .5.5 ResultsOur results are summarized in Tables 3?5, which report cluster purity (PU), collocation(CO), and their harmonic mean (F1) for the baseline and our two multi-layer graphpartitioning algorithms.
+We present scores on four data sets that result from the combi-nation of automatic parses with automatically identified arguments (auto/auto), goldparses with automatic arguments (gold/auto), automatic parses with gold arguments(auto/gold), and gold parses with gold arguments (gold/gold).
+We show how per-formance varies for our methods when measuring cluster similarity in the two waysdescribed above: (a) by finding for each instance in one cluster the instance in theother cluster that is maximally similar or dissimilar and averaging over the scores ofthese alignments (avgmax) and (b) by using cosine similarity (see Section 4.1).
+We alsoreport results for the single-layer algorithm proposed in Lang and Lapata (2011b).5Given a verbal predicate, they construct a single-layer graph whose edge weightsexpress instance-wise similarities directly.
+The graph is partitioned into vertex clustersrepresenting semantic roles using a variant of Chinese Whispers, a graph clusteringalgorithm proposed by Biemann (2006).
+The algorithm iteratively assigns cluster labelsto graph vertices by greedily choosing the most common label among the neighbors ofthe vertex being updated.Both agglomerative partitioning and multi-layered label propagation algorithmssystematically achieve higher F1 scores than the baseline?that is, induce non-trivialclusterings and more adequate semantic roles (by attaining higher purity).
+For exam-ple, on the auto/auto data set, the agglomerative algorithm using cosine similarity5 The results in Table 5 differ slightly from those published in Lang and Lapata (2011b).
+This is due to asmall change in the preprocessing of the data.
+For all English experiments reported here, we removedarguments with R- and C- role prefixes and replaced numbers with a placeholder.653Computational Linguistics Volume 40, Number 3Table 3Results for agglomerative partitioning (for avgmax and cosine similarity).
+F1 improvementsover the baseline are statistically significant in all settings (q < 0.001).
+Boldface highlights thebest performing system according to purity, collocation, and F1.Parse/Arg AgglomerativeBaseline avgmax cosinePU CO F1 PU CO F1 PU CO F1auto/auto 68.3 72.1 70.1 75.3 69.2 72.1 75.5 69.5 72.4gold/auto 74.9 78.5 76.6 80.3 73.8 76.9 80.7 74.0 77.2auto/gold 77.0 71.5 74.1 84.9 70.8 77.2 85.6 71.9 78.1gold/gold 81.6 78.1 79.8 87.4 75.3 80.9 87.9 75.6 81.3Table 4Results for multi-layered label propagation (for avgmax and cosine similarity).
+F1 improvementsover the baseline are statistically significant in all settings (q < 0.001).
+Boldface highlights thebest performing system according to purity, collocation, and F1.Parse/Arg Multi-Layer Label PropagationBaseline avgmax cosinePU CO F1 PU CO F1 PU CO F1auto/auto 68.3 72.1 70.1 73.8 70.3 72.0 74.0 70.3 72.1gold/auto 74.9 78.5 76.6 78.8 74.3 76.5 79.2 74.3 76.7auto/gold 77.0 71.5 74.1 82.9 72.8 77.5 83.6 73.1 78.0gold/gold 81.6 78.1 79.8 85.6 75.8 80.4 86.3 76.1 80.9Table 5Results for single-layered label propagation using a heuristic similarity function.F1 improvements over the baseline are statistically significant (q < 0.001) in the auto/goldand gold/gold settings.
+Boldface highlights the best performing system according to purity,collocation, and F1.Parse/Arg Baseline Label PropagationPU CO F1 PU CO F1auto/auto 68.3 72.1 70.1 70.1 70.4 70.2gold/auto 74.9 78.5 76.6 76.4 77.2 76.8auto/gold 77.0 71.5 74.1 79.6 72.6 75.9gold/gold 81.6 78.1 79.8 83.7 78.2 80.9increases F1 by 2.3 points over the baseline and by 7.2 points in terms of purity.
+Thisincrease in purity is achieved by trading off against collocation, although in a favorableratio as indicated by the overall higher F1.
+All improvements over the baseline arestatistically significant (q < 0.001 according to the test described in Section 5.4).
+Ingeneral, we observe that cosine similarity outperforms avgmax similarity.
+We conjecturethat cosine is a more appropriate measure of cluster similarity for features where itis beneficial to capture the distributional similarity of clusters.
+The two algorithmsperform comparably?differences in F1 are not statistically significant (except in thegold/auto setting).
+Nevertheless, agglomerative partitioning obtains higher purity andF1 than label propagation.
+The latter trades off more purity and in return obtainshigher collocation.
+The single-layer method is inferior to the multi-layer algorithms,654Lang and Lapata Similarity-Driven Semantic Role Induction via Graph Partitioningin particular because it is less robust to noise, as demonstrated by the markedly worseresults on automatic parses.
+On the auto/auto data set the single-layered algorithm is ona par with the baseline and marginally outperforms it on the auto/gold and gold/goldconfigurations.To help put our results in context, we compare our methods with Titovand Klementiev?s (2012a) Bayesian clustering models.
+They report results on theCoNLL 2008 data sets with two model variants, a factored model that models each verbindependently and a coupled model where model parameters are shared across verbs.In an attempt to reduce the sparsity of the argument fillers, they also present variantsof the factored and coupled models where the argument heads have been replaced bylexical cluster ids stemming from Brown et al.
+?s (1992) clustering algorithm on the RCV1corpus.
+In Table 6 we follow Titov and Klementiev (2012a) and show results on thegold/gold and gold/auto settings.
+As can be seen, both the agglomerative clusteringand label propagation perform comparably to their coupled model, even though theydo not implement any specific mechanism for sharing clustering preferences acrossverbs.
+Versions of their models that use Brown word clusters (i.e., Factored+Br andCoupled+Br) yield overall best results.
+We expect this type of preprocessing to alsoincrease the performance of our models, however we leave this to future work.
+Finally,we should point out that Titov and Klementiev (2012a) do not cluster adjunct-likemodifier arguments that are already explicitly represented in syntax (e.g., TMP, LOC,DIR).
+Thus, their Coupled+Mods model is most comparable to ours in terms of theclustering objective as it treats both core and adjunct arguments and does not makeuse of the Brown clustering.
+Table 6 shows the performance of Coupled+Mods on thegold/gold setting only because auto/gold results are not reported.We further examined the output of the baseline and our best performing modelin order to better understand where the performance gains are coming from.
+Table 7shows how the two approaches differ when it comes to individual roles.
+We observethat the agglomerative clustering algorithm performs better than the baseline on allcore roles.
+There are some adjunct roles for which the baseline obtains a higher F1.This is not surprising because the parser directly outputs certain labels such as LOCand TMP which results in high baseline scores for these roles.
+A word of caution isnecessary here since core roles are defined individually for each verb and need not havea uniform corpus-wide interpretation.
+Thus, conflating per-role scores across verbs isonly meaningful to the extent that these labels actually signify the same role (which ismostly true for A0 and A1).
+Furthermore, the purity scores we provide in this contextare averages over the clusters for which the specified role is the majority role.Table 6Semantic role induction with graph partitioning and Bayesian clustering.Model gold/gold auto/goldPU CO F1 PU CO F1Baseline 81.6 78.1 79.8 77.0 71.5 74.1Agglomerative 87.9 75.6 81.3 85.6 71.9 78.1Multi-Layer LP 86.3 76.1 80.9 83.6 73.1 78.0Factored 88.1 77.1 82.2 85.1 71.8 77.9Coupled 89.3 76.6 82.5 86.7 71.2 78.2Coupled+Mods 89.2 74.0 80.9 ?
+?
+?Factored+Br 86.8 78.8 82.6 83.8 74.1 78.6Coupled+Br 88.7 78.1 83.0 86.2 72.7 78.8655Computational Linguistics Volume 40, Number 3Table 7Results for individual roles on the auto/auto data set; comparison between the baseline and theagglomerative clustering algorithm with the cosine similarity function.
+Boldface highlights thebest performing system according to purity, collocation, and F1.Role Freq Baseline AgglomerativePU CO F1 PU CO F1A0 49,956 68.2 89.6 77.5 71.1 90.0 79.4A1 72,032 77.5 75.2 76.3 80.7 76.9 78.7A2 16,795 65.7 71.4 68.4 79.1 68.3 73.3A3 2,860 45.4 81.8 58.4 71.7 80.1 75.7A4 2,471 61.6 86.1 71.8 81.6 85.1 83.3A5 44 46.4 59.1 52.0 92.5 84.1 88.1AA 9 46.7 100.0 63.6 50.0 100.0 66.7ADV 5,824 33.8 86.3 48.6 67.7 41.9 51.8CAU 878 67.5 79.3 72.9 81.5 73.9 77.5DIR 811 51.5 71.6 59.9 66.9 58.9 62.7DIS 3,022 36.1 90.4 51.6 57.5 75.7 65.3EXT 536 46.9 91.0 61.9 70.2 92.2 79.7LOC 4,481 65.1 76.5 70.4 74.2 58.4 65.3MNR 5,066 62.0 64.6 63.3 84.3 48.3 61.5MOD 8,064 80.2 44.1 56.9 90.3 89.3 89.8NEG 2,952 38.7 98.6 55.6 53.5 98.7 69.4PNC 1,682 67.9 71.8 69.8 77.8 70.6 74.1PRD 56 39.1 92.9 55.1 80.4 85.7 83.0REC 9 25.0 100.0 40.0 75.0 100.0 85.7TMP 12,928 71.1 78.7 74.7 73.1 43.1 54.2NONE 49,663 57.1 47.3 51.8 71.6 44.8 55.1We further investigated the degree to which the baseline and the agglomera-tive clustering algorithm agree in their role assignments.
+The overall mean overlapwas 46.03%.
+Figure 3a shows the percentage of verbs for which the baseline and ouralgorithm have no, some, or complete overlap.
+We discretized overlap into 10 bins ofequal size ranging from 0 to 100.
+We observe that the role assignments produced bythe two methods have nothing in common for approximately 13.6% verbs, whereasassignments are identical for 18.1% verbs.
+Aside from these two bins (see 0 and 100in Figure 3), a large number of verbs seems to exhibit overlap in the range of 40?60%.Figure 3b shows how the overlap in the cluster assignments varies with verb frequency.Perhaps unsurprisingly, we can see that overlap is higher for least frequent and there-fore less ambiguous verbs.
+In general, although the two methods have some degreeof overlap, agglomerative clustering does indeed manage to change and improve theoriginal role assignments of the baseline.An interesting question concerns precisely the type of changes affected by theagglomerative clustering algorithm over the assignments of the baseline.
+To be ableto characterize these changes we first examined the consistency of the role assignmentscreated by the two algorithms.
+Specifically, we would expect a verb-argument pair to bemostly assigned to the same cluster (i.e., an argument to bear the same role label for thesame verb).
+Of course this is not a hard constraint as arguments and predicates can beambiguous and their roles may vary in specific syntactic configurations and contexts.To give an idea of an upper bound, in our gold standard, an argument instance of thesame verb bears on average 2.23 distinct roles.
+For comparison, the baseline creates(on average) 2.9 role clusters for an argument, whereas agglomerative clustering yieldsmore consistent assignments, with an average of 2.34 role clusters per argument.656Lang and Lapata Similarity-Driven Semantic Role Induction via Graph PartitioningFigure 3Role assignment overlap between the baseline and agglomerative clustering on the auto/auto data set.
+Figure 3a shows the percentage of verbs with no overlap (0%), 10% overlap,20% overlap, 30% overlap, and so on.
+Figure 3b shows how role overlap varies with verbfrequency.
+Results are reported on the auto/auto data set.We further grouped the verbs in our data set into different bins according to theirpolysemy and allowable argument realizations.
+Specifically, we followed Levin?s (1993)taxonomy and grouped verbs according to the number of semantic classes they inhabit(e.g., one, two, and so on).
+We also binned verbs according to the number of alternationsthey exhibit.
+To give an example, the verb donate is a member of the CONTRIBUTE classand participates in the causative/inchoative and dative alternations, whereas the verbshower is a member of four classes (i.e., SPRAY/LOAD, PELT, DRESS, and WEATHER) andparticipates in the understood reflexive object and spray/load alternations.
+Figures 4a,bshow the overlap in role assignments between the baseline and agglomerative clus-tering and how it varies according to verb class ambiguity and argument structure;figures 4c,d illustrate the same for role assignments and their consistency.
+As can beseen, there is less overlap between the two methods when the verbs in question aremore polysemous (Figures 4a) or exhibit more variation in their argument structure(Figure 4b).
+As far as consistency in role assignments is concerned, agglomerativeclustering appears overall more consistent than the baseline.
+As expected, the mean657Computational Linguistics Volume 40, Number 3role assignment is slightly higher for polysemous verbs because differences in meaningmanifest themselves in different argument realizations.Figure 5 shows how purity, collocation, and F1 vary across alternations and verbclasses.
+Perhaps unsurprisingly, performance is generally better for least ambiguousverbs exhibiting a small number of alternations.
+In general, agglomerative clusteringachieves higher purity across the board whereas the baseline achieves higher collo-cation.
+Although agglomerative clustering achieves a consistently higher F1 over thebaseline, the performance of the two algorithms converges for the most polysemousverbs (i.e., those inhabiting more than six semantic classes; see Figure 5f).
+Interestingly,also note that F1 is comparable for verbs with less varied argument structure (i.e., verbsinhabiting one alternation; see Figure 5c).
+For such verbs the performance gap betweenthe baseline and the agglomerative algorithm is narrower both in terms of purity andcollocation.
+Overall, we observe that agglomerative clustering is able to change some ofthe role assignments of the baseline for verbs exhibiting a good degree of alternationsand polysemy.Table 8 reports results for 12 individual verbs for the best performing method(i.e., agglomerative partitioning using cosine similarity) on the auto/auto data set.These verbs were selected so as to exhibit varied occurrence frequencies and alternationpatterns.
+As can be seen, the macroscopic result?higher F1 due to significantly higherpurity?seems to consistently hold also across verbs.
+An important exception is the verbFigure 4Comparison between the baseline and the agglomerative clustering algorithm in terms ofrole assignment overlap (a and b) and consistency (c and d).
+Verbs are grouped according topolysemy (a and c) and number of alternations (b and d).
+All results are reported on theauto/auto data set.658Lang and Lapata Similarity-Driven Semantic Role Induction via Graph PartitioningFigure 5Comparison between the baseline and the agglomerative clustering algorithm acrossalternations (a?c) and verb classes (d?f) using purity, collocation, and F1.
+All results are reportedon the auto/auto data set.say, for which the baseline attains high scores due to little variation in its syntacticrealization within the corpus.
+Example output is given in Table 9, which shows thefive largest clusters produced by the baseline and agglomerative partitioning for theverb increase.
+For each cluster we list the 10 most frequent argument head lemmas.In this case, our method managed to induce an A0 cluster that is not present in thetop five clusters of the baseline, although the cluster also incorrectly contains some A1arguments that stem from a false merge.6.
+Role Induction Experiments on GermanThe applicability of our method to arbitrary languages is important from a theoreticaland practical perspective.
+On the one hand, linguistic theory calls for models which areuniversal and generalize across languages.
+This is especially true for models operatingon the (frame-) semantic level, which is a generalization over surface structure andshould therefore be less language specific (Boas 2005).
+On the other hand, a language-independent model can be applied to arbitrary languages, genres, and domains andis thus of greater practical benefit.
+Because our approach is based on the language-independent principles discussed in Section 1, we argue that it can easily generalizeto other languages.
+To test this claim, we further applied our methods to German data.659Computational Linguistics Volume 40, Number 3Table 8Results for individual verbs on the auto/auto data set; comparison between the baseline and ouragglomerative clustering algorithm with the cosine similarity function.
+Boldface highlights thebest performing system according to purity, collocation, and F1.Verb Freq Baseline AgglomerativePU CO F1 PU CO F1say 16,698 86.7 90.8 88.7 85.8 90.4 88.0make 4,589 63.3 71.0 67.0 66.4 71.0 68.6go 2,331 47.3 56.0 51.3 55.7 55.3 55.5increase 1,425 58.0 69.0 63.0 59.2 71.5 64.8know 1,083 58.3 70.8 63.9 58.6 62.0 60.2tell 969 59.0 76.8 66.7 71.4 68.0 69.7consider 799 60.7 65.3 62.9 71.0 60.2 65.1acquire 761 70.7 78.4 74.4 72.0 77.8 74.8meet 616 70.0 72.2 71.1 78.9 68.3 73.2send 515 68.3 67.4 67.9 75.9 64.9 70.0open 528 55.3 67.8 60.9 61.9 55.1 58.3break 274 51.1 59.1 54.8 62.8 55.8 59.1Table 9Five largest clusters created by the baseline and agglomerative partitioning for the verb increase.Symbols $ and CD are used as placeholders for monetary units and cardinal numbers,respectively.Role BaselineA0 it, sales, revenue, company, profit, rates, they, earnings, we, numberA1 number, reserves, stake, sales, costs, will, board, demand, rates, capacityA4 $, %, CD, yen, cent, #, member, earlier, kronor, yearsADV $, not, CD, also, be, increase, greatly, month, %, thusA2 %, $, CD, average, significantly, penny, yen, days, slightly, shareRole AgglomerativeA1 %, number, costs, sales, reserves, demand, stake, competition, pressure, sizeA0 it, sales, revenue, company, profit, rates, earnings, we, they, lineA4 $, %, CD, yen, cent, member, result, #, kronor, barrelsA3 $, CD, %, yen, cent, earlier, period, #, member, quarterTMP year, quarter, month, years, period, september, CD, week, example, instanceAlthough on a high-level, German clauses do not differ drastically from Englishones with respect to their frame-semantic make-up, there are differences in terms ofhow frame elements are mapped onto specific positions on the linear surface structureof a sentence, beyond any variations observed among English verbs.
+In general, Germanplaces fewer constraints on word order (more precisely phrase order) and instead relieson richer morphology to help disambiguate the grammatical functions of linguisticunits.
+In particular, verbal nominal arguments are marked with a grammatical case6that directly indicates their grammatical function.
+Although in main declarative clausesthe inflected part of the verb has to occur in second position, German is commonly6 German has (partially ambiguous) markers for Nominative, Accusative, Dative, and Genitive.660Lang and Lapata Similarity-Driven Semantic Role Induction via Graph Partitioningconsidered a verb-final language.
+This is because the verb often takes the final positionin subordinate clauses, as do infinitive verbs (Brigitta 1996).6.1 DataWe conducted our experiments on the SALSA corpus (Burchardt et al.
+2006), a lexicalresource for German, which, like FrameNet for English, associates predicates withframes.
+SALSA is built as an extra annotation layer over the TIGER corpus (Brantset al.
+2002), a treebank for German consisting of approximately 40,000 sentences (700,000tokens) of newspaper text taken from the Frankfurter Rundschau, although to date not allpredicate-argument structures have been annotated.
+The frame and role inventory ofSALSA was taken from FrameNet, but has been extended and adapted where necessarydue to lack of coverage and cross-lingual divergences.The syntactic structure of a sentence is represented through a constituent tree whoseterminal nodes are tokens and non-terminal nodes are phrases (see Figure 6).
+In additionto labeling each node with a constituent type such as Sentence, Noun Phrase, and VerbPhrase, the edges between a parent and a child node are labeled according to the functionof the child within the parent constituent, for example, Accusative Object, Noun Kernel,or Head.
+Edges can cross, allowing local and non-local dependencies to be encoded in auniform way and eliminating the need for traces.
+This approach has significant advan-tages for non-configurational languages such as German, which exhibit a rich inventoryof discontinuous constituents and considerable freedom with respect to word order(Smith 2003).
+Compared with the Penn TreeBank (Marcus, Santorini, and Marcinkiewicz1993), tree structures are relatively flat.
+For example, the tree does not encode whethera constituent is a verbal argument or adjunct; this information is encoded through theedge labels instead.The frame annotations contained in SALSA do not cover all of the predicate-argument structures of the underlying TIGER corpus.
+Only a subset of around550 predicates with approximately 18,000 occurrences in the corpus have been an-notated.
+Moreover, only core roles are annotated, whereas adjunct roles are not, re-sulting in a smaller number of arguments per predicate (1.96 on average) comparedwith the CoNLL 2008 data set (2.57 on average) described in section 5.1.
+Because ourFigure 6A sample parse tree for the sentence Pra?sident Jelzin verliert die Mach ans Ku?chenkabinett undwird die Wahlen kaum gewinnen ko?nnen [translated in English as President Jelzin loses power to thekitchen cabinet and will hardly be able to win the elections].
+The parse tree contains phrase labels NP(Noun Phrase), PP (Prepositional Phrase), VP (Verb Phrase), S (Sentence), and CS (CoordinatedSentence).
+The dependency labels are NK (Noun Kernel), SB (Subject), AO (Object Accusative),HD (Head), MO (Modifier), AC (Adpositional Case Marker), CJ (Conjunct), and OC (ClausalObject).661Computational Linguistics Volume 40, Number 3method is designed to induce verb-specific frames, we converted the SALSA framesinto PropBank-like frames by splitting each frame into several verb-specific frames andaccordingly mapping frame roles onto verb-specific roles.
+Our data set is comparableto the German data set released as part of the CoNLL 2009 shared task (Hajic?
+et al.2009), which was also derived from the SALSA corpus.
+However, we did not convertthe original constituent-based SALSA representation into dependencies, as we wantedto assess whether our methods are also compatible with phrase structure trees.6.2 Experimental Set-upAlthough we follow the same experimental set-up as described in Section 5 for En-glish, there are some deviations due to differences in the data sets utilized for the twolanguages.
+Firstly, in contrast to the CoNLL 2008 data set, the SALSA data set (andthe underlying TIGER corpus) does not supply automatic parse trees and we thereforeconducted our experiments on gold parses only.
+Moreover, because adjunct argumentsare not annotated in SALSA, and because argument identification is not the central issueof this work, we chose to also consider only the gold argument identification.
+Thus,all our experiments for German were carried out on the gold/gold data set.A substantial linguistic difference between the German and English data sets is thesparsity of the argument head lemmas, which is significantly higher for German thanfor English: In the CoNLL 2008 data set, the average number of distinct head lemmasper verb is only 3.69, whereas in the SALSA data set it is 20.12.
+This is partly due tothe fact that the Wall Street Journal text underlying the English data is topically morefocused than the Rundschau newspaper text, which covers a broader range of newsbeyond economics and politics.
+Moreover, noun compounding is more commonly usedin German than in English (Corston-Oliver and Gamon 2004), which leads to higherlexical sparsity.Data sparsity affects our method, which crucially relies on lexical similarity fordetermining the role-equivalence of clusters.
+Therefore, we reduced the number ofsyntactic cues used for cluster initialization in order to avoid creating too many smallclusters for which similarities cannot be reliably computed.
+Specifically, only the syn-tactic position and function word served as cues to initialize our clusters.
+Note that, asin English, the relatively small number of syntactic cues that determine the syntacticposition within a linking is a consequence of the size of our evaluation data set (whichis rather small) and not an inherent limitation of our method.
+On larger data sets, moresyntactic cues could and should be incorporated in order to increase performance.In our experiments we compared the baseline introduced in Section 5.3 againstagglomerative partitioning and the label propagation algorithm using both cosine- andavgmax-similarity.
+The parameters ?, ?, and ?, which determine the thresholds usedin defining overall similarity scores, were set and updated identically as for English(i.e., these parameters can be considered language-independent).6.3 ResultsTable 10 reports results for the baseline and our role induction methods, namely, ag-glomerative clustering and multi-layered label propagation (using the avgmax andcosine similarity functions) on the SALSA gold/gold data set.
+For comparison, wealso include results on the English CoNLL-2008 gold/gold data set.
+As can be seen,the baseline obtains a similar F1 for German and English, although the contributionsof purity and collocation are different for the two languages.
+In English, purity is662Lang and Lapata Similarity-Driven Semantic Role Induction via Graph PartitioningTable 10Results of agglomerative partitioning and label propagation for cosine and avgmax similarityon German.
+For comparison purposes results for English on the gold/gold data set are alsotabulated.
+All improvements over the baseline are statistically significant at significance levelq < 0.001.Model German EnglishPU CO F1 PU CO F1Baseline 75.0 81.7 78.2 81.6 78.1 79.8Agglomerative (avgmax) 77.6 80.8 79.2 87.3 75.3 80.9Agglomerative (cosine) 77.6 80.8 79.2 87.9 75.6 81.3Label Propagation (avgmax) 77.4 80.9 79.1 85.6 75.8 80.4Label Propagation (cosine) 77.5 81.0 79.2 86.3 76.0 80.9noticeably higher than in German, whereas collocation is higher in German.
+This is notsurprising when taking into account the distribution of syntactic relations governing anargument.
+A few frequent relation labels absorb most of the probability mass in German(see Figure 7b), whereas the mass is distributed more evenly among the labels in English(Figure 7a), thus leading to higher purity but lower collocation.Figure 7Distribution of syntactic relations governing an argument in English and German data sets.Only the most frequent relations are shown (a key for the English relations is given in Table 2;in German the relations are SB (Subject), OA (Object Accusative), CJ (Conjunct), DA (Dative),CD (Coordinator), MO (Modifier), RE (Subordinate Clause), RS (Reported Speech), OC(Object Clausal), OP (Object Prepositional), NK (Noun Kernel), and CVC (CollocationalVerb Construction).663Computational Linguistics Volume 40, Number 3Table 11Results for individual verbs on the gold/gold SALSA data set; comparison between the baselineand the agglomerative clustering algorithm with the cosine similarity function.Verb Freq Baseline Agglomerative (cosine)PU CO F1 PU CO F1sagen [say] 2,076 96.3 89.0 92.5 97.3 97.7 97.5wissen [know] 487 79.7 76.0 77.8 80.1 80.3 80.2berichten [report] 438 79.5 78.3 78.9 80.0 81.3 80.7nehmen [take] 420 49.8 70.2 58.3 51.9 72.4 60.5verurteilen [convict] 265 70.9 83.4 76.7 70.6 81.9 75.8erho?hen [increase] 120 58.3 70.8 64.0 70.8 73.3 72.1schlie?sen [close] 93 40.9 72.0 52.1 53.8 78.5 63.8brechen [break] 45 40.0 91.1 55.6 44.4 91.1 59.7schauen [watch] 35 82.9 91.4 86.9 85.7 71.4 77.9plazieren [place] 18 55.6 83.3 66.7 66.7 61.1 63.8treffen [meet] 14 100.0 100.0 100.0 100.0 100.0 100.0regnen [rain] 12 66.7 83.3 74.1 83.3 50.0 62.5In German, our role induction algorithms improve over the baseline in terms ofF1.
+All four methods perform comparably and manage to strike a tradeoff betweencollocation and purity that is non-trivial and represents semantic roles adequately.Compared with English, the difference between the baseline and our algorithms isnarrower.
+This is because we use fewer syntactic cues for initialization in German, dueto the increased data sparsity discussed in the previous section.
+This also explains whythere is little variation in the collocation and purity results across methods.
+However,qualitatively the tradeoff between purity and collocation is the same as for English (i.e.,purity is increased at the cost of collocation).Tables 11 and 12 show per-verb and per-role results, respectively, for agglomerativeclustering using cosine similarity.
+We report per-verb scores for a selection of 10 verbsTable 12Results for individual roles on gold/gold SALSA data set; comparison between the baseline andthe agglomerative clustering algorithm with the cosine similarity function.Role Freq Baseline Agglomerative (cosine)PU CO F1 PU CO F1Agent 1,908 70.4 92.8 80.1 70.5 93.9 80.5Theme 1,637 69.1 79.2 73.8 69.2 79.7 74.1Cognizer 1,244 75.7 94.3 84.0 76.2 94.6 84.4Entity 1,195 79.7 85.9 82.7 78.6 86.7 82.4Content 1,136 87.2 65.2 74.6 88.7 66.8 76.2Goal 1,071 62.0 81.0 70.2 87.0 67.2 75.9Topic 477 85.2 69.4 76.5 86.8 58.9 70.2Source 267 71.6 94.0 81.3 66.1 76.0 70.7Goods 171 73.0 68.4 70.6 74.8 66.7 70.5Buyer 121 65.0 90.1 75.5 70.4 88.4 78.4Employee 63 50.4 98.4 66.7 50.4 98.4 66.7Required Situation 56 60.3 78.6 68.3 52.1 82.1 63.8Opinion 50 66.7 50.0 57.1 69.0 62.0 65.3Leader 29 86.7 69.0 76.8 86.7 65.5 74.6Financed 25 79.3 64.0 70.8 80.0 64.0 71.1664Lang and Lapata Similarity-Driven Semantic Role Induction via Graph Partitioning(see Table 12a), which in some cases are translations of the verbs used for English.
+Withrespect to per-role scores, we make use of the fact that roles have a common meaningacross predicates (like A0 and A1 in PropBank), and report scores for a selection of15 different roles (Table 12b) with varied occurrence frequencies.
+Per-verb results con-firm that data sparsity affects performance in German.
+As can be seen, agglomerativeclustering outperforms the baseline on high-frequency verbs that are less affected bysparsity, although this is not always the case on lower-frequency verbs.
+Analogously,the method tends to perform better on high-frequency roles, whereas there is no cleartrend on lower-frequency roles.
+In contrast to English, for more than half of the verbsthe method manages to outperform the baseline in terms of both purity and collocation,which is consistent with our macroscopic result, where the tradeoff between purity andcollocation is not as strong as for English.The experiments show that our methods can be successfully applied to languagesother than English, thereby supporting the claim that they are based on a set oflanguage-independent assumptions and principles.
+Despite substantial differences be-tween German and English grammar, both generally and in terms of the specific syn-tactic representation that was used, our methods increased F1 over the baseline for bothlanguages and resulted in a similar tradeoff between purity and collocation.
+Improve-ments were observed in spite of pronounced data sparsity in the case of German.
+Recallthat we had to reduce the number of syntactic initialization cues in order to be ableto obtain results on the relatively small amount of gold-standard data.
+We would alsolike to note that porting our system to German did not require any additional featureengineering or algorithmic changes.7.
+ConclusionsIn this article we described an unsupervised method for semantic role induction inwhich argument-instance graphs are partitioned into clusters representing semanticroles.
+A major hypothesis underlying our work has been that semantic roles can beinduced without human supervision from a corpus of syntactically parsed sentencesbased on three linguistic principles : (1) arguments in the same syntactic position (withina specific linking) bear the same semantic role, (2) arguments within a clause bear aunique role, and (3) clusters representing the same semantic role should be more or lesslexically and distributionally equivalent.
+Based on these principles we have formulateda similarity-driven model and introduced a multi-layer graph partitioning approach thatrepresents similarity between clusters on multiple feature layers, whose connectiv-ity can be analyzed separately and then combined into an overall cluster-similarityscore.Our work has challenged the established view that supervised learning is themethod of choice for the semantic role labeling task.
+Although the proposed unsuper-vised models do yet achieve results comparable to their supervised counterparts, wehave been able to show that they consistently outperform the syntactic baseline acrossseveral data sets that combine automatic and gold parses, with gold and automaticargument identification in English and German.
+Our methods obtain F1 scores that aresystematically above the baseline and the purity of the induced clusters is considerablyhigher, although in most cases this increase in purity is achieved by decreasing colloca-tion.
+In sum, these results provide strong empirical evidence towards the soundness ofour method and the principles they are based on.In terms of modeling, we have contributed to the body of work on similarity-driven models by demonstrating their suitability for this problem, their effectiveness,665Computational Linguistics Volume 40, Number 3and their computational efficiency.
+The models are based on judgments regardingthe similarity of argument instances with respect to their semantic roles.
+We showedthat these judgments are comparatively simple to formulate and incorporate into agraph representation of the data.
+We have introduced the idea of separating differentsimilarity features into different graph layers, which resolves the problem faced bymany similarity-based approaches of having to heuristically define an instance-wisesimilarity function and brings the advantage that cluster similarities can be computedin a more principled way.
+Beyond semantic role labeling, we hope that the multi-layeredgraph representation described here might be of relevance to other unsupervised prob-lems such part-of-speech tagging or coreference resolution.
+The approach is generaland amenable to other graph partitioning algorithms besides agglomeration and labelpropagation.There are two forms of data sparsity that arise in the context of our work, namely,the lexical sparsity of argument head lemmas and the sparsity of specific combinationsof linking and syntactic position.
+As our methods are unsupervised, the conceptuallysimple solution to sparsity is to train on larger data sets.
+Because, with some modifica-tions, our graph partitioning approaches could be scaled to larger data sets (in terms oforders of magnitude), this is an obvious next step and would address both instances ofdata sparsity.
+Firstly, it would allow us to incorporate a richer set of syntactic featuresfor initialization and would therefore necessarily result in initial clusterings of higherpurity.
+Secondly, the larger size of clusters would result in more reliable similarityscores.
+Augmenting the data set would therefore almost surely increase the quality ofinduced clusterings; however, we leave this to future work.Another interesting future direction would be to eliminate the model?s reliance on asyntactic parser that prohibits its application to languages for which parsing resourcesare not available.
+It would therefore be worthwhile, albeit challenging, to build modelsthat operate on more readily available forms of syntactic analysis or even raw text.
+Forexample, existing work (Abend and Rappoport 2010b; Abend, Reichart, and Rappoport2009) attempts to identify arguments and distinguish them into core and adjunct onesthrough unsupervised part of speech and grammar induction.
+As much as making ourmodel more unsupervised it would also be interesting to see whether some form ofweak supervision might help induce higher-quality semantic roles without incurring amajor labeling effort.
+The ideas conveyed in this article and the proposed methodsextend naturally to this setting: Introducing labels on some of the graph vertices wouldtranslate into a semi-supervised graph-based learning task, akin to Zhu, Ghahramani,and Lafferty (2003).Appendix A.
+Argument Identification RulesThis appendix specifies the full set of relations used by Rules (2) and (4) of the argumentidentification rules given for English in Section 5.2, Table 1.
+The symbols ?
+and ?
+denotethe direction of the dependency relation (upward and downward, respectively).
+Thedependency relations are explained in Surdeanu et al.
+(2008), in their Table 4.The relations in Rule (2) from Table 1 are IM?
+?, PRT?, COORD?
+?, P?
+?, OBJ?, PMOD?,ADV?, SUB?
+?, ROOT?, TMP?, SBJ?, OPRD?.The relations in Rule (4) are ADV?
+?, AMOD?
+?, APPO?
+?, BNF?
+?-, CONJ?
+?, COORD??,DIR?
+?, DTV?
+?-, EXT?
+?, EXTR?
+?, HMOD?
+?, IOBJ?
+?, LGS?
+?, LOC?
+?, MNR?
+?, NMOD??,OBJ?
+?, OPRD?
+?, POSTHON?
+?, PRD?
+?, PRN?
+?, PRP?
+?, PRT?
+?, PUT?
+?, SBJ?
+?, SUB??,SUFFIX??
+TMP?
+?, VOC??
+.666Lang and Lapata Similarity-Driven Semantic Role Induction via Graph PartitioningAcknowledgmentsWe are grateful to the anonymous referees,whose feedback helped to substantiallyimprove this article.
+We also thank themembers of the Probabilistic Models readinggroup at the University of Edinburgh forhelpful discussions and comments.
+Weacknowledge the support of EPSRC (grantEP/K017845/1).ReferencesAbend, O. and A. Rappoport.
+2010a.
+Fullyunsupervised core-adjunct argumentclassification.
+In Proceedings of the 48thAnnual Meeting of the Association forComputational Linguistics, pages 226?236,Uppsala.Abend, O. and A. Rappoport.
+2010b.
+Fullyunsupervised core-adjunct argumentclassification.
+In Proceedings of theAnnual Meeting of the Association forComputational Linguistics, pages 226?236,Uppsala.Abend, O., R. Reichart, and A. Rappoport.2009.
+Unsupervised argumentidentification for semantic role labeling.In Proceedings of the Annual Meeting of theAssociation for Computational Linguistics,pages 28?36, Suntec.Abney, S. 2007.
+Semisupervised Learning forComputational Linguistics.
+Chapman &Hall/CRC.Berg-Kirkpatrick, T., A. Bouchard-Co?te?,J.
+DeNero, and D. Klein.
+2010.
+Painlessunsupervised learning with features.
+InProceedings of the Conference of the NorthAmerican Chapter of the Association forComputational Linguistics, pages 582?590,Los Angeles, CA.Biemann, C. 2006.
+Chinese Whispers: Anefficient graph clustering algorithm and itsapplication to natural language processingproblems.
+In Proceedings of TextGraphs: TheFirst Workshop on Graph Based Methods forNatural Language Processing, pages 73?80,New York, NY.Boas, H. 2005.
+Semantic frames asinterlingual representations formultilingual lexical databases.
+InternationalJournal of Lexicography, 18(4):445?478.Brants, S., S. Dipper, S. Hansen, W. Lezius,and G. Smith.
+2002.
+The TIGER treebank.In Proceedings of the 1st Workshop onTreebanks and Linguistic Theories,pages 24?41, Sozopol.Brigitta, H. 1996.
+Deutsch ist eineV/2-Sprache mit Verbendstellungund freier Wortfolge.
+In E. Lang andG.
+Zifonun, editors, Deutsch U?
+typologisch,pages 121?141.
+Walter de Gruyter.Brown, P. F., V. J. Della Pietra, P. V. deSouza,J.
+C. Lai, and R. L. Mercer.
+1992.
+Class-based n-gram models of natural language.Computational Linguistics, 18(4):283?298.Burchardt, A., K. Erk, A. Frank, A. Kowalski,S.
+Pado?, and M. Pinkal.
+2006.
+The SALSAcorpus: a German corpus resource forlexical semantics.
+In Proceedings of theInternational Conference on LanguageResources and Evaluation, pages 969?974,Genoa.Corston-Oliver, S. and M. Gamon.
+2004.Normalizing German and Englishinflectional morphology to improvestatistical word alignment.
+In RobertFrederking and Kathryn Taylor, editors,Machine Translation: From Real Users toResearch, volume 3265 of Lecture Notesin Computer Science.
+Springer, BerlinHeidelberg, pages 48?57.Dowty, D. 1991.
+Thematic proto rolesand argument selection.
+Language,67(3):547?619.Fu?rstenau, H. and M. Lapata.
+2009.
+Graphalignment for semi-supervised semanticrole labeling.
+In Proceedings of theConference on Empirical Methods in NaturalLanguage Processing, pages 11?20,Singapore.Gamallo, P., A. Agustini, and G. Lopes.
+2005.Clustering syntactic positions with similarsemantic requirements.
+ComputationalLinguistics, 31(1):107?146.Garg, N. and J. Henderson.
+2012.Unsupervised semantic role inductionwith global role ordering.
+In Proceedings ofthe 50th Annual Meeting of the Association forComputational Linguistics (Volume 2: ShortPapers), pages 145?149, Jeju Island.Gildea, D. and D. Jurafsky.
+2002.
+Automaticlabeling of semantic roles.
+ComputationalLinguistics, 28(3):245?288.Gordon, A. and R. Swanson.
+2007.Generalizing semantic role annotationsacross syntactically similar verbs.
+InProceedings of the Annual Meeting of theAssociation for Computational Linguistics,pages 192?199, Prague.Gordon, D. and M. Desjardins.
+1995.Evaluation and selection of biases inmachine learning.
+Machine Learning,20:5?22.Grenager, T. and C. Manning.
+2006.Unsupervised discovery of a statisticalverb lexicon.
+In Proceedings of the 2006Conference on Empirical Methods in NaturalLanguage Processing, pages 1?8, Sydney.667Computational Linguistics Volume 40, Number 3Hajic?, J., M. Ciaramita, R. Johansson,D.
+Kawahara, M. A.
+Mart?
+?, L. Ma`rquez,A.
+Meyers, J. Nivre, S.
+Pado?, J.
+S?te?pa?nek,P.
+Stran?a?k, M. Surdeanu, N. Xue, andY.
+Zhang.
+2009.
+The CoNLL 2009 sharedtask: Syntactic and semantic dependenciesin multiple languages.
+In Proceedings of theThirteenth Conference on ComputationalNatural Language Learning (CoNLL 2009):Shared Task, pages 1?18, Boulder, CO.Jain, A., M. Murty, and P. Flynn.
+1999.
+Dataclustering: A review.
+ACM ComputingSurveys, 31(3):264?323.Kipper, K., H. T. Dang, and M. Palmer.
+2000.Class-based construction of a verb lexicon.In Proceedings of the AAAI Conference onArtificial Intelligence, pages 691?696,Austin, TX.Koomen, P., V. Punyakanok, D. Roth, andW.
+Yih.
+2005.
+Generalized inferencewith multiple semantic role labelingsystems.
+In Proceedings of the Conference onComputational Natural Language Learning,pages 181?184, Ann Arbor, MI.Lang, J. and M. Lapata.
+2010.
+Unsupervisedinduction of semantic roles.
+In Proceedingsof the North American Chapter of the Associationfor Computational Linguistics Conference,pages 939?947, Los Angeles, CA.Lang, J. and M. Lapata.
+2011a.
+Unsupervisedinduction of semantic roles via split-mergeclustering.
+In Proceedings of the 49th AnnualMeeting of the Association for ComputationalLinguistics: Human Language Technologies,pages 1,117?1,126, Portland, OR.Lang, J. and M. Lapata.
+2011b.
+Unsupervisedsemantic role induction with graphpartitioning.
+In Proceedings of the Conferenceon Empirical Methods in Natural LanguageProcessing, pages 1,320?1,331, Edinburgh.Levin, B. and M. Rappaport.
+2005.
+ArgumentRealization.
+Cambridge University Press.Levin, Beth.
+1993.
+English Verb Classes andAlternations: A Preliminary Investigation.University of Chicago Press, Chicago.Lin, D. and P. Pantel.
+2001.
+Discovery ofinference rules for question-answering.Natural Langugae Engineering, 7:343?360.Manning, C., P. Raghavan, and H. Schu?tze.2008.
+Introduction to Information Retrieval.Cambridge University Press.Marcus, M., B. Santorini, andM.
+Marcinkiewicz.
+1993.
+Building a largeannotated corpus of English: The Penntreebank.
+Computational Linguistics,19(2):313?330.Ma`rquez, L., X. Carras, K. Litkowski,and S. Stevenson.
+2008.
+Semantic rolelabeling: An introduction to the specialissue.
+Computational Linguistics,34(2):145?159.Melli, G., Y. Wang, Y. Liu, M. M. Kashani,Z.
+Shi, B. Gu, A. Sarkar, and F. Popowich.2005.
+Description of SQUASH, the SFUquestion answering summary handlerfor the DUC-2005 summarization task.In Proceedings of the Human LanguageTechnology Conference and the Conferenceon Empirical Methods in Natural LanguageProcessing Document UnderstandingWorkshop, Vancouver.Merlo, P. and S. Stevenson.
+2001.
+Automaticverb classification based on statisticaldistributions of argument structure.Computational Linguistics, 27:373?408.Munkres, J.
+1957.
+Algorithms for theassignment and transportation problems.Journal of the Society for Industrial andApplied Mathematics, 5(1):32?38.Nivre, J., J.
+Hall, J. Nilsson, G. Eryigit,A.
+Chanev, S. Ku?bler, S. Marinov, andE.
+Marsi.
+2007.
+Malt-Parser: A language-independent system for data-drivendependency parsing.
+Natural LanguageEngineering, 13(2):95?135.Pado?, S. and M. Lapata.
+2009.
+Cross-lingualannotation projection of semantic roles.Journal of Artificial Intelligence Research,36:307?340.Palmer, M., D. Gildea, and P. Kingsbury.2005.
+The Proposition Bank: An annotatedcorpus of semantic roles.
+ComputationalLinguistics, 31(1):71?106.Poon, H. and P. Domingos.
+2009.Unsupervised semantic parsing.
+InProceedings of the 2009 Conference onEmpirical Methods in Natural LanguageProcessing, pages 1?10, Singapore.Pradhan, S., W. Ward, and J. Martin.
+2008.Towards robust semantic role labeling.Computational Linguistics, 34(2):289?310.Ruppenhofer, J., M. Ellsworth, M. Petruck,C.
+Johnson, and J. Scheffczyk.
+2006.FrameNet II: Extended theory and practice,version 1.3.
+Technical Report, InternationalComputer Science Institute, Berkeley, CA.Schaeffer, S. 2007.
+Graph clustering.
+ComputerScience Review, 1(1):27?64.Shen, D. and M. Lapata.
+2007.
+Usingsemantic roles to improve questionanswering.
+In Proceedings of the 2007Joint Conference on Empirical Methodsin Natural Language Processing andComputational Natural Language Learning(EMNLP-CoNLL), pages 12?21, Prague.Smith, G. 2003.
+A Brief Introduction to theTIGER Treebank, Version 1.
+TechnicalReport, University of Potsdam.668Lang and Lapata Similarity-Driven Semantic Role Induction via Graph PartitioningSurdeanu, M., S. Harabagiu, J. Williams,and P. Aarseth.
+2003.
+Using predicate-argument structures for informationextraction.
+In Proceedings of the AnnualMeeting of the Association for ComputationalLinguistics, pages 8?15, Sapporo.Surdeanu, M., R. Johansson, A. Meyers, andL.
+Ma`rquez.
+2008.
+The CoNLL-2008 sharedtask on joint parsing of syntactic andsemantic dependencies.
+In Proceedings ofthe Conference on Natural Language Learning,pages 159?177, Manchester.Swier, R. and S. Stevenson.
+2004.Unsupervised semantic role labelling.
+InProceedings of the Conference on EmpiricalMethods in Natural Language Processing,pages 95?102, Barcelona.Titov, I. and A. Klementiev.
+2011.
+ABayesian model for unsupervisedsemantic parsing.
+In Proceedings of the49th Annual Meeting of the Associationfor Computational Linguistics: HumanLanguage Technologies, pages 1,445?1,455,Portland, OR.Titov, I. and A. Klementiev.
+2012a.
+ABayesian approach to unsupervisedsemantic role induction.
+In Proceedings ofthe 13th Conference of the European Chapterof the Association for ComputationalLinguistics, pages 12?22, Avignon.Titov, I. and A. Klementiev.
+2012b.Crosslingual induction of semantic roles.In Proceedings of the 50th Annual Meeting ofthe Association for Computational Linguistics(Volume 1: Long Papers), pages 647?656,Jeju Island.van Rijsbergen, C. 1974.
+Foundation ofevaluation.
+Journal of Documentation,30(4):265?374.Wu, D. and P. Fung.
+2009.
+Semantic rolesfor SMT: A hybrid two-pass model.
+InProceedings of Human Language Technologies:The Annual Conference of the North AmericanChapter of the Association for ComputationalLinguistics, Companion Volume: Short Papers,pages 13?16, Boulder, CO.Zhu, X., Z. Ghahramani, and J. Lafferty.2003.
+Semi-supervised learning usingGaussian fields and harmonic functions.In Proceedings of the International Conferenceon Machine Learning, pages 912?919,Washington, DC.669This article has been cited by:1.
+Dan Jurafsky.
+2014.
+Charles J. Fillmore.
+Computational Linguistics 40:3, 725-731.
+[Citation] [FullText] [PDF] [PDF Plus]

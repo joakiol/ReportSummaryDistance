@@ -1,0 +1,193 @@
+Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, pages 2256?2262,Austin, Texas, November 1-5, 2016. c?2016 Association for Computational LinguisticsDeep Reinforcement Learning for Mention-Ranking Coreference ModelsKevin ClarkComputer Science DepartmentStanford Universitykevclark@cs.stanford.eduChristopher D. ManningComputer Science DepartmentStanford Universitymanning@cs.stanford.eduAbstractCoreference resolution systems are typicallytrained with heuristic loss functions that re-quire careful tuning.
+In this paper we in-stead apply reinforcement learning to directlyoptimize a neural mention-ranking model forcoreference evaluation metrics.
+We experi-ment with two approaches: the REINFORCEpolicy gradient algorithm and a reward-rescaled max-margin objective.
+We find thelatter to be more effective, resulting in a sig-nificant improvement over the current state-of-the-art on the English and Chinese portionsof the CoNLL 2012 Shared Task.1 IntroductionCoreference resolution systems typically operate bymaking sequences of local decisions (e.g., addinga coreference link between two mentions).
+How-ever, most measures of coreference resolution per-formance do not decompose over local decisions,which means the utility of a particular decision isnot known until all other decisions have been made.Due to this difficulty, coreference systems areusually trained with loss functions that heuristicallydefine the goodness of a particular coreference deci-sion.
+These losses contain hyperparameters that arecarefully selected to ensure the model performs wellaccording to coreference evaluation metrics.
+Thiscomplicates training, especially across different lan-guages and datasets where systems may work bestwith different settings of the hyperparameters.To address this, we explore using two variants ofreinforcement learning to directly optimize a coref-erence system for coreference evaluation metrics.
+Inparticular, we modify the max-margin coreferenceobjective proposed by Wiseman et al (2015) by in-corporating the reward associated with each coref-erence decision into the loss?s slack rescaling.
+Wealso test the REINFORCE policy gradient algorithm(Williams, 1992).Our model is a neural mention-ranking model.Mention-ranking models score pairs of mentions fortheir likelihood of coreference rather than compar-ing partial coreference clusters.
+Hence they operatein a simple setting where coreference decisions aremade independently.
+Although they are less expres-sive than entity-centric approaches to coreference(e.g., Haghighi and Klein, 2010), mention-rankingmodels are fast, scalable, and simple to train, caus-ing them to be the dominant approach to coreferencein recent years (Durrett and Klein, 2013; Wisemanet al, 2015).
+Having independent actions is partic-ularly useful when applying reinforcement learningbecause it means a particular action?s effect on thefinal reward can be computed efficiently.We evaluate the models on the English and Chi-nese portions of the CoNLL 2012 Shared Task.
+TheREINFORCE algorithm is competitive with a heuris-tic loss function while the reward-rescaled objectivesignificantly outperforms both1.
+We attribute this toreward rescaling being well suited for a ranking taskdue to its max-margin loss as well as benefiting fromdirectly optimizing for coreference metrics.
+Erroranalysis shows that using the reward-rescaling lossresults in a similar number of mistakes as the heuris-tic loss, but the mistakes tend to be less severe.1Code and trained models are available athttps://github.com/clarkkev/deep-coref.22562 Neural Mention-Ranking ModelWe use the neural mention-ranking model describedin Clark and Manning (2016), which we brieflygo over in this section.
+Given a mention m andcandidate antecedent c, the mention-ranking modelproduces a score for the pair s(c,m) indicating theircompatibility for coreference with a feedforwardneural network.
+The candidate antecedent may beany mention that occurs before m in the documentor NA, indicating that m has no antecedent.Input Layer.
+For each mention, the model extractsvarious words (e.g., the mention?s head word) andgroups of words (e.g., all words in the mention?ssentence) that are fed into the neural network.
+Eachword is represented by a vector wi ?
+Rdw .
+Eachgroup of words is represented by the average of thevectors of each word in the group.
+In addition tothe embeddings, a small number of additional fea-tures are used, including distance, string matching,and speaker identification features.
+See Clark andManning (2016) for the full set of features and anablation study.These features are concatenated to produce an I-dimensional vector h0, the input to the neural net-work.
+If c = NA, features defined over pairs ofmentions are not included.
+For this case, we traina separate network with an identical architecture tothe pair network except for the input layer to pro-duce anaphoricity scores.Hidden Layers.
+The input gets passed through threehidden layers of rectified linear (ReLU) units (Nairand Hinton, 2010).
+Each unit in a hidden layer isfully connected to the previous layer:hi(c,m) = max(0,Wihi?1(c,m) + bi)where W1 is aM1?I weight matrix, W2 is aM2?M1 matrix, and W3 is a M3 ?M2 matrix.Scoring Layer.
+The final layer is a fully connectedlayer of size 1:s(c,m) = W4h3(c,m) + b4where W4 is a 1 ?M3 weight matrix.
+At test time,the mention-ranking model links each mention withits highest scoring candidate antecedent.3 Learning AlgorithmsMention-ranking models are typically trained withheuristic loss functions that are tuned via hyperpa-rameters.
+These hyperparameters are usually givenas costs for different error types, which are used tobias the coreference system towards making moreor fewer coreference links.
+In this section we firstdescribe a heuristic loss function incorporating thisidea from Wiseman et al (2015).
+We then proposenew training procedures based on reinforcementlearning that instead directly optimize for corefer-ence evaluation metrics.3.1 Heuristic Max-Margin ObjectiveThe heuristic loss from Wiseman et al is governedby the following error types, which were first pro-posed by Durrett et al (2013).Suppose the training set consists of N mentionsm1,m2, ...,mN .
+Let C(mi) denote the set of can-didate antecedents of a mention mi (i.e., mentionspreceding mi and NA) and T (mi) denote the set oftrue antecedents of mi (i.e., mentions preceding mithat are coreferent with it or {NA} if mi has no an-tecedent).
+Then we define the following costs forlinking mi to a candidate antecedent c ?
+C(mi):?h(c,mi) =???????????
+?FN if c = NA ?
+T (mi) 6= {NA}?FA if c 6= NA ?
+T (mi) = {NA}?WL if c 6= NA ?
+a /?
+T (mi)0 if a ?
+T (mi)for ?false new,?
+?false anaphor,?
+?wrong link?, andcorrect coreference decisions.The heuristic loss is a slack-rescaled max-marginobjective parameterized by these error costs.
+Let t?ibe the highest scoring true antecedent of mi:t?i = argmaxc?C(mi)?
+?h(c,mi)=0s(c,mi)Then the heuristic loss is given asL(?)
+=N?i=1maxc?C(mi)?h(c,mi)(1 + s(c,mi)?
+s(t?i,mi))Finding Effective Error Penalties.
+We fix?WL = 1.0 and search for ?FA and ?FN out of{0.1, 0.2, ..., 1.5}with a variant of grid search.
+Eachnew trial uses the unexplored set of hyperparame-2257ters that has the closest Manhattan distance to thebest setting found so far on the dev set.
+The searchis halted when all immediate neighbors (within 0.1distance) of the best setting have been explored.
+Wefound (?FN, ?FA, ?WL) = (0.8, 0.4, 1.0) to be bestfor English and (?FN, ?FA, ?WL) = (0.8, 0.5, 1.0) tobe best for Chinese on the CoNLL 2012 data.3.2 Reinforcement LearningFinding the best hyperparameter settings for theheuristic loss requires training many variants of themodel, and at best results in an objective that iscorrelated with coreference evaluation metrics.
+Toaddress this, we pose mention ranking in the rein-forcement learning framework (Sutton and Barto,1998) and propose methods that directly optimizethe model for coreference metrics.We can view the mention-ranking model asan agent taking a series of actions a1:T =a1, a2, ..., aT , where T is the number of mentionsin the current document.
+Each action ai links theith mention in the document mi to a candidate an-tecedent.
+Formally, we denote the set of actionsavailable for the ith mention as Ai = {(c,mi) :c ?
+C(mi)}, where an action (c,m) adds a corefer-ence link between mentions m and c. The mention-ranking model assigns each action the score s(c,m)and takes the highest-scoring action at each step.Once the agent has executed a sequence of ac-tions, it observes a reward R(a1:T ), which can beany function.
+We use the B3 coreference metric forthis reward (Bagga and Baldwin, 1998).
+Althoughour system evaluation also includes the MUC (Vi-lain et al, 1995) and CEAF?4 (Luo, 2005) metrics,we do not incorporate them into the loss becauseMUC has the flaw of treating all errors equally andCEAF?4 is slow to compute.Reward Rescaling.
+Crucially, the actions takenby a mention-ranking model are independent.
+Thismeans it is possible to change any action ai to a dif-ferent one a?i ?
+Ai and see what reward the modelwould have gotten by taking that action instead:R(a1, ..., ai?1, a?i, ai+1, ..., aT ).
+We use this idea toimprove the slack-rescaling parameter ?
+in the max-margin loss L(?).
+Instead of setting its value basedon the error type, we compute exactly how mucheach action hurts the final reward:?r(c,mi) = ?R(a1, ..., (c,mi), ..., aT )+ maxa?i?AiR(a1, ..., a?i, ..., aT )where a1:T is the highest scoring sequence of actionsaccording to the model?s current parameters.
+Other-wise the model is trained in the same way as withthe heuristic loss.The REINFORCE Algorithm.
+We also exploreusing the REINFORCE policy gradient algorithm(Williams, 1992).
+We can define a probability dis-tribution over actions using the mention-rankingmodel?s scoring function as follows:p?
+(a) ?
+es(c,m)for any action a = (c,m).
+The REINFORCE algo-rithm seeks to maximize the expected rewardJ(?)
+= E[a1:T?p?
+]R(a1:T )It does this through gradient ascent.
+Computing thefull gradient is prohibitive because of the expecta-tion over all possible action sequences, which is ex-ponential in the length of the sequence.
+Instead, itgets an unbiased estimate of the gradient by sam-pling a sequence of actions a1:T according to p?
+andcomputing the gradient only over the sample.We take advantage of the independence of actionsby using the following gradient estimate, which haslower variance than the standard REINFORCE gradi-ent estimate.??
+J(?)
+?T?i=1?a?i?Ai[??
+p?
+(a?i)](R(a1, ..., a?i, ..., aT )?
+bi)where bi is a baseline used to reduce the variance,which we set to Ea?i?Ai?p?
+R(a1, ..., a?i, ..., aT ).4 Experiments and ResultsWe run experiments on the English and Chinese por-tions of the CoNLL 2012 Shared Task data (Prad-han et al, 2012) and evaluate with the MUC, B3,and CEAF?4 metrics.
+Our experiments were run us-ing predicted mentions from Stanford?s rule-basedcoreference system (Raghunathan et al, 2010).We follow the training methodology from Clarkand Manning (2016): hidden layers of sizes M1= 1000, M2 = M3 = 500, the RMSprop optimizer2258MUC B3 CEAF?4Prec.
+Rec.
+F1 Prec.
+Rec.
+F1 Prec.
+Rec.
+F1 Avg.
+F1CoNLL 2012 English Test DataWiseman et al (2016) 77.49 69.75 73.42 66.83 56.95 61.50 62.14 53.85 57.70 64.21Clark & Manning (2016) 79.91 69.30 74.23 71.01 56.53 62.95 63.84 54.33 58.70 65.29Heuristic Loss 79.63 70.25 74.65 69.21 57.87 63.03 63.62 53.97 58.40 65.36REINFORCE 80.08 69.61 74.48 70.70 56.96 63.09 63.59 54.46 58.67 65.41Reward Rescaling 79.19 70.44 74.56 69.93 57.99 63.40 63.46 55.52 59.23 65.73CoNLL 2012 Chinese Test DataBjo?rkelund & Kuhn (2014) 69.39 62.57 65.80 61.64 53.87 57.49 59.33 54.65 56.89 60.06Clark & Manning (2016) 74.45 64.73 69.25 68.71 55.54 61.43 63.14 57.48 60.18 63.62Heuristic Loss 72.20 66.51 69.24 64.71 58.16 61.26 61.98 58.41 60.14 63.54REINFORCE 74.05 65.38 69.44 67.52 56.43 61.48 62.38 57.77 59.98 63.64Reward Rescaling 73.64 65.62 69.40 67.48 56.94 61.76 62.46 58.60 60.47 63.88Table 1: Comparison of the methods together with other state-of-the-art approaches on the test sets.
+(Hinton and Tieleman, 2012), dropout (Hinton et al,2012) with a rate of 0.5, and pretraining with the allpairs classification and top pairs classification tasks.However, we improve on the previous system by us-ing using better mention detection, more effectivehyperparameters, and more epochs of training.4.1 ResultsWe compare the heuristic loss, REINFORCE, and re-ward rescaling approaches on both datasets.
+We findthat REINFORCE does slightly better than the heuris-tic loss, but reward rescaling performs significantlybetter than both across both languages.We attribute the modest improvement of REIN-FORCE to it being poorly suited for a rankingtask.
+During training it optimizes the model?s per-formance in expectation, but at test-time it takes themost probable sequence of actions.
+This mismatchoccurs even at the level of an individual decision:the model only links the current mention to a singleantecedent, but is trained to assign high probabilityto all correct antecedents.
+We believe the benefit ofREINFORCE being guided by coreference evalu-ation metrics is offset by this disadvantage, whichdoes not occur in the max-margin approaches.
+Thereward-rescaled max-margin loss combines the bestof both worlds, resulting in superior performance.4.2 The Benefits of Reinforcement LearningIn this section we examine the reward-based costfunction ?r and perform error analysis to determine0.0 0.2 0.4 0.6 0.8 1.0CosW         .246DensLWyError TypesFAF1WL r0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4CosW         .01234DensLWyError TypesFAF1WL rFigure 1: Density plot of the costs ?r associated with differ-ent error types on the English CoNLL 2012 test set.how reward rescaling improves the mention-rankingmodel?s accuracy.Comparison with Heuristic Costs.
+We comparethe reward-based cost function ?r with the errortypes used in the heuristic loss.
+For English, theaverage value of ?r is 0.79 for FN errors and 0.38for FA errors when the costs are scaled so the aver-age value of a WL error is 1.0.
+These are very closeto the hyperparameter values (?FN, ?FA, ?WL) =(0.8, 0.4, 1.0) found by grid search.
+However, thereis a high variance in costs for each error type, sug-gesting that using a fixed penalty for each type as inthe heuristic loss is insufficient (see Figure 1).Avoiding Costly Mistakes.
+Embedding the costsof actions into the loss function causes the reward-rescaling model to prioritize getting the more im-portant coreference decisions (i.e., the ones with thebiggest impact on the final score) correct.
+As a2259Class of Mentions Average Cost ?r # Heuristic Loss Errors # Reward Rescaling ErrorsFN FA WL FN FA WL FN FA WLProper nouns 0.90 0.38 1.02 403 597 221 334 660 233Pronouns in phone conversations 0.86 0.39 1.21 82 85 81 90 78 67Table 3: Examples of classes of mention on which the reward-rescaling loss significantly improves upon the heuristic loss due toits reward-based cost function.
+Reported numbers are from the English CoNLL 2012 test set.Model FN FA WLHeuristic Loss 1719 1956 1258Reward Rescaling 1725 1994 1247Table 2: Number of ?false new,?
+?false anaphoric,?
+and?wrong link?
+errors produced by the models on the EnglishCoNLL 2012 test set.result, it makes fewer costly mistakes at test time.Costly mistakes often involve large clusters of men-tions: incorrectly combining two coreference clus-ters of size ten is much worse than incorrectly com-bining two clusters of size one.
+However, the costof an action also depends on other factors like thenumber of errors already present in the clusters andthe utilities of the other available actions.Table 2 shows the breakdown of errors made bythe heuristic and reward-rescaling models on thetest set.
+The reward-rescaling model makes slightlymore errors, meaning its improvement in perfor-mance must come from its errors being less severe.Example Improvements.
+Table 3 shows twoclasses of mentions where the reward-rescaling lossparticularly improves over the heuristic loss.Proper nouns have a higher average cost for ?falsenew?
+errors (0.90) than other mentions types (0.77).This is perhaps because proper nouns are importantfor connecting clusters of mentions far apart in adocument, so incorrectly linking a proper noun toNA could result in a large decrease in recall.
+Be-cause it more heavily weights these high-cost errorsduring training, the reward-rescaling model makesfewer ?false new?
+errors for proper nouns than theheuristic loss.
+Although there is an increase in otherkinds of errors as a result, most of these are low-cost?false anaphoric?
+errors.The pronouns in the ?telephone conversation?genre often group into extremely large coreferenceclusters, which means a ?wrong link?
+error can havea very large negative effect on the score.
+This is re-flected in its high average cost of 1.21.
+After prior-itizing these examples during training, the reward-rescaling model creates significantly fewer wronglinks than the heuristic loss, which is trained using afixed cost of 1.0 for all wrong links.5 Related WorkMention-ranking models have been widely used forcoreference resolution (Denis and Baldridge, 2007;Rahman and Ng, 2009; Durrett and Klein, 2013).These models are typically trained with heuristicloss functions that assign costs to different errortypes, as in the heuristic loss we describe in Sec-tion 3.1 (Fernandes et al, 2012; Durrett et al, 2013;Bjo?rkelund and Kuhn, 2014; Wiseman et al, 2015;Martschat and Strube, 2015; Wiseman et al, 2016).To the best of our knowledge reinforcement learn-ing has not been applied to coreference resolutionbefore.
+However, imitation learning algorithms suchas SEARN (Daume?
+III et al, 2009) have been usedto train coreference resolvers (Daume?
+III, 2006; Maet al, 2014; Clark and Manning, 2015).
+These algo-rithms also directly optimize for coreference eval-uation metrics, but they require an expert policy tolearn from instead of relying on rewards alone.6 ConclusionWe propose using reinforcement learning to directlyoptimize mention-ranking models for coreferenceevaluation metrics, obviating the need for hyperpa-rameters that must be carefully selected for eachparticular language, dataset, and evaluation metric.Our reward-rescaling approach also increases themodel?s accuracy, resulting in significant gains overthe current state-of-the-art.AcknowledgmentsWe thank Kelvin Guu, William Hamilton, Will Mon-roe, and the anonymous reviewers for their thought-ful comments and suggestions.
+This work was sup-ported by NSF Award IIS-1514268.2260ReferencesAmit Bagga and Breck Baldwin.
+1998.
+Algorithms forscoring coreference chains.
+In The First InternationalConference on Language Resources and EvaluationWorkshop on Linguistics Coreference, pages 563?566.Anders Bjo?rkelund and Jonas Kuhn.
+2014.
+Learningstructured perceptrons for coreference resolution withlatent antecedents and non-local features.
+In Associa-tion of Computational Linguistics (ACL).Kevin Clark and Christopher D. Manning.
+2015.
+Entity-centric coreference resolution with model stacking.
+InAssociation for Computational Linguistics (ACL).Kevin Clark and Christopher D. Manning.
+2016.
+Im-proving coreference resolution with entity-level dis-tributed representations.
+In Association for Compu-tational Linguistics (ACL).Hal Daume?
+III, John Langford, and Daniel Marcu.
+2009.Search-based structured prediction.
+Machine Learn-ing, 75(3):297?325.Hal Daume?
+III.
+2006.
+Practical structured learning tech-niques for natural language processing.
+Ph.D. thesis,University of Southern California, Los Angeles, CA.Pascal Denis and Jason Baldridge.
+2007.
+A ranking ap-proach to pronoun resolution.
+In International JointConferences on Artificial Intelligence (IJCAI), pages1588?1593.Greg Durrett and Dan Klein.
+2013.
+Easy victories anduphill battles in coreference resolution.
+In EmpiricalMethods in Natural Language Processing (EMNLP),pages 1971?1982.Greg Durrett, David Leo Wright Hall, and Dan Klein.2013.
+Decentralized entity-level modeling for coref-erence resolution.
+In Association for ComputationalLinguistics (ACL), pages 114?124.Eraldo Rezende Fernandes, C?
+?cero Nogueira Dos Santos,and Ruy Luiz Milidiu?.
+2012.
+Latent structure percep-tron with feature induction for unrestricted coreferenceresolution.
+In Proceedings of the Joint Conference onEmpirical Methods in Natural Language Processingand Conference on Computational Natural LanguageLearning - Shared Task, pages 41?48.Aria Haghighi and Dan Klein.
+2010.
+Coreference res-olution in a modular, entity-centered model.
+In Hu-man Language Technology and North American Asso-ciation for Computational Linguistics (HLT-NAACL),pages 385?393.Geoffrey Hinton and Tijmen Tieleman.
+2012.
+Lecture6.5-RmsProp: Divide the gradient by a running aver-age of its recent magnitude.
+COURSERA: Neural Net-works for Machine Learning, 4.Geoffrey E Hinton, Nitish Srivastava, Alex Krizhevsky,Ilya Sutskever, and Ruslan R Salakhutdinov.
+2012.Improving neural networks by preventing co-adaptation of feature detectors.
+arXiv preprintarXiv:1207.0580.Xiaoqiang Luo.
+2005.
+On coreference resolution per-formance metrics.
+In Empirical Methods in NaturalLanguage Processing (EMNLP), pages 25?32.Chao Ma, Janardhan Rao Doppa, J Walker Orr, PrashanthMannem, Xiaoli Fern, Tom Dietterich, and PrasadTadepalli.
+2014.
+Prune-and-score: Learning forgreedy coreference resolution.
+In Empirical Methodsin Natural Language Processing (EMNLP).Sebastian Martschat and Michael Strube.
+2015.
+Latentstructures for coreference resolution.
+Transactions ofthe Association for Computational Linguistics (TACL),3:405?418.Vinod Nair and Geoffrey E. Hinton.
+2010.
+Rectifiedlinear units improve restricted boltzmann machines.In International Conference on Machine Learning(ICML), pages 807?814.Sameer Pradhan, Alessandro Moschitti, Nianwen Xue,Olga Uryupina, and Yuchen Zhang.
+2012.
+Conll-2012shared task: Modeling multilingual unrestricted coref-erence in ontonotes.
+In Proceedings of the Joint Con-ference on Empirical Methods in Natural LanguageProcessing and Conference on Computational NaturalLanguage Learning - Shared Task, pages 1?40.Karthik Raghunathan, Heeyoung Lee, Sudarshan Ran-garajan, Nathanael Chambers, Mihai Surdeanu, DanJurafsky, and Christopher Manning.
+2010.
+A multi-pass sieve for coreference resolution.
+In EmpiricalMethods in Natural Language Processing (EMNLP),pages 492?501.Altaf Rahman and Vincent Ng.
+2009.
+Supervised modelsfor coreference resolution.
+In Empirical Methods inNatural Language Processing (EMNLP), pages 968?977.Richard S Sutton and Andrew G Barto.
+1998.
+Reinforce-ment learning: An introduction.
+MIT Press.Marc Vilain, John Burger, John Aberdeen, Dennis Con-nolly, and Lynette Hirschman.
+1995.
+A model-theoretic coreference scoring scheme.
+In Proceed-ings of the 6th conference on Message understanding,pages 45?52.Ronald J Williams.
+1992.
+Simple statistical gradient-following algorithms for connectionist reinforcementlearning.
+Machine learning, 8(3-4):229?256.Sam Wiseman, Alexander M Rush, Stuart M Shieber, andJason Weston.
+2015.
+Learning anaphoricity and an-tecedent ranking features for coreference resolution.In Association of Computational Linguistics (ACL),pages 92?100.Sam Wiseman, Alexander M Rush, Stuart M Shieber,and Jason Weston.
+2016.
+Learning global features2261for coreference resolution.
+In Human Language Tech-nology and North American Association for Computa-tional Linguistics (HLT-NAACL).2262

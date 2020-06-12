@@ -1,0 +1,127 @@
+2012 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, pages 626?630,Montre?al, Canada, June 3-8, 2012. c?2012 Association for Computational LinguisticsWhy Not Grab a Free Lunch?
+Mining Large Corpora forParallel Sentences to Improve Translation ModelingFerhan TureDept.
+of Computer Science,University of Marylandfture@cs.umd.eduJimmy LinThe iSchoolUniversity of Marylandjimmylin@umd.eduAbstractIt is well known that the output quality ofstatistical machine translation (SMT) systemsincreases with more training data.
+To ob-tain more parallel text for translation mod-eling, researchers have turned to the web tomine parallel sentences, but most previous ap-proaches have avoided the difficult problemof pairwise similarity on cross-lingual docu-ments and instead rely on heuristics.
+In con-trast, we confront this challenge head on us-ing the MapReduce framework.
+On a mod-est cluster, our scalable end-to-end processingpipeline was able to automatically gather 5.8mparallel sentence pairs from English and Ger-man Wikipedia.
+Augmenting existing bitextwith these data yielded significant improve-ments over a state-of-the-art baseline (2.39BLEU points in the best case).1 IntroductionIt has been repeatedly shown that ?throwing moredata at the problem?
+is effective in increasing SMToutput quality, both for translation modeling (Dyeret al, 2008) and for language modeling (Brants etal., 2007).
+In this paper, we bring together two re-lated research threads to gather parallel sentences forimproved translation modeling: cross-lingual pair-wise similarity to mine comparable documents andclassification to identify sentence pairs that are mu-tual translations.Unlike most previous work, which sidesteps thecomputationally-intensive task of pairwise compar-isons to mine comparable documents and instead re-lies on heuristics, we tackle the challenge head on.This paper describes a fully open-source, scalableMapReduce-based processing pipeline that is able toautomatically extract large quantities of parallel sen-tences.
+Experiments examine the impact data sizehas on a state-of-the-art SMT system.We acknowledge that different components of thiswork are not novel and the general principles behind?big data?
+MT are well known.
+However, when con-sidered together with our previous work (Ture et al,2011), to our knowledge this is the first expositionin which all the pieces have been ?put together?
+inan end-to-end pipeline that is accessible to academicresearch groups.
+The framework described in thispaper is entirely open source, and the computationalresources necessary to replicate our results are rela-tively modest.Starting from nothing more than two corpora indifferent languages (in German and English, in ourcase), we are able to extract bitext and improvetranslation quality by a significant margin (2.39BLEU points), essentially ?for free?.
+By varyingboth the quantity and quality of the bitext, we char-acterize the tradeoffs between the amount of data,computational costs, and translation quality.2 Related WorkThe idea of mining parallel sentences, particularlyfrom the web, is of course not new.
+Most adopt atwo step process: 1. identify comparable documentsand generate candidate sentence pairs, and 2. filtercandidate pairs to retain parallel sentences.The general solution to the first step involves com-puting pairwise similarities across multi-lingual cor-pora.
+As this is computationally intensive, most626studies fall back to heuristics, e.g., comparing newsarticles close in time (Munteanu and Marcu, 2005),exploiting ?inter-wiki?
+links in Wikipedia (Smith etal., 2010), or bootstrapping off an existing searchengine (Resnik and Smith, 2003).
+In contrast, weadopt a more exhaustive approach by directly tack-ling the cross-lingual pairwise similarity problem,using MapReduce on a modest cluster.
+We performexperiments on German and English Wikipedia (twolargest available), but our technique is general anddoes not depend on sparse, manually-created inter-wiki links.
+Thus, compared to those approaches, weachieve much higher recall.The second step (filtering candidate sentencepairs) is relatively straightforward, and we adoptthe classification approach of Munteanu andMarcu (2005).
+However, unlike in previous work,we need to classify large volumes of data (due tohigher recall in the first step).
+Therefore, we careabout the relationship between classification accu-racy and the speed of the classifier.
+Our two-stageapproach gives us both high effectiveness (accuracy)and efficiency (speed).A recent study from Google describes a generalsolution to our problem that scales to web collec-tions (Uszkoreit et al, 2010).
+The authors translateall documents from one language into another, thustransforming the problem into identifying similarmono-lingual document pairs.
+Nevertheless, our ap-proach makes several additional contributions.
+First,we explore the effect of dataset size on results.
+Ourconclusions are more nuanced than simply ?moredata is better?, since there is a tradeoff between qual-ity and quantity.
+Our experiments involve ordersof magnitude less data, but we nevertheless observesignificant gains over a strong baseline.
+Overall, ourapproach requires far less computational resourcesand thus is within the reach of academic researchgroups: we do not require running an MT systemon one side of the entire collection, and we care-fully evaluate and control the speed of sentence-classification.
+Finally, in support of open science,our code1 and data2 are available as part of Ivory, anopen-source Hadoop toolkit for web-scale informa-tion retrieval (Lin et al, 2009).1ivory.cc2github.com/ferhanture/WikiBitext3 Generating Candidate SentencesWe applied our approach on English Wikipedia(10.9m documents, 30.6GB) and German Wikipedia(2.4m articles, 8.5GB), using XML dumps from Jan-uary 2011.
+English and German Wikipedia were se-lected because they are the largest Wikipedia collec-tions available, and we want to measure effects in alanguage for which we already have lots of bitext.In both collections, redirect pages and stub articleswere discarded.To mine comparable documents, we used ourpreviously described algorithm (Ture et al, 2011),based on local-sensitive hashing, also implementedin Hadoop MapReduce.
+The reader is referred tothe paper for details.
+On a 16 node (96 core) cluster,we were able to extract 64m (de, df ) document pairs(with cosine similarity ?
+0.3) in 8.8 hours.For each of the (de, df ) pairs, the next process-ing step involves generating the Cartesian product ofsentences in both documents as candidate sentencepairs: this itself is a non-trivial problem.
+Althoughin this particular case it may be possible to load bothdocument collections in memory, we envision scal-ing up to collections in the future for which this isnot possible.
+Therefore, we devised a scalable, dis-tributed, out-of-memory solution using Hadoop.The algorithm works as follows: We map over(docid n, document d) pairs from both the Germanand English collections.
+In each mapper all (de, df )similarity pairs are loaded in memory.
+If the inputdocument is not found in any of these pairs, no workis performed.
+Otherwise, we extract all sentencesand retain only those that have at least 5 terms andat least 3 unique terms.
+Sentences are converted intoBM25-weighted vectors in the English term space;for German sentences, translation into English is ac-complished using the technique proposed by Dar-wish and Oard (2003).
+For every (de, df ) pair thatthe input document is found in, the mapper emits thelist of weighted sentence vectors, with the (de, df )pair as the key.
+As all intermediate key-value pairsin MapReduce are grouped by their keys for reduce-side processing, the reducer receives the key (de, df )and weighted sentence vectors for both the Germanand English articles.
+From there, we generate theCartesian product of sentences in both languages.As an initial filtering step, we discard all pairs where627the ratio of sentence lengths is more than two, aheuristic proposed in (Munteanu and Marcu, 2005).Each of the remaining candidate sentences are thenprocessed by two separate classifiers: a less accurate,fast classifier and a more accurate, slow classifier.This is described in the next section.This algorithm is a variant of what is commonlyknown as a reduce-side join in MapReduce (Linand Dyer, 2010), where (de, df ) serves as thejoin key.
+Note that in this algorithm, sentencevectors are emitted multiple times, one for each(de, df ) pair that they participate in: this resultsin increased network traffic during the sort/shufflephase.
+We experimented with an alternative algo-rithm that processes all foreign documents similarto the same English document together, e.g., pro-cessing (de, [df1, df2, .
+.
+.])
+together.
+This approach,counter-intuitively, was slower despite reduced net-work traffic, due to skew in the distribution of sim-ilar document pairs.
+In our experiments, half of thesource collection was not linked to any target docu-ment, whereas 4% had more than 100 links.
+This re-sults in reduce-side load imbalance, and while mostof the reducers finish quickly, a few reducers endup performing substantially more computation, andthese ?stragglers?
+increase end-to-end running time.4 Parallel Sentence ClassificationWe built two MaxEnt parallel sentence classifiers us-ing the OpenNLP package, with data from a sam-ple of the Europarl corpus of European parliamentspeeches.
+For training, we sampled 1000 parallelsentences from the German-English subset of thecorpus as positive instances, and 5000 non-parallelsentence pairs as negative instances.
+For testing, wesampled another 1000 parallel pairs and generatedall possible non-parallel pairs by the Cartesian prod-uct of these samples.
+This provides a better approx-imation of the task we?re interested in, since most ofthe candidate sentence pairs will be non-parallel in acomparable corpus.
+We report precision, recall, andF-score, using different classifier confidence scoresas the decision threshold (see Table 1).Our first, simple classifier, which uses cosine sim-ilarity between the sentences as the only feature,achieved a maximum F-score of 74%, with 80%precision and 69% recall.
+Following previous workClassifier Measure ValueSimpleRecall @ P90 0.59Recall @ P80 0.69Best F-score 0.74ComplexRecall @ P90 0.69Recall @ P80 0.79Best F-score 0.80Table 1: Accuracy of the simple and complex sentenceclassifiers on Europarl data.
+(Smith et al, 2010), we also report recall with pre-cision at 80% and 90% in Table 1; the classifier ef-fectiveness is comparable to the previous work.
+Thesecond, complex classifier uses the following addi-tional features: ratio of sentence lengths, ratio ofsource-side tokens that have translations on the tar-get side, ratio of target-side tokens that have trans-lations on the source side.
+We also experimentedwith features using the word alignment output, butthere was no improvement in accuracy.
+The com-plex classifier showed better performance: recall of79% at 80% precision and 69% at precision of 90%,with a maximum F-score of 80%.Due to the large amounts of data involved in ourexperiments, we were interested in speed/accuracytradeoffs between the two classifiers.
+Microbench-marks were performed on a commodity laptop run-ning Mac OS X on a 2.26GHz Intel Core Duo CPU,measuring per-instance classification speed (includ-ing feature computation time).
+The complex classi-fier took 100 ?s per instance, about 4 times slowerthan the simple one, which took 27 ?s.The initial input of 64m similar document pairsyielded 400b raw candidate sentence pairs, whichwere first reduced to 214b by the per-sentence lengthfilter, and then to 132b by enforcing a maximum sen-tence length ratio of 2.
+The simple classifier wasapplied to the remaining pairs, with different confi-dence thresholds.
+We adjusted the threshold to ob-tain different amounts of bitext, to see the effect ontranslation quality (this condition is called S1 here-after).
+The positive results of the first classifier wasthen processed by the second classifier (this two-level approach is called S2 hereafter).Candidate generation was completed in 2.4 hourson our cluster with 96 cores.
+These candidates wentthrough the MapReduce shuffle-and-sort process in0.75 hours, which were then classified in 4 hours.628Processing by the more complex classifier in S2 tookan additional 0.52 hours.5 End-to-End MT ExperimentsIn all experiments, our MT system learned a syn-chronous context-free grammar (Chiang, 2007), us-ing GIZA++ for word alignments, MIRA for pa-rameter tuning (Crammer et al, 2006), cdec for de-coding (Dyer et al, 2010), a 5-gram SRILM forlanguage modeling, and single-reference BLEU forevaluation.
+The baseline system was trained on theGerman-English WMT10 training data, consistingof 3.1m sentence pairs.
+For development and test-ing, we used the newswire datasets provided forWMT10, including 2525 sentences for tuning and2489 sentences for testing.Our baseline system includes all standard fea-tures, including phrase translation probabilities inboth directions, word and arity penalties, and lan-guage model scores.
+It achieves a BLEU scoreof 21.37 on the test set, which would place it 5thout of 9 systems that reported comparable resultsin WMT10 (only three systems achieved a BLEUscore over 22).
+Many of these systems used tech-niques that exploited the specific aspects of the task,e.g., German-specific morphological analysis.
+Incontrast, we present a knowledge-impoverished, en-tirely data-driven approach, by simply looking formore data in large collections.For both experimental conditions (one-step classi-fication, S1, and two-step classification, S2) we var-ied the decision threshold to generate new bitext col-lections of different sizes.
+Each of these collectionswas added to the baseline training data to inducean entirely new translation model (note that GIZAadditionally filtered out some of the pairs based onlength).
+The final dataset sizes, along with BLEUscores on the test data, are shown in Fig.
+1.
+In S1, weobserve that increasing the amount of data (by low-ering the decision threshold) initially leads to lowerBLEU scores (due to increased noise), but there is athreshold after which the improvement coming fromthe added data supersedes the noise.
+The S2 condi-tion increases the quality of bitext by reducing thisnoise: the best run, with 5.8m pairs added to thebaseline (final dataset has 8.1m pairs), yields 23.76BLEU (labeled P on figure), 2.39 points above the2323.53  3.5  4  4.5  5  5.5  6  6.5  7  7.5  8  8.5BLEU scoreTraining data size (millions)Baseline BLEU = 21.37PS1 (1-step classification)S2 (2-step classification)Sampling data from training set PFigure 1: Evaluation results on the WMT10 test set.baseline (and higher than the best WMT10 result).These results show that the two-step classificationprocess, while slower, is worth the additional pro-cessing time.Our approach yields solid improvements evenwith less data added: with only 382k pairs addedto the baseline, the BLEU score increases by 1.84points.
+In order to better examine the effect ofdata size alone, we created partial datasets from Pby randomly sampling sentence pairs, and then re-peated experiments, also shown in Fig.
+1.
+We seean increasing trend of BLEU scores with respect todata size.
+By comparing the three plots, we see thatS2 and random sampling from P work better thanS1.
+Also, random sampling is not always worse thanS2, since some pairs that receive low classifier con-fidence turn out to be helpful.6 ConclusionsIn this paper, we describe a scalable MapReduce im-plementation for automatically mining parallel sen-tences from arbitrary comparable corpora.
+We show,at least for German-English MT, that an impover-ished, data-driven approach is more effective thantask-specific engineering.
+With the distributed bi-text mining machinery described in this paper, im-provements come basically ?for free?
+(the only costis a modest amount of cluster resources).
+Given theavailability of data and computing power, there issimply no reason why MT researchers should notride the large-data ?tide?
+that lifts all boats.
+For thebenefit of the community, all code necessary to repli-cate these results have been open sourced, as well asthe bitext we?ve gathered.629AcknowledgmentsThis research was supported in part by the BOLTprogram of the Defense Advanced Research ProjectsAgency, Contract No.
+HR0011-12-C-0015; NSF un-der awards IIS-0916043 and CCF-1018625.
+Anyopinions, findings, conclusions, or recommenda-tions expressed in this paper are those of the authorsand do not necessarily reflect the view of the spon-sors.
+The second author is grateful to Esther andKiri for their loving support and dedicates this workto Joshua and Jacob.ReferencesThorsten Brants, Ashok C. Popat, Peng Xu, Franz J. Och,and Jeffrey Dean.
+2007.
+Large language models inmachine translation.
+Proceedings of the 2007 JointConference on Empirical Methods in Natural Lan-guage Processing and Computational Natural Lan-guage Learning, pages 858?867, Prague, Czech Re-public.David Chiang.
+2007.
+Hierarchical phrase-based transla-tion.
+Computational Linguistics, 33:201?228.Koby Crammer, Ofer Dekel, Joseph Keshet, Shai Shalev-Shwartz, and Yoram Singer.
+2006.
+Online passive-aggressive algorithms.
+Journal of Machine LearningResearch, 7:551?585.Kareem Darwish and Douglas W. Oard.
+2003.
+Analysisof anchor text for web search.
+Proceedings of the 26thAnnual International ACM SIGIR Conference on Re-search and Development in Information Retrieval (SI-GIR 2003), pages 261?268, Toronto, Canada.Chris Dyer, Aaron Cordova, Alex Mont, and Jimmy Lin.2008.
+Fast, easy, and cheap: Construction of statisti-cal machine translation models with MapReduce.
+Pro-ceedings of the Third Workshop on Statistical MachineTranslation at ACL 2008, pages 199?207, Columbus,Ohio.Chris Dyer, Adam Lopez, Juri Ganitkevitch, JonathanWeese, Ferhan Ture, Phil Blunsom, Hendra Setiawan,Vladimir Eidelman, and Philip Resnik.
+2010. cdec: Adecoder, alignment, and learning framework for finite-state and context-free translation models.
+Proceedingsof the ACL 2010 System Demonstrations, pages 7?12,Uppsala, Sweden, July.Jimmy Lin and Chris Dyer.
+2010.
+Data-Intensive TextProcessing with MapReduce.
+Morgan & ClaypoolPublishers.Jimmy Lin, Donald Metzler, Tamer Elsayed, and LidanWang.
+2009.
+Of Ivory and Smurfs: LoxodontanMapReduce experiments for web search.
+Proceedingsof the Eighteenth Text REtrieval Conference (TREC2009), Gaithersburg, Maryland.Dragos Stefan Munteanu and Daniel Marcu.
+2005.
+Im-proving machine translation performance by exploit-ing non-parallel corpora.
+Computational Linguistics,31(4):477?504.Philip Resnik and Noah A. Smith.
+2003.
+The webas a parallel corpus.
+Computational Linguistics,29(3):349?380.Jason R. Smith, Chris Quirk, and Kristina Toutanova.2010.
+Extracting parallel sentences from comparablecorpora using document level alignment.
+Proceedingsof Human Language Technologies: The 2010 AnnualConference of the North American Chapter of the As-sociation for Computational Linguistics (HLT/NAACL2010), pages 403?411, Los Angeles, California.Ferhan Ture, Tamer Elsayed, and Jimmy Lin.
+2011.No free lunch: Brute force vs. locality-sensitive hash-ing for cross-lingual pairwise similarity.
+Proceedingsof the 34th Annual International ACM SIGIR Confer-ence on Research and Development in Information Re-trieval (SIGIR 2011), pages 943?952, Beijing, China.Jakob Uszkoreit, Jay M. Ponte, Ashok C. Popat, andMoshe Dubiner.
+2010.
+Large scale parallel documentmining for machine translation.
+Proceedings of the23rd International Conference on Computational Lin-guistics (COLING 2010), pages 1101?1109, Beijing,China.630

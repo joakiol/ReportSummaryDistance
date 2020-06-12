@@ -1,0 +1,442 @@
+Proceedings of the 2014 Conference on Empirical Methods in Natural Language Processing (EMNLP), pages 1273?1283,October 25-29, 2014, Doha, Qatar.c?2014 Association for Computational LinguisticsLearning Compact Lexicons for CCG Semantic ParsingYoav Artzi?Computer Science & EngineeringUniversity of WashingtonSeattle, WA 98195yoav@cs.washington.eduDipanjan Das Slav PetrovGoogle Inc.76 9th AvenueNew York, NY 10011{dipanjand,slav}@google.comAbstractWe present methods to control the lexiconsize when learning a Combinatory Cate-gorial Grammar semantic parser.
+Existingmethods incrementally expand the lexiconby greedily adding entries, considering asingle training datapoint at a time.
+We pro-pose using corpus-level statistics for lexi-con learning decisions.
+We introduce vot-ing to globally consider adding entries tothe lexicon, and pruning to remove entriesno longer required to explain the trainingdata.
+Our methods result in state-of-the-artperformance on the task of executing se-quences of natural language instructions,achieving up to 25% error reduction, withlexicons that are up to 70% smaller and arequalitatively less noisy.1 IntroductionCombinatory Categorial Grammar (Steedman,1996, 2000, CCG, henceforth) is a commonlyused formalism for semantic parsing ?
+the taskof mapping natural language sentences to for-mal meaning representations (Zelle and Mooney,1996).
+Recently, CCG semantic parsers have beenused for numerous language understanding tasks,including querying databases (Zettlemoyer andCollins, 2005), referring to physical objects (Ma-tuszek et al., 2012), information extraction (Kr-ishnamurthy and Mitchell, 2012), executing in-structions (Artzi and Zettlemoyer, 2013b), gen-erating regular expressions (Kushman and Barzi-lay, 2013), question-answering (Cai and Yates,2013) and textual entailment (Lewis and Steed-man, 2013).
+In CCG, a lexicon is used to mapwords to formal representations of their meaning,which are then combined using bottom-up opera-tions.
+In this paper we present learning techniques?This research was carried out at Google.chair ` N : ?x.chair(x)chair ` N : ?x.sofa(x)chair ` AP : ?a.len(a, 3)chair ` NP : A(?x.corner(x))chair ` ADJ : ?x.hall(x)Figure 1: Lexical entries for the word chair as learnedwith no corpus-level statistics.
+Our approach is able tocorrectly learn only the top two bolded entries.to explicitly control the size of the CCG lexicon,and show that this results in improved task perfor-mance and more compact models.In most approaches for inducing CCGs for se-mantic parsing, lexicon learning and parameter es-timation are performed jointly in an online algo-rithm, as introduced by Zettlemoyer and Collins(2007).
+To induce the lexicon, words extractedfrom the training data are paired with CCG cat-egories one sample at a time (for an overview ofCCG, see ?2).
+Joint approaches have the potentialadvantage that only entries participating in suc-cessful parses are added to the lexicon.
+However,new entries are added greedily and these decisionsare never revisited at later stages.
+In practice, thisoften results in a large and noisy lexicon.Figure 1 lists a sample of CCG lexical entrieslearned for the word chair with a greedy joint al-gorithm (Artzi and Zettlemoyer, 2013b).
+In thestudied navigation domain, the word chair is oftenused to refer to chairs and sofas, as captured by thefirst two entries.
+However, the system also learnsseveral spurious meanings: the third shows an er-roneous usage of chair as an adverbial phrase de-scribing action length, while the fourth treats it asa noun phrase and the fifth as an adjective.
+In con-trast, our approach is able to correctly learn onlythe top two lexical entries.We present a batch algorithm focused on con-trolling the size of the lexicon when learning CCGsemantic parsers (?3).
+Because we make updatesonly after processing the entire training set, we1273can take corpus-wide statistics into account be-fore each lexicon update.
+To explicitly controlthe size of the lexicon, we adopt two complemen-tary strategies: voting and pruning.
+First, we con-sider the lexical evidence each sample provides asa vote towards potential entries.
+We describe twovoting strategies for deciding which entries to addto the model lexicon (?4).
+Second, even thoughwe use voting to only conservatively add new lex-icon entries, we also prune existing entries if theyare no longer necessary for parsing the trainingdata.
+These steps are incorporated into the learn-ing framework, allowing us to apply stricter crite-ria for lexicon expansion while maintaining a sin-gle learning algorithm.We evaluate our approach on the robot navi-gation semantic parsing task (Chen and Mooney,2011; Artzi and Zettlemoyer, 2013b).
+Our exper-imental results show that we outperform previousstate of the art on executing sequences of instruc-tions, while learning significantly more compactlexicons (?6 and Table 3).2 Task and InferenceTo present our lexicon learning techniques, wefocus on the task of executing natural languagenavigation instructions (Chen and Mooney, 2011).This domain captures some of the fundamentaldifficulties in recent semantic parsing problems.In particular, it requires learning from weakly-supervised data, rather than data annotated withfull logical forms, and parsing sentences in asituated environment.
+Additionally, successfultask completion requires interpreting and execut-ing multiple instructions in sequence, requiringaccurate models to avoid cascading errors.
+Al-though this overview centers around the aforemen-tioned task, our methods are generalizable to anysemantic parsing approach that relies on CCG.We approach the navigation task as a situatedsemantic parsing problem, where the meaning ofinstructions is represented with lambda calculusexpressions, which are then deterministically ex-ecuted.
+Both the mapping of instructions to logi-cal forms and their execution consider the currentstate of the world.
+This problem was recently ad-dressed by Artzi and Zettlemoyer (2013b) and ourexperimental setup mirrors theirs.
+In this section,we provide a brief background on CCG and de-scribe the task and our inference method.walk forward twiceS/NP NP AP?x.
+?a.move(a) ?
+direction(a, x) forward ?a.len(a, 2)>S S\S?a.move(a) ?
+direction(a, forward) ?f.
+?a.f(a) ?
+len(a, 2)<S?a.move(a) ?
+direction(a, forward) ?
+len(a, 2)in the red hallwayPP/NP NP/N ADJ N?x.
+?y.intersect(y, x) ?f.?
+(f) ?x.brick(x) ?x.hall(x)N/N?f.
+?x.f(x)?brick(x)<N?x.hall(x) ?
+brick(x)>NP?
+(?x.hall(x) ?
+brick(x)>PP?y.intersect(y, ?
+(?x.hall(x) ?
+brick(x)))Figure 2: Two CCG parses.
+The top shows a completeparse with an adverbial phrase (AP ), including unarytype shifting and forward (>) and backward (<) ap-plication.
+The bottom fragment shows a prepositionalphrase (PP ) with an adjective (ADJ).2.1 Combinatory Categorial GrammarCCG is a linguistically-motivated categorial for-malism for modeling a wide range of languagephenomena (Steedman, 1996; Steedman, 2000).In CCG, parse tree nodes are categories, which areassigned to strings (single words or n-grams) andcombined to create a complete derivation.
+For ex-ample, S/NP : ?x.?a.move(a)?
+direction(a, x)is a CCG category describing an imperative verbphrase.
+The syntactic type S/NP indicates thecategory is expecting an argument of type NPon its right, and the returned category will havethe syntax S. The directionality is indicated bythe forward slash /, where a backward slash \would specify the argument is expected on the left.The logical form in the category represents its se-mantic meaning.
+For example, ?x.
+?a.move(a) ?direction(a, x) in the category above is a functionexpecting an argument, the variable x, and return-ing a function from events to truth-values, the se-mantic representation of imperatives.
+In this do-main, the conjunction in the logical form specifiesconditions on events.
+Specifically, the event mustbe a move event and have a specified direction.A CCG is defined by a lexicon and a set of com-binators.
+The lexicon provides a mapping fromstrings to categories.
+Figure 2 shows two CCGparses in the navigation domain.
+Parse trees areread top to bottom.
+Parsing starts by matching cat-egories to strings in the sentence using the lexicon.For example, the lexical entry walk ` S/NP :?x.
+?a.move(a) ?
+direction(a, x) pairs the stringwalk with the example category above.
+Each in-termediate parse node is constructed by applying1274one of a small set of binary CCG combinators orunary operators.
+For example, in Figure 2 the cat-egory of the span walk forward is combined withthe category of twice using backward application(<).
+Parsing concludes with a logical form thatcaptures the meaning of the complete sentence.We adopt a factored representation for CCGlexicons (Kwiatkowski et al., 2011), whereentries are dynamically generated by combininglexemes and templates.
+A lexeme is a pairthat consists of a natural language string anda set of logical constants, while the templatecontains the syntactic and semantic componentsof a CCG category, abstracting over logicalconstants.
+For example, consider the lexical entrywalk ` S/NP : ?x.
+?a.move(a) ?
+direction(a, x).Under the factored representation, this entrycan be constructed by combining the lexeme?walk, {move,direction}?
+and the template?v1.?v2.
+[S/NP : ?x.
+?a.v1(a) ?
+v2(a, x)].
+Thisrepresentation allows for better generalizationover unseen lexical entries at inference time,allowing for pairings of templates and lexemesnot seen during training.2.2 Situated Log-Linear CCGsWe use a CCG to parse sentences to logical forms,which are then executed.
+Let S be a set of states,X be the set of all possible sentences, and E bethe space of executions, which are S ?
+S func-tions.
+For example, in the navigation task fromArtzi and Zettlemoyer (2013b), S is a set of po-sitions on a map, as illustrated in Figure 3.
+Themap includes an agent that can perform four ac-tions: LEFT, RIGHT, MOVE, and NULL.
+An execu-tion e is a sequence of actions taken consecutively.Given a state s ?
+S and a sentence x ?
+X , we aimto find the execution e ?
+E described in x.
+Let Ybe the space of CCG parse trees and Z the spaceof all possible logical forms.
+Given a sentence xwe generate a CCG parse y ?
+Y , which includes alogical form z ?
+Z .
+An execution e is then gener-ated from z using a deterministic process.Parsing with a CCG requires choosing appro-priate lexical entries from an often ambiguous lex-icon and the order in which operations are ap-plied.
+In a situated scenario such choices mustaccount for the current state of the world.
+In gen-eral, given a CCG, there are many parses for eachsentence-state pair.
+To discriminate between com-peting parses, we use a situated log-linear CCG,facing the chair in the intersection move forward twice?a.pre(a, front(you, ?
+(?x.chair(x)?intersect(x, ?
+(?y.intersection(y))))))?move(a) ?
+len(a, 2)?FORWARD, FORWARD?turn left?a.turn(a) ?
+direction(a, left)?LEFT?go to the end of the hall?x.move(a) ?
+to(a, ?
+(?x.end(x, ?
+(?y.hall(y)))))?FORWARD, FORWARD?Figure 3: Fragment of a map and instructions for thenavigation domain.
+The fragment includes two inter-secting hallways (red and blue), two chairs and an agentfacing left (green pentagon), which follows instructionssuch as these listed below.
+Each instruction is pairedwith a logical form representing its meaning and its ex-ecution in the map.inspired by Clark and Curran (2007).Let GEN(x, s; ?)
+?
+Y be the set of all possi-ble CCG parses given the sentence x, the currentstate s and the lexicon ?.
+In GEN(x, s; ?
+), multi-ple parse trees may have the same logical form;let Y(z) ?
+GEN(x, s; ?)
+be the subset of suchparses with the logical form z at the root.
+Also,let ?
+?
+Rdbe a d-dimensional parameter vector.We define the probability of the logical form z as:p(z|x, s; ?,?)
+=?y?Y(z)p(y|x, s; ?,?)
+(1)Above, we marginalize out the probabilities of allparse trees with the same logical form z at the root.The probability of a parse tree y is defined as:p(y|x, s; ?,?)
+=e???(x,s,y)?y??GEN(x,s;?)e???(x,s,y?
+)(2)Where ?
+(x, s, y) ?
+Rdis a feature vector.
+Givena logical form z, we deterministically map it to anexecution e ?
+E .
+At inference time, given a sen-tence x and state s, we find the best logical formz?
+(and its corresponding execution) by solving:z?= arg maxzp(z|x, s; ?,?)
+(3)1275The above arg max operation sums over all treesy ?
+Y(z), as described in Equation 1.
+We use aCKY chart for this computation.
+The chart signa-ture in each span is a CCG category.
+Since ex-act inference is prohibitively expensive, we fol-low previous work and perform bottom-up beamsearch, maintaining only the k-best categories foreach span in the chart.
+The logical form z?is takenfrom the k-best categories at the root of the chart.The partition function in Equation 2 is approxi-mated by summing the inside scores of all cate-gories at the root.
+We describe the choices of hy-perparameters and details of our feature set in ?5.3 LearningLearning a CCG semantic parser requires inducingthe entries of the lexicon ?
+and estimating pars-ing parameters ?.
+We describe a batch learningalgorithm (Figure 4), which explicitly attempts toinduce a compact lexicon, while fully explainingthe training data.
+At training time, we assume ac-cess to a set of N examples D ={d(i)}N1, whereeach datapoint d(i)= ?x(i), s(i), e(i)?, consists ofan instruction x(i), the state s(i)where the instruc-tion is issued and its execution demonstration e(i).In particular, we know the correct execution foreach state and instruction, but we do not know thecorrect CCG parse and logical form.
+We treat thechoices that determine them, including selectionof lexical entries and parsing operators, as latent.Since there can be many logical forms z ?
+Z thatyield the same execution e(i), we marginalize overthe logical forms (using Equation 1) when maxi-mizing the following regularized log-likelihood:L (?,?,D) = (4)?d(i)?D?z?Z(e(i))p(z|x(i), s(i); ?,?)??2??
+?22WhereZ(e(i)) is the set of logical forms that resultin the execution e(i)and the hyperparameter ?
+isa regularization constant.
+Due to the large numberof potential combinations,1it is impractical to con-sider the complete set of lexical entries, where allstrings (single words and n-grams) are associatedwith all possible CCG categories.
+Therefore, simi-lar to prior work, we gradually expand the lexiconduring learning.
+As a result, the parameter space1For the navigation task, given the set of CCG categorytemplates (see ?2.1) and parameters used there would be be-tween 7.5-10.2M lexical entries to consider, depending on thecorpus used (?5).Algorithm 1 Batch algorithm for maximizing L (?,?,D).See ?3.1 for details.Input: Training dataset D ={d(i)}N1, number of learningiterations T , seed lexicon ?0, a regularization constant?, and a learning rate ?.
+VOTE is defined in ?4.Output: Lexicon ?
+and model parameters ?1: ??
+?02: for t = 1 to T do?Generate lexical entries for all datapoints.3: for i = 1 to N do4: ?(i)?
+GENENTRIES(d(i), ?,?
+)?Add corpus-wide voted entries to model lexicon.5: ??
+?
+?
+VOTE(?, {?
+(1), .
+.
+.
+, ?
+(N)})?Compute gradient and entries to prune.6: for i = 1 to N do7: ??(i)?,?(i)?
+?
+COMPUTEUPDATE(d(i), ?,?
+)?Prune lexicon.8: ??
+?
+\N?i=1?(i)?
+?Update model parameters.9: ?
+?
+?
++ ?N?i=1?(i)?
+?
+?10: return ?
+and ?Algorithm 2 GENENTRIES: Algorithm to generate lexicalentries from one training datapoint.
+See ?3.2 for details.Input: Single datapoint d = ?x, s, e?, current model param-eters ?
+and lexicon ?.Output: Datapoint-specific lexicon entries ?.
+?Augment lexicon with sentence-specific entries.1: ?+?
+?
+?
+GENLEX(d,?, ?
+)?Get max-scoring parses producing correct execution.2: y+?
+GENMAX(x, s, e; ?+, ?
+)?Extract lexicon entries from max-scoring parses.3: ??
+?y?y+LEX(y)4: return ?Algorithm 3 COMPUTEUPDATE: Algorithm to compute thegradient and the set of lexical entries to prune for one data-point.
+See ?3.3 for details.Input: Single datapoint d = ?x, s, e?, current model param-eters ?
+and lexicon ?.Output: ???,?
+?, lexical entries to prune for d and gradient.
+?Get max-scoring correct parses given ?
+and ?.1: y+?
+GENMAX(x, s, e; ?, ?
+)?Create the set of entries to prune.2: ???
+?
+\?y?y+LEX(y)?Compute gradient.3: ??
+E(y | x, s, e; ?,?)?
+E(y | x, s; ?,?
+)4: return ???,?
+?Figure 4: Our learning algorithm and its subroutines.changes throughout training whenever the lexiconis modified.
+The learning problem involves jointlyfinding the best set of parameters and lexicon en-tries.
+In the remainder of this section, we describehow we optimize Equation 4, while explicitly con-trolling the lexicon size.12763.1 Optimization AlgorithmWe present a learning algorithm to optimize thedata log-likelihood, where both lexicon learningand parameter updates are performed in batch, i.e.,after observing all the training corpus.
+The batchformulation enables us to use information from theentire training set when updating the model lexi-con.
+Algorithm 1 presents the outline of our op-timization procedure.
+It takes as input a trainingdataset D, number of iterations T , seed lexicon?0, learning rate ?
+and regularization constant ?.Learning starts with initializing the model lex-icon ?
+using ?0(line 1).
+In lines 2-9, we run Titerations; in each, we make two passes over thecorpus, first to generate lexical entries, and secondto compute gradient updates and lexical entries toprune.
+To generate lexical entries (lines 3-4) weuse the subroutine GENENTRIES to independentlygenerate entries for each datapoint, as describedin ?3.2.
+Given the entries for each datapoint, wevote on which to add to the model lexicon.
+Thesubroutine VOTE (line 5) chooses a subset of theproposed entries using a particular voting strategy(see ?4).
+Given the updated lexicon, we processthe corpus a second time (lines 6-7).
+The sub-routine COMPUTEUPDATE, as described in ?3.3,computes the gradient update for each datapointd(i), and also generates the set of lexical entries notincluded in the max-scoring parses of d(i), whichare candidates for pruning.
+We prune from themodel lexicon all lexical entries not used in anycorrect parse (line 8).
+During this pruning step, weensure that no entries from ?0are removed from?.
+Finally, the gradient updates are accumulatedto update the model parameters (line 9).3.2 Lexical Entries GenerationFor each datapoint d = ?x, s, e?, the subroutineGENENTRIES, as described in Algorithm 2, gen-erates a set of potential entries.
+The subroutineuses the function GENLEX, originally proposedby Zettlemoyer and Collins (2005), to generatelexical entries from sentences paired with logicalforms.
+We use the weakly-supervised variant ofArtzi and Zettlemoyer (2013b).
+Briefly, GENLEXuses the sentence and expected execution to gen-erate new lexemes, which are then paired with aset of templates factored from ?0to generate newlexical entries.
+For more details, see ?8 of Artziand Zettlemoyer (2013b).Since GENLEX over-generates entries, we needto determine the set of entries that participatein max-scoring parses that lead to the correctexecution e. We therefore create a sentence-specific lexicon ?+by taking the union of theGENLEX-generated entries for the current sen-tence and the model lexicon (line 1).
+We defineGENMAX(x, s, e; ?+, ?)
+to be the set of all max-scoring parses according to the parameters ?
+thatare in GEN(x, s; ?+) and result in the correct ex-ecution e (line 2).
+In line 3 we use the functionLEX(y), which returns the lexical entries used inthe parse y, to compute the set of all lexical en-tries used in these parses.
+This final set containsall newly generated entries for this datapoint andis returned to the optimization algorithm.3.3 Pruning and Gradient ComputationAlgorithm 3 describes the subroutine COMPUTE-UPDATE that, given a datapoint d, the currentmodel lexicon ?
+and model parameters ?, returnsthe gradient update and the set of lexical entriesto prune for d. First, similar to GENENTRIES wecompute the set of correct max-scoring parses us-ing GENMAX (line 1).
+This time, however, we donot use a sentence-specific lexicon, but instead usethe model lexicon that has been expanded with allvoted entries.
+As a result, the set of max-scoringparses producing the correct execution may bedifferent compared to GENENTRIES.
+LEX(y) isthen used to extract the lexical entries from theseparses, and the set difference (??)
+between themodel lexicon and these entries is set to be pruned(line 2).
+Finally, the partial derivative for the data-point is computed using the difference of two ex-pected feature vectors, according to two distribu-tions (line 3): (a) parses conditioned on the correctexecution e, the sentence x, state s and the model,and (b) all parses not conditioned on the executione.
+The derivatives are approximate due to the useof beam search, as described in ?2.2.4 Global Voting for Lexicon LearningOur goal is to learn compact and accurate CCGlexicons.
+To this end, we globally reason aboutadding new entries to the lexicon by voting (VOTE,Algorithm 1, line 5), and remove entries by prun-ing the ones no longer required for explaining thetraining data (Algorithm 1, line 8).
+In voting, eachdatapoint can be considered as attempting to in-fluence the learning algorithm to update the modellexicon with the entries required to parse it.
+In this1277Round 1 Round 2 Round 3 Round 4d(1)?chair, {chair}?
+?chair, {hatrack}?
+?chair, {turn,direction}?1/31/31/3?chair, {chair}?
+?chair, {hatrack}?1/21/2?chair, {chair}?
+1 ?chair, {chair}?
+1d(2)?chair, {chair}?
+?chair, {hatrack}?1/21/2?chair, {chair}?
+?chair, {hatrack}?1/21/2?chair, {chair}?
+1 ?chair, {chair}?
+1d(3)?chair, {chair}?
+?chair, {easel}?1/21/2?chair, {chair}?
+?chair, {easel}?1/21/2?chair, {chair}?
+?chair, {easel}?1/21/2?chair, {chair}?
+1d(4)?chair, {easel}?
+1 ?chair, {easel}?
+1 ?chair, {easel}?
+1 ?chair, {easel}?
+1Votes?chair, {chair}?
+?chair, {easel}?
+?chair, {hatrack}?
+?chair, {turn,direction}?11/311/25/61/3?chair, {chair}?
+?chair, {easel}?
+?chair, {hatrack}?11/211/21?chair, {chair}?
+?chair, {easel}?21/211/2?chair, {chair}?
+?chair, {easel}?31Discard ?chair, {turn, direction}?
+?chair, {hatrack}?
+?chair, {easel}?Figure 5: Four rounds of CONSENSUSVOTE for the string chair for four training datapoints.
+For each datapoint,we specify the set of lexemes generated in the Round 1 column, and update this set after each round.
+At the end,the highest voted new lexeme according to the final votes is returned.
+In this example, MAXVOTE and CONSEN-SUSVOTE lead to different outcomes.
+MAXVOTE, based on the initial sets only, will select ?chair, {easel}?.section we describe two alternative voting strate-gies.
+Both strategies ensure that new entries areonly added when they have wide support in thetraining data, but count this support in differentways.
+For reproducibility, we also provide step-by-step pseudocode for both methods in the sup-plementary material.Since we only have access to executions andtreat parse trees as latent, we consider as correctall parses that produce correct executions.
+Fre-quently, however, incorrect parses spuriously leadto correct executions.
+Lexical entries extractedfrom such spurious parses generalize poorly.
+Thegoal of voting is to eliminate such entries.Voting is formulated on the factored lexiconrepresentation, where each lexical entry is factoredinto a lexeme and a template, as described in ?2.1.Each lexeme is a pair containing a natural lan-guage string and a set of logical constants.2A lex-eme is combined with a template to create a lexicalentry.
+In our lexicon learning approach only newlexemes are generated, while the set of templatesis fixed; hence, our voting strategies reason overlexemes and only create complete lexicon entriesat the end.
+Decisions are made for each string in-dependently of all other strings, but considering alloccurrences of that string in the training data.In lines 3-4 of Algorithm 1 GENENTRIES isused to propose new lexical entries for each train-ing datapoint d(i).
+For each d(i)a set ?
+(i), thatincludes all lexical entries participating in parsesthat lead to the correct execution, is generated.
+Inthese sets, the same string can appear in multiple2Recall, for example, that in one lexeme the string walkmay be paired with the set of constants {move, direction}.lexemes.
+To normalize its influence, each data-point is given a vote of 1.0 for each string, whichis distributed uniformly among all lexemes con-taining the same string.For example, a specific ?
+(i)may consist ofthe following three lexemes: ?chair, {chair}?,?chair, {hatrack}?, ?face, {post, front, you}?.
+Inthis set, the phrase chair has two possible mean-ings, which will therefore each receive a vote of0.5, while the third lexeme will be given a vote of1.0.
+Such ambiguity is common and occurs whenthe available supervision is insufficient to discrim-inate between different parses, for example, if theylead to identical executions.Each of the two following strategies reasonsover these votes to globally select the best lex-emes.
+To avoid polluting the model lexicon, bothstrategies adopt a conservative approach and onlyselect at most one lexeme for each string in eachtraining iteration.4.1 Strategy 1: MAXVOTEThe first strategy for selecting voted lexical entriesis straightforward.
+For each string it simply aggre-gates all votes and selects the new lexeme with themost votes.
+A lexeme is considered new if it isnot already in the model lexicon.
+If no such sin-gle lexeme exists (e.g., no new entries were usedin correctly executing parses or in the case of a tie)no lexeme is selected in this iteration.A potential limitation of MAXVOTE is that thevotes for all rejected lexemes are lost.
+However,it is often reasonable to re-allocate these votes toother lexemes.
+For example, consider the sets oflexemes for the word chair in the Round 1 col-1278umn of Figure 5.
+Using MAXVOTE on these setswill select the lexeme ?chair, {easel}?, rather thanthe correct lexeme ?chair, {chair}?.
+This occurswhen the datapoints supporting the correct lexemedistribute their votes over many spurious lexemes.4.2 Strategy 2: CONSENSUSVOTEOur second strategy CONSENSUSVOTE aims tocapture the votes that are lost in MAXVOTE.
+In-stead of discarding votes that do not go to the max-imum scoring lexeme, voting is done in severalrounds.
+In each round the lowest scoring lexemeis discarded and votes are re-assigned uniformlyto the remaining lexemes.
+This procedure is con-tinued until convergence.
+Finally, given the sets oflexemes in the last round, the votes are computedand the new lexeme with most votes is selected.Figure 5 shows a complete voting process forfour training datapoints.
+In each round, votesare aggregated over the four sets of lexemes, andthe lexeme with the fewest votes is discarded.For each set of lexemes, the discarded lexemeis removed, unless it will lead to an empty set.3In the example, while ?chair, {easel}?
+is dis-carded in Round 3, it remains in the set of d(4).The process converges in the fourth round, whenthere are no more lexemes to discard.
+The fi-nal sets include two entries: ?chair, {chair}?
+and?chair, {easel}?.
+By avoiding wasting votes onlexemes that have no chance of being selected, themore widely supported lexeme ?chair, {chair}?receives the most votes, in contrast to Round 1,where ?chair, {easel}?
+was the highest voted one.5 Experimental SetupTo isolate the effect of our lexicon learning tech-niques we closely follow the experimental setup ofprevious work (Artzi and Zettlemoyer, 2013b, ?9)and use its publicly available code.4This includesthe provided beam-search CKY parser, two-passparsing for testing, beam search for executing se-quences of instructions and the same seed lexicon,weight initialization and features.
+Finally, except3This restriction is meant to ensure that discarding lex-emes will not change the set of sentences that can be parsed.In addition, it means that the total amount of votes given to astring is invariant between rounds.
+Allowing for empty setswill change the sum of votes, and therefore decrease the num-ber of datapoints contributing to the decision.4Their implementation, based on the University of Wash-ington Semantic Parsing Framework (Artzi and Zettlemoyer,2013a), is available at http://yoavartzi.com/navi.the optimization parameters specified below, weuse the same parameter settings.Data For evaluation we use two related cor-pora: SAIL (Chen and Mooney, 2011) and ORA-CLE (Artzi and Zettlemoyer, 2013b).
+Due to howthe original data was collected (MacMahon et al.,2006), SAIL includes many wrong executions andabout 30% of all instruction sequences are infeasi-ble (e.g., instructing the agent to walk into a wall).To better understand system performance and theeffect of noise, ORACLE was created with thesubset of valid instructions from SAIL paired withtheir gold executions.
+Following previous work,we use a held-out set for the ORACLE corpus andcross-validation for the SAIL corpus.Systems We report two baselines.
+Our batchbaseline uses the same regularized algorithm, butupdates the lexicon by adding all entries withoutvoting and skips pruning.
+Additionally, we addedpost-hoc pruning to the algorithm of Artzi andZettlemoyer (2013b) by discarding all learned en-tries that are not participating in max-scoring cor-rect parses at the end of training.
+For ablation,we study the influence of the two voting strategiesand pruning, while keeping the same regulariza-tion setting.
+Finally, we compare our approach toprevious published results on both corpora.Optimization Parameters We optimized thelearning parameters using cross validation on thetraining data to maximize recall of complete se-quence execution and minimize lexicon size.
+Weuse 10 training iterations and the learning rate?
+= 0.1.
+For SAIL we set the regularization pa-rameter ?
+= 1.0 and for ORACLE ?
+= 0.5.Full Sequence Inference To execute sequencesof instructions we use the beam search procedureof Artzi and Zettlemoyer (2013b) with an identicalbeam size of 10.
+The beam stores states, and isinitialized with the starting state.
+Instructions areexecuted in order, each is attempted from all statescurrently in the beam, the beam is then updatedand pruned to keep the 10-best states.
+At the end,the best scoring state in the beam is returned.Evaluation Metrics We evaluate the end-to-endtask of executing complete sequences of instruc-tions against an oracle final state.
+In addition, tobetter understand the results, we also measure taskcompletion for single instructions.
+We repeated1279ORACLE corpus cross-validationSingle sentence Sequence LexiconP R F1 P R F1 sizeArtzi and Zettlemoyer (2013b) 84.59 82.74 83.65 68.35 58.95 63.26 5383w/ post-hoc pruning 84.32 82.89 83.60 66.83 61.23 63.88 3104Batch baseline 85.14 81.91 83.52 72.64 60.13 65.76 6323w/ MAXVOTE 84.04 82.25 83.14 72.79 64.86 68.55 2588w/ CONSENSUSVOTE 84.51 82.23 83.36 72.99 63.45 67.84 2446w/ pruning 85.58 83.51 84.53 75.15 65.97 70.19 2791w/ MAXVOTE + pruning 84.50 82.89 83.69 72.91 66.40 69.47 2186w/ CONSENSUSVOTE + pruning 85.22 83.00 84.10 75.65 66.15 70.55 2101Table 1: Ablation study using cross-validation on the ORACLE corpus training data.
+We report mean precision(P), recall (R) and harmonic mean (F1) of execution accuracy on single sentences and sequences of instructionsand mean lexicon sizes.
+Bold numbers represent the best performing method on a given metric.Final resultsSingle sentence Sequence LexiconP R F1 P R F1 sizeSAILChen and Mooney (2011) 54.40 16.18Chen (2012) 57.28 19.18+ additional data 57.62 20.64Kim and Mooney (2012) 57.22 20.17Kim and Mooney (2013) 62.81 26.57Artzi and Zettlemoyer (2013b) 67.60 65.28 66.42 38.06 31.93 34.72 10051Our Approach 66.67 64.36 65.49 41.30 35.44 38.14 2873ORACLEArtzi and Zettlemoyer (2013b) 81.17 (0.68) 78.63 (0.84) 79.88 (0.76) 68.07 (2.72) 58.05 (3.12) 62.65 (2.91) 6213 (217)Our Approach 79.86 (0.50) 77.87 (0.41) 78.85 (0.45) 76.05 (1.79) 68.53 (1.76) 72.10 (1.77) 2365 (57)Table 2: Our final results compared to previous work on the SAIL and ORACLE corpora.
+We report mean precision(P), recall (R), harmonic mean (F1) and lexicon size results and standard deviation between runs (in parenthesis)when appropriate.
+Our Approach stands for batch learning with a consensus voting and pruning.
+Bold numbersrepresent the best performing method on a given metric.each experiment five times and report mean preci-sion, recall,5harmonic mean (F1) and lexicon size.For held-out test results we also report standarddeviation.
+For the baseline online experiments weshuffled the training data between runs.6 ResultsTable 1 shows ablation results for 5-fold cross-validation on the ORACLE training data.
+Weevaluate against the online learning algorithm ofArtzi and Zettlemoyer (2013b), an extension of itto include post-hoc pruning and a batch baseline.Our best sequence execution development resultis obtained with CONSENSUSVOTE and pruning.The results provide a few insights.
+First, sim-ply switching to batch learning provides mixed re-sults: precision increases, but recall drops and thelearned lexicon is larger.
+Second, adding pruningresults in a much smaller lexicon, and, especiallyin batch learning, boosts performance.
+Addingvoting further reduces the lexicon size and pro-vides additional gains for sequence execution.
+Fi-nally, while MAXVOTE and CONSENSUSVOTEgive comparable performance on their own, CON-SENSUSVOTE results in more precise and compact5Recall is identical to accuracy as reported in prior work.models when combined with pruning.Table 2 lists our test results.
+We significantlyoutperform previous state of the art on both cor-pora when evaluating sequence accuracy.
+In bothscenarios our lexicon is 60-70% smaller.
+In con-trast to the development results, single sentenceperformance decreases slightly compared to Artziand Zettlemoyer (2013b).
+The discrepancy be-tween single sentence and sequence results mightbe due to the beam search performed when execut-ing sequences of instructions.
+Models with morecompact lexicons generate fewer logical forms foreach sentence: we see a decrease of roughly 40%in our models compared to Artzi and Zettlemoyer(2013b).
+This is especially helpful during se-quence execution, where we use a beam size of10, resulting in better sequences of executions.
+Ingeneral, this shows the potential benefit of usingmore compact models in scenarios that incorpo-rate reasoning about parsing uncertainty.To illustrate the types of errors avoided withvoting and pruning, Table 3 describes commonerror classes and shows example lexical entriesfor batch trained models with CONSENSUSVOTEand pruning and without.
+Quantitatively, the meannumber of entries per string on development folds1280String# lexical entriesExample categoriesBatch With votingbaseline and pruningThe algorithm often treats common bigrams as multiword phrases, and later learns the more general separate entries.Without pruning the initial entries remain in the lexicon and compete with the correct ones during inference.octagon carpet 45 0 N : ?x.wall(x) N : ?x.hall(x)N : ?x.honeycomb(x)carpet 51 5 N : ?x.hall(x)N/N : ?f.
+?x.x == argmin(f, ?y.dist(y))octagon 21 5 N : ?x.honeycomb(x) N : ?x.cement(x)ADJ : ?x.honeycomb(x)We commonly see in the lexicon a long tail of erroneous entries, which compete with correctly learned ones.
+With votingand pruning we are often able to avoid such noisy entries.
+However, some noise still exists, e.g., the entry for ?intersection?.intersection 45 7 N : ?x.intersection(x) S\N : ?f.intersect(you, (f))AP : ?a.len(a, 1) N/NP : ?x.
+?y.intersect(y, x)twice 46 2 AP : ?a.len(a, 2) AP : ?a.pass(a,A(?x.empty(x)))AP : ?a.pass(a,A(?x.hall(x)))stone 31 5 ADJ : ?x.stone(x) ADJ : ?x.brick(x)ADJ : ?x.honeycomb(x) NP/N : ?f.A(f)Not all concepts mentioned in the corpus are relevant to the task and some of these are not semantically modeled.
+However,the baseline learner doesn?t make this distinction and induces many erroneous entries.
+With voting the model better handlessuch cases, either by pairing such words with semantically empty entries or learning no entries for them.
+During inferencethe system can then easily skip such words.now 28 0 AP : ?a.len(a, 3) AP : ?a.direction(a, forward)only 38 0 N/NP : ?x.
+?y.intersect(y, x)N/NP : ?x.
+?y.front(y, x)here 31 8 NP : you S/S : ?x.xS\N : ?f.intersect(you,A(f))Without pruning the learner often over-splits multiword phrases and has no way to reverse such decisions.coat 25 0 N : ?x.intersection(x) ADJ : ?x.hatrack(x)rack 45 0 N : ?x.hatrack(x) N : ?x.furniture(x)coat rack 55 5 N : ?x.hatrack(x) N : ?x.wall(x)N : ?x.furniture(x)Voting helps to avoid learning entries for rare words when the learning signal is highly ambiguous.orange 20 0 N : ?x.cement(x) N : ?x.grass(x)pics of towers 26 0 N?x.intersection(x) N : ?x.hall(x)Table 3: Example entries from a learned ORACLE corpus lexicon using batch learning.
+For each string wereport the number of lexical entries without voting (CONSENSUSVOTE) and pruning and with, and provide a fewexamples.
+Struck entries were successfully avoided when using voting and pruning.decreases from 16.77 for online training to 8.11.Finally, the total computational cost of our ap-proach is roughly equivalent to online approaches.In both approaches, each pass over the data makesthe same number of inference calls, and in prac-tice, Artzi and Zettlemoyer (2013b) used 6-8 it-erations for online learning while we used 10.
+Abenefit of the batch method is its insensitivity todata ordering, as expressed by the lower standarddeviation between randomized runs in Table 2.67 Related WorkThere has been significant work on learning for se-mantic parsing.
+The majority of approaches treatgrammar induction and parameter estimation sep-arately, e.g.
+Wong and Mooney (2006), Kate andMooney (2006), Clarke et al.
+(2010), Goldwasseret al.
+(2011), Goldwasser and Roth (2011), Liang6Results still vary slightly due to multi-threading.et al.
+(2011), Chen and Mooney (2011), and Chen(2012).
+In all these approaches the grammar struc-ture is fixed prior to parameter estimation.Zettlemoyer and Collins (2005) proposed thelearning regime most related to ours.
+Their learneralternates between batch lexical induction and on-line parameter estimation.
+Our learning algo-rithm design combines aspects of previously stud-ied approaches into a batch method, includinggradient updates (Kwiatkowski et al., 2010) andusing weak supervision (Artzi and Zettlemoyer,2011).
+In contrast, Artzi and Zettlemoyer (2013b)use online perceptron-style updates to optimize amargin-based loss.
+Our work also focuses on CCGlexicon induction but differs in the use of corpus-level statistics through voting and pruning for ex-plicitly controlling the size of the lexicon.Our approach is also related to the grammar in-duction algorithm introduced by Carroll and Char-1281niak (1992).
+Similar to our method, they processthe data using two batch steps: the first proposesgrammar rules, analogous to our step that gener-ates lexical entries, and the second estimates pars-ing parameters.
+Both methods use pruning aftereach iteration, to remove unused entries in our ap-proach, and low probability rules in theirs.
+How-ever, while we use global voting to add entriesto the lexicon, they simply introduce all the rulesgenerated by the first step.
+Their approach alsorelies on using disjoint subsets of the data for thetwo steps, while we use the entire corpus.Using voting to aggregate evidence has beenstudied for combining decisions from an ensem-ble of classifiers (Ho et al., 1994; Van Erp andSchomaker, 2000).
+MAXVOTE is related to ap-proval voting (Brams and Fishburn, 1978), wherevoters are required to mark if they approve eachcandidate or not.
+CONSENSUSVOTE combinesideas from approval voting, Borda counting, andinstant-runoff voting.
+Van Hasselt (2011) de-scribed all three systems and applied them to pol-icy summation in reinforcement learning.8 ConclusionWe considered the problem of learning for se-mantic parsing, and presented voting and pruningmethods based on corpus-level statistics for induc-ing compact CCG lexicons.
+We incorporated thesetechniques into a batch modification of an exist-ing learning approach for joint lexicon inductionand parameter estimation.
+Our evaluation demon-strates that both voting and pruning contribute to-wards learning a compact lexicon and illustratesthe effect of lexicon quality on task performance.In the future, we wish to study various aspectsof learning more robust lexicons.
+For example, inour current approach, words not appearing in thetraining set are treated as unknown and ignored atinference time.
+We would like to study the bene-fit of using large amounts of unlabeled text to al-low the model to better hypothesize the meaningof such previously unseen words.
+Moreover, ourmodel?s performance is currently sensitive to theset of seed lexical templates provided.
+While weare able to learn the meaning of new words, themodel is unable to correctly handle syntactic andsemantic structures not covered by the seed tem-plates.
+To alleviate this problem, we intend to fur-ther explore learning novel lexical templates.AcknowledgementsWe thank Kuzman Ganchev, Emily Pitler, LukeZettlemoyer, Tom Kwiatkowski and NicholasFitzGerald for their comments on earlier drafts,and the anonymous reviewers for their valuablefeedback.
+We also wish to thank Ryan McDon-ald and Arturas Rozenas for their valuable inputabout voting procedures.ReferencesYoav Artzi and Luke S. Zettlemoyer.
+2011.
+Bootstrap-ping semantic parsers from conversations.
+In Pro-ceedings of the Conference on Empirical Methodsin Natural Language Processing.Yoav Artzi and Luke S. Zettlemoyer.
+2013a.
+UWSPF: The University of Washington Semantic Pars-ing Framework.Yoav Artzi and Luke S. Zettlemoyer.
+2013b.
+Weaklysupervised learning of semantic parsers for mappinginstructions to actions.
+Transactions of the Associa-tion for Computational Linguistics, 1(1):49?62.Steven J. Brams and Peter C. Fishburn.
+1978.
+Ap-proval voting.
+The American Political Science Re-view, pages 831?847.Qingqing Cai and Alexander Yates.
+2013.
+Seman-tic parsing freebase: Towards open-domain semanticparsing.
+In Proceedings of the Joint Conference onLexical and Computational Semantics.Gelnn Carroll and Eugene Charniak.
+1992.
+Two exper-iments on learning probabilistic dependency gram-mars from corpora.
+Working Notes of the WorkshopStatistically-Based NLP Techniques.David L. Chen and Raymond J. Mooney.
+2011.
+Learn-ing to interpret natural language navigation instruc-tions from observations.
+In Proceedings of the Na-tional Conference on Artificial Intelligence.David L. Chen.
+2012.
+Fast online lexicon learning forgrounded language acquisition.
+In Proceedings ofthe Annual Meeting of the Association for Computa-tional Linguistics.Stephen Clark and James R. Curran.
+2007.
+Wide-coverage efficient statistical parsing with CCGand log-linear models.
+Computational Linguistics,33(4):493?552.James Clarke, Dan Goldwasser, Ming-Wei Chang, andDan Roth.
+2010.
+Driving semantic parsing from theworld?s response.
+In Proceedings of the Conferenceon Computational Natural Language Learning.Dan Goldwasser and Dan Roth.
+2011.
+Learning fromnatural instructions.
+In Proceedings of the Interna-tional Joint Conference on Artificial Intelligence.1282Dan Goldwasser, Roi Reichart, James Clarke, and DanRoth.
+2011.
+Confidence driven unsupervised se-mantic parsing.
+In Proceedings of the Associationof Computational Linguistics.Tin K. Ho, Jonathan J.
+Hull, and Sargur N. Srihari.1994.
+Decision combination in multiple classifiersystems.
+IEEE Transactions on Pattern Analysisand Machine Intelligence, pages 66?75.Rohit J. Kate and Raymond J. Mooney.
+2006.
+Us-ing string-kernels for learning semantic parsers.
+InProceedings of the Conference of the Association forComputational Linguistics.Joohyun Kim and Raymond J. Mooney.
+2012.
+Un-supervised pcfg induction for grounded languagelearning with highly ambiguous supervision.
+In Pro-ceedings of the Conference on Empirical Methods inNatural Language Processing.Joohyun Kim and Raymond J. Mooney.
+2013.
+Adapt-ing discriminative reranking to grounded languagelearning.
+In Proceedings of the Annual Meeting ofthe Association for Computational Linguistics.Jayant Krishnamurthy and Tom Mitchell.
+2012.Weakly supervised training of semantic parsers.
+InProceedings of the Joint Conference on EmpiricalMethods in Natural Language Processing and Com-putational Natural Language Learning.Nate Kushman and Regina Barzilay.
+2013.
+Using se-mantic unification to generate regular expressionsfrom natural language.
+In Proceedings of the Hu-man Language Technology Conference of the NorthAmerican Association for Computational Linguis-tics.Tom Kwiatkowski, Luke S. Zettlemoyer, Sharon Gold-water, and Mark Steedman.
+2010.
+Inducing prob-abilistic CCG grammars from logical form withhigher-order unification.
+In Proceedings of the Con-ference on Empirical Methods in Natural LanguageProcessing.Tom Kwiatkowski, Luke S. Zettlemoyer, Sharon Gold-water, and Mark Steedman.
+2011.
+Lexical Gener-alization in CCG Grammar Induction for SemanticParsing.
+In Proceedings of the Conference on Em-pirical Methods in Natural Language Processing.Mike Lewis and Mark Steedman.
+2013.
+Combineddistributional and logical semantics.
+Transactionsof the Association for Computational Linguistics,1(1):179?192.Percy Liang, Michael I. Jordan, and Dan Klein.
+2011.Learning dependency-based compositional seman-tics.
+In Proceedings of the Conference of the As-sociation for Computational Linguistics.Matt MacMahon, Brian Stankiewics, and BenjaminKuipers.
+2006.
+Walk the talk: Connecting language,knowledge, action in route instructions.
+In Proceed-ings of the National Conference on Artificial Intelli-gence.Cynthia Matuszek, Nicholas FitzGerald, Luke S.Zettlemoyer, Liefeng Bo, and Dieter Fox.
+2012.
+Ajoint model of language and perception for groundedattribute learning.
+In Proceedings of the Interna-tional Conference on Machine Learning.Mark Steedman.
+1996.
+Surface Structure and Inter-pretation.
+The MIT Press.Mark Steedman.
+2000.
+The Syntactic Process.
+TheMIT Press.Merijn Van Erp and Lambert Schomaker.
+2000.Variants of the borda count method for combiningranked classifier hypotheses.
+In In the InternationalWorkshop on Frontiers in Handwriting Recognition.Hado Van Hasselt.
+2011.
+Insights in ReinforcementLearning: formal analysis and empirical evaluationof temporal-difference learning algorithms.
+Ph.D.thesis, University of Utrecht.Yuk W. Wong and Raymond J. Mooney.
+2006.
+Learn-ing for semantic parsing with statistical machinetranslation.
+In Proceedings of the Human LanguageTechnology Conference of the North American Asso-ciation for Computational Linguistics.John M. Zelle and Raymond J. Mooney.
+1996.
+Learn-ing to parse database queries using inductive logicprogramming.
+In Proceedings of the National Con-ference on Artificial Intelligence.Luke S. Zettlemoyer and Michael Collins.
+2005.Learning to map sentences to logical form: Struc-tured classification with probabilistic categorialgrammars.
+In Proceedings of the Conference on Un-certainty in Artificial Intelligence.Luke S. Zettlemoyer and Michael Collins.
+2007.
+On-line learning of relaxed CCG grammars for parsingto logical form.
+In Proceedings of the Joint Con-ference on Empirical Methods in Natural LanguageProcessing and Computational Natural LanguageLearning.1283

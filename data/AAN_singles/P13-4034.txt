@@ -1,0 +1,197 @@
+Proceedings of the 51st Annual Meeting of the Association for Computational Linguistics, pages 199?204,Sofia, Bulgaria, August 4-9 2013. c?2013 Association for Computational LinguisticsMr.
+MIRA: Open-Source Large-Margin Structured Learning onMapReduceVladimir Eidelman1, Ke Wu1, Ferhan Ture1, Philip Resnik2, Jimmy Lin31 Dept.
+of Computer Science 2 Dept.
+of Linguistics 3 The iSchoolInstitute for Advanced Computer StudiesUniversity of Maryland{eidelman,wuke,fture,resnik,jimmylin}@umd.eduAbstractWe present an open-source frameworkfor large-scale online structured learning.Developed with the flexibility to handlecost-augmented inference problems suchas statistical machine translation (SMT),our large-margin learner can be used withany decoder.
+Integration with MapReduceusing Hadoop streaming allows efficientscaling with increasing size of trainingdata.
+Although designed with a focuson SMT, the decoder-agnostic design ofour learner allows easy future extension toother structured learning problems such assequence labeling and parsing.1 IntroductionStructured learning problems such as sequence la-beling or parsing, where the output has a rich in-ternal structure, commonly arise in NLP.
+Whilebatch learning algorithms adapted for structuredlearning such as CRFs (Lafferty et al 2001)and structural SVMs (Joachims, 1998) have re-ceived much attention, online methods such asthe structured perceptron (Collins, 2002) and afamily of Passive-Aggressive algorithms (Cram-mer et al 2006) have recently gained promi-nence across many tasks, including part-of-speechtagging (Shen, 2007), parsing (McDonald etal., 2005) and statistical machine translation(SMT) (Chiang, 2012), due to their ability to dealwith large training sets and high-dimensional in-put representations.Unlike batch learners, which must consider allexamples when optimizing the objective, onlinelearners operate in rounds, optimizing using oneexample or a handful of examples at a time.
+Thisonline nature offers several attractive properties,facilitating scaling to large training sets while re-maining simple and offering fast convergence.Mr.
+MIRA, the open source system1 de-scribed in this paper, implements an online large-margin structured learning algorithm based onMIRA (?2.1), for cost-augmented online large-scale training in high-dimensional feature spaces.Our contribution lies in providing the first pub-lished decoder-agnostic parallelization of MIRAwith Hadoop for structured learning.While the current demonstrated application fo-cuses on large-scale discriminative training formachine translation, the learning algorithm is gen-eral with respect to the inference algorithm em-ployed.
+We are able to decouple our learner en-tirely from the MT decoder, allowing users tospecify their own inference procedure through asimple text communication protocol (?2.2).
+Thelearner only requires k-best output with featurevectors, as well as the specification of a cost func-tion.
+Standard automatic evaluation metrics forMT, such as BLEU (Papineni et al 2002) and TER(Snover et al 2006), have already been imple-mented.
+Furthermore, our system can be extendedto other structured learning problems with a min-imal amount of effort, simply by implementing atask-specific cost function and specifying an ap-propriate decoder.Through Hadoop streaming, our system cantake advantage of commodity clusters to handlelarge-scale training (?3), while also being capableof running in environments ranging from a singlemachine to a PBS-managed batch cluster.
+Experi-mental results (?4) show that it scales linearly andmakes fast parameter tuning on large tuning setsfor SMT practical.2 Learning and Inference2.1 Online Large-Margin LearningMIRA is a popular online large-margin structuredlearning method for NLP tasks (McDonald et al2005; Chiang et al 2009; Chiang, 2012).
+The1https://github.com/kho/mr-mira199main intuition is that we want our model to enforcea margin between the correct and incorrect out-puts of a sentence that agrees with our cost func-tion.
+This is done by making the smallest updatewe can to our parameters, w, on every sentence,that will ensure that the difference in model scores?fi(y?)
+= w>(f(xi, y+) ?
+f(xi, y?))
+between thecorrect output y+ and incorrect output y?
+is at leastas large as the cost, ?i(y?
+), incurred by predictingthe incorrect output:2wt+1 = arg minw12 ||w ?wt||2 + C?is.t.
+?y?
+?
+Y(xi), ?fi(y?)
+?
+?i(y?)?
+?iwhere Y(xi) is the space of possible structuredoutputs we are able to produce from xi, andC is a regularization parameter that controls thesize of the update.
+In practice, we can de-fine Y(xi) to be the k-best output.
+With apassive-aggressive (PA) update, the ?y?
+constraintabove can be approximated by selecting the sin-gle most violated constraint, which maximizesy?
+?
+arg maxy?Y(xi) w>f(xi, y) + ?i(y).
+Thisoptimization problem is attractive because it re-duces to a simple analytical solution, essentiallyperforming a subgradient descent step with thestep size adjusted based on each example:??
+min(C, ?i(y?)?
+?fi(y?
+)?f(xi, y+)?
+f(xi, y?)?2)w?
+w + ??
+(f(xi, y+)?
+f(xi, y?
+))The user-defined cost function is a task-specificexternal measure of quality that relays how bad se-lecting y?
+truly is on the task we care about.
+Thecost can take any form as long as it decomposesacross the local parts of the structure, just as thefeature functions.
+For instance, it could be theHamming loss for sequence labeling, F-score forparsing, or an approximate BLEU score for SMT.Cost-augmented Inference For most struc-tured prediction problems in machine learning,yi ?
+Y(xi), that is, the model is able to produce,and thus score, the correct output structure, mean-ing y+ = yi.
+However, for certain NLP prob-lems this may not be the case.
+For instance inSMT, our model may not be able to produce orreach the correct reference translation, which pro-hibits our model from scoring it.
+This problem2For a more formal description we refer the readerto (Crammer et al 2006; Chiang, 2012).necessitates cost-augmented inference, where weselect y+ ?
+arg maxy?Y(xi) w>f(xi, y)?
+?i(y)from the space of structures our model can pro-duce, to stand in for the correct output in optimiza-tion.
+Our system was developed to handle bothcases, with the decoder providing the k-best listto the learner, specifying whether to perform cost-augmented selection.Sparse Features While utilizing sparse featuresis a primary motivation for performing large-scalediscriminative training, which features to use andhow to learn their weights can have a large im-pact on the potential benefit.
+To this end, we in-corporate `1/`2 regularization for joint feature se-lection in order to improve efficiency and counteroverfitting effects (Simianer et al 2012).
+Further-more, the PA update has a single learning rate ?for all features, which specifies how much the fea-ture weights can change at each update.
+How-ever, since dense features (e.g., language model)are observed far more frequently than sparse fea-tures (e.g., rule id), we may instead want to usea per-feature learning rate that allows larger stepsfor features that do not have much support.
+Thus,we allow setting an adaptive per-feature learningrate (Green et al 2013; Crammer et al 2009;Duchi et al 2011).2.2 Learner/Decoder CommunicationTraining requires communication between the de-coder and the learner.
+The decoder needs to re-ceive weight updates and the input sentence fromthe learner; and the learner needs to receive k-bestoutput with feature vectors from the decoder.
+Thisis essentially all the required communication be-tween the learner and the decoder.
+Below, we de-scribe a simple line-based text protocol.Input sentence and weight updates Follow-ing common practice in machine translation, thelearner encodes each input sentence as a single-line SGML entry named seg and sends it to thedecoder.
+The first line of Figure 1 is an exam-ple sentence in this format.
+In addition to therequired sentence ID (useful in parallel process-ing), an optional delta field is used to encodethe weight updates, as a sparse vector indexedby feature names.
+First, for each name and up-date pair, a binary record consisting of a null-terminated string (name) and a double-precisionfloating point number in native byte order (up-date) is created.
+Then, all binary records are con-200<seg id="123" delta="TE0AexSuR+F6hD8="> das ist ein kleine haus </seg><seg id="124"> ein kleine haus </seg>\tein kleine ||| a small\thaus ||| houseFigure 1: Example decoder input in SGML5123 ||| 5 ||| this is a small house ||| TE0AAAAA... <base64> ||| 120.3123 ||| 5 ||| this is the small house ||| <base64> ||| 118.4123 ||| 5 ||| this was small house ||| <base64> ||| 110.5<empty><empty>Figure 2: Example k-best outputcatenated and encoded in base64.
+In the exampleabove, the value of delta is the base64 encod-ing of 0x4c 0x4d 0x00 0x7b 0x14 0xae 0x470xe1 0x7a 0x84 0x3f.
+The first 3 bytes store thefeature name (LM) and the next 8 bytes is its update(0.01), to be added to the decoder?s current valueof the corresponding feature weight.The learner also allows the user to pass any ad-ditional information to the decoder, as long as itcan be encoded as a single-line text string.
+Suchinformation, if given, is appended after the seg en-try, with a leading tab character as the delimiter.For example, the second line of Figure 1 passestwo phrase translation rules to the decoder.k-best output The decoder reads from standardinput and outputs the k-best output for one inputsentence before consuming the next line.
+For thek-best output, the decoder first outputs to standardoutput a line consisting of a single integerN .
+Nextthe decoder outputs N lines where each line canbe either empty or an actual hypothesis.
+When theline is an actual hypothesis, it consists of the fol-lowing parts:SID ||| LEN ||| TOK ||| FEAT [ REST ]SID is the sentence ID of the corresponding input;LEN is the length of source sentence;3 TOK containsthe tokens of the hypothesis sentence separated byspaces; FEAT is the feature vector, encoded in thesame way as the weight updates, delimited by awhitespace.
+Everything after FEAT until the end ofthe line is discarded.
+See Figure 2 for an exampleof k-best output.
+Note the scores after the last |||are discarded by the learner.Overall workflow The learner reads lines fromstandard input in the following tab-delimited for-mat:3This is used in computing the smoothed cost.
+Usuallythis is identical for all hypotheses if the input is a plain sen-tence.
+But in applications such as lattice-based translation,each hypothesis can be produced from different source sen-tences, resulting in different lengths.SRC<tab>REF<tab>RESTSRC is the actual input sentence as a seg entry; REFis the gold output for the input sentence, for ex-ample, reference translations in MT;4 REST is theadditional information that will be appended afterthe seg entry and passed to the decoder.The learner creates a sub-process for the de-coder and connects to the sub-process?
+standardinput and output with pipes.
+Then it processes theinput lines one by one.
+For each line, it first sendsa composed input message to the decoder, combin-ing the input sentence, weight updates, and user-supplied information.
+Next it collects the k-bestoutput from the decoder, solves the QP problem toobtain weight updates and repeats.The learner produces two types of output.
+First,the 1-best hypothesis for each input sentence, inthe following format:SID<tab>TOKSecond, when there are no more input lines, thelearner outputs final weights and the number oflines processed, in the following format:-1<tab>NUM ||| WEIGHTSThe 1-best hypotheses can be scored against ref-erences to obtain an estimate of cost.
+The finalweights are stored in a way convenient for averag-ing in a parallel setting, as we shall discuss next.3 Large-Scale Discriminative Training3.1 MapReduceWith large amounts of data available today,distributed computations have become essen-tial.
+MapReduce (Dean and Ghemawat, 2004)has emerged as a popular distributed process-ing framework for commodity clusters that hasgained widespread adoption in both industry andacademia, thanks to its simplicity and the avail-ability of the Hadoop open-source implementa-tion.
+MapReduce provides a higher level of4There can be multiple references, separated by |||.201abstraction for designing distributed algorithmscompared to, say, MPI or pthreads, by hidingsystem-level details (e.g., deadlock, race condi-tions, machine failures) from the developer.A single MapReduce program begins with amap phase, where mapper processes input key-value pairs to produce an arbitrary number of in-termediate key-value pairs.
+The mappers executein parallel, consuming data splits independently.Following the map phase, all key-value pairs emit-ted by the mappers are sorted by key and dis-tributed to the reducers, such that all pairs shar-ing the same key are guaranteed to arrive at thesame reducer.
+Finally, in the reduce phase, eachreducer processes the intermediate key-value pairsit receives and emits final output key-value pairs.3.2 System ArchitectureAlgorithm design We use Hadoop streaming toparallelize the training process.
+Hadoop stream-ing allows any arbitrary executable to serve as themapper or reducer, as long as it handles key-valuepairs properly.5 One iteration of training is im-plemented as a single Hadoop streaming job.
+Inthe map step, our learner can be directly used asthe mapper.
+Each mapper loads the same initialweights, processes a single split of data and pro-duces key-value pairs: the one-best hypothesis ofeach sentence is output with the sentence ID asthe key (non-negative); the final weights with re-spect to the split are output with a special negativekey.
+In the reduce step, a single reducer collects allkey-value pairs, grouped and sorted by keys.
+Theone-best hypotheses are output to disk in the or-der they are received, so that the order matches thereference translation set.
+The reducer also com-putes the feature selection and weighted averageof final weights received from all of the mappers.Assuming mapper i produces the final weights wiafter processing ni sentences, the weighted aver-aged is defined as w?
+=?iwi?ni?i ni.
+Although aver-aging yields different result from running a singlelearner over the entire data, we have found the dif-ference to be quite small in terms of convergenceand quality of tuned weights in practice.After the reducer finishes, the averaged weightsare extracted and used as the initial weights for thenext iteration; the emitted hypotheses are scored5By default, each line is treated as a key-value pair en-coded in text, where the key and the value are separated by a<tab>.against the references, which allows us to track thelearning curve and the progress of convergence.Scalability In an application such as SMT, thedecoder requires access to the translation gram-mar and language model to produce translation hy-potheses.
+For small tuning sets, which have beentypical in MT research, having these files trans-ferred across the network to individual servers(which then load the data into memory) is nota problem.
+However, for even modest input onthe order of tens of thousands of sentences, thiscreates a challenge.
+For example, distributingthousands of per-sentence grammar files to all theworkers in a Hadoop cluster is time-consuming,especially when this needs to be performed priorto every iteration.To benefit from MapReduce, it is essential toavoid dependencies on ?side data?
+as much aspossible, due to the challenges explained abovewith data transfer.
+To address this issue, we ap-pend the per-sentence translation grammar as user-supplied additional information to each input sen-tence.
+This results in a large input file (e.g., 75 gi-gabytes for 50,000 sentences), but this is not an is-sue since the data reside on the Hadoop distributedfile system and MapReduce optimizes for data lo-cality when scheduling mappers.Unfortunately, it is much more difficult to ob-tain per-sentence language models that are smallenough to handle in this same manner.
+Currently,the best solution we have found is to use Hadoop?sdistributed cache to ship the single large languagemodel to each worker.4 EvaluationWe evaluated online learning in Hadoop Map-Reduce by applying it to German-English ma-chine translation, using our hierarchical phrase-based translation system with cdec as the de-coder (Dyer et al 2010).
+The parallel trainingdata consist of the Europarl and News Commen-tary corpora from the WMT12 translation task,6containing 2.08M sentences.
+A 5-gram languagemodel was trained on the English side of the bi-text along with 750M words of news using SRILMwith modified Kneser-Ney smoothing (Chen andGoodman, 1996).We experimented with two feature sets: (1) asmall set with standard MT features, including6http://www.statmt.org/wmt12/translation-task.html202Tuning set size Time/iteration # splits # features Tuning BLEU Test(corpus) (on disk, GB) (in seconds) BLEU TERdev 3.3 119 120 16 22.38 22.69 60.615k 7.8 289 120 16 32.60 22.14 59.6010k 15.2 432 120 16 33.16 22.06 59.4325k 37.2 942 300 16 32.48 22.21 59.5450k 74.5 1802 600 16 32.21 22.21 59.39dev 3.3 232 120 85k 23.08 23.00 60.195k 7.8 610 120 159k 33.70 22.26 59.2610k 15.2 1136 120 200k 34.00 22.12 59.2425k 37.2 2395 300 200k 32.96 22.35 59.2950k 74.5 4465 600 200k 32.86 22.40 59.15Table 1: Evaluation of our Hadoop implementation of MIRA, showing running time as well as BLEUand TER values for tuning and testing data.dev test 5k 10k 25k 50kSentences 3003 3003 5000 10000 25000 50000Tokens en 75k 74k 132k 255k 634k 1258kTokens de 74k 73k 133k 256k 639k 1272kTable 2: Corpus statisticsphrase and lexical translation probabilities in bothdirections, word and arity penalties, and languagemodel scores; and (2) a large set containing the top200k sparse features that might be useful to trainon large numbers of instances: rule id and shape,target bigrams, insertions and deletions, and struc-tural distortion features.All experiments were conducted on a Hadoopcluster (running Cloudera?s distribution, CDH4.2.1) with 16 nodes, each with two quad-core 2.2GHz Intel Nehalem Processors, 24 GB RAM, andthree 2 TB drives.
+In total, the cluster is configuredfor a capacity of 128 parallel workers, althoughwe do not have direct control over the numberof simultaneous mappers, which depends on thenumber of input splits.
+If the number of splits issmaller than 128, then the cluster is under-utilized.To note this, we report the number of splits foreach setting in our experimental results (Table 1).We ran MIRA on a number of tuning sets, de-scribed in Table 2, in order to test the effective-ness and scalability of our system.
+First, we usedthe standard development set from WMT12, con-sisting of 3,003 sentences from news domain.
+Inorder to show the scaling characteristics of our ap-proach, we then used larger portions of the train-ing bitext directly to tune parameters.
+In order toavoid overfitting, we used a jackknifing methodto split the training data into n = 10 folds, andbuilt a translation system on n ?
+1 folds, whileadjusting the sampling rate to sample sentencesfrom the other fold to obtain tuning sets rangingfrom 5,000 sentences to 50,000 sentences.
+Table 1shows details of experimental results for each set-ting.
+The second column shows the space eachtuning set takes up on disk when we include refer-ence translations and grammar files along with thesentences.
+The reported tuning BLEU is from theiteration with best performance, and running timesare reported from the top-scoring iteration as well.Even though our focus in this evaluation is toshow the scalability of our implementation to largeinput and feature sets, it is also worthwhile to men-tion the effectiveness aspect.
+As we increase thetuning set size by sampling sentences from thetraining data, we see very little improvement inBLEU and TER with the smaller feature set.
+Thisis not surprising, since sparse features are morelikely to gain from additional tuning instances.
+In-deed, tuning scores for all sets improve substan-tially with sparse features, accompanied by smallincreases on test.While tuning on dev data results in better BLEUon test data than when tuning on the larger sets, itis important to note that although we are able totune more features on the larger bitext tuning sets,they are not composed of the same genre as thedev and test sets, resulting in a domain mismatch.203Therefore, we are actually comparing a smaller in-domain tuning set with a larger out-of-domain set.While this domain adaptation is problematic (Had-dow and Koehn, 2012), the ability to discrimina-tively tune on larger sets remains highly desirable.In terms of running time, we observe that the al-gorithm scales linearly with respect to input size,regardless of the feature set.
+With more features,running time increases due to a more complextranslation model, as well as larger intermediateoutput (i.e., amount of information passed frommappers to reducers).
+The scaling characteristicspoint out the strength of our system: our scalableMIRA implementation allows one to tackle learn-ing problems where there are many parameters,but also many training instances.Comparing the wall clock time of paralleliza-tion with Hadoop to the standard mode of 10?20learner parallelization (Haddow et al 2011; Chi-ang et al 2009), for the small 25k feature set-ting, after one iteration, which takes 4625 sec-onds using 15 learners on our PBS cluster, the tun-ing score is 19.5 BLEU, while in approximatelythe same time, we can perform five iterationswith Hadoop and obtain 30.98 BLEU.
+While thisis not a completely fair comparison, as the twoclusters utilize different resources and the num-ber of learners, it suggests the practical benefitsthat Hadoop can provide.
+Although increasing thenumber of learners on our PBS cluster to the num-ber of mappers used in Hadoop would result inroughly equivalent performance, arbitrarily scal-ing out learners on the PBS cluster to handle largertraining sets can be challenging since we?d have tomanually coordinate the parallel processes in anad-hoc manner.
+In contrast, Hadoop provides scal-able parallelization in a manageable framework,providing data distribution, synchronization, faulttolerance, as well as other features, ?for free?.5 ConclusionIn this paper, we presented an open-sourceframework that allows seamlessly scaling struc-tured learning to large feature-rich problems withHadoop, which lets us take advantage of largeamounts of data as well as sparse features.
+Thedevelopment of Mr. MIRA has been motivated pri-marily by application to SMT, but we are planningto extend our system to other structured predictiontasks in NLP such as parsing, as well as to facili-tate its use in other domains.AcknowledgmentsThis research was supported in part by the DARPABOLT program, Contract No.
+HR0011-12-C-0015; NSF under awards IIS-0916043 and IIS-1144034.
+Vladimir Eidelman is supported by aNDSEG Fellowship.
+Any opinions, findings, con-clusions, or recommendations expressed are thoseof the authors and do not necessarily reflect viewsof the sponsors.ReferencesS.
+Chen and J. Goodman.
+1996.
+An empirical study ofsmoothing techniques for language modeling.
+In ACL.D.
+Chiang, K. Knight, and W. Wang.
+2009.
+11,001 new fea-tures for statistical machine translation.
+In NAACL-HLT.D.
+Chiang.
+2012.
+Hope and fear for discriminative trainingof statistical translation models.
+JMLR, 13:1159?1187.M.
+Collins.
+2002.
+Ranking algorithms for named-entity ex-traction: boosting and the voted perceptron.
+In ACL.K.
+Crammer, O. Dekel, J. Keshet, S. Shalev-Shwartz, andY.
+Singer.
+2006.
+Online passive-aggressive algorithms.JMLR, 7:551?585.K.
+Crammer, A. Kulesza, and M. Dredze.
+2009.
+Adaptiveregularization of weight vectors.
+In NIPS.J.
+Dean and S. Ghemawat.
+2004.
+MapReduce: Simplifieddata processing on large clusters.
+In OSDI.J.
+Duchi, E. Hazan, and Y.
+Singer.
+2011.
+Adaptive subgra-dient methods for online learning and stochastic optimiza-tion.
+JMLR, 12:2121?2159.C.
+Dyer, A. Lopez, J. Ganitkevitch, J. Weese, F. Ture, P. Blun-som, H. Setiawan, V. Eidelman, and P. Resnik.
+2010.cdec: A decoder, alignment, and learning framework forfinite-state and context-free translation models.
+In ACLSystem Demonstrations.S.
+Green, S. Wang, D. Cer, and C. Manning.
+2013.
+Fast andadaptive online training of feature-rich translation models.In ACL.B.
+Haddow and P. Koehn.
+2012.
+Analysing the effect of out-of-domain data on smt systems.
+In WMT.B.
+Haddow, A. Arun, and P. Koehn.
+2011.
+SampleRanktraining for phrase-based machine translation.
+In WMT.T.
+Joachims.
+1998.
+Text categorization with support vec-tor machines: Learning with many relevant features.
+InECML.J.
+Lafferty, A. McCallum, and F. Pereira.
+2001.
+Conditionalrandom fields: Probabilistic models for segmenting andlabeling sequence data.
+In ICML.R.
+McDonald, K. Crammer, and F. Pereira.
+2005.
+Onlinelarge-margin training of dependency parsers.
+In ACL.K.
+Papineni, S. Roukos, T. Ward, and W.-J.
+Zhu.
+2002.BLEU: a method for automatic evaluation of machinetranslation.
+In ACL.L.
+Shen.
+2007.
+Guided learning for bidirectional sequenceclassification.
+In ACL.P.
+Simianer, S. Riezler, and C. Dyer.
+2012.
+Joint featureselection in distributed stochastic learning for large-scalediscriminative training in SMT.
+In ACL.M.
+Snover, B. Dorr, R. Schwartz, L. Micciulla, andJ.
+Makhoul.
+2006.
+A study of translation edit rate withtargeted human annotation.
+In AMTA.204

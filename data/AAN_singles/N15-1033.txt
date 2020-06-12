@@ -1,0 +1,326 @@
+Human Language Technologies: The 2015 Annual Conference of the North American Chapter of the ACL, pages 293?302,Denver, Colorado, May 31 ?
+June 5, 2015.c?2015 Association for Computational LinguisticsMulti-Target Machine Translationwith Multi-Synchronous Context-free GrammarsGraham Neubig, Philip Arthur, Kevin DuhGraduate School of Information ScienceNara Institute of Science and Technology8916-5 Takayama-cho, Ikoma-shi, Nara, Japan{neubig,philip.arthur.om0,kevinduh}@is.naist.jpAbstractWe propose a method for simultaneouslytranslating from a single source language tomultiple target languages T1, T2, etc.
+The mo-tivation behind this method is that if we onlyhave a weak language model for T1 and trans-lations in T1 and T2 are associated, we can usethe information from a strong language modelover T2 to disambiguate the translations in T1,providing better translation results.
+As a spe-cific framework to realize multi-target transla-tion, we expand the formalism of synchronouscontext-free grammars to handle multiple tar-gets, and describe methods for rule extraction,scoring, pruning, and search with these mod-els.
+Experiments find that multi-target transla-tion with a strong language model in a similarsecond target language can provide gains of upto 0.8-1.5 BLEU points.11 IntroductionIn statistical machine translation (SMT), the greatmajority of work focuses on translation of a sin-gle language pair, from the source F to the tar-get E. However, in many actual translation situa-tions, identical documents are translated not fromone language to another, but between a large num-ber of different languages.
+Examples of this aboundin commercial translation, and prominent open datasets used widely by the MT community include UNdocuments in 6 languages (Eisele and Chen, 2010),European Parliament Proceedings in 21 languages1Code and data to replicate the experiments can be found athttp://phontron.com/project/naacl2015Kyoto ProtocolKyoto SanctionKyoto Treaty???????
+?????
+??????????????
+?Target 2Target 1SourceFigure 1: An example of multi-target translation, where asecond target language is used to assess the quality of thefirst target language.
+(Koehn, 2005), and video subtitles on TED in asmany as 50 languages (Cettolo et al, 2012).However, despite this abundance of multilingualdata, there have been few attempts to take advantageof it.
+One exception is the multi-source SMT methodof Och and Ney (2001), which assumes a situationwhere we have multiple source sentences, and wouldlike to combine the translations from these sentencesto create a better, single target translation.In this paper, we propose a framework of multi-target SMT.
+In multi-target translation, we translateF to not a single target E, but to a set of sentencesE = ?E1, E2, .
+.
+.
+, E|E|?
+in multiple target languages(which we will abbreviate T1, T2, etc.).
+This, in away, can be viewed as the automated version of themulti-lingual dissemination of content performed byhuman translators when creating data for the UN,EuroParl, or TED corpora mentioned above.But what, one might ask, do we expect to gainby generating multiple target sentences at the sametime?
+An illustrative example in Figure 1 showsthree potential Chinese T1 translations for an Arabicinput sentence.
+If an English speaker was asked tosimply choose one of the Chinese translations, they293likely could not decide which is correct.
+However, ifthey were additionally given English T2 translationscorresponding to each of the Chinese translations,they could easily choose the third as the most natu-ral, even without knowing a word of Chinese.Translating this into MT terminology, this isequivalent to generating two corresponding targetsentences E1and E2, and using the naturalness ofE2to help decide which E1to generate.
+Languagemodels (LMs) are the traditional tool for assessingthe naturalness of sentences, and it is widely knownthat larger and stronger LMs greatly help translation(Brants et al, 2007).
+It is easy to think of a situationwhere we can only create a weak LM for T1, butmuch more easily create a strong LM for T2.
+Forexample, T1 could be an under-resourced language,or a new entrant to the EU or UN.As a concrete method to realize multi-target trans-lation, we build upon Chiang (2007)?s framework ofsynchronous context free grammars (SCFGs), whichwe first overview in Section 2.2SCFGs are an exten-sion of context-free grammars that define rules thatsynchronously generate source and target strings Fand E. We expand this to a new formalism ofmulti-synchronous CFGs (MSCFGs, Section 3) thatsimultaneously generate not just two, but an arbi-trary number of strings ?F,E1, E2, .
+.
+.
+, EN?.
+Wedescribe how to acquire these from data (Section4), and how to perform search, including calculationof LM probabilities over multiple target languagestrings (Section 5).To evaluate the effectiveness of multi-target trans-lation in the context of having a strong T2 LM tohelp with T1 translation, we perform experimentson translation of United Nations documents (Section6).
+These experiments, and our subsequent analysis,show that the framework of multi-target translationcan, indeed, provide significant gains in accuracy (ofup to 1.5 BLEU points), particularly when the twotarget languages in question are similar.2 Synchronous Context-Free GrammarsWe first briefly cover SCFGs, which are widely usedin MT, most notably in the framework of hierarchi-2One could also consider a multi-target formulation ofphrase-based translation (Koehn et al, 2003), but generatingmultiple targets while considering reordering in phrase-basedsearch is not trivial.
+We leave this to future work.
+(a) SCFG Grammarr1: X ?
+<X1 of the X2, X1 des X2>r2: X ?
+<activity, activit?s> r3: X ?
+<chambers, chambres>Derivation<X1, X1>r1 <X2 of the X3, X2 des X3><activity of the X3, activit?s des X3>r2 <activity of the chambers, activit?s des chambres>r3(b) MSCFG Grammarr1: X ?
+<X1 of the X2, X1 des X2, X2 ?
+X1>r2: X ?
+<activity, activit?s, ??
+>r3: X ?
+<chambers, chambres, ??
+>Derivation<X1, X1, X1>r1 <X2 of the X3, X2 des X3, X3 ?
+X2><activity of the X3, activit?s des X3, X3 ?
+??
+>r2 <activity of the chambers,                       activit?s des chambres, ??
+?
+??
+>r3Figure 2: Synchronous grammars and derivations using(a) standard SCFGs and (b) the proposed MSCFGs.cal phrase-based translation (Hiero; Chiang (2007)).SCFGs are based on synchronous rules defined astuples of X , ?, and ?X ?
+?
+?, ?
+?, (1)where X is the head of the rule, and ?
+and ?
+arestrings of terminals and indexed non-terminals onthe source and target side of the grammar.
+Eachnon-terminal on the right side is indexed, with non-terminals with identical indices corresponding toeach-other.
+For example, a synchronous rule couldtake the form of3X ?
+?X0of the X1, X0des X1?.
+(2)By simply generating from this grammar, it ispossible to generate a string in two languages syn-chronously, as shown in Figure 2 (a).
+When we arealready given a source side sentence and would liketo using an SCFG to generate the translation, wefind all rules that match the source side and performsearch using the CKY+ algorithm (Chappelier et al,1998).
+When we would additionally like to consider3It is possible to use symbols other than X (e.g.
+: NP , V P )to restrict rule application to follow grammatical structure, butwe focus on the case with a single non-terminal.294an LM, as is standard in SMT, we perform a mod-ified version of CKY+ that approximately exploresthe search space using a method such as cube prun-ing (Chiang, 2007).3 Multi-Synchronous CFGsIn this section, we present the basic formalism thatwill drive our attempts at multi-target translation.Specifically, we propose a generalization of SCFGs,which we will call multi-synchronous context freegrammars (MSCFGs).
+In an MSCFG, the elemen-tary structures are rewrite rules containing not asource and target, but an arbitrary number M ofstringsX ?
+?
+?1, ..., ?M?, (3)where X is the head of the rule and ?mis a string ofterminal and non-terminal symbols.4In this paper,for notational convenience, we will use a specializedversion of Equation 3 in which we define a single ?as the source side string, and ?1, ...?Nas an arbi-trary number N of target side strings:X ?
+?
+?, ?1, ..., ?N?.
+(4)Therefore, at each derivation step, one non-terminalin ?
+is chosen and all the nonterminals with sameindices in ?1, ..., ?Nwill be rewritten using a singlerule.
+Figure 2 (b) gives an example of generatingsentences in three languages using MSCFGs.
+Trans-lation can also be performed by using the CKY+ al-gorithm to parse the source side, and then generatetargets in not one, but multiple languages.It can be noted that this formalism is a relativelysimple expansion of standard SCFGs.
+However, theadditional targets require non-trivial modificationsto the standard training and search processes, whichwe discuss in the following sections.4 Training Multi-Synchronous GrammarsThis section describes how, given a set of parallelsentences in N languages, we can create translationmodels (TMs) using MSCFGs.4We will also make the restriction that indices are linear andnon-deleting, indicating that each non-terminal index present inany of the strings will appear exactly once in all of the strings.Thus, MSCFGs can also be thought of as a subset of the ?gen-eralized multi-text grammars?
+of Melamed et al (2004).4.1 SCFG Rule ExtractionFirst, we briefly outline rule extraction for SCFGsin the standard two-language case, as proposed byChiang (2007).
+We first start by preparing two cor-pora in the source and target language, F and E , andobtaining word alignments for each sentence auto-matically, using a technique such as the IBM modelsimplemented by GIZA++ (Och and Ney, 2003).We then extract initial phrases for each sentence.Given a source fJ1, target eI1, and alignment A ={?i1, i?1?, .
+.
+.
+, ?i|A|, i?|A|?}
+where i and i?representindices of aligned words in F and E respectively.First, based on this alignment, we extract all pairs ofphrases BP = {?fj1i1, ej?1i?1?, .
+.
+.
+, ?fj|BP |i|BP |, ej?|BP |i?|BP |?
+},where fj1i1is a substring of fJ1spanning from i1toj1, and ej?1i?1is analogous for the target side.
+Thecriterion for whether a phrase ?fji, ej?i??
+can be ex-tracted or not is whether there exists at least onealignment in A that falls within the bounds of bothfjiand ej?i?, and no alignments that fall within thebounds of one, but not the other.
+It is also com-mon to limit the maximum length of phrases to beless than a constant S (in our experiments, 10).
+Thephrase-extract algorithm of Och (2002) canbe used to extract phrases that meet these criteria.Next, to create synchronous grammar rules, wecycle through the phrases in BP , and extract all po-tential rules encompassed by this phrase.
+This isdone by finding all sets of 0 or more non-overlappingsub-phrases of initial phrase ?fji, ej?i?
+?, and replacingthem by non-terminals to form rules.
+In addition,it is common to limit the number of non-terminalsto two and not allow consecutive non-terminals onthe source side to ensure search efficiency, and limitthe number of terminals to limit model size (in ourexperiments, we set this limit to five).4.2 MSCFG Rule ExtractionIn this section, we generalize the rule extraction pro-cess in the previous section to accommodate multi-ple targets.
+We do so by first independently creatingalignments between the source corpus F , and eachof N target corpora {E1, .
+.
+.
+, EN}.Given a particular sentence we now havesource F , N target strings {E1, .
+.
+.
+, EN}, andN alignments {A1, .
+.
+.
+, AN}.
+We next in-295dependently extract initial phrases for each ofthe N languages using the standard bilingualphrase-extract algorithm, yielding initialphrase sets {BP1, .
+.
+.
+, BPN}.
+Finally, we convertthese bilingual sets of phrases into a single set ofmultilingual phrases.
+This can be done by notingthat all source phrases fjiwill be associated witha set of 0 or more phrases in each target language.We define the set of multilingual phrases associatedwith fjias the cross product of these sets.
+In otherwords, if fjiis associated with 2 phrases in T1, and3 phrases in T2, then there will be a total of 2?3 = 6phrase triples extracted as associated with fji.5Once we have extracted multilingual phrases, theremaining creation of rules is essentially the sameas the bilingual case, with sub-phrases being turnedinto non-terminals for the source and all targets.4.3 Rule ScoringAfter we have extracted rules, we assign them fea-ture functions.
+In traditional SCFGs, given a sourceand target ?
+and ?1, it is standard to calculatethe log forward and backward translation probabil-ities P (?|?1) and P (?1|?
+), log forward and back-ward lexical translation probabilities Plex(?|?1)and Plex(?1|?
+), a word penalty counting the non-terminals in ?1, and a constant phrase penalty of 1.In our MSCFG formalism, we also add new fea-tures regarding the additional targets.
+Specificallyin the case where we have one additional target?2, we add the log translation probabilities P (?|?2)and P (?2|?
+), log lexical probabilities Plex(?|?2)and Plex(?2|?
+), and word penalty for ?2.
+In addi-tion, we add log translation probabilities that con-sider both targets at the same time P (?|?1, ?2) andP (?1, ?2|?).
+As a result, compared to the 6-featureset in standard SCFGs, an MSCFG rule with two tar-gets will have 13 features.4.4 Rule Table PruningIn MT, it is standard practice to limit the number ofrules used for any particular source ?
+to ensure re-alistic search times and memory usage.
+This limitis generally imposed by ordering rules by the phrase5Taking the cross-product here has the potential for combi-natorial explosion as more languages are added, but in our cur-rent experiments with two target languages this did not causesignificant problems, and we took no preventative measures.probability P (?1|?)
+and only using the top few (inour case, 10) for each source ?.
+However, in theMSCFG case, this is not so simple.
+As the previ-ous section mentioned, in the two-target MSCFG,we have a total of three probabilities conditioned on?
+: P (?1, ?2|?
+), P (?1|?
+), P (?2|?).
+As our mainmotivation for multi-target translation is to use T2to help translation of T1, we can assume that the fi-nal of these three probabilities, which only concernsT2, is of less use.
+Thus, we propose two ways forpruning the rule table based on the former two.The first method, which we will call T1+T2, isbased on P (?1, ?2|?).
+The use of this probabilityis straightforward, as it is possible to simply list thetop rules based on this probability.
+However, thismethod also has a significant drawback.
+If we aremainly interested in accurate generation of the T1sentence, there is a possibility that the addition ofthe T2 phrase ?2will fragment the probabilities for?1.
+This is particularly true when the source and T1are similar, while T2 is a very different language.For example, in the case of a source of English, T1of French, and T2 of Chinese, translations of En-glish to French will have much less variation thantranslastions of English to Chinese, due to less free-dom of translation and higher alignment accuracybetween English and French.
+In this situation, thepruned model will have a variety of translations inT2, but almost no variety in T1, which is not con-ducive to translating T1 accurately.As a potential solution to this problem, we alsotest a T1 method, which is designed to maintain va-riety of T1 translations for each rule.
+In order to doso, we first list the top ?1candidates based only onthe P (?1|?)
+probability.
+Each ?1will be associatedwith one or more ?2rule, and thus we choose the?2resulting in the highest joint probability of thetwo targets P (?1, ?2|?)
+as the representative rulefor ?1.
+This pruning method has the potential advan-tage of increasing the variety in the T1 translations,but also has the potential disadvantage of artificiallyreducing genuine variety in T2.
+We examine whichmethod is more effective in the experiments section.5 Search with Multiple LMsLMs computes the probability P (E) of observinga particular target sentence, and are a fundamental296(a) SC (a) SC?
+* ?
+(a) SC?
+* ?
+(a) SC?
+* ?
+(a) SC?
+* ?FG< ,a>oftheGdotestGcFi< vya>e(a) SC (a) SC?
+* ?
+(a) SC?
+* ?
+(a) SC?
+* ?
+?
+* ??
+* ??
+* ??
+* ?
+(a) SC?
+* ?
+(a) SC?
+* ?Fm< ,tbrt>eaGf(a) SC (a) SC?
+* ?
+(a) SC?
+* ?
+(a) SC?
+* ?
+(a) SC?
+* ?
+?
+* ?
+(a) SC?
+* ?
+?
+* ?
+(a) SC?
+* ?
+?
+* ?
+(a) SC?
+* ?
+?
+* ?
+(a) SC?
+* ?
+?
+* ?
+(a) SC?
+* ?
+??
+* ?Figure 3: State splitting with (a) one LM, (b) two LMswith joint search, and (c) two LMs with sequential search,where T1 and T2 are the first (red) and second (blue)columns respectively.part of both standard SMT systems and the proposedmethod.
+Unlike the other features assigned to rulesin Section 4.3, LM probabilities are non-local fea-tures, and cannot be decomposed over rules.
+In caseof n-gram LMs, this probability is defined as:PLM(E) =|E|+1?i=1p(ei|ei?n+1, .
+.
+.
+, ei?2, ei?1) (5)where the probabilities of the next word eidependon the previous n?
+1 words.When not considering an LM, it is possible to effi-ciently find the best translation for an input sentencefJ1using the CKY+ algorithm, which performs dy-namic programming remembering the most proba-ble translation rule for each state corresponding tosource span fji.
+When using an LM, it is further nec-essary split each state corresponding to fjito distin-guish between not only the span, but also the stringsof n ?
+1 boundary words on the left and right sideof the translation hypothesis, as illustrated in Figure3 (a).
+As this expands the search space to an in-tractable size, this space is further reduced based ona limit on expanded edges (the pop limit), or totalstates per span (the stack limit), through a proceduresuch as cube pruning (Chiang, 2007).In a multi-target translation situation with one LMfor each target, managing the LM state becomesmore involved, as we need to keep track of the n?1boundary words for both targets.
+We propose twomethods for handling this problem.The first method, which we will dub the jointsearch method, is based on consecutively expand-ing the LM states of both T1 and T2.
+As shown inthe illustration in Figure 3 (b), this means that eachpost-split search state will be annotated with bound-ary words from both targets.
+This is a natural andsimple expansion of the standard search algorithm,simply using a more complicated representation ofthe LM state.
+On the other hand, because the newstate space is the cross-product of all sets of bound-ary words in the two languages, the search space be-comes significantly larger, with the side-effect of re-ducing the diversity of T1 translations for the samebeam size.
+For example, in the figure, it can be seenthat despite the fact that 3 hypotheses have been ex-panded, we only have 2 unique T1 LM states.Our second method, which we will dub the se-quential search method, first expands the state spaceof T1, then later expands the search space of T2.This procedure can be found in Figure 3 (c).
+It canbe seen that by first expanding the T1 space we en-sure diversity in the T1 search space, then addition-ally expand the states necessary for scoring with theT2 LM.
+On the other hand, if the T2 LM is importantfor creating high-quality translations, it is possiblethat the first pass of search will be less accurate andprune important hypotheses.6 Experiments6.1 Experimental SetupWe evaluate the proposed multi-target translationmethod through translation experiments on the Mul-tiUN corpus (Eisele and Chen, 2010).
+We choosethis corpus as it contains a large number of paral-lel documents in Arabic (ar), English (en), Span-ish (es), French (fr), Russian (ru), and Chinese (zh),languages with varying degrees of similarity.
+Weuse English as our source sentence in all cases, asit is the most common actual source language forUN documents.
+To prepare the data, we first de-duplicate the sentences in the corpus, then hold out1,500 sentences each for tuning and test.
+In our ba-sic training setup, we use 100k sentences for trainingboth the TM and the T1 LM.
+This somewhat small297number is to simulate a T1 language that has rela-tively few resources.
+For the T2 language, we as-sume we have a large language model trained on allof the UN data, amounting to 3.5M sentences total.As a decoder, we use the Travatar (Neubig, 2013)toolkit, and implement all necessary extensions tothe decoder and rule extraction code to allow formultiple targets.
+Unless otherwise specified, we usejoint search with a pop limit of 2,000, and T1 rulepruning with a limit of 10 rules per source rule.BLEU is used for both tuning and evaluating allmodels.
+In particular, we tune and evaluate all mod-els based on T1 BLEU, simulating a situation simi-lar to that in the introduction, where we want to usea large LM in T2 to help translation in T1.
+In orderto control for optimizer instability, we follow Clarket al (2011)?s recommendation of performing tun-ing 3 times, and reporting the average of the runsalong with statistical significance obtained by pair-wise bootstrap resampling (Koehn, 2004).6.2 Main Experimental ResultsIn this section we first perform experiments to inves-tigate the effectiveness of the overall framework ofmulti-target translation.We assess four models, starting with standardsingle-target SCFGs and moving gradually towardsour full MSCFG model:SCFG: A standard SCFG grammar with only thesource and T1.SCFG+T2Al: SCFG constrained during rule ex-traction to only extract rules that also match theT2 alignments.
+This will help measure the ef-fect, if any, of being limited by T2 alignmentsin rule extraction.MSCFG-T2LM: The MSCFG, without using theT2 LM.
+Compared to SCFG+T2Al, this willexamine the effect caused by adding T2 rulesin scoring (Section 4.3) and pruning (Section4.4) the rule table.MSCFG: The full MSCFG model with the T2 LM.The result of experiments using all five languages asT1, and the remaining four languages as T2 for allof these methods is shown in Table 1.SCFG MSCFGT1 T2 SCFG +T2Al -T2LM MSCFGares24.9725.11 24.79?25.19fr 24.70 24.73 24.89ru 24.54 24.62 24.48zh 24.21 24.16 23.95esar42.1541.73 41.21 41.22fr 42.20 41.84?42.91ru 41.62 41.90 41.98zh 41.80 41.61 41.65frar37.2137.26 37.03 37.41es 37.25 37.22?38.67ru 37.11 37.31?37.79zh 37.14 37.29 36.99ruar26.2025.91 25.67 25.86es 26.17 26.01?26.45fr 26.07 25.77 26.29zh 25.53 25.57 25.52zhar21.1621.06 20.85 20.84es 21.39 21.31 21.33fr?21.60 21.28 21.16ru 20.50 21.15 21.14Table 1: Results for standard Hiero (SCFG), SCFG withT2 extraction constraints (SCFG+T2Al), a multi-SCFGminus the T2 LM (MSCFG-T2LM), and full multi-targettranslation (MSCFG).
+Bold indicates the highest BLEUscore, and daggers indicate statistically significant gainsover SCFG (?
+: p < 0.05, ?
+: p < 0.01)First, looking at the overall results, we can seethat MSCFGs with one of the choices of T2 tends tooutperform SCFG for all instances of T1.
+In partic-ular, the gain for the full MSCFG model is large forthe cases where the two target languages are Frenchand Spanish, with en-fr/es achieving a gain of 1.46BLEU points, and en-es/fr achieving a gain of 0.76BLEU points over the baseline SCFG.
+This is fol-lowed by Arabic, Russian and Chinese, which allsaw small gains of less than 0.3 when using Span-ish as T2, with no significant difference for Chinese.This result indicates that multi-target MT has the po-tential to provide gains in T1 accuracy, particularlyin cases where the languages involved are similar toeach other.It should be noted however, that positive resultsare sensitive to the languages chosen for T1 and T2,2980.0 0.2 0.4 0.6 0.8 1.0Sentences0.00.20.40.60.81.0BLEU0 2k 10k 40k 200k 1M 3.5M2830323436384042 en-fr/ar0 2k 10k 40k 200k 1M 3.5M2830323436384042 en-fr/es0 2k 1 k 40k 200k 1M 3.5M2830323436384042 en-fr/ru0 2k 10k 40k 200k 1M 3.5M2830323436384042 en-fr/zh-LM2+LM2Figure 4: BLEU scores for different T1 LM sizes without (-LM2) or with (+LM2) an LM for the second target.T2 SCFG +T2Alar223M46.5Mes 134Mru 70.8Mzh 26.0MTable 2: Differences in rule table sizes for a T1 of French.and in the cases involving Russian or Chinese, thereis often even a drop in accuracy compared to thebaseline SCFG.
+The reason for this can be seen byexamining the results for SCFG+T2Al and MSCFG-T2LM.
+It can be seen that in the cases where thereis an overall decrease in accuracy, this decrease cangenerally be attributed to a decrease when goingfrom SCFG to SCFG+T2Al (indicating that rule ex-traction suffers from the additional constraints im-posed by T2), or a decrease from SCFG+T2Al toMSCFG-LM2 (indicating that rule extraction suffersfrom fragmentation of the T1 translations by addingthe T2 translation).
+On the other hand, we can seethat in the majority of cases, going from MSCFG-LM2 to MSCFG results in at least a small gain inaccuracy, indicating that a T2 LM is generally use-ful, after discounting any negative effects caused bya change in the rule table.In Table 2 we show additional statistics illustrat-ing the effect of adding a second language on thenumber of rules that can be extracted.
+From theseresults, we can see that all languages reduce thenumber of rules extracted, with the reduction beinggreater for languages with a larger difference fromEnglish and French, providing a convincing expla-nation for the drop in accuracy observed betweenthese two settings.6.3 Effect of T1 Language Model StrengthThe motivation for multi-target translation stated inthe introduction was that information about T2 maygive us hints about the appropriate translation in T1.It is also a reasonable assumption that the less in-formation we have about T1, the more valuable theinformation about T2 may be.
+To test this hypoth-esis, we next show results of experiments in whichwe vary the size of the training data for the T1 LMin intervals from 0 to 3.5M sentences.
+For T2, we ei-ther use no LM (MSCFG-T2LM) or an LM trainedon 3.5M sentences (MSCFG).
+The results for whenFrench is used as T1 are shown in Figure 4.From these results, we can see that this hypothesisis correct.
+When no T1 LM is used, we generally seesome gain in translation accuracy by introducing astrong T2 LM, with the exception of Chinese, whichnever provides a benefit.
+When using Spanish as T2,this benefit continues even with a relatively strongT1 LM, with the gap closing after we have 400ksentences of data.
+For Arabic and Russian, on theother hand, the gap closes rather quickly, with con-sistent gains only being found up to about 20-40ksentences.
+In general this indicates that the more in-formative the T2 LM is in general, the more T1 datawill be required before the T2 LM is no longer ableto provide additional gains.6.4 Effect of Rule PruningNext we examine the effect of the rule pruning meth-ods explained in Section 4.4.
+We set T1 to eitherFrench or Chinese, and use either the naive pruningcriterion using T1+T2, or the criterion that picks thetop translations in T1 along with their most proba-ble T2 translation.
+Like previous experiments, we2990.0 0.2 0.4 0.6 0.8 1.0Pop Limit0.00.20.40.60.81.0BLEU1 20 40 100 200 400 1k 2k33343536373839 en-fr/es T110 20 40 100 20 00 1k 2k33343536373839 en-fr/es T1+T210 20 40 100 200 400 1k 2k33343536373839 en-fr/zh T110 20 40 100 200 400 1k 2k33343536373839 en-fr/zh T1+T21 LMJointSeq.Figure 5: The impact of search on accuracy.
+Lines indicate a single LM (1 LM), two LMs with joint search (Joint) ortwo LMs with sequential search (Seq.)
+for various pop limits and pruning criteria.T1=fr T1=zhT2 T1+T2 T1 T1+T2 T1ar 36.21 37.41 20.35 20.84es 38.68 38.67 20.73 21.33fr - 20.49 21.16ru 37.14 37.79 19.87 21.14zh 36.41 36.99 -Table 3: BLEU scores by pruning criterion.
+Columnsindicate T1 (fr or zh) and the pruning criterion (T1+T2joint probability, or T1 probability plus max T2).
+Rowsindicate T2.use the top 10 rules for any particular F .Results are shown in Table 3.
+From these resultswe can see that in almost all cases, pruning usingT1 achieves better results.
+This indicates the verac-ity of the observation in Section 4.4 that consideringmultiple T2 for a particular T1 causes fragmentationof TM probabilities, and that this has a significanteffect on translation results.
+Interestingly, the oneexception to this trend is T1 of French and T2 ofSpanish, indicating that with sufficiently similar lan-guages, the fragmentation due to the introduction ofT2 translations may not be as much of a problem.It should be noted that in this section, we are us-ing the joint search algorithm, and the interactionbetween search and pruning will be examined morecompletely in the following section.6.5 Effect of SearchNext we examine the effect of the search algo-rithms suggested in Section 5.
+To do so, we per-form experiments where we vary the search algo-rithm (joint or sequential), the TM pruning criterion(T1 or T1+T2), and the pop limit.
+For sequentialsearch, we set the pop limit of T2 to be 10, as thisvalue did not have a large effect on results.
+For ref-erence, we also show results when using no T2 LM.From the BLEU results shown in Figure 5, wecan see that the best search algorithm depends onthe pruning criterion and language pair.6In gen-eral, when trimming using T1, we achieve better re-sults using joint search, indicating that maintainingT1 variety in the TM is enough to maintain searchaccuracy.
+On the other hand, when using the T1+T2pruned model when T2 is Chinese, sequential searchis better.
+This shows that in cases where there arelarge amounts of ambiguity introduced by T2, se-quential search effectively maintains necessary T1variety before expanding the T2 search space.
+Asthere is no general conclusion, an interesting direc-tion for future work is search algorithms that cancombine the advantages of these two approaches.7 Related WorkWhile there is very little previous work on multi-target translation, there is one line of work byGonz?alez and Casacuberta (2006) and P?erez et al(2007), which adapts a WFST-based model to outputmultiple targets.
+However, this purely monotonicmethod is unable to perform non-local reordering,and thus is not applicable most language pairs.
+It isalso motivated by efficiency concerns, as opposed tothis work?s objective of learning from a T2 language.Factored machine translation (Koehn and Hoang,2007) is also an example where an LM over a second6Results for model score, a more direct measure of searcherrors, were largely similar.300stream of factors (for example POS tags, classes,or lemmas) has been shown to increase accuracy.These factors are limited, however, by the strongconstraint of being associated with a single word andnot allowing reordering, and thus are not applicableto our setting of using multiple languages.There has also been work on using multiple lan-guages to improve the quality of extracted transla-tion lexicons or topic models (Mausam et al, 2009;Baldwin et al, 2010; Mimno et al, 2009).
+These arenot concerned with multi-target translation, but mayprovide us with useful hints about how to generatemore effective multi-target translation models.8 ConclusionIn this paper, we have proposed a method for multi-target translation using a generalization of SCFGs,and proposed methods to learn and perform searchover the models.
+In experiments, we found that thesemodels are effective in the case when a strong LMexists in a second target that is highly related to thefirst target of interest.As the overall framework of multi-target transla-tion is broad-reaching, there are a still many chal-lenges left for future work, a few of which we out-line here.
+First, the current framework relies on datathat is entirely parallel in all languages of interest.Can we relax this constraint and use comparabledata, or apply MSCFGs to pivot translation?
+Sec-ond, we are currently performing alignment inde-pendently for each target.
+Can we improve results byconsidering all languages available (Lardilleux andLepage, 2009)?
+Finally, in this paper we consideredthe case where we are only interested in T1 accuracy,but optimizing translation accuracy for two or moretargets, possibly through the use of multi-metric op-timization techniques (Duh et al, 2012) is also aninteresting future direction.AcknowledgmentsThe authors thank Taro Watanabe and anonymousreviewers for helpful suggestions.
+This work wassupported in part by JSPS KAKENHI Grant Number25730136 and the Microsoft CORE project.ReferencesTimothy Baldwin, Jonathan Pool, and Susan Colowick.2010.
+PanLex and LEXTRACT: Translating all wordsof all languages of the world.
+In Proc.
+COLING, pages37?40.Thorsten Brants, Ashok C. Popat, Peng Xu, Franz J. Och,and Jeffrey Dean.
+2007.
+Large language models inmachine translation.
+In Proc.
+EMNLP, pages 858?867.Mauro Cettolo, Christian Girardi, and Marcello Federico.2012.
+WIT3: web inventory of transcribed and trans-lated talks.
+In Proc.
+EAMT, pages 261?268.Jean-C?edric Chappelier, Martin Rajman, et al 1998.A generalized CYK algorithm for parsing stochasticCFG.
+In TAPD, pages 133?137.David Chiang.
+2007.
+Hierarchical phrase-based transla-tion.
+Computational Linguistics, 33(2):201?228.Jonathan H. Clark, Chris Dyer, Alon Lavie, and Noah A.Smith.
+2011.
+Better hypothesis testing for statisticalmachine translation: Controlling for optimizer insta-bility.
+In Proc.
+ACL, pages 176?181.Kevin Duh, Katsuhito Sudoh, Xianchao Wu, HajimeTsukada, and Masaaki Nagata.
+2012.
+Learning totranslate with multiple objectives.
+In Proc.
+ACL.Andreas Eisele and Yu Chen.
+2010.
+MultiUN: A mul-tilingual corpus from United Nation documents.
+InProc.
+LREC.M.
+Teresa Gonz?alez and Francisco Casacuberta.
+2006.Multi-target machine translation using finite-statetransducers.
+In Proc.
+of TC-Star Speech to SpeechTranslation Workshop, pages 105?110.Philipp Koehn and Hieu Hoang.
+2007.
+Factored transla-tion models.
+In Proc.
+EMNLP.Phillip Koehn, Franz Josef Och, and Daniel Marcu.
+2003.Statistical phrase-based translation.
+In Proc.
+HLT,pages 48?54.Philipp Koehn.
+2004.
+Statistical significance tests formachine translation evaluation.
+In Proc.
+EMNLP.Philipp Koehn.
+2005.
+Europarl: A parallel corpus forstatistical machine translation.
+In Proc.
+MT Summit,pages 79?86.Adrien Lardilleux and Yves Lepage.
+2009.
+Sampling-based multilingual alignment.
+In Proc.
+RANLP, pages214?218.Mausam, Stephen Soderland, Oren Etzioni, Daniel Weld,Michael Skinner, and Jeff Bilmes.
+2009.
+Compilinga massive, multilingual dictionary via probabilistic in-ference.
+In Proc.
+ACL, pages 262?270.I.
+Dan Melamed, Giorgio Satta, and Benjamin Welling-ton.
+2004.
+Generalized multitext grammars.
+In Proc.ACL, pages 661?668.301David Mimno, Hanna M. Wallach, Jason Naradowsky,David A. Smith, and Andrew McCallum.
+2009.Polylingual topic models.
+In Proc.
+EMNLP, pages880?889.Graham Neubig.
+2013.
+Travatar: A forest-to-string ma-chine translation engine based on tree transducers.
+InProc.
+ACL Demo Track, pages 91?96.Franz Josef Och and Hermann Ney.
+2001.
+Statisticalmulti-source translation.
+In Proc.
+MT Summit, pages253?258.Franz Josef Och and Hermann Ney.
+2003.
+A system-atic comparison of various statistical alignment mod-els.
+Computational Linguistics, 29(1):19?51.Franz Josef Och.
+2002.
+Statistical machine transla-tion: from single-word models to alignment templates.Ph.D.
+thesis, RWTH Aachen.Alicia P?erez, M. Teresa Gonz?alez, M. In?es Torres, andFrancisco Casacuberta.
+2007.
+Speech-input multi-target machine translation.
+In Proc.
+WMT, pages 56?63.302

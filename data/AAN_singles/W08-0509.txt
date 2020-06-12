@@ -1,0 +1,205 @@
+Software Engineering, Testing, and Quality Assurance for Natural Language Processing, pages 49?57,Columbus, Ohio, USA, June 2008. c?2008 Association for Computational LinguisticsParallel Implementations of Word Alignment ToolQin Gao and Stephan VogelLanguage Technology InstitutionSchool of Computer ScienceCarnegie Mellon UniversityPittsburgh, PA, 15213, USA{qing, stephan.vogel}@cs.cmu.eduAbstractTraining word alignment models on large cor-pora is a very time-consuming processes.
+Thispaper describes two parallel implementationsof GIZA++ that accelerate this word align-ment process.
+One of the implementationsruns on computer clusters, the other runs onmulti-processor system using multi-threadingtechnology.
+Results show a near-linear speed-up according to the number of CPUs used, andalignment quality is preserved.1 IntroductionTraining state-of-the-art phrase-based statistical ma-chine translation (SMT) systems requires severalsteps.
+First, word alignment models are trained onthe bilingual parallel training corpora.
+The mostwidely used tool to perform this training step is thewell-known GIZA++(Och and Ney, 2003).
+The re-sulting word alignment is then used to extract phrasepairs and perhaps other information to be used intranslation systems, such as block reordering mod-els.
+Among the procedures, more than 2/3 of thetime is consumed by word alignment (Koehn et al,2007).
+Speeding up the word alignment step candramatically reduces the overall training time, and inturn accelerates the development of SMT systems.With the rapid development of computing hard-ware, multi-processor servers and clusters becomewidely available.
+With parallel computing, process-ing time (wall time) can often be cut down by oneor two orders of magnitude.
+Tasks, which requireseveral weeks on a single CPU machine may takeonly a few hours on a cluster.
+However, GIZA++was designed to be single-process and single-thread.To make more efficient use of available computingresources and thereby speed up the training of ourSMT system, we decided to modify GIZA++ so thatit can run in parallel on multiple CPUs.The word alignment models implemented inGIZA++, the so-called IBM (Brown et al, 1993) andHMM alignment models (Vogel et al, 1996) are typ-ical implementation of the EM algorithm (Dempsteret al, 1977).
+That is to say that each of these mod-els run for a number of iterations.
+In each iterationit first calculates the best word alignment for eachsentence pairs in the corpus, accumulating variouscounts, and then normalizes the counts to generatethe model parameters for the next iteration.
+Theword alignment stage is the most time-consumingpart, especially when the size of training corpus islarge.
+During the aligning stage, all sentences canbe aligned independently of each other, as modelparameters are only updated after all sentence pairshave been aligned.
+Making use of this property, thealignment procedure can be parallelized.
+The basicidea is to have multiple processes or threads aligningportions of corpus independently and then merge thecounts and perform normalization.The paper implements two parallelization meth-ods.
+The PGIZA++ implementation, which is basedon (Lin et al 2006), uses multiple aligning pro-cesses.
+When all the processes finish, a master pro-cess starts to collect the counts and normalizes themto produce updated models.
+Child processes are thenrestarted for the new iteration.
+The PGIZA++ doesnot limit the number of CPUs being used, whereasit needs to transfer (in some cases) large amounts49of data between processes.
+Therefore its perfor-mance also depends on the speed of the network in-frastructure.
+The MGIZA++ implementation, on theother hand, starts multiple threads on a common ad-dress space, and uses a mutual locking mechanismto synchronize the access to the memory.
+AlthoughMGIZA++ can only utilize a single multi-processorcomputer, which limits the number of CPUs it canuse, it avoids the overhead of slow network I/O.
+Thatmakes it an equally efficient solution for many tasks.The two versions of alignment tools are available on-line at http://www.cs.cmu.edu/q?ing/giza.The paper will be organized as follows, section 2provides the basic algorithm of GIZA++, and sec-tion 3 describes the PGIZA++ implementation.
+Sec-tion 4 presents the MGIZA++ implementation, fol-lowed by the profile and evaluation results of bothsystems in section 5.
+Finally, conclusion and futurework are presented in section 6.2 Outline of GIZA++2.1 Statistical Word Alignment ModelsGIZA++ aligns words based on statistical models.Given a source string fJ1 = f1, ?
+?
+?
+, fj , ?
+?
+?
+, fJ and atarget string eI1 = e1, ?
+?
+?
+, ei, ?
+?
+?
+, eI , an alignment Aof the two strings is defined as(Och and Ney, 2003):A ?
+{(j, i) : j = 1, ?
+?
+?
+, J ; i = 0, ?
+?
+?
+, I} (1)in case that i = 0 in some (j, i) ?
+A, it representsthat the source word j aligns to an ?empty?
+targetword e0.In statistical world alignment, the probability of asource sentence given target sentence is written as:P (fJ1 |eI1) =?aJ1P (fJ1 , aJ1 |eI1) (2)in which aJ1 denotes the alignment on the sen-tence pair.
+In order to express the probability instatistical way, several different parametric forms ofP (fJ1 , aJ1 |eI1) = p?
+(fJ1 , aJ1 |eI1) have been proposed,and the parameters ?
+can be estimated using maxi-mum likelihood estimation(MLE) on a training cor-pus(Och and Ney, 2003).??
+= arg max?S?s=1?ap?
+(fs, a|es) (3)The best alignment of the sentence pair,a?J1 = arg maxaJ1p??
+(fJ1 , aJ1 |eI1) (4)is called Viterbi alignment.2.2 Implementation of GIZA++GIZA++ is an implementation of ML estimators forseveral statistical alignment models, including IBMModel 1 through 5 (Brown et al, 1993), HMM (Vo-gel et al, 1996) and Model 6 (Och and Ney, 2003).Although IBM Model 5 and Model 6 are sophisti-cated, they do not give much improvement to align-ment quality.
+IBM Model 2 has been shown to beinferior to the HMM alignment model in the senseof providing a good starting point for more complexmodels.
+(Och and Ney, 2003) So in this paper wefocus on Model 1, HMM, Model 3 and 4.When estimating the parameters, the EM (Demp-ster et al, 1977) algorithm is employed.
+In theE-step the counts for all the parameters are col-lected, and the counts are normalized in M-step.Figure 1 shows a high-level view of the procedurein GIZA++.
+Theoretically the E-step requires sum-ming over all the alignments of one sentence pair,which could be (I + 1)J alignments in total.
+While(Och and Ney, 2003) presents algorithm to imple-ment counting over all the alignments for Model 1,2and HMM, it is prohibitive to do that for Models 3through 6.
+Therefore, the counts are only collectedfor a subset of alignments.
+For example, (Brownet al, 1993) suggested two different methods: us-ing only the alignment with the maximum probabil-ity, the so-called Viterbi alignment, or generating aset of alignments by starting from the Viterbi align-ment and making changes, which keep the align-ment probability high.
+The later is called ?pegging?.
+(Al-Onaizan et al, 1999) proposed to use the neigh-bor alignments of the Viterbi alignment, and it yieldsgood results with a minor speed overhead.During training we starts from simple models usethe simple models to bootstrap the more complexones.
+Usually people use the following sequence:Model 1, HMM, Model 3 and finally Model 4.
+Table1 lists all the parameter tables needed in each stageand their data structures1.
+Among these models, the1In filename, prefix is a user specified parameter, and n isthe number of the iteration.50Figure 1: High-level algorithm of GIZA++lexicon probability table (TTable) is the largest.
+Itshould contain all the p(fi, ej) entries, which meansthe table will have an entry for every distinct sourceand target word pair fi, ej that co-occurs in at leastone sentence pair in the corpus.
+However, to keepthe size of this table manageable, low probability en-tries are pruned.
+Still, when training the alignmentmodels on large corpora this statistical lexicon oftenconsumes several giga bytes of memory.The computation time of aligning a sentence pairobviously depends on the sentence length.
+E.g.
+forIBM 1 that alignment is O(J ?
+I), for the HMMalignment it is O(J + I2), with J the number ofwords in the source sentence and I the number ofwords in the target sentence.
+However, given thatthe maximum sentence length is fixed, the time com-plexity of the E-step grows linearly with the num-ber of sentence pairs.
+The time needed to performthe M-step is dominated by re-normalizing the lexi-con probabilities.
+The worst case time complexity isO(|VF | ?
+|VE |), where |VF | is the size of the sourcevocabulary and |VE | is the size of the target vocabu-lary.
+Therefore, the time complexity of the M-step ispolynomial in the vocabulary size, which typicallygrows logarithmic in corpus size.
+As a result, thealignment stage consumes most of the overall pro-cessing time when the number of sentences is large.Because the parameters are only updated duringthe M-step, it will be no difference in the resultwhether we perform the word alignment in the E-step sequentially or in parallel2.
+These character-2However, the rounding problem will make a small differ-istics make it possible to build parallel versions ofGIZA++.
+Figure 2 shows the basic idea of parallelGIZA++.Figure 2: Basic idea of Parallel GIZA++While working on the required modification toGIZA++ to run the alignment step in parallel weidentified a bug, which needed to be fixed.
+Whentraining the HMM model, the matrix for the HMMtrellis will not be initialized if the target sentence hasonly one word.
+Therefore some random numbersare added to the counts.
+This bug will also crashthe system when linking against pthread library.
+Weobserve different alignment and slightly lower per-plexity after fixing the bug 3.3 Multi-process version - PGIZA++3.1 OverviewA natural idea of parallelizing GIZA++ is to sep-arate the alignment and normalization procedures,and spawn multiple alignment processes.
+Each pro-cess aligns a chunk of the pre-partitioned corpus andoutputs partial counts.
+A master process takes thesecounts and combines them, and produces the nor-malized model parameters for the next iteration.
+Thearchitecture of PGIZA++ is shown in Figure 3.ence in the results even when processing the sentences sequen-tially, but in different order.3The details of the bug can be found in: http://www.mail-archive.com/moses-support@mit.edu/msg00292.html51Model Parameter tables Filename Description Data structureModel 1 TTable prefix.t1.n Lexicon Probability Array of ArrayHMM TTable prefix.thmm.nATable prefix.ahmm.n Align Table 4-D ArrayHMMTable prefix.hhmm.n HMM Jump MapModel 3/4 TTable prefix.t3.nATable prefix.a3.n Align TableNTable prefix.n3.n Fertility Table 2-D ArrayDTable prefix.d3.n Distortion Table 4-D Arraypz prefix.p0 3.n Probability for null words p0 Scalar(Model 4 only) D4Table prefix.d4.n prefix.D4.n Distortion Table for Model 4 MapTable 1: Model tables created during trainingFigure 3: Architecture of PGIZA++3.2 Implementation3.2.1 I/O of the Parameter TablesIn order to ensure that the next iteration has thecorrect model, all the information that may affect thealignment needs to be stored and shared.
+It includesmodel files and statistics over the training corpus.Table 1 is a summary of tables used in each model.Step Without WithPruning(MB) Pruning(MB)Model 1, Step 1 1,273 494HMM , Step 5 1,275 293Model 4 , Step 3 1,280 129Table 2: Comparison of the size of count tables for thelexicon probabilitiesIn addition to these models, the summation of?sentence weight?
+of the whole corpus should bestored.
+GIZA++ allows assigning a weight wi foreach sentence pair si sto indicate the number of oc-currence of the sentence pair.
+The weight is normal-ized by pi = wi/?i wi, so that?i pi = 1.
+Thenthe pi serves as a prior probability in the objectivefunction.
+As each child processes only see a portionof training data, it is required to calculate and sharethe?i wi among the children so the values can beconsistent.The tables and count tables of the lexicon proba-bilities (TTable) can be extremely large if not prunedbefore being written out.
+Pruning the count tableswhen writing them into a file will make the resultslightly different.
+However, as we will see in Sec-tion 5, the difference does not hurt translation per-formance significantly.
+Table 2 shows the size ofcount tables written by each child process in an ex-periment with 10 million sentence pairs, rememberthere are more than 10 children writing the the counttables, and the master would have to read all thesetables, the amount of I/O is significantly reduced bypruning the count tables.3.2.2 Master Control ScriptThe other issue is the master control script.
+Thescript should be able to start processes in othernodes.
+Therefore the implementation varies accord-ing to the software environment.
+We implementedthree versions of scripts based on secure shell, Con-dor (Thain et al, 2005) and Maui.Also, the master must be notified when a childprocess finishes.
+In our implementation, we use sig-nal files in the network file system.
+When the childprocess finishes, it will touch a predefined file in ashared folder.
+The script keeps watching the folderand when all the children have finished, the scriptruns the normalization process and then starts thenext iteration.523.3 Advantages and DisadvantagesOne of the advantages of PGIZA++ is its scalability,it is not limited by the number of CPUs of a sin-gle machine.
+By adding more nodes, the alignmentspeed can be arbitrarily fast4.
+Also, by splitting thecorpora into multiple segments, each child processonly needs part of the lexicon, which saves mem-ory.
+The other advantage is that it can adopt differ-ent resource management systems, such as Condorand Maui/Torque.
+By splitting the corpus into verysmall segments, and submitting them to a scheduler,we can get most out of clusters.However, PGIZA++ also has significant draw-backs.
+First of all, each process needs to load themodels of the previous iteration, and store the countsof the current step on shared storage.
+Therefore,I/O becomes a bottleneck, especially when the num-ber of child processes is large.
+Also, the normal-ization procedure needs to read all the count filesfrom network storage.
+As the number of child pro-cesses increases, the time spent on reading/writingwill also increase.
+Given the fact that the I/O de-mand will not increase as fast as the size of corpusgrows, PGIZA++ can only provide significant speedup when the size of each training corpus chunk islarge enough so that the alignment time is signifi-cantly longer than normalization time.Also, one obvious drawback of PGIZA++ is itscomplexity in setting up the environment.
+One hasto write scripts specially for the scheduler/resourcemanagement software.Balancing the load of each child process is an-other issue.
+If any one of the corpus chunks takeslonger to complete, the master has to wait for it.
+Inother words, the speed of PGIZA++ is actually de-termined by the slowest child process.4 Multi-thread version - MGIZA++4.1 OverviewAnother implementation of parallelism is to run sev-eral alignment threads in a single process.
+Thethreads share the same address space, which meansit can access the model parameters concurrentlywithout any I/O overhead.4The normalization process will be slower when the numberof nodes increasesThe architecture of MGIZA++ is shown in Figure4.Data SentenceProviderThread 1 Thread 2 Thread nSynchronized Assignment ofSentence PairsModelSynchronizedCount StorageMain ThreadNormalizationFigure 4: Architecture of MGIZA++4.2 ImplementationThe main thread spawns a number of threads, us-ing the same entry function.
+Each thread will aska provider for the next sentence pair.
+The sentenceprovider is synchronized.
+The request of sentencesare queued, and each sentence pair is guaranteed tobe assigned to only one thread.The threads do alignment in their own stacks, andread required probabilities from global parameter ta-bles, such as the TTable, which reside on the heap.Because no update on these global tables will be per-formed during this stage, the reading can be concur-rent.
+After aligning the sentence pairs, the countsneed to be collected.
+For HMMTable and D4Table,which use maps as their data structure, we cannotallow concurrent read/write to the table, because themap structure may be changed when inserting a newentry.
+So we must either put mutual locks to post-pone reading until writing is complete, or dupli-cate the tables for each thread and merge them af-terwards.
+Locking can be very inefficient becauseit may block other threads, so the duplicate/mergemethod is a much better solution.
+However, for theTTable the size is too large to have multiple copies.Instead, we put a lock on every target word, so onlywhen two thread try to write counts for the same tar-get word will a collisions happen.
+We also have toput mutual locks on the accumulators used to calcu-late the alignment perplexity.53Table Synchronizations MethodTTable Write lock on every target wordsATable Duplicate/MergeHMMTable Duplicate/MergeDTable Duplicate/MergeNTable Duplicate/MergeD4Table Duplicate /MergePerplexity Mutual lockTable 3: Synchronizations for tables in MGIZA++Each thread outputs the alignment into its ownoutput file.
+Sentences in these files are not in sequen-tial order.
+Therefore, we cannot simply concatenatethem but rather have to merge them according to thesentence id.4.3 Advantages and DisadvantagesBecause all the threads within a process share thesame address space, no data needs to be transferred,which saves the I/O time significantly.
+MGIZA++ ismore resource-thrifty comparing to PGIZA++, it donot need to load copies of models into memory.In contrast to PGIZA++, MGIZA++ has a muchsimpler interface and can be treated as a drop-inreplacement for GIZA++, except that one needsto run a script to merge the final alignment files.This property makes it very simple to integrateMGIZA++ into machine translation packages, suchas Moses(Koehn et al, 2007).One major disadvantage of MGIZA++ is also ob-vious: lack of scalability.
+Accelerating is limitedby the number of CPUs the node has.
+Comparedto PGIZA++ on the speed-up factor by each addi-tional CPU, MGIZA++ also shows some deficiency.Due to the need for synchronization, there are al-ways some CPU time wasted in waiting.5 Experiments5.1 Experiments on PGIZA++For PGIZA++ we performed training on an Chinese-English translation task.
+The dataset consists of ap-proximately 10 million sentence pairs with 231 mil-lion Chinese words and 258 million English words.We ran both GIZA++ and PGIZA++ on the sametraining corpus with the same parameters, then ranPharaoh phrase extraction on the resulting align-ments.
+Finally, we tuned our translation systems onthe NIST MT03 test set and evaluate them on NISTMT06 test set.
+The experiment was performed ona cluster of several Xeon CPUs, the storage of cor-pora and models are on a central NFS server.
+ThePGIZA++ uses Condor as its scheduler, splitting thetraining data into 30 fragments, and ran training inboth direction (Ch-En, En-Ch) concurrently.
+Thescheduler assigns 11 CPUs on average to the tasks.We ran 5 iterations of Model 1 training, 5 iterationof HMM, 3 Model 3 iterations and 3 Model 4 iter-ations.
+To compare the performance of system, werecorded the total training time and the BLEU score,which is a standard automatic measurement of thetranslation quality(Papineni et al, 2002).
+The train-ing time and BLEU scores are shown in Table 4: 5Running (TUNE) (TEST)Time MT03 MT06 CPUsGIZA++ 169h 32.34 29.43 2PGIZA++ 39h 32.20 30.14 11Table 4: Comparison of GIZA++ and PGIZA++The results show similar BLEU scores when us-ing GIZA++ and PGIZA++, and a 4 times speed up.Also, we calculated the time used in normaliza-tion.
+The average time of each normalization step isshown in Table 5.Per-iteration (Avg) TotalModel 1 47.0min 235min (3.9h)HMM 31.8min 159min (2.6h)Model 3/4 25.2 min 151min (2.5h)Table 5: Normalization time in each stageAs we can see, if we rule out the time spent innormalization, the speed up is almost linear.
+Higherorder models require less time in the normalizationstep mainly due to the fact that the lexicon becomessmaller and smaller with each models (see Table 2.PGIZA++, in small amount of data,5.2 Experiment on MGIZA++Because MGIZA++ is more convenient to integrateinto other packages, we modified the Moses sys-tem to use MGIZA++.
+We use the Europal English-Spanish dataset as training data, which contains 900thousand sentence pairs, 20 million English wordsand 20 million Spanish words.
+We trained the5All the BLEU scores in the paper are case insensitive.54English-to-Spanish system, and tuned the systemon two datasets, the WSMT 2006 Europal test set(TUNE1) and the WSMT news commentary dev-test set 2007 (TUNE2).
+Then we used the first pa-rameter set to decode WSMT 2006 Europal test set(TEST1) and used the second on WSMT news com-mentary test set 2007 (TEST2)6.
+Table 6 shows thecomparison of BLEU scores of both systems.
+listedin Table 6:TUNE1 TEST1 TUNE2 TEST2GIZA++ 33.00 32.21 31.84 30.56MGIZA++ 32.74 32.26 31.35 30.63Table 6: BLEU Score of GIZA++ and MGIZA++Note that when decoding using the phrase tableresulting from training with MGIZA++, we usedthe parameter tuned for a phrase table generatedfrom GIZA++ alignment, which may be the causeof lower BLEU score in the tuning set.
+However,the major difference in the training comes from fix-ing the HMM bug in GIZA++, as mentioned before.To profile the speed of the system according tothe number of CPUs it use, we ran MGIZA++ on1, 2 and 4 CPUs of the same speed.
+When it runson 1 CPU, the speed is the same as for the originalGIZA++.
+Table 7 and Figure 5 show the runningtime of each stage:40005000600070008000me(s)Model 1HMMModel3/401000200030001 2 3 4TimCPUSFigure 5: Speed up of MGIZA++When using 4 CPUs, the system uses only 41%time comparing to one thread.
+Comparing toPGIZA++, MGIZA++ does not have as high an ac-6http://www.statmt.org/wmt08/shared-task.htmlCPUs M1(s) HMM(s) M3,M4(s) Total(s)1 2167 5101 7615 149132 1352 3049 4418 8854(62%) (59%) (58%) (59%)4 928 2240 2947 6140(43%) (44%) (38%) (41%)Table 7: Speed of MGIZA++celeration rate.
+That is mainly because of the re-quired locking mechanism.
+However the accelera-tion is also significant, especially for small trainingcorpora, as we will see in next experiment.5.3 Comparison of MGIZA++ and PGIZA++In order to compare the acceleration rate ofPGIZA++ and MGIZA++, we also ran PGIZA++ inthe same dataset as described in the previous sectionwith 4 children.
+To avoid the delay of starting thechildren processes, we chose to use ssh to start re-mote tasks directly, instead of using schedulers.
+Theresults are listed in Table 8.M1(s) HMM(s) M3,M4(s) Total(s)MGIZA+1CPU 2167 5101 7615 14913MGIZA+4CPUs 928 2240 2947 6140PGIZA+4Nodes 3719 4324 4920 12963Table 8: Speed of PGIZA++ on Small CorpusThere is nearly no speed-up observed, and inModel 1 training, we observe a loss in the speed.Again, by investigating the time spent in normaliza-tion, the phenomenon can be explained (Table 9):Even after ruling out the normalization time, thespeed up factor is smaller than MGIZA++.
+Thatis because of reading models when child processesstart and writing models when child processes finish.From the experiment we can conclude thatPGIZA++ is more suited to train on large corporathan on small or moderate size corpora.
+It is also im-portant to determine whether to use PGIZA++ ratherthan MGIZA++ according to the speed of networkstorage infrastructure.5.4 Difference in AlignmentTo compare the difference in final Viterbi alignmentoutput, we counted the number of sentences thathave different alignments in these systems.
+We use55Per-iteration (Avg) TotalModel 1 8.4min 41min (0.68h)HMM 7.2min 36min (0.60h)Model 3/4 5.7 min 34min (0.57h)Total 111min (1.85h)Table 9: Normalization time in each stage : small dataGIZA++ with the bug fixed as the reference.
+Theresults of all other systems are listed in Table 10:Diff Lines Diff PercentGIZA++(origin) 100,848 10.19%MGIZA++(4CPU) 189 0.019%PGIZA++(4Nodes) 18,453 1.86%Table 10: Difference in Viterbi alignment (GIZA++ withthe bug fixed as reference)From the comparison we can see that PGIZA++has larger difference in the generated alignment.That is partially because of the pruning on count ta-bles.To also compare the alignment score in the differ-ent systems.
+For each sentence pair i = 1, 2, ?
+?
+?
+, N ,assume two systems b and c have Viterbi alignmentscores Sbi , Sci .
+We define the residual R as:R = 2?i( |Sbi ?
+Sci |(Sbi + Sci ))/N (5)The residuals of the three systems are listed in Table11.
+The residual result shows that the MGIZA++ hasa very small (less than 0.2%) difference in alignmentscores, while PGIZA++ has a larger residual.The results of experiments show the efficiencyand also the fidelity of the alignment generated bythe two versions of parallel GIZA++.
+However,there are still small differences in the final align-ment result, especially for PGIZA++.
+Therefore,one should consider which version to choose whenbuilding systems.
+Generally speaking, MGIZA++provides smoother integration into other packages:easy to set up and also more precise.
+PGIZA++ willnot perform as good as MGIZA++ on small-size cor-pora.
+However, PGIZA++ has good performance onlarge data, and should be considered when buildingvery large scale systems.6 ConclusionThe paper describes two parallel implementationsof the well-known and widely used word alignmentRGIZA++(origin) 0.6503MGIZA++(4CPU) 0.0017PGIZA++(4Nodes) 0.0371Table 11: Residual in Viterbi alignment scores (GIZA++with the bug fixed as reference)tool GIZA++.
+PGIZA++ does alignment on a num-ber of independent processes, uses network file sys-tem to collect counts, and performs normalization bya master process.
+MGIZA++ uses a multi-threadingmechanism to utilize multiple cores and avoid net-work transportation.
+The experiments show that thetwo implementation produces similar results withoriginal GIZA++, but lead to a significant speed-upin the training process.With compatible interface, MGIZA++ is suit-able for a drop-in replacement for GIZA++, whilePGIZA++ can utilize huge computation resources,which is suitable for building large scale systemsthat cannot be built using a single machine.However, improvements can be made on bothversions.
+First, a combination of the two imple-mentation is reasonable, i.e.
+running multi-threadedchild processes inside PGIZA++?s architecture.
+Thiscould reduce the I/O significantly when using thesame number of CPUs.
+Secondly, the mechanismof assigning sentence pairs to the child processes canbe improved in PGIZA++.
+A server can take respon-sibility to assign sentence pairs to available childprocesses dynamically.
+This would avoid wastingany computation resource by waiting for other pro-cesses to finish.
+Finally, the huge model files, whichare responsible for a high I/O volume can be reducedby using binary formats.
+A first implementation of asimple binary format for the TTable resulted in filesonly about 1/3 in size on disk compared to the plaintext format.The recent development of MapReduce frame-work shows its capability to parallelize a variety ofmachine learning algorithms, and we are attemptingto port word alignment tools to this framework.
+Cur-rently, the problems to be addressed is the I/O bot-tlenecks and memory usage, and an attempt to usedistributed structured storage such as HyperTable toenable fast access to large tables and also performingfiltering on the tables to alleviate the memory issue.56ReferencesArthur Dempster, Nan Laird, and Donald Rubin.
+1977.Maximum Likelihood From Incomplete Data via theEM Algorithm.
+Journal of the Royal Statistical Soci-ety, Series B, 39(1):138Douglas Thain, Todd Tannenbaum, and Miron Livny.2005.
+Distributed Computing in Practice: The Con-dor Experience.
+Concurrency and Computation: Prac-tice and Experience, 17(2-4):323-356Franz Josef Och and Hermann Ney.
+2003.
+A SystematicComparison of Various Statistical Alignment Models.Computational Linguistics, 29(1):19-51Philipp Koehn, Hieu Hoang, Alexandra Birch, ChrisCallison-Burch, Marcello Federico, Nicola Bertoldi,Brooke Cowan, Wade Shen, Christine Moran, RichardZens, Chris Dyer, Ondrej Bojar, Alexandra Con-stantin, Evan Herbst.
+2007.
+Moses: Open SourceToolkit for Statistical Machine Translation.
+ACL2007, Demonstration Session, Prague, Czech Repub-licPeter F. Brown, Stephan A. Della Pietra, Vincent J. DellaPietra, Robert L. Mercer.
+1993.
+The Mathematicsof Statistical Machine Translation: Parameter Estima-tion.
+Computational Linguistics, 19(2):263-311Stephan Vogel, Hermann Ney and Christoph Tillmann.1996.
+HMM-based Word Alignment in StatisticalTranslation.
+In COLING ?96: The 16th InternationalConference on Computational Linguistics, pp.
+836-841, Copenhagen, Denmark.Xiaojun Lin, Xinhao Wang and Xihong Wu.
+2006.NLMP System Description for the 2006 NIST MTEvaluation.
+NIST 2006 Machine Translation Evalu-ationYaser Al-Onaizan, Jan Curin, Michael Jahr, KevinKnight, John D. Lafferty, I. Dan Melamed, DavidPurdy, Franz J. Och, Noah A. Smith and DavidYarowsky.
+1999.
+Statistical Machine Trans-lation.
+Final Report JHU Workshop, Available athttp://www.clsp.jhu.edu/ws99/projects/mt/final report/mt-final-reports.psKishore Papineni, Salim Roukos, Todd Ward and Wei-Jing Zhu 2002.
+BLEU: a Method for Automatic Eval-uation of machine translation.
+Proc.
+of the 40th An-nual Conf.
+of the Association for Computational Lin-guistics (ACL 02), pp.
+311-318, Philadelphia, PA57

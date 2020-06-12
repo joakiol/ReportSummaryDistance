@@ -1,0 +1,510 @@
+Proceedings of the 52nd Annual Meeting of the Association for Computational Linguistics, pages 1481?1490,Baltimore, Maryland, USA, June 23-25 2014.c?2014 Association for Computational LinguisticsA Constrained Viterbi Relaxation for Bidirectional Word AlignmentYin-Wen Chang Alexander M. RushMIT CSAIL,Cambridge, MA 02139{yinwen,srush}@csail.mit.eduJohn DeNeroUC Berkeley,Berkeley, CA 94720denero@cs.berkeley.eduMichael CollinsColumbia University,New York, NY 10027mcollins@cs.columbia.eduAbstractBidirectional models of word alignmentare an appealing alternative to post-hoccombinations of directional word align-ers.
+Unfortunately, most bidirectionalformulations are NP-Hard to solve, anda previous attempt to use a relaxation-based decoder yielded few exact solu-tions (6%).
+We present a novel relax-ation for decoding the bidirectional modelof DeNero and Macherey (2011).
+Therelaxation can be solved with a mod-ified version of the Viterbi algorithm.To find optimal solutions on difficultinstances, we alternate between incre-mentally adding constraints and applyingoptimality-preserving coarse-to-fine prun-ing.
+The algorithm finds provably ex-act solutions on 86% of sentence pairsand shows improvements over directionalmodels.1 IntroductionWord alignment is a critical first step for build-ing statistical machine translation systems.
+In or-der to ensure accurate word alignments, most sys-tems employ a post-hoc symmetrization step tocombine directional word aligners, such as IBMModel 4 (Brown et al, 1993) or hidden Markovmodel (HMM) based aligners (Vogel et al, 1996).Several authors have proposed bidirectional mod-els that incorporate this step directly, but decodingunder many bidirectional models is NP-Hard andfinding exact solutions has proven difficult.In this paper, we describe a novel Lagrangian-relaxation based decoder for the bidirectionalmodel proposed by DeNero and Macherey (2011),with the goal of improving search accuracy.In that work, the authors implement a dualdecomposition-based decoder for the problem, butare only able to find exact solutions for around 6%of instances.Our decoder uses a simple variant of the Viterbialgorithm for solving a relaxed version of thismodel.
+The algorithm makes it easy to re-introduce constraints for difficult instances, at thecost of increasing run-time complexity.
+To offsetthis cost, we employ optimality-preserving coarse-to-fine pruning to reduce the search space.
+Thepruning method utilizes lower bounds on the costof valid bidirectional alignments, which we obtainfrom a fast, greedy decoder.The method has the following properties:?
+It is based on a novel relaxation for the modelof DeNero and Macherey (2011), solvablewith a variant of the Viterbi algorithm.?
+To find optimal solutions, it employs an effi-cient strategy that alternates between addingconstraints and applying pruning.?
+Empirically, it is able to find exact solutionson 86% of sentence pairs and is significantlyfaster than general-purpose solvers.We begin in Section 2 by formally describingthe directional word alignment problem.
+Section 3describes a preliminary bidirectional model us-ing full agreement constraints and a Lagrangianrelaxation-based solver.
+Section 4 modifies thismodel to include adjacency constraints.
+Section 5describes an extension to the relaxed algorithm toexplicitly enforce constraints, and Section 6 givesa pruning method for improving the efficiency ofthe algorithm.Experiments compare the search error and accu-racy of the new bidirectional algorithm to severaldirectional combiners and other bidirectional al-gorithms.
+Results show that the new relaxation ismuch more effective at finding exact solutions andis able to produce comparable alignment accuracy.1481 montrez- nouslesdocumentsletusseethedocumentsFigure 1: An example e?f directional alignment for the sen-tences let us see the documents and montrez -nous les documents, with I = 5 and J = 5.
+The in-dices i ?
+[I]0are rows, and the indices j ?
+[J ]0are columns.The HMM alignment shown has transitions x(0, 1, 1) =x(1, 2, 3) = x(3, 3, 1) = x(1, 4, 4) = x(4, 5, 5) = 1.Notation We use lower- and upper-case lettersfor scalars and vectors, and script-case for setse.g.
+X .
+For vectors, such as v ?
+{0, 1}(I?J )?J,where I and J are finite sets, we use the notationv(i, j) and v(j) to represent elements of the vec-tor.
+Define d = ?
+(i) to be the indicator vector withd(i) = 1 and d(i?)
+= 0 for all i?6= i.
+Finally de-fine the notation [J ] to refer to {1 .
+.
+.
+J} and [J ]0to refer to {0 .
+.
+.
+J}.2 BackgroundThe focus of this work is on the word alignmentdecoding problem.
+Given a sentence e of length|e| = I and a sentence f of length |f | = J , ourgoal is to find the best bidirectional alignment be-tween the two sentences under a given objectivefunction.
+Before turning to the model of interest,we first introduce directional word alignment.2.1 Word AlignmentIn the e?f word alignment problem, each wordin e is aligned to a word in f or to the null word .This alignment is a mapping from each index i ?
+[I] to an index j ?
+[J ]0(where j = 0 representsalignment to ).
+We refer to a single word align-ment as a link.A first-order HMM alignment model (Vogel etal., 1996) is an HMM of length I + 1 where thehidden state at position i ?
+[I]0is the aligned in-dex j ?
+[J ]0, and the transition score takes intoaccount the previously aligned index j??
+[J ]0.1Formally, define the set of possible HMM align-ments as X ?
+{0, 1}([I]0?
+[J ]0)?([I]?
+[J ]0?
+[J ]0)with1Our definition differs slightly from other HMM-basedaligners in that it does not track the last  alignment.X =????????
+?x : x(0, 0) = 1,x(i, j) =J?j?=0x(j?, i, j) ?i ?
+[I], j ?
+[J ]0,x(i, j) =J?j?=0x(j, i+ 1, j?)
+?i ?
+[I ?
+1]0, j ?
+[J ]0where x(i, j) = 1 indicates that there is a linkbetween index i and index j, and x(j?, i, j) = 1indicates that index i ?
+1 aligns to index j?andindex i aligns to j.
+Figure 1 shows an examplemember of X .The constraints of X enforce backward and for-ward consistency respectively.
+If x(i, j) = 1,backward consistency enforces that there is a tran-sition from (i?
+1, j?)
+to (i, j) for some j??
+[J ]0,whereas forward consistency enforces a transitionfrom (i, j) to (i+ 1, j?)
+for some j??
+[J ]0.
+Infor-mally the constraints ?chain?
+together the links.The HMM objective function f : X ?
+R canbe written as a linear function of xf(x; ?)
+=I?i=1J?j=0J?j?=0?
+(j?, i, j)x(j?, i, j)where the vector ?
+?
+R[I]?
+[J ]0?
+[J ]0includes thetransition and alignment scores.
+For a generativemodel of alignment, we might define ?
+(j?, i, j) =log(p(ei|fj)p(j|j?)).
+For a discriminative modelof alignment, we might define ?
+(j?, i, j) = w ??
+(i, j?, j, f , e) for a feature function ?
+and weightsw (Moore, 2005; Lacoste-Julien et al, 2006).Now reverse the direction of the model andconsider the f?e alignment problem.
+An f?ealignment is a binary vector y ?
+Y where foreach j ?
+[J ], y(i, j) = 1 for exactly one i ?[I]0.
+Define the set of HMM alignments Y ?
+{0, 1}([I]0?
+[J ]0)?([I]0?[I]0?
+[J ])asY =????????
+?y : y(0, 0) = 1,y(i, j) =I?i?=0y(i?, i, j) ?i ?
+[I]0, j ?
+[J ],y(i, j) =I?i?=0y(i, i?, j + 1) ?i ?
+[I]0, j ?
+[J ?
+1]0Similarly define the objective functiong(y;?)
+=J?j=1I?i=0I?i?=0?
+(i?, i, j)y(i?, i, j)with vector ?
+?
+R[I]0?[I]0?
+[J ].1482 montrez- nouslesdocumentsletusseethedocuments(a) montrez- nouslesdocumentsletusseethedocuments(b)Figure 2: (a) An example alignment pair (x, y) satisfying thefull agreement conditions.
+The x alignment is representedwith circles and the y alignment with triangles.
+(b) An exam-ple f?e alignment y ?
+Y?with relaxed forward constraints.Note that unlike an alignment from Y multiple words maybe aligned in a column and words may transition from non-aligned positions.Note that for both of these models we can solvethe optimization problem exactly using the stan-dard Viterbi algorithm for HMM decoding.
+Thefirst can be solved in O(IJ2) time and the secondin O(I2J) time.3 Bidirectional AlignmentThe directional bias of the e?f and f?e align-ment models may cause them to produce differingalignments.
+To obtain the best single alignment,it is common practice to use a post-hoc algorithmto merge these directional alignments (Och et al,1999).
+First, a directional alignment is found fromeach word in e to a word f .
+Next an alignment isproduced in the reverse direction from f to e. Fi-nally, these alignments are merged, either throughintersection, union, or with an interpolation algo-rithm such as grow-diag-final (Koehn et al, 2003).In this work, we instead consider a bidirectionalalignment model that jointly considers both direc-tional models.
+We begin in this section by in-troducing a simple bidirectional model that en-forces full agreement between directional modelsand giving a relaxation for decoding.
+Section 4loosens this model to adjacent agreement.3.1 Enforcing Full AgreementPerhaps the simplest post-hoc merging strategy isto retain the intersection of the two directionalmodels.
+The analogous bidirectional model en-forces full agreement to ensure the two alignmentsselect the same non-null links i.e.x?, y?= argmaxx?X ,y?Yf(x) + g(y) s.t.x(i, j) = y(i, j) ?i ?
+[I], j ?
+[J ]We refer to the optimal alignments for this prob-lem as x?and y?.Unfortunately this bidirectional decodingmodel is NP-Hard (a proof is given in Ap-pendix A).
+As it is common for alignment pairs tohave |f | or |e| over 40, exact decoding algorithmsare intractable in the worst-case.Instead we will use Lagrangian relaxation forthis model.
+At a high level, we will remove asubset of the constraints from the original problemand replace them with Lagrange multipliers.
+If wecan solve this new problem efficiently, we may beable to get optimal solutions to the original prob-lem.
+(See the tutorial by Rush and Collins (2012)describing the method.
+)There are many possible subsets of constraintsto consider relaxing.
+The relaxation we use pre-serves the agreement constraints while relaxingthe Markov structure of the f?e alignment.
+Thisrelaxation will make it simple to later re-introduceconstraints in Section 5.We relax the forward constraints of set Y .
+With-out these constraints the y links are no longerchained together.
+This has two consequences: (1)for index j there may be any number of indices i,such that y(i, j) = 1, (2) if y(i?, i, j) = 1 it is nolonger required that y(i?, j ?
+1) = 1.
+This gives aset Y?which is a superset of YY?={y : y(0, 0) = 1,y(i, j) =?Ii?=0y(i?, i, j) ?i ?
+[I]0, j ?
+[J ]Figure 2(b) shows a possible y ?
+Y?and a validunchained structure.To form the Lagrangian dual with relaxed for-ward constraints, we introduce a vector of La-grange multipliers, ?
+?
+R[I?1]0?
+[J ]0, with onemultiplier for each original constraint.
+The La-grangian dual L(?)
+is defined asmaxx?X ,y?Y?,x(i,j)=y(i,j)f(x) +I?i=1J?j=0I?i?=0y(i?, i, j)?
+(i?, i, j) (1)?I?i=0J?1?j=0?
+(i, j)(y(i, j)?I?i?=0y(i, i?, j + 1))= maxx?X ,y?Y?,x(i,j)=y(i,j)f(x) +I?i=1J?j=0I?i?=0y(i?, i, j)??
+(i?, i, j)(2)= maxx?X ,y?Y?,x(i,j)=y(i,j)f(x) +I?i=1J?j=0y(i, j) maxi??[I]0??
+(i?, i, j)(3)= maxx?X ,y?Y?,x(i,j)=y(i,j)f(x) + g?
+(y;?, ?)
+(4)1483Line 2 distributes the ?
+?s and introduces a modi-fied potential vector ?
+?defined as??
+(i?, i, j) = ?
+(i?, i, j)?
+?
+(i, j) + ?
+(i?, j ?
+1)for all i??
+[I]0, i ?
+[I]0, j ?
+[J ].
+Line 3 uti-lizes the relaxed set Y?which allows each y(i, j)to select the best possible previous link (i?, j ?
+1).Line 4 introduces the modified directional objec-tiveg?
+(y;?, ?)
+=I?i=1J?j=0y(i, j) maxi??[I]0??
+(i?, i, j)The Lagrangian dual is guaranteed to be an up-per bound on the optimal solution, i.e.
+for all ?,L(?)
+?
+f(x?)
++ g(y?).
+Lagrangian relaxationattempts to find the tighest possible upper boundby minimizing the Lagrangian dual, min?L(?
+),using subgradient descent.
+Briefly, subgradientdescent is an iterative algorithm, with two steps.Starting with ?
+= 0, we iteratively1.
+Set (x, y) to the argmax of L(?).2.
+Update ?
+(i, j) for all i ?
+[I ?
+1]0, j ?
+[J ]0,?
+(i, j)?
+?
+(i, j)?
+?t(y(i, j)?I?i?=0y(i, i?, j + 1)).where ?t> 0 is a step size for the t?th update.
+Ifat any iteration of the algorithm the forward con-straints are satisfied for (x, y), then f(x)+g(y) =f(x?)
++ g(x?)
+and we say this gives a certificateof optimality for the underlying problem.To run this algorithm, we need to be able to effi-ciently compute the (x, y) pair that is the argmaxof L(?)
+for any value of ?.
+Fortunately, since the yalignments are no longer constrained to valid tran-sitions, we can compute these alignments by firstpicking the best f?e transitions for each possiblelink, and then running an e?f Viterbi-style algo-rithm to find the bidirectional alignment.The max version of this algorithm is shown inFigure 3.
+It consists of two steps.
+We first computethe score for each y(i, j) variable.
+We then use thestandard Viterbi update for computing the x vari-ables, adding in the score of the y(i, j) necessaryto satisfy the constraints.procedure VITERBIFULL(?, ??
+)Let pi, ?
+be dynamic programming charts.?
+[i, j]?
+maxi??[I]0??
+(i?, i, j) ?
+i ?
+[I], j ?
+[J ]0pi[0, 0]?
+?Jj=1max{0, ?
+[0, j]}for i ?
+[I], j ?
+[J ]0in order dopi[i, j]?
+maxj??[J]0?
+(j?, i, j) + pi[i?
+1, j?
+]if j 6= 0 then pi[i, j]?
+pi[i, j] + ?
+[i, j]return maxj?
+[J]0pi[I, j]Figure 3: Viterbi-style algorithm for computing L(?).
+Forsimplicity the algorithm shows the max version of the algo-rithm, argmax can be computed with back-pointers.4 Adjacent AgreementEnforcing full agreement can be too strict an align-ment criteria.
+DeNero and Macherey (2011) in-stead propose a model that allows near matches,which we call adjacent agreement.
+Adjacentagreement allows links from one direction to agreewith adjacent links from the reverse alignment fora small penalty.
+Figure 4(a) shows an exampleof a valid bidirectional alignment under adjacentagreement.In this section we formally introduce adjacentagreement, and propose a relaxation algorithm forthis model.
+The key algorithmic idea is to extendthe Viterbi algorithm in order to consider possibleadjacent links in the reverse direction.4.1 Enforcing AdjacencyDefine the adjacency set K = {?1, 0, 1}.
+A bidi-rectional alignment satisfies adjacency if for alli ?
+[I], j ?
+[J ],?
+If x(i, j) = 1, it is required that y(i+k, j) =1 for exactly one k ?
+K (i.e.
+either above,center, or below).
+We indicate which positionwith variables zli,j?
+{0, 1}K?
+If x(i, j) = 1, it is allowed that y(i, j + k) =1 for any k ?
+K (i.e.
+either left, center, orright) and all other y(i, j?)
+= 0.
+We indicatewhich positions with variables z?i,j?
+{0, 1}KFormally for x ?
+X and y ?
+Y , the pair (x, y) isfeasible if there exists a z from the set Z(x, y) ?
+{0, 1}K2?[I]?
+[J ]defined asZ(x, y) =????????
+?z : ?i ?
+[I], j ?
+[J ]zli,j?
+{0, 1}K, z?i,j?
+{0, 1}Kx(i, j) =?k?Kzli,j(k),?k?Kz?i,j(k) = y(i, j),zli,j(k) ?
+y(i+ k, j) ?k ?
+K : i+ k > 0,x(i, j) ?
+z?i,j?k(k) ?k ?
+K : j + k > 01484 montrez- nouslesdocumentsletusseethedocuments(a) montrez- nouslesdocumentsletusseethedocuments(b)Figure 4: (a) An alignment satisfying the adjacency con-straints.
+Note that x(2, 1) = 1 is allowed because ofy(1, 1) = 1, x(4, 3) = 1 because of y(3, 3), and y(3, 1)because of x(3, 2).
+(b) An adjacent bidirectional alignmentin progress.
+Currently x(2, 2) = 1 with zl(?1) = 1 andz?
+(?1) = 1.
+The last transition was from x(1, 3) withz??
+(?1) = 1, z??
+(0) = 1, zl?
+(0) = 1.Additionally adjacent, non-overlappingmatches are assessed a penalty ?
+calculated ash(z) =I?i=1J?j=1?k?K?|k|(zli,j(k) + z?i,j(k))where ?
+?
+0 is a parameter of the model.
+Theexample in Figure 4(a) includes a 3?
+penalty.Adding these penalties gives the complete adja-cent agreement problemargmaxz?Z(x,y)x?X ,y?Yf(x) + g(y) + h(z)Next, apply the same relaxation from Sec-tion 3.1, i.e.
+we relax the forward constraints ofthe f?e set.
+This yields the following LagrangiandualL(?)
+= maxz?Z(x,y)x?X ,y?Y?f(x) + g?
+(y;?, ?)
++ h(z)Despite the new constraints, we can still com-pute L(?)
+in O(IJ(I + J)) time using a variantof the Viterbi algorithm.
+The main idea will be toconsider possible adjacent settings for each link.Since each zli,jand z?i,jonly have a constant num-ber of settings, this does not increase the asymp-totic complexity of the algorithm.Figure 5 shows the algorithm for computingL(?).
+The main loop of the algorithm is similar toFigure 3.
+It proceeds row-by-row, picking the bestalignment x(i, j) = 1.
+The major change is thatthe chart pi also stores a value z ?
+{0, 1}K?Krep-resenting a possible zli,j, z?i,jpair.
+Since we haveprocedure VITERBIADJ(?, ??)?
+[i, j]?
+maxi??[I]0??
+(i?, i, j) ?
+i ?
+[I], j ?
+[J ]0pi[0, 0]?
+?Jj=1max{0, ?
+[0, j]}for i ?
+[I], j ?
+[J ]0, zl, z??
+{0, 1}|K|dopi[i, j, z]?maxj??[J]0,z?
+?N (z,j?j?)?
+(j?, i, j) + pi[i?
+1, j?, z?]+?k?Kz?(k)(?
+[i, j + k] + ?|k|)+zl(k)?|k|return maxj?[J]0,z?
+{0,1}|K?K|pi[I, j, z]Figure 5: Modified Viterbi algorithm for computing the adja-cent agreement L(?
+).the proposed zi,jin the inner loop, we can includethe scores of the adjacent y alignments that arein neighboring columns, as well as the possiblepenalty for matching x(i, j) to a y(i + k, j) in adifferent row.
+Figure 4(b) gives an example set-ting of z.In the dynamic program, we need to ensure thatthe transitions between the z?s are consistent.
+Thevector z?indicates the y links adjacent to x(i ?1, j?).
+If j?is near to j, z?may overlap with zand vice-versa.
+The transition setN ensures theseindicators match upN (z, k?)
+=???z?
+: (zl(?1) ?
+k??
+K)?
+z??(k?),(zl?
+(1) ?
+k??
+K)?
+z?(?k?
+),?k?Kzl(k) = 15 Adding Back ConstraintsIn general, it can be shown that Lagrangian relax-ation is only guaranteed to solve a linear program-ming relaxation of the underlying combinatorialproblem.
+For difficult instances, we will see thatthis relaxation often does not yield provably exactsolutions.
+However, it is possible to ?tighten?
+therelaxation by re-introducing constraints from theoriginal problem.In this section, we extend the algorithm to al-low incrementally re-introducing constraints.
+Inparticular we track which constraints are most of-ten violated in order to explicitly enforce them inthe algorithm.Define a binary vector p ?
+{0, 1}[I?1]0?
+[J ]0where p(i, j) = 1 indicates a previously re-laxed constraint on link y(i, j) that should be re-introduced into the problem.
+Let the new partially1485constrained Lagrangian dual be defined asL(?
+; p) = maxz?Z(x,y)x?X ,y?Y?f(x) + g?
+(y;?, ?)
++ h(z)y(i, j) =?i?y(i, i?, j + 1) ?i, j : p(i, j) = 1If p =~1, the problem includes all of the originalconstraints, whereas p =~0 gives our original La-grangian dual.
+In between we have progressivelymore constrained variants.In order to compute the argmax of this op-timization problem, we need to satisfy the con-straints within the Viterbi algorithm.
+We augmentthe Viterbi chart with a count vector d ?
+D whereD ?
+Z||p||1and d(i, j) is a count for the (i, j)?thconstraint, i.e.
+d(i, j) = y(i, j) ?
+?i?y(i?, i, j).Only solutions with count 0 at the final positionsatisfy the active constraints.
+Additionally de-fine a helper function [?
+]Das the projection fromZ[I?1]0?
+[J ]?
+D, which truncates dimensionswithout constraints.Figure 6 shows this constrained Viterbi relax-ation approach.
+It takes p as an argument and en-forces the active constraints.
+For simplicity, weshow the full agreement version, but the adjacentagreement version is similar.
+The main new addi-tion is that the inner loop of the algorithm ensuresthat the count vector d is the sum of the counts ofits children d?and d?
+d?.Since each additional constraint adds a dimen-sion to d, adding constraints has a multiplicativeimpact on running time.
+Asymptotically the newalgorithm requires O(2||p||1IJ(I + J)) time.
+Thisis a problem in practice as even adding a few con-straints can make the problem intractable.
+We ad-dress this issue in the next section.6 PruningRe-introducing constraints can lead to an expo-nential blow-up in the search space of the Viterbialgorithm.
+In practice though, many alignmentsin this space are far from optimal, e.g.
+align-ing a common word like the to nous insteadof les.
+Since Lagrangian relaxation re-computesthe alignment many times, it would be preferableto skip these links in later rounds, particularly afterre-introducing constraints.In this section we describe an optimality pre-serving coarse-to-fine algorithm for pruning.
+Ap-proximate coarse-to-fine pruning algorithms areprocedure CONSVITERBIFULL(?, ?
+?, p)for i ?
+[I], j ?
+[J ]0, i??
+[I] dod?
+|?
+(i, j)?
+?
+(i?, j ?
+1)|D?
+[i, j, d]?
+??
+(i?, i, j)for j ?
+[J ], d ?
+D dopi[0, 0, d]?
+maxd?
+?Dpi[0, 0, d?]
++ ?
+[0, j, d?
+d?
+]for i ?
+[I], j ?
+[J ]0, d ?
+D doif j = 0 thenpi[i, j, d]?
+maxj??[J]0?
+(j?, i, j) + pi[i?
+1, j?, d]elsepi[i, j, d]?maxj??[J]0,d??D?
+(j?, i, j) + pi[i?
+1, j?, d?]+?
+[i, j, d?
+d?
+]return maxj?
+[J]0pi[I, j,0]Figure 6: Constrained Viterbi algorithm for finding partially-constrained, full-agreement alignments.
+The argument p in-dicates which constraints to enforce.widely used within NLP, but exact pruning isless common.
+Our method differs in that itonly eliminates non-optimal transitions based ona lower-bound score.
+After introducing the prun-ing method, we present an algorithm to make thismethod effective in practice by producing high-scoring lower bounds for adjacent agreement.6.1 Thresholding Max-MarginalsOur pruning method is based on removing transi-tions with low max-marginal values.
+Define themax-marginal value of an e?f transition in ourLagrangian dual asM(j?, i, j;?)
+= maxz?Z(x,y),x?X ,y?Y?f(x) + g?(y;?)
++ h(z)s.t.
+x(j?, i, j) = 1where M gives the value of the best dual align-ment that transitions from (i ?
+1, j?)
+to (i, j).These max-marginals can be computed by runninga forward-backward variant of any of the algo-rithms described thus far.We make the following claim about max-marginal values and any lower-bound scoreLemma 1 (Safe Pruning).
+For any valid con-strained alignment x ?
+X , y ?
+Y, z ?
+Z(x, y)and for any dual vector ?
+?
+R[I?1]0?
+[J ]0, if thereexists a transition j?, i, j with max-marginal valueM(j?, i, j;?)
+< f(x)+g(y)+h(z) then the tran-sition will not be in the optimal alignment, i.e.x?
+(j?, i, j) = 0.This lemma tells us that we can prune transi-tions whose dual max-marginal value falls below1486a threshold without pruning possibly optimal tran-sitions.
+Pruning these transitions can speed up La-grangian relaxation without altering its properties.Furthermore, the threshold is determined by anyfeasible lower bound on the optimal score, whichmeans that better bounds can lead to more pruning.6.2 Finding Lower BoundsSince the effectiveness of pruning is dependent onthe lower bound, it is crucial to be able to producehigh-scoring alignments that satisfy the agreementconstraints.
+Unfortunately, this problem is non-trivial.
+For instance, taking the union of direc-tional alignments does not guarantee a feasible so-lution; whereas taking the intersection is triviallyfeasible but often not high-scoring.To produce higher-scoring feasible bidirectionalalignments we introduce a greedy heuristic al-gorithm.
+The algorithm starts with any feasiblealignment (x, y, z).
+It runs the following greedyloop:1.
+Repeat until there exists no x(i, 0) = 1 ory(0, j) = 1, or there is no score increase.
+(a) For each i ?
+[I], j ?
+[J ]0, k ?
+K :x(i, 0) = 1, check if x(i, j) ?
+1 andy(i, j + k) ?
+1 is feasible, rememberscore.
+(b) For each i ?
+[I]0, j ?
+[J ], k ?
+K :y(0, j) = 1, check if y(i, j) ?
+1 andx(i + k, j) ?
+1 is feasible, rememberscore.
+(c) Let (x, y, z) be the highest-scoring fea-sible solution produced.This algorithm produces feasible alignments withmonotonically increasing score, starting from theintersection of the alignments.
+It has run-time ofO(IJ(I + J)) since each inner loop enumeratesIJ possible updates and assigns at least one indexa non-zero value, limiting the outer loop to I + Jiterations.In practice we initialize the heuristic based onthe intersection of x and y at the current roundof Lagrangian relaxation.
+Experiments show thatrunning this algorithm significantly improves thelower bound compared to just taking the intersec-tion, and consequently helps pruning significantly.7 Related WorkThe most common techniques for bidirectionalalignment are post-hoc combinations, such asunion or intersection, of directional models, (Ochet al, 1999), or more complex heuristic combinerssuch as grow-diag-final (Koehn et al, 2003).Several authors have explored explicit bidirec-tional models in the literature.
+Cromieres andKurohashi (2009) use belief propagation on a fac-tor graph to train and decode a one-to-one wordalignment problem.
+Qualitatively this method issimilar to ours, although the model and decodingalgorithm are different, and their method is notable to provide certificates of optimality.A series of papers by Ganchev et al (2010),Graca et al (2008), and Ganchev et al (2008) useposterior regularization to constrain the posteriorprobability of the word alignment problem to besymmetric and bijective.
+This work acheives state-of-the-art performance for alignment.
+Instead ofutilizing posteriors our model tries to decode a sin-gle best one-to-one word alignment.A different approach is to use constraints attraining time to obtain models that favor bidi-rectional properties.
+Liang et al (2006) proposeagreement-based learning, which jointly learnsprobabilities by maximizing a combination oflikelihood and agreement between two directionalmodels.General linear programming approaches havealso been applied to word alignment problems.Lacoste-Julien et al (2006) formulate the wordalignment problem as quadratic assignment prob-lem and solve it using an integer linear program-ming solver.Our work is most similar to DeNero andMacherey (2011), which uses dual decompositionto encourage agreement between two directionalHMM aligners during decoding time.8 ExperimentsOur experimental results compare the accuracyand optimality of our decoding algorithm to direc-tional alignment models and previous work on thisbidirectional model.Data and Setup The experimental setup is iden-tical to DeNero and Macherey (2011).
+Evalu-ation is performed on a hand-aligned subset ofthe NIST 2002 Chinese-English dataset (Ayan andDorr, 2006).
+Following past work, the first 150sentence pairs of the training section are used forevaluation.
+The potential parameters ?
+and ?
+areset based on unsupervised HMM models trainedon the LDC FBIS corpus (6.2 million words).14871-20 (28%) 21-40 (45%) 41-60 (27%) alltime cert exact time cert exact time cert exact time cert exactILP 15.12 100.0 100.0 364.94 100.0 100.0 2,829.64 100.0 100.0 924.24 100.0 100.0LR 0.55 97.6 97.6 4.76 55.9 55.9 15.06 7.5 7.5 6.33 54.7 54.7CONS 0.43 100.0 100.0 9.86 95.6 95.6 61.86 55.0 62.5 21.08 86.0 88.0D&M - 6.2 - - 0.0 - - 0.0 - - 6.2 -Table 1: Experimental results for model accuracy of bilingual alignment.
+Column time is the mean time per sentence pair inseconds; cert is the percentage of sentence pairs solved with a certificate of optimality; exact is the percentage of sentence pairssolved exactly.
+Results are grouped by sentence length.
+The percentage of sentence pairs in each group is shown in parentheses.Training is performed using the agreement-basedlearning method which encourages the directionalmodels to overlap (Liang et al, 2006).
+This direc-tional model has been shown produce state-of-the-art results with this setup (Haghighi et al, 2009).Baselines We compare the algorithm describedin this paper with several baseline methods.
+DIRincludes post-hoc combinations of the e?f andf?e HMM-based aligners.
+Variants includeunion, intersection, and grow-diag-final.
+D&M isthe dual decomposition algorithm for bidirectionalalignment as presented by DeNero and Macherey(2011) with different final combinations.
+LR is theLagrangian relaxation algorithm applied to the ad-jacent agreement problem without the additionalconstraints described in Section 5.
+CONS is ourfull Lagrangian relaxation algorithm including in-cremental constraint addition.
+ILP uses a highly-optimized general-purpose integer linear program-ming solver to solve the lattice with the constraintsdescribed (Gurobi Optimization, 2013).Implementation The main task of the decoderis to repeatedly compute the argmax of L(?
+).To speed up decoding, our implementation fullyinstantiates the Viterbi lattice for a problem in-stance.
+This approach has several benefits: eachiteration can reuse the same lattice structure; max-marginals can be easily computed with a gen-eral forward-backward algorithm; pruning corre-sponds to removing lattice edges; and adding con-straints can be done through lattice intersection.For consistency, we implement each baseline (ex-cept for D&M) through the same lattice.Parameter Settings We run 400 iterations ofthe subgradient algorithm using the rate schedule?t= 0.95t?where t?is the count of updates forwhich the dual value did not improve.
+Every 10iterations we run the greedy decoder to computea lower bound.
+If the gap between our currentdual value L(?)
+and the lower bound improvessignificantly we run coarse-to-fine pruning as de-scribed in Section 6 with the best lower bound.
+ForModel Combineralignment phrase pairPrec Rec AER Prec Rec F1DIRunion 57.6 80.0 33.4 75.1 33.5 46.3intersection 86.2 62.9 27.0 64.3 43.5 51.9grow-diag 59.7 79.5 32.1 70.1 36.9 48.4D&Munion 63.3 81.5 29.1 63.2 44.9 52.5intersection 77.5 75.1 23.6 57.1 53.6 55.3grow-diag 65.6 80.6 28.0 60.2 47.4 53.0CONS 72.5 74.9 26.4 53.0 52.4 52.7Table 2: Alignment accuracy and phrase pair extraction ac-curacy for directional and bidirectional models.
+Prec is theprecision.
+Rec is the recall.
+AER is alignment error rate andF1 is the phrase pair extraction F1 score.CONS, if the algorithm does not find an optimalsolution we run 400 more iterations and incremen-tally add the 5 most violated constraints every 25iterations.Results Our first set of experiments looks at themodel accuracy and the decoding time of variousmethods that can produce optimal solutions.
+Re-sults are shown in Table 1.
+D&M is only able tofind the optimal solution with certificate on 6% ofinstances.
+The relaxation algorithm used in thiswork is able to increase that number to 54.7%.With incremental constraints and pruning, we areable to solve over 86% of sentence pairs includ-ing many longer and more difficult pairs.
+Addi-tionally the method finds these solutions with onlya small increase in running time over Lagrangianrelaxation, and is significantly faster than using anILP solver.Next we compare the models in terms of align-ment accuracy.
+Table 2 shows the precision, recalland alignment error rate (AER) for word align-ment.
+We consider union, intersection and grow-diag-final as combination procedures.
+The com-bination procedures are applied to D&M in thecase when the algorithm does not converge.
+ForCONS, we use the optimal solution for the 86%of instances that converge and the highest-scoringgreedy solution for those that do not.
+The pro-posed method has an AER of 26.4, which outper-forms each of the directional models.
+However,although CONS achieves a higher model scorethan D&M, it performs worse in accuracy.
+Ta-14881-20 21-40 41-60 all# cons.
+20.0 32.1 39.5 35.9Table 3: The average number of constraints added for sen-tence pairs where Lagrangian relaxation is not able to find anexact solution.ble 2 also compares the models in terms of phrase-extraction accuracy (Ayan and Dorr, 2006).
+Weuse the phrase extraction algorithm described byDeNero and Klein (2010), accounting for possi-ble links and  alignments.
+CONS performs bet-ter than each of the directional models, but worsethan the best D&M model.Finally we consider the impact of constraint ad-dition, pruning, and use of a lower bound.
+Table 3gives the average number of constraints added forsentence pairs for which Lagrangian relaxationalone does not produce a certificate.
+Figure 7(a)shows the average over all sentence pairs of thebest dual and best primal scores.
+The graph com-pares the use of the greedy algorithm from Sec-tion 6.2 with the simple intersection of x and y.The difference between these curves illustrates thebenefit of the greedy algorithm.
+This is reflectedin Figure 7(b) which shows the effectiveness ofcoarse-to-fine pruning over time.
+On average, thepruning reduces the search space of each sentencepair to 20% of the initial search space after 200iterations.9 ConclusionWe have introduced a novel Lagrangian relaxationalgorithm for a bidirectional alignment model thatuses incremental constraint addition and coarse-to-fine pruning to find exact solutions.
+The algo-rithm increases the number of exact solution foundon the model of DeNero and Macherey (2011)from 6% to 86%.Unfortunately despite achieving higher modelscore, this approach does not produce more accu-rate alignments than the previous algorithm.
+Thissuggests that the adjacent agreement model maystill be too constrained for this underlying task.Implicitly, an approach with fewer exact solu-tions may allow for useful violations of these con-straints.
+In future work, we hope to explore bidi-rectional models with soft-penalties to explicitlypermit these violations.A Proof of NP-HardnessWe can show that the bidirectional alignmentproblem is NP-hard by reduction from the trav-0 50 100 150 200 250 300 350 400iteration10050050100scorerelativetooptimal best dualbest primalintersection(a) The best dual and the best primal score, relative to theoptimal score, averaged over all sentence pairs.
+The bestprimal curve uses a feasible greedy algorithm, whereas theintersection curve is calculated by taking the intersec-tion of x and y.0 50 100 150 200 250 300 350 400number of iterations0.00.20.40.60.81.0relativesearchspacesize(b) A graph showing the effectiveness of coarse-to-fine prun-ing.
+Relative search space size is the size of the pruned latticecompared to the initial size.
+The plot shows an average overall sentence pairs.Figure 7eling salesman problem (TSP).
+A TSP instancewith N cities has distance c(i?, i) for each (i?, i) ?
+[N ]2.
+We can construct a sentence pair in whichI = J = N and -alignments have infinite cost.?
+(i?, i, j) = ?c(i?, i) ?i??
+[N ]0, i ?
+[N ], j ?
+[N ]?
+(j?, i, j) = 0 ?j??
+[N ]0, i ?
+[N ], j ?
+[N ]?
+(i?, 0, j) = ??
+?i??
+[N ]0, j ?
+[N ]?
+(j?, i, 0) = ??
+?j??
+[N ]0, i ?
+[N ]Every bidirectional alignment with finite objec-tive score must align exactly one word in e to eachword in f, encoding a permutation a. Moreover,each possible permutation has a finite score: thenegation of the total distance to traverse the Ncities in order a under distance c. Therefore, solv-ing such a bidirectional alignment problem wouldfind a minimal Hamiltonian path of the TSP en-coded in this way, concluding the reduction.Acknowledgments Alexander Rush, Yin-WenChang and Michael Collins were all supportedby NSF grant IIS-1161814.
+Alexander Rush waspartially supported by an NSF Graduate ResearchFellowship.1489ReferencesNecip Fazil Ayan and Bonnie J Dorr.
+2006.
+Goingbeyond aer: An extensive analysis of word align-ments and their impact on mt.
+In Proceedings ofthe 21st International Conference on ComputationalLinguistics and the 44th annual meeting of the Asso-ciation for Computational Linguistics, pages 9?16.Association for Computational Linguistics.Peter F Brown, Vincent J Della Pietra, Stephen A DellaPietra, and Robert L Mercer.
+1993.
+The mathemat-ics of statistical machine translation: Parameter esti-mation.
+Computational linguistics, 19(2):263?311.Fabien Cromieres and Sadao Kurohashi.
+2009.
+Analignment algorithm using belief propagation and astructure-based distortion model.
+In Proceedingsof the 12th Conference of the European Chapterof the Association for Computational Linguistics,pages 166?174.
+Association for Computational Lin-guistics.John DeNero and Dan Klein.
+2010.
+Discriminativemodeling of extraction sets for machine translation.In Proceedings of the 48th Annual Meeting of theAssociation for Computational Linguistics, pages1453?1463.
+Association for Computational Linguis-tics.John DeNero and Klaus Macherey.
+2011.
+Model-based aligner combination using dual decomposi-tion.
+In ACL, pages 420?429.Kuzman Ganchev, Jo?ao V. Grac?a, and Ben Taskar.2008.
+Better alignments = better translations?In Proceedings of ACL-08: HLT, pages 986?993,Columbus, Ohio, June.
+Association for Computa-tional Linguistics.K.
+Ganchev, J. Grac?a, J. Gillenwater, and B. Taskar.2010.
+Posterior Regularization for Structured La-tent Variable Models.
+Journal of Machine LearningResearch, 11:2001?2049.Joao Graca, Kuzman Ganchev, and Ben Taskar.
+2008.Expectation maximization and posterior constraints.In J.C. Platt, D. Koller, Y.
+Singer, and S. Roweis,editors, Advances in Neural Information ProcessingSystems 20, pages 569?576.
+MIT Press, Cambridge,MA.Inc.
+Gurobi Optimization.
+2013.
+Gurobi optimizer ref-erence manual.Aria Haghighi, John Blitzer, John DeNero, and DanKlein.
+2009.
+Better word alignments with su-pervised itg models.
+In Proceedings of the JointConference of the 47th Annual Meeting of the ACLand the 4th International Joint Conference on Natu-ral Language Processing of the AFNLP: Volume 2-Volume 2, pages 923?931.
+Association for Compu-tational Linguistics.Philipp Koehn, Franz Josef Och, and Daniel Marcu.2003.
+Statistical phrase-based translation.
+InProceedings of the 2003 Conference of the NorthAmerican Chapter of the Association for Computa-tional Linguistics on Human Language Technology-Volume 1, pages 48?54.
+Association for Computa-tional Linguistics.Simon Lacoste-Julien, Ben Taskar, Dan Klein, andMichael I Jordan.
+2006.
+Word alignment viaquadratic assignment.
+In Proceedings of the mainconference on Human Language Technology Con-ference of the North American Chapter of the As-sociation of Computational Linguistics, pages 112?119.
+Association for Computational Linguistics.Percy Liang, Ben Taskar, and Dan Klein.
+2006.
+Align-ment by agreement.
+In Proceedings of the mainconference on Human Language Technology Con-ference of the North American Chapter of the As-sociation of Computational Linguistics, pages 104?111.
+Association for Computational Linguistics.Robert C Moore.
+2005.
+A discriminative frameworkfor bilingual word alignment.
+In Proceedings ofthe conference on Human Language Technology andEmpirical Methods in Natural Language Process-ing, pages 81?88.
+Association for ComputationalLinguistics.Franz Josef Och, Christoph Tillmann, Hermann Ney,et al 1999.
+Improved alignment models for statis-tical machine translation.
+In Proc.
+of the Joint SIG-DAT Conf.
+on Empirical Methods in Natural Lan-guage Processing and Very Large Corpora, pages20?28.Alexander M Rush and Michael Collins.
+2012.
+A tuto-rial on dual decomposition and lagrangian relaxationfor inference in natural language processing.
+Jour-nal of Artificial Intelligence Research, 45:305?362.Stephan Vogel, Hermann Ney, and Christoph Tillmann.1996.
+Hmm-based word alignment in statisticaltranslation.
+In Proceedings of the 16th conferenceon Computational linguistics-Volume 2, pages 836?841.
+Association for Computational Linguistics.1490

@@ -1,0 +1,326 @@
+Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics, pages 66?75,Berlin, Germany, August 7-12, 2016. c?2016 Association for Computational LinguisticsModels and Inference for Prefix-Constrained Machine TranslationJoern Wuebker, Spence Green,John DeNero, Sa?a HasanLilt, Inc.first_name@lilt.comMinh-Thang LuongStanford Universitylmthang@stanford.eduAbstractWe apply phrase-based and neural modelsto a core task in interactive machine trans-lation: suggesting how to complete a par-tial translation.
+For the phrase-based sys-tem, we demonstrate improvements in sug-gestion quality using novel objective func-tions, learning techniques, and inferencealgorithms tailored to this task.
+Our con-tributions include new tunable metrics, animproved beam search strategy, an n-bestextraction method that increases sugges-tion diversity, and a tuning procedure for ahierarchical joint model of alignment andtranslation.
+The combination of these tech-niques improves next-word suggestion accu-racy dramatically from 28.5% to 41.2% ina large-scale English-German experiment.Our recurrent neural translation system in-creases accuracy yet further to 53.0%, butinference is two orders of magnitude slower.Manual error analysis shows the strengthsand weaknesses of both approaches.1 IntroductionA core prediction task in interactive machine trans-lation (MT) is to complete a partial translation(Ortiz-Mart?nez et al, 2009; Koehn et al, 2014).Sentence completion enables interfaces that arericher than basic post-editing of MT output.
+Forexample, the translator can receive updated sugges-tions after each word typed (Langlais et al, 2000).However, we show that completing partial trans-lations by na?ve constrained decoding?the stan-dard in prior work?yields poor suggestion quality.We describe new phrase-based objective functions,learning techniques, and inference algorithms forthe sentence completion task.1We then comparethis improved phrase-based system to a state-of-the-art recurrent neural translation system in large-scaleEnglish-German experiments.A system for completing partial translations takesas input a source sentence and a prefix of the targetsentence.
+It predicts a suffix: a sequence of tokensthat extends the prefix to form a full sentence.
+In aninteractive setting, the first words of the suffix arecritical; these words are the focus of the user?s atten-tion and can typically be appended to the translationwith a single keystroke.
+We introduce a tuning met-ric that scores correctness of the whole suffix, butis particularly sensitive to these first words.Phrase-based inference for this task involvesaligning the prefix to the source, then generat-ing the suffix by translating the unaligned words.We describe a beam search strategy and a hi-erarchical joint model of alignment and transla-tion that together improve suggestions dramatically.For English-German news, next-word accuracy in-creases from 28.5% to 41.2%.An interactiveMT system could also display mul-tiple suggestions to the user.
+We describe an algo-rithm for efficiently finding the n-best next wordsdirectly following a prefix and their correspondingbest suffixes.
+Our experiments show that this ap-proach to n-best list extraction, combined with ourother improvements, increased next-word sugges-tion accuracy of 10-best lists from 33.4% to 55.5%.We also train a recurrent neural translation sys-tem to maximize the conditional likelihood of thenext word following a translation prefix, which isboth a standard training objective in neural transla-tion and an ideal fit for our task.
+This neural systemprovides even more accurate predictions than ourimproved phrase-based system.
+However, inferenceis two orders of magnitude slower, which is prob-1Code available at:https://github.com/stanfordnlp/phrasal66lematic for an interactive setting.
+We conclude witha manual error analysis that reveals the strengthsand weaknesses of both the phrase-based and neuralapproaches to suffix prediction.2 Evaluating Suffix PredictionLet F and E denote the set of all source and targetlanguage strings, respectively.
+Given a source sen-tence f ?
+F and target prefix ep?
+E , a predictedsuffix es?
+E can be evaluated by comparing thefull sentence e = epesto a reference e?.
+Let e?sdenote the suffix of the reference that follows ep.We define three metrics below that score trans-lations by the characteristics that are most relevantin an interactive setting: the accuracy of the firstwords of the suffix and the overall quality of thesuffix.
+Each metric takes example triples (f, ep, e?
+)produced during an interactiveMT session in whichepwas generated in the process of constructing e?.A simulated corpus of examples can be producedfrom a parallel corpus of (f, e?)
+pairs by selectingprefixes of each e?.
+An exhaustive simulation se-lects all possible prefixes, while a sampled simula-tion selects only k prefixes uniformly at random foreach e?.
+Computing metrics for exhaustive simula-tions is expensive because it requires performingsuffix prediction inference for every prefix: |e?|times for each reference.Word Prediction Accuracy (WPA) or next-word accuracy (Koehn et al, 2014) is 1 if the firstword of the predicted suffix esis also the first wordof reference suffix e?s, and 0 otherwise.
+Averagingover examples gives the frequency that the wordfollowing the prefix was predicted correctly.
+In asampled simulation, all reference words that followthe first word of a sampled suffix are ignored by themetric, so most reference information is unused.Number of PredictedWords (#prd) is the max-imum number of contiguous words at the start ofthe predicted suffix that match the reference.
+LikeWPA, this metric is 0 if the first word of esis notalso the first word of e?s.
+In a sampled simulation, allreference words that follow the first mis-predictedword in the sampled suffix are ignored.
+While it ispossible that the metric will require the full refer-ence suffix, most reference information is unusedin practice.Prefix-Bleu (pxBleu): Bleu (Papineni et al,2002) is computed from the geometric mean ofclipped n-gram precisions precn(?, ?)
+and a brevitypenalty BP (?, ?).
+Given a sequence of referencesE?= e?1, .
+.
+.
+, e?tand corresponding predictionsE = e1, .
+.
+.
+, et,Bleu(E,E?)
+= BP (E,E?)
+?4?n=1precn(E,E?
+)14Ortiz-Mart?nez et al (2010) use BLEU directly fortraining an interactive system, but we propose avariant that only scores the predicted suffix andnot the input prefix.
+The pxBleu metric com-putes Bleu(?E,?E?)
+for the following constructedsequences?E and?E?:?
+For each (f, ep, e?)
+and suffix prediction es,?E includes the full sentence e = epes.?
+For each (f, ep, e?
+),?E?is a masked copy ofe?in which all prefix words that do not matchany word in e are replaced by null tokens.This construction maintains the original computa-tion of the brevity penalty, but does not includethe prefix in the precision calculations.
+Unlike thetwo previous metrics, the pxBleu metric uses allavailable reference information.In order to account for boundary conditions, thereference e?is masked by the prefix epas follows:we replace each of the first |ep?
+3| words with anull token enull, unless the word also appears inthe suffix e?s.
+Masking retains the last three wordsof the prefix so that the first words after the prefixcan contribute to the precision of all n-grams thatoverlap with the prefix, up to n = 4.
+Words thatalso appear in the suffix are retained so that theircorrect prediction in the suffix can contribute tothose precisions, which would otherwise be clipped.2.1 Loss Functions for LearningAll of these metrics can be used as the tuning objec-tive of a phrase-based machine translation system.Tuning toward a sampled simulation that includesone or two prefixes per reference is much faster thanusing an exhaustive set of prefixes.
+A linear combi-nation of these metrics can be used to trade off therelative importance of the full suffix and the wordsimmediately following the prefix.
+With a combinedmetric, learning can focus on these words whileusing all available information in the references.2.2 Keystroke Ratio (KSR)In addition to these metrics, suffix prediction can beevaluated by the widely used keystroke ratio (KSR)metric (Och et al, 2003).
+This ratio assumes that67any number of characters from the beginning of thesuggested suffix can be appended to the user prefixusing a single keystroke.
+It computes the ratio of keystrokes required to enter the reference interactivelyto the character count of the reference.
+Our MTarchitecture does not permit tuning to KSR.Other methods of quantifying effort in an interac-tive MT system are more appropriate for user stud-ies than for direct evaluation of MT predictions.
+Forexample, measuring pupil dilation, pause durationand frequency (Schilperoord, 1996), mouse-actionratio (Sanchis-Trilles et al, 2008), or source diffi-culty (Bernth and McCord, 2000) would certainlybe relevant for evaluating a full interactive system,but are beyond the scope of this work.3 Phrase-Based InferenceIn the log-linear approach to phrase-based transla-tion (Och and Ney, 2004), the distribution of trans-lations e ?
+E given a source sentence f ?
+F is:p(e|f ;w) =?r:src(r)=ftgt(r)=e1Z(f)exp[w>?
+(r)](1)Here, r is a phrasal derivation with source and targetprojections src(r) and tgt(r), w ?
+Rdis the vectorof model parameters, ?(?)
+?
+Rdis a feature map,and Z(f) is an appropriate normalizing constant.For the same model, the distribution over suffixeses?
+E must also condition on a prefix ep?
+E :p(es|ep, f ;w) =?r:src(r)=ftgt(r)=epes1Z(f)exp[w>?
+(r)](2)In phrase-based decoding, the best scoringderivation r given a source sentence f and weightsw is found efficiently by beam search, with onebeam for every count of source words covered bya partial derivation (known as the source cover-age cardinality).
+To predict a suffix conditionedon a prefix by constrained decoding, Barrachina etal.
+(2008) and Ortiz-Mart?nez et al (2009) modifythe beam search by discarding hypotheses (partialderivations) that do not match the prefix ep.We propose target beam search, a two-step in-ference procedure.
+The first step is to produce aphrase-based alignment between the target prefixand a subset of the source words.
+The target isaligned left-to-right by appending aligned phrasepairs.
+However, each beam is associated with a tar-get word count, rather than a source word count.Therefore, each beam contains hypotheses for afixed prefix of target words.
+Phrasal translation can-didates are bundled and sorted with respect to eachtarget phrase rather than each source phrase.
+Cru-cially, the source distortion limit is not enforcedduring alignment, so that long-range reorderingscan be analyzed correctly.The second step generates the suffix using stan-dard beam search.2Once the target prefix is com-pletely aligned, each hypothesis from the final tar-get beam is copied to an appropriate source beam.Search starts with the lowest-count source beam thatcontains at least one hypothesis.
+Here, we re-instatethe distortion limit with the following modificationto avoid search failures: The decoder can alwaystranslate any source position before the last sourceposition that was covered in the alignment phase.3.1 Synthetic Phrase PairsThe phrase pairs available during decoding maynot be sufficient to align the target prefix to thesource.
+Pre-compiled phrase tables (Koehn et al,2003) are typically pruned, and dynamic phrasetables (Levenberg et al, 2010) require sampling forefficient lookup.To improve alignment coverage, we include addi-tional synthetic phrases extracted from word-levelalignments between the source sentence and targetprefix inferred using unpruned lexical statistics.We first find the intersection of two directionalword alignments.
+The directional alignments are ob-tained similar to IBM Model 2 (Brown et al, 1993)by aligning the most likely source word to each tar-get word.
+Given a source sequence f = f1.
+.
+.
+f|f |and a target sequence e = e1.
+.
+.
+e|e|, we define thealignment a = a1.
+.
+.
+a|e|, where ai= j means thateiis aligned to fj.
+The likelihood is modeled by asingle-word lexicon probability that is provided byour translation model and an alignment probabilitymodeled as a Poisson distribution Poisson(k, ?
+)in the distance to the diagonal.ai= argmaxj?
+{1,...,|f |}p(ai= j|f, e) (3)p(ai= j|f, e) = p(ei|fj) ?
+p(ai|j) (4)p(ei|fj) =cnt(ei, fj)cnt(fj)(5)p(ai|j) = Poisson(|ai?
+j|, 1.0) (6)2We choose cube pruning (Huang and Chiang, 2007) asthe beam-filling strategy.68Here, cnt(ei, fj) is the count of all word alignmentsbetween eiand fjin the training bitext, and cnt(fj)the monolingual occurrence count of fj.We perform standard phrase extraction (Och etal., 1999; Koehn et al, 2003) to obtain our syn-thetic phrases, whose translation probabilities areagain estimated based on the single-word probabil-ities p(ei|fj) from our translation model.
+Given asynthetic phrase pair (e, f), the phrase translationprobability is computed asp(e|f) =?1?i?|e|max1?j?|f |p(ei|fj) (7)Additionally, we introduce three indicator featuresthat count the number of synthetic phrase pairs,source words and target words, respectively.4 TuningIn order to tune the model for suffix prediction, weoptimize the weights w in Equation 2 to maximizethe metrics introduced in Section 2.
+Model tuningis performed with AdaGrad (Duchi et al, 2011), anonline subgradient method.
+It features an adaptivelearning rate and comes with good theoretical guar-antees.
+See Green et al (2013) for the details ofapplying AdaGrad to phrase-based translation.The same model scores both alignment of theprefix and translation of the suffix.
+However, dif-ferent feature weights may be appropriate for scor-ing each step of the inference process.
+In orderto learn different weights for alignment and trans-lation within a unified joint model, we apply thehierarchical adaptation method of Wuebker et al(2015), which is based on frustratingly easy domainadaptation (FEDA) (Daum?
+III, 2007).
+We definethree sub-segment domains: prefix, overlap andsuffix.
+The prefix domain contains all phrasesthat are used for aligning the prefix with the sourcesentence.
+Phrases that span both prefix and suffixadditionally belong to the overlap domain.
+Finally,once the prefix has been completely covered, thesuffix domain applies to all phrases that are used totranslate the remainder of the sentence.
+The rootdomain spans the entire phrasal derivation.Formally, given a set of domains D ={root, prefix, overlap, suffix}, each feature isreplicated for each domain d ?
+D. These replicascan be interpreted as domain-specific ?offsets?
+tothe baseline weights.
+For an original feature vector?
+with a set of domains D ?
+D, the replicated fea-ture vector contains |D| copies fdof each featuref ?
+?, one for each d ?
+D.fd={f, d ?
+D0, otherwise.
+(8)The weights of the replicated feature space areinitialized with 0 except for the root domain, wherewe copy the baseline weights w.wd={w, d is root0, otherwise.
+(9)All our phrase-based systems are first tuned with-out prefixes or domains to maximize Bleu.
+Whentuning for suffix prediction, we keep these baselineweights wrootfixed to maintain baseline translationquality and only update the weights correspondingto the prefix, overlap and suffix domains.5 Diverse n-best ExtractionConsider the interactive MT application setting inwhich the user is presented with an autocompletelist of alternative translations (Langlais et al, 2000).The user query may be satisfied if the machinepredicts the correct completion in its top-n out-put.
+However, it is well-known that n-best listsare poor approximations of MT structured outputspaces (Macherey et al, 2008; Gimpel et al, 2013).Even very large values of n can fail to produce al-ternatives that differ in the first words of the suffix,which limits n-best KSR and WPA improvementsat test time.
+For tuning, WPA is often zero for everyitem on the n-best list, which prevents learning.Fortunately, the prefix can help efficiently enu-merate diverse next-word alternatives.
+If we canfind all edges in the decoding lattice that span theprefix epand suffix es, then we can generate diversealternatives in precisely the right location in the tar-get.
+LetG = (V,E) be the search lattice created bydecoding, where V are nodes and E are the edgesproduced by rule applications.
+For any w ?
+V , letparent(w) return v s.t.
+v, w ?
+E, target(w) re-turn the target sequence e defined by following thenext pointers from w, and length(w) be the lengthof the target sequence up tow.
+During decoding, weset parent pointers and also assign monotonicallyincreasing integer ids to each w.To extract a full sentence completion given anedge v, w ?
+E that spans the prefix/suffix boundary,we must find the best path to a goal node efficiently.To do this, we sort V in reverse topological orderand set forward pointers from each node v to the69Algorithm 1 Diverse n-best list extractionRequire: Lattice G = (V,E), prefix length P1: M = [] .
+Marked nodes2: for w ?
+V in reverse topological order do3: v = parent(w) .
+v, w ?
+E4: if length(v) ?
+P and length(w) > P then5: Add w to M .
+Mark node6: end if7: v.child = v.child?
+w .
+Child pointer update8: end for9: N = [] .
+n-best target strings10: for m ?M do11: Add target(m) to N12: end for13: return Nchild node on the best goal path.
+During this traver-sal, we also mark all child nodes of edges that spanthe prefix/suffix boundary.
+Finally, we use the par-ent and child pointers to extract an n-best list oftranslations.
+Algorithm 1 shows the full procedure.6 Neural machine translationNeural machine translation (NMT) models the con-ditional probability p(e|f) of translating a sourcesentence f to a target sentence e. In the encoder-decoder NMT framework (Sutskever et al, 2014;Cho et al, 2014), an encoder computes a represen-tation s for each source sentence.
+From that sourcerepresentation, the decoder generates a translationone word at a time by maximizing:log p(e|f) =|e|?i=1log p (ei|e<i, f, s) (10)The individual probabilities in Equation 10 are of-ten parameterized by a recurrent neural networkwhich repeatedly predicts the next word eigivenall previous target words e<i.
+Since this modelgenerates translations by repeatedly predicting nextwords, it is a natural choice for the sentence com-pletion task.
+Even in unconstrained decoding, itpredicts one word at a time conditioned on the mostlikely prefix.Wemodified the state-of-the-art English-GermanNMT system described in (Luong et al, 2015) toconduct a beam search that constrains the transla-tion tomatch a fixed prefix.3Aswe decode from leftto right, the decoder transitions from a constrainedprefix decodingmode to unconstrained beam search.In the constrained mode?the next word to predict3We used the trained models provided by the au-thors of (Luong et al, 2015) using the codebase athttps://github.com/lmthang/nmt.matlab.eiis known?we set the beam size to 1, aggregatethe score of predicting eiimmediately without hav-ing to sort the softmax distribution over all words,and feed eidirectly to the next time step.
+Once theprefix has been consumed, the decoder switches tostandard beam search with a larger beam size (12 inour experiments).
+In this mode, the most probableword eiis passed to the next time step.7 Experimental ResultsWe evaluate our models and methods for English-French and English-German on two domains: soft-ware and news.The phrase-based systems are built with Phrasal(Green et al, 2014), an open source toolkit.
+We usea dynamic phrase table (Levenberg et al, 2010) andtune parameters with AdaGrad.
+All systems have 42dense baseline features.
+We align the bitexts withmgiza (Gao and Vogel, 2008) and estimate 5-gramlanguage models (LMs) with KenLM (Heafield etal., 2013).The English-French bilingual training data con-sists of 4.9M sentence pairs from the CommonCrawl and Europarl corpora from WMT 2015 (Bo-jar et al, 2015).
+The LM was estimated from thetarget side of the bitext.For English-German we run large-scale experi-ments.
+The bitext contains 19.9M parallel segmentscollected from WMT 2015 and the OPUS collec-tion (Skadin??
+et al, 2014).
+The LM was estimatedfrom the target side of the bitext and the monolin-gual Common Crawl corpus (Buck et al, 2014),altogether 37.2B running words.The software test set includes 10k sentence pairsfrom the Autodesk post editing corpus4.
+For thenews domain we chose the English-French new-stest2014 and English-German newstest2015 setsprovided for the WMT 20165shared task.
+Thetranslation systems were tuned towards the specificdomain, using another 10k segments from the Au-todesk data or the newstest2013 data set, respec-tively.
+On the English-French tune set we randomlyselect one target prefix from each sentence pair forrapid experimentation.
+On all other test and tunesets we select two target prefixes at random.6The4https://autodesk.app.box.com/Autodesk-PostEditing5http://www.statmt.org/wmt166We briefly experimented with larger sets of prefixes andalso exhaustive simulation in tuning, but did not observe sig-nificant improvements.70selected prefixes remain fixed throughout all exper-iments.For NMT, we report results both using a singlenetwork and an ensemble of eight models usingvarious attention mechanisms (Luong et al, 2015).7.1 Phrase-based ResultsTables 1 and 2 show the main phrase-based re-sults.
+The baseline system corresponds to con-strained beam search, which performed best in(Ortiz-Mart?nez et al, 2009) and (Barrachina etal., 2008), where it was referred to as phrase-based(PB) and phrase-based model (PBM), respectively.Our target beam search strategy improves all met-rics on both test sets.For English-French, we observe absolute im-provements of up to 3.2% pxBleu, 11.4%WPA and10.6% KSR.
+We experimented with four differentprefix-constrained tuning criteria: pxBleu, WPA,#prd, and the linear combination(pxBleu+WPA)2.
+Wesee that tuning towards prefix decoding increasesall metrics.
+Across our two test sets, the combinedmetric yielded the most stable results.
+Here, weobtain gains of up to 3.0% pxBleu, 3.1%WPA and2.1% KSR.
+We continue using the linear combina-tion criterion for all subsequent experiments.For English-German?the large-scale setting?we observe similar total gains of up to 3.9% pxBleu,11.2%WPA and 8.2%KSR.
+The target beam searchprocedure contributes the most gain among our var-ious improvements.
+Table 3 illustrates the differ-ences in the translation output on three examplesentences taken from the newstest2015 test set.
+Itis clearly visible that both target beam search andprefix tuning improve the prefix alignment, whichresults in better translation suffixes.7.2 Diverse n-best ResultsTo improve recall in interactive MT, the user can bepresented with multiple alternative sentence com-pletions (Langlais et al, 2000), which correspondto an n-best list of translation hypotheses generatedby the prefix-constrained inference procedure.
+Thediverse extraction scheme introduced in section 5is particularly designed for next-word predictionrecall.
+Table 4 shows results for 10-best lists.We see that WPA is increased by up to 15.3%by including the 10-best candidates, 11.3% beingcontributed by our novel diverse n-best extraction.Jointly, target beam search, prefix tuning and di-verse n-best extraction lead to an absolute improve-ment of up to 23.5% over the baseline 10-best or-acle.
+We believe that n = 10 suggestions are themaximum number of candidates that should be pre-sented to a user, but we also ran experiments withn = 3 and n = 5, which would result in an inter-face with reduced cognitive load.
+These settingsyield 5.5% and 10.0% WPA gains respectively onEnglish-German news.7.3 Comparison with NMTWe compare this phrase-based system to the NMTsystem described in Section 6 for English-German.Table 5 shows the results.
+We observe a clear ad-vantage of NMT over our best phrase-based systemwhen comparing WPA.
+For pxBleu, the phrase-based model outperforms the single neural networksystem on the Autodesk set, but underperforms theensemble.
+This stands in contrast to unconstrainedfull-sentence translation quality, where the phrase-based system is slightly better than the ensemble.The neural system substantially outperforms thephrase-based system for all metrics in the news do-main.In an interactive setting, the system must makepredictions in near real-time, so we report averagedecoding times.
+We observe a clear time vs. ac-curacy trade-off; the phrase-based is 10.6 to 31.3times faster than the single network NMT systemand more than 100 times faster than the ensemble.Crucially, the phrase-based system runs on a CPU,while NMT requires a GPU for these speeds.
+Fur-ther, the 10-best oracle WPA of the phrase-basedsystem is higher than the NMT ensemble in bothgenres.Following the example of Neubig et al (2015),we performed a manual analysis of the first 100segments on the newstest2015 data set in order toqualitatively compare the constrained translationsproduced by the phrase-based and single networkNMT systems.
+We observe four main error cate-gories in which the translations differ, for whichwe have given examples in Table 6.
+NMT is gener-ally better with long-range verb reorderings, whichoften lead to the verb being dropped by the phrase-based system.
+E.g.
+the word erscheinen in Ex.
+1and ver?ffentlicht in Ex.
+2 are missing in the phrase-based translation.
+Also, the NMT engine often pro-duces better German grammar and morphologicalagreement, e.g.
+kein vs. keine in Ex.
+3 or the verbconjugations in Ex.
+4.
+Especially interesting is thatthe NMT system generated the negation nicht inthe second half of Ex.
+3.
+This word does not have71autodesk newstest2014tuning criterion pxBleu WPA #prd KSR pxBleu WPA #prd KSRbaseline Bleu 57.9 41.1 1.49 57.8 40.9 38.0 0.96 61.7target beam search Bleu 61.0 47.2 1.74 50.3 44.1 49.4 1.35 51.1+ prefix tuning(pxBleu+WPA)264.0 50.3 1.95 48.2 44.7 50.9 1.40 50.5pxBleu 64.0 50.1 1.95 48.2 44.9 50.3 1.38 50.8WPA 62.4 50.2 1.88 48.1 43.3 50.5 1.34 51.7#prd 63.8 49.7 1.95 48.4 44.1 50.3 1.37 50.7Table 1: Phrase-based results on the English-French task.
+We compare the baseline with the target beamsearch proposed in this work.
+Prefix tuning is evaluated with four different tuning criteria.autodesk newstest2015pxBleu WPA #prd KSR pxBleu WPA #prd KSRbaseline 58.5 37.8 1.54 64.7 32.1 28.5 0.61 72.7target beam search 61.2 44.6 1.78 58.0 36.0 39.7 0.84 64.5+ prefix tuning 62.2 46.0 1.85 57.2 36.0 41.2 0.88 63.7Table 2: Phrase-based results on English-German, tuned to the linear combination of pxBleu and WPA.a direct correspondence in the English source, butmakes the sentence feel more natural in German.On the other hand, NMT sometimes drops contentwords, as in Ex.
+5, where middle-class jobs,Min-nesota and Progressive Caucus co-chair remain en-tirely untranslated by NMT.
+Finally, incorrect prefixalignment sometimes leads to incorrect portions ofthe source sentence being translated after the prefixor even superfluous output by the phrase-based en-gine, like , die in Ex.
+6.
+Table 7 summarizes howmany times each of the systems produced a betteroutput than the other, broken down by category.8 Related WorkTarget-mediated interactive MT was first proposedby Foster et al (1997) and then further developedwithin the TransType (Langlais et al, 2000) andTransType2 (Esteban et al, 2004; Barrachina etal., 2008) projects.
+In TransType2, several differ-ent approaches were evaluated.
+Barrachina et al(2008) reports experimental results that show thesuperiority of phrase-based models over stochas-tic finite state transducers and alignment templates,which were extended for the interactive translationparadigm by Och et al (2003).
+Ortiz-Mart?nez etal.
+(2009) confirm this observation, and find thattheir own suggested method using partial statisticalphrase-based alignments performs on a similar levelon most tasks.
+The approach using phrase-basedmodels is used as the baseline in this paper.In order to make the interaction sufficiently re-sponsive, Barrachina et al (2008) resort to searchwithin a word graph, which is generated by the trans-lation decoder without constraints at the beginningof the workflow.
+A given prefix is then matchedto the paths within the word graph.
+This approachwas recently refined with more permissive matchingcriteria by Koehn et al (2014), who report strongimprovements in prediction accuracy.Instead of using a word graph, it is also possibleto perform a new search for every interaction (Ben-der et al, 2005; Ortiz-Mart?nez et al, 2009), whichis the approach we have adopted.
+Ortiz-Mart?nezet al (2009) perform the most similar study to ourwork in the literature.
+The authors also define prefixdecoding as a two-stage process, but focus on inves-tigating different smoothing techniques, while ourwork includes new metrics, models, and inference.9 ConclusionWe have shown that both phrase-based and neuraltranslation approaches can be used to complete par-tial translations.
+The recurrent neural system pro-vides higher word prediction accuracy, but requireslengthy inference on a GPU.
+The phrase-based sys-tem is fast, produces diverse n-best lists, and pro-vides reasonable prefix-Bleu performance.
+Thecomplementary strengths of both systems suggestfuture work in combining these techniques.We have also shown decisively that simply per-forming constrained decoding for a phrase-basedmodel is not an effective approach to the task ofcompleting translations.
+Instead, the learning ob-jective, model, and inference procedure should all721.
+source Suddenly I?m at the National Theatre and I just couldn?t quite believe it.reference "Pl?tzlich war ich im Nationaltheater und ich konnte es kaum glauben.baseline "Pl?tzlich war ich im Nationaltheater bin und ich konnte es einfach nicht glauben.target beam search "Pl?tzlich war ich im National Theatre und das konnte ich nicht ganz glauben.+ prefix tuning "Pl?tzlich war ich im National Theatre, und ich konnte es einfach nicht glauben.2.
+source "A little voice inside me said, ?You?re going to have to do 10 minutes while they fix the computer."
+"reference "Eine kleine Stimme sagte mir "Du musst jetzt 10 Minuten ?berbr?cken, w?hrend sie den Computerreparieren."
+"baseline "Eine kleine Stimme sagte mir "Du musst jetzt 10 Minuten ?berbr?cken, sie legen die m?ssen,w?hrend der Computer.
+"target beam search "Eine kleine Stimme sagte mir "Du musst jetzt 10 Minuten ?berbr?cken zu tun, w?hrend sie denComputer reparieren".+ prefix tuning "Eine kleine Stimme sagte mir "Du musst jetzt 10 Minuten ?berbr?cken, w?hrend sie den Computerreparieren."
+"3. source Yemeni media report that there is traffic chaos in the capital.reference Jemenitische Medien berichten von einem Verkehrschaos in der Hauptstadt.baseline Jemenitische Medien berichten von einem Verkehrschaos ist der Verkehr in der Hauptstadt.target beam search Jemenitische Medien berichten von einem Verkehrschaos gibt es in der Hauptstadt.+ prefix tuning Jemenitische Medien berichten von einem Verkehrschaos in der Hauptstadt.Table 3: Translation examples from the English-German newstest2015 test set.
+We compare the prefixdecoding output of the baseline against target beam search both with and without prefix tuning.
+The prefixis printed in italics.English-French English-Germanautodesk newstest2014 autodesk newstest2015WPA KSR WPA KSR WPA KSR WPA KSRbaseline 1-best 41.1 57.8 38.0 61.7 37.8 64.7 28.5 72.710-best 48.6 53.3 42.7 58.5 43.9 60.2 33.4 69.5target beam search 1-best 50.3 48.2 50.9 50.5 46.0 57.2 41.2 63.710-best 56.8 43.7 54.9 47.3 51.1 53.2 46.6 60.310-best diverse 64.5 39.1 66.2 41.4 57.3 48.4 55.5 54.5Table 4: Oracle results on the English-French and English-German tasks.
+We compare the single bestresult with oracle scores on 10-best lists with standard and diverse n-best extraction on both target beamsearch with prefix tuning and the phrase-based baseline system.autodesk newstest2015English-German Bleu pxBleu WPA secs / segment Bleu pxBleu WPA secs / segmenttarget beam search44.562.2 46.00.051 22.436.0 41.20.08910-best diverse 65.1 57.3 39.5 55.5NMT single 40.6 61.2 52.3 1.6 23.2 39.2 50.4 1.3NMT ensemble 44.3 64.7 54.9 7.7 26.3 42.1 53.0 10.0Table 5: English-German results for the phrase-based system with target beam search and tuned to acombined metric, compared with the recurrent neural translation system.
+The 10-best diverse line containsoracle scores from a 10-best list; all other scores are computed for a single suffix prediction per example.We also report unconstrained full-sentence Bleu scores.
+The phrase-based timing results include prefixalignment and synthetic phrase extraction.be tailored to the task.
+The combination of thesechanges can adapt a phrase-based translation systemto perform prefix alignment and suffix predictionjointly with fewer search errors and greater accu-racy for the critical first words of the suffix.
+In lightof the dramatic improvements in prediction qualitythat result from the techniques we have described,we look forward to investigating the effect on userexperience for interactive translation systems thatemploy these methods.731.
+source He is due to appear in Karratha Magistrates Court on September 23.reference Er soll am 23.
+September vor dem Amtsgericht in Karratha erscheinen.phrase-based Er ist aufgrund der in Karratha Magistrates Court am 23.
+September.NMT Er wird am 23.
+September in Karratah Magistrates Court erscheinen.2.
+source The research, funded by the [...], will be published today in the Medical Journal of Australia.reference Die von [...] finanzierte Studie wird heute im Medical Journal of Australia ver?ffentlicht.phrase-based Die von [...] finanzierte Studie wird heute im Medical Journal of Australia.NMT Die von [...] finanzierte Studie wird heute im Medical Journal of Australia ver?ffentlicht.3.
+source But it is certainly not a radical initiative - at least by American standards.reference Aber es ist mit Sicherheit keine radikale Initiative - jedenfalls nicht nach amerikanischen Standards.phrase-based Aber es ist sicherlich kein radikale Initiative - zumindest von den amerikanischen Standards.NMT Aber es ist gewiss keine radikale Initiative - zumindest nicht nach amerikanischem Ma?stab.4.
+source Now everyone knows that the labor movement did not diminish the strength of the nation but enlarged it.reference Jetzt wissen alle, dass die Arbeiterbewegung die St?rke der Nation nicht einschr?nkte, sondern sievergr?
+?erte.phrase-based Jetzt wissen alle, dass die Arbeiterbewegung die St?rke der Nation nicht schm?lern, aber vergr?
+?ert .NMT Jetzt wissen alle, dass die Arbeiterbewegung die St?rke der Nation nicht verringert, sondern erweitert hat.5.
+source "As go unions, so go middle-class jobs," says Ellison, the Minnesota Democrat who serves as aCongressional Progressive Caucus co-chair.reference "So wie Gewerkschaften sterben, sterben auch die Mittelklassejobs," sagte Ellison, ein Demokrat ausMinnesota und stellvertretender Vorsitzender des Progressive Caucus im Kongress.phrase-based "So wie Gewerkschaften sterben, so Mittelklasse-Jobs", sagt Ellison, der Minnesota Demokrat, dientals Congressional Progressive Caucus Mitveranstalter.NMT "So wie Gewerkschaften sterben, so gehen die gehen," sagt Ellison, der Liberalen, der als Kongressesdes eine dient.6.
+source The opposition politician, Imran Khan, accuses Prime Minister Sharif of rigging the parliamentaryelections, which took place in May last year.reference Der Oppositionspolitiker Imran Khan wirft Premier Sharif vor, bei der Parlamentswahl im Maivergangenen Jahres betrogen zu haben.phrase-based Der Oppositionspolitiker Imran Khan wirft Premier Sharif vor, bei der Parlamentswahl im Maivergangenen Jahres betrogen zu haben.
+, dieNMT Der Oppositionspolitiker Imran Khan wirft Premier Sharif vor, bei der Parlamentswahl im Maivergangenen Jahres betrogen zu haben.Table 6: Example sentences from the English-German newstest2015 test set.
+We compare the prefixdecoding output of phrase-based target beam search against the single network neural machine translation(NMT) engine, printing the prefix in italics.
+The examples illustrate the four error categories missing verb(Ex.
+1 and 2), grammar / morphology (Ex.
+3 and 4), missing content words (Ex.
+5) and alignment (Ex.
+6).#better phrase-based NMTmissing verb 1 19grammar / morphology 0 15missing content words 17 3alignment 0 6Table 7: Result of the manual analysis on the first100 segments of the English-German newstest2015test set.
+For each of the four error categories wecount how many times one of the systems produceda better output.AcknowledgmentsMinh-Thang Luong was partially supported by NSFAward IIS-1514268 and partially supported by agift from Bloomberg L.P.ReferencesSergio Barrachina, Oliver Bender, Francisco Casacu-berta, Jorge Civera, Elsa Cubel, Shahram Khadivi,et al 2008.
+Statistical approaches to computer-assisted translation.
+Computational Linguistics,35(1):3?28.Oliver Bender, Sa?a Hasan, David Vilar, Richard Zens,and Hermann Ney.
+2005.
+Comparison of genera-tion strategies for interactive machine translation.
+InEAMT.Arendse Bernth and Michael C. McCord.
+2000.
+Theeffect of source analysis on translation confidence.
+InAMTA.Ond?ej Bojar, Rajen Chatterjee, Christian Federmann,Barry Haddow, Matthias Huck, Chris Hokamp, et al2015.
+Findings of the 2015 Workshop on StatisticalMachine Translation.
+In WMT.Peter F. Brown, Stephan A. Della Pietra, Vincent J.Della Pietra, and Robert L. Mercer.
+1993.
+The74Mathematics of Statistical Machine Translation: Pa-rameter Estimation.
+Computational Linguistics,19(2):263?311.Christian Buck, Kenneth Heafield, and Bas van Ooyen.2014.
+N-gram counts and language models from thecommon crawl.
+In LREC.Kyunghyun Cho, Bart van Merrienboer, Caglar Gul-cehre, Dzmitry Bahdanau, Fethi Bougares, HolgerSchwenk, and Yoshua Bengio.
+2014.
+Learningphrase representations using RNN encoder?decoderfor statistical machine translation.
+In EMNLP.Hal Daum?
+III.
+2007.
+Frustratingly easy domain adap-tation.
+In ACL.John Duchi, Elad Hazan, and Yoram Singer.
+2011.Adaptive subgradient methods for online learningand stochastic optimization.
+Journal of MachineLearning Research, 12:2121?2159, July.Jos?
+Esteban, Jos?
+Lorenzo, Antonio S. Valderr?banos,andGuy Lapalme.
+2004.
+TransType2 - an innovativecomputer-assisted translation system.
+In ACL.George Foster, Pierre Isabelle, and Pierre Plamondon.1997.
+Target-Text Mediated Interactive MachineTranslation.
+Machine Translation, 12(1?2):175?194.Qin Gao and Stephan Vogel.
+2008.
+Parallel implemen-tations of word alignment tool.
+In Software Engineer-ing, Testing, and Quality Assurance for Natural Lan-guage Processing.Kevin Gimpel, Dhruv Batra, Chris Dyer, and GregoryShakhnarovich.
+2013.
+A systematic exploration ofdiversity in machine translation.
+In EMNLP.Spence Green, Sida Wang, Daniel Cer, and Christo-pher D. Manning.
+2013.
+Fast and adaptive onlinetraining of feature-rich translation models.
+In ACL.Spence Green, Daniel Cer, and Christopher D. Man-ning.
+2014.
+Phrasal: A toolkit for new directionsin statistical machine translation.
+In WMT.Kenneth Heafield, Ivan Pouzyrevsky, Jonathan H.Clark, and Philipp Koehn.
+2013.
+Scalable modifiedKneser-Ney language model estimation.
+In ACL.Liang Huang and David Chiang.
+2007.
+Forest rescor-ing: Faster decoding with integrated language mod-els.
+In ACL.Philipp Koehn, Franz Josef Och, and Daniel Marcu.2003.
+Statistical phrase-based translation.
+InNAACL.Philipp Koehn, Chara Tsoukala, and Herve Saint-Amand.
+2014.
+Refinements to interactive translationprediction based on search graphs.
+In ACL.Philippe Langlais, George Foster, and Guy Lapalme.2000.
+TransType: a Computer-Aided TranslationTyping System.
+In NAACL Workshop on EmbeddedMachine Translation Systems.Abby Levenberg, Chris Callison-Burch, and Miles Os-borne.
+2010.
+Stream-based translation models forstatistical machine translation.
+In NAACL.Minh-Thang Luong, Hieu Pham, and Christopher D.Manning.
+2015.
+Effective approaches to attention-based neural machine translation.
+In EMNLP.Wolfgang Macherey, Franz Josef Och, Ignacio Thayer,and Jakop Uszkoreit.
+2008.
+Lattice-based minimumerror rate training for statistical machine translation.In EMNLP.Graham Neubig, Makoto Morishita, and Satoshi Naka-mura.
+2015.
+Neural reranking improves subjectivequality of machine translation: NAIST at WAT2015.In 2nd Workshop on Asian Translation (WAT2015).Franz Josef Och and Hermann Ney.
+2004.
+The align-ment template approach to statistical machine trans-lation.
+Computational Linguistics, 30(4):417?450.Franz Josef Och, Christoph Tillmann, and HermannNey.
+1999.
+Improved alignment models for statis-tical machine translation.
+In EMNLP.Franz Josef Och, Richard Zens, and Hermann Ney.2003.
+Efficient search for interactive statistical ma-chine translation.
+In EACL.Daniel Ortiz-Mart?nez, Ismael Garc?a-Varea, and Fran-cisco Casacuberta.
+2009.
+Interactive machine trans-lation based on partial statistical phrase-based align-ments.
+In RANLP.Daniel Ortiz-Mart?nez, Ismael Garc?a-Varea, and Fran-cisco Casacuberta.
+2010.
+Online learning for inter-active statistical machine translation.
+In NAACL.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2002.
+BLEU: a method for automatic eval-uation of machine translation.
+In ACL.Germ?n Sanchis-Trilles, Daniel Ortiz-Mart?nez, JorgeCivera, Francisco Casacuberta, Enrique Vidal, andHieu Hoang.
+2008.
+Improving interactive machinetranslation via mouse actions.
+In EMNLP.Joost Schilperoord.
+1996.
+It?s about Time: TemporalAspects of Cognitive Processes in Text Production.Rodopi.Raivis Skadin?
+?, J?rg Tiedemann, Roberts Rozis, andDaiga Deksne.
+2014.
+Billions of parallel words forfree: Building and using the EU bookshop corpus.In LREC.Ilya Sutskever, Oriol Vinyals, and Quoc V. Le.
+2014.Sequence to sequence learning with neural networks.In NIPS.JoernWuebker, Spence Green, and John DeNero.
+2015.Hierarchical incremental adaptation for statisticalmachine translation.
+In EMNLP.75

@@ -1,0 +1,423 @@
+2012 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, pages 253?262,Montre?al, Canada, June 3-8, 2012. c?2012 Association for Computational LinguisticsOptimized Online Rank Learning for Machine TranslationTaro WatanabeNational Institute of Information and Communications Technology3-5 Hikaridai, Seika-cho, Soraku-gun, Kyoto, 619-0289 JAPAN{taro.watanabe}@nict.go.jpAbstractWe present an online learning algorithm forstatistical machine translation (SMT) based onstochastic gradient descent (SGD).
+Under theonline setting of rank learning, a corpus-wiseloss has to be approximated by a batch lo-cal loss when optimizing for evaluation mea-sures that cannot be linearly decomposed intoa sentence-wise loss, such as BLEU.
+We pro-pose a variant of SGD with a larger batch sizein which the parameter update in each iterationis further optimized by a passive-aggressivealgorithm.
+Learning is efficiently parallelizedand line search is performed in each roundwhen merging parameters across parallel jobs.Experiments on the NIST Chinese-to-EnglishOpen MT task indicate significantly bettertranslation results.1 IntroductionThe advancement of statistical machine translation(SMT) relies on efficient tuning of several or manyparameters in a model.
+One of the standards for suchtuning is minimum error rate training (MERT) (Och,2003), which directly minimize the loss of transla-tion evaluation measures, i.e.
+BLEU (Papineni et al,2002).
+MERT has been successfully used in prac-tical applications, although, it is known to be un-stable (Clark et al, 2011).
+To overcome this insta-bility, it requires multiple runs from random start-ing points and directions (Moore and Quirk, 2008),or a computationally expensive procedure by linearprogramming and combinatorial optimization (Gal-ley and Quirk, 2011).Many alternative methods have been proposedbased on the algorithms in machine learning, such asaveraged perceptron (Liang et al, 2006), maximumentropy (Och and Ney, 2002; Blunsom et al, 2008),Margin Infused Relaxed Algorithm (MIRA) (Watan-abe et al, 2007; Chiang et al, 2008b), or pairwiserank optimization (PRO) (Hopkins and May, 2011).They primarily differ in the mode of training; on-line or MERT-like batch, and in their objectives;max-margin (Taskar et al, 2004), conditional log-likelihood (or softmax loss) (Berger et al, 1996),risk (Smith and Eisner, 2006; Li and Eisner, 2009),or ranking (Herbrich et al, 1999).We present an online learning algorithm basedon stochastic gradient descent (SGD) with a largerbatch size (Shalev-Shwartz et al, 2007).
+Like Hop-kins and May (2011), we optimize ranking in n-best lists, but learn parameters in an online fash-ion.
+As proposed by Haddow et al (2011), BLEUis approximately computed in the local batch, sinceBLEU is not linearly decomposed into a sentence-wise score (Chiang et al, 2008a), and optimizationfor sentence-BLEU does not always achieve opti-mal parameters for corpus-BLEU.
+Setting the largerbatch size implies the more accurate corpus-BLEU,but at the cost of slower convergence of SGD.
+There-fore, we propose an optimized update method in-spired by the passive-aggressive algorithm (Cram-mer et al, 2006), in which each parameter update isfurther rescaled considering the tradeoff between theamount of updates to the parameters and the rankingloss.
+Learning is efficiently parallelized by splittingtraining data among shards and by merging parame-ters in each round (McDonald et al, 2010).
+Instead253of simple averaging, we perform an additional linesearch step to find the optimal merging across paral-lel jobs.Experiments were carried out on the NIST 2008Chinese-to-English OpenMT task.
+We found signif-icant gains over traditional MERT and other tuningalgorithms, such as MIRA and PRO.2 Statistical Machine TranslationSMT can be formulated as a maximization problemof finding the most likely translation e given an inputsentence f using a set of parameters ?
+(Brown et al,1993)e?
+= argmaxep(e|f ; ?).
+(1)Under this maximization setting, we assume thatp(?)
+is represented by a linear combination of fea-ture functions h(f, e) which are scaled by a set ofparameters w (Och and Ney, 2002)e?
+= argmaxew?h(f, e).
+(2)Each element ofh(?)
+is a feature function which cap-tures different aspects of translations, for instance,log of n-gram language model probability, the num-ber of translated words or log of phrasal probability.In this paper, we concentrate on the problem oflearning w, which is referred to as tuning.
+One ofthe standard methods for parameter tuning is mini-mum error rate training (Och, 2003) (MERT) whichdirectly minimizes the task loss ?(?
+), i.e.
+negativeBLEU (Papineni et al, 2002), given training dataD = {(f1, e1), ..., (fN , eN )}, sets of paired sourcesentence f i and its reference translations eiw?
+= argminw?
+({argmaxew?h(f i, e)}Ni=1,{ei}Ni=1).
+(3)The objective in Equation 3 is discontinuous andnon-convex, and it requires decoding of all the train-ing data given w. Therefore, MERT relies on aderivative-free unconstrained optimization method,such as Powell?s method, which repeatedly choosesone direction to optimize using a line search pro-cedure as in Algorithm 1.
+Expensive decoding isapproximated by an n-best merging technique inwhich decoding is carried out in each epoch of it-erations t and the maximization in Eq.
+3 is approxi-Algorithm 1 MERT1: Initialize w12: for t = 1, ..., T do ?
+Or, until convergence3: Generate n-bests using wt4: Learn new wt+1 by Powell?s method5: end for6: return wT+1mated by search over the n-bests merged across iter-ations.
+The merged n-bests are also used in the linesearch procedure to efficiently draw the error surfacefor efficient computation of the outer minimizationof Eq.
+3.3 Online Rank Learning3.1 Rank LearningInstead of the direct task loss minimization of Eq.3, we would like to find w by solving the L2-regularized constrained minimization problemargminw?2?w?22 + ?
+(w;D) (4)where ?
+> 0 is a hyperparameter controlling the fit-ness to the data.
+The loss function ?(?)
+we considerhere is inspired by a pairwise ranking method (Hop-kins and May, 2011) in which pairs of correct trans-lation and incorrect translation are sampled from n-bests and suffer a hinge loss1M(w;D)?
+(f,e)?D?e?,e?max{0, 1?w??
+(f, e?, e?)}(5)wheree?
+?
+NBEST(w; f) \ ORACLE(w; f, e)e?
+?
+ORACLE(w; f, e)?
+(f, e?, e?)
+= h(f, e?)?
+h(f, e?).NBEST(?)
+is the n-best translations of f generatedwith the parameter w, and ORACLE(?)
+is a set oforacle translations chosen among NBEST(?).
+Notethat each e?
+(and e?)
+implicitly represents a deriva-tion consisting of a tuple (e?, ?
+), where ?
+is a latentstructure, i.e.
+phrases in a phrase-based SMT, but weomit ?
+for brevity.
+M(?)
+is a normalization constantwhich is equal to the number of paired loss terms?
+(f, e?, e?)
+in Equation 5.
+Since it is impossible254to enumerate all possible translations, we follow theconvention of approximating the domain of transla-tion by n-bests.
+Unlike Hopkins and May (2011),we do not randomly sample from all the pairs in then-best translations, but extract pairs by selecting oneoracle translation and one other translation in the n-bests other than those in ORACLE(?).
+Oracle trans-lations are selected by minimizing the task loss,?({e?
+?
+NBEST(w; f i)}Ni=1 ,{ei}Ni=1)i.e.
+negative BLEU, with respect to a set of ref-erence translations e. In order to compute oracleswith corpus-BLEU, we apply a greedy search strat-egy over n-bests (Venugopal, 2005).
+Equation 5 canbe easily interpreted as a constant loss ?1?
+for choos-ing a wrong translation under current parameters w,which is in contrast with the direct task-loss used inmax-margin approach to structured output learning(Taskar et al, 2004).As an alternative, we would also consider a soft-max loss (Collins and Koo, 2005) represented by1N?(f,e)?D?
+log ZO(w; f, e)ZN(w; f)(6)whereZO(w; f, e) =?e?
+?ORACLE(w;f,e) exp(w?f(f, e?
+))ZN(w; f) =?e?
+?NBEST(w;f) exp(w?f(f, e?
+)).Equation 6 is a log-linear model used in commonNLP tasks such as tagging, chunking and named en-tity recognition, but differ slightly in that multiplecorrect translations are discriminated from the oth-ers (Charniak and Johnson, 2005).3.2 Online ApproximationHopkins and May (2011) applied a MERT-like pro-cedure in Alg.
+1 in which Equation 4 was solvedto obtain new parameters in each iteration.
+Here,we employ stochastic gradient descent (SGD) meth-ods as presented in Algorithm 2 motivated by Pega-sos (Shalev-Shwartz et al, 2007).
+In each iteration,we randomly permute D and choose a set of batchesBt = {bt1, ..., btK} with each btj consisting of N/Ktraining data.
+For each batch b in Bt, we generaten-bests from the source sentences in b and computeoracle translations from the newly created n-bestsAlgorithm 2 Stochastic Gradient Descent1: k = 1,w1 ?
+02: for t = 1, ..., T do3: Choose Bt = {bt1, ..., btK} from D4: for b ?
+Bt do5: Compute n-bests and oracles of b6: Set learning rate ?k7: wk+ 12 ?
+wk ?
+?k?
+(wk; b)?
+Our proposed algorithm solve Eq.
+12 or 168: wk+1 ?
+min{1, 1/??
+?wk+12?2}wk+ 129: k ?
+k + 110: end for11: end for12: return wk(line 5) using a batch local corpus-BLEU (Haddowet al, 2011).
+Then, we optimize an approximatedobjective functionargminw?2?w?22 + ?
+(w; b) (7)by replacing D with b in the objective of Eq.
+4.
+Theparameters wk are updated by the sub-gradient ofEquation 7, ?
+(wk; b), scaled by the learning rate?k (line 7).
+We use an exponential decayed learn-ing rate ?k = ?0?k/K , which converges very fast inpractice (Tsuruoka et al, 2009)1.
+The sub-gradientof Eq.7 with the hinge loss of Eq.
+5 is?wk ?1M(wk; b)?(f,e)?b?e?,e??
+(f, e?, e?)
+(8)such that1?w?k ?
+(f, e?, e?)
+> 0.
+(9)We found that the normalization term by M(?)
+wasvery slow in convergence, thus, instead, we usedM ?
+(w; b), which was the number of paired lossterms satisfied the constraints in Equation 9.
+In thecase of the softmax loss objective of Eq.
+6, the sub-gradient is?wk ?1|b|?(f,e)?b?
+?wL(w; f, e)???
+?w=wk(10)1We set ?
+= 0.85 and ?0 = 0.2 which converged well inour preliminary experiments.255where L(w; f, e) = log (ZO(w; f, e)/ZN(w; f)).After the parameter update, wk+ 12 is projectedwithin the L2-norm ball (Shalev-Shwartz et al,2007).Setting smaller batch size implies frequent up-dates to the parameters and a faster convergence.However, as briefly mentioned in Haddow et al(2011), setting batch size to a smaller value, such as|b| = 1, does not work well in practice, since BLEUis devised for a corpus based evaluation, not for anindividual sentence-wise evaluation, and it is not lin-early decomposed into a sentence-wise score (Chi-ang et al, 2008a).
+Thus, the smaller batch size mayalso imply less accurate batch-local corpus-BLEUand incorrect oracle translation selections, whichmay lead to incorrect sub-gradient estimations orslower convergence.
+In the next section we proposean optimized parameter update which works wellwhen setting a smaller batch size is impractical dueto its task loss setting.4 Optimized Online Rank Learning4.1 Optimized Parameter UpdateIn line 7 of Algorithm 2, parameters are updated bythe sub-gradient of each training instance in a batchb.
+When the sub-gradient in Equation 8 is employed,the update procedure can be rearranged aswk+ 12 ?
+(1???k)wk+?(f,e)?b,e?,e?
+?kM(wk; b)?
+(f, e?, e?
+)(11)in which each individual loss term?(?)
+is scaled uni-formly by a constant ?k/M(?
+).Instead of the uniform scaling, we propose to up-date the parameters in two steps: First, we suffer thesub-gradient from the L2 regularizationwk+ 14 ?
+(1?
+?
+?k)wk.Second, we solve the following problemargminw12?w?wk+ 14 ?22+?k?(f,e)?b,e?,e??f,e?,e?
+(12)such thatw??
+(f, e?, e?)
+?
+1?
+?f,e?,e??f,e?,e?
+?
+0.The problem is inspired by the passive-aggressivealgorithm (Crammer et al, 2006) in which new pa-rameters are derived through the tradeoff betweenthe amount of updates to the parameters and themargin-based loss.
+Note that the objective in MIRAis represented byargminw?2?w ?
+wk?22 +?(f,e)?b,e?,e??f,e?,e?
+(13)If we treat wk+ 14 as our previous parameters and set?
+= 1/?k, they are very similar.
+Unlike MIRA, thelearning rate ?k is directly used as a tradeoff param-eter which decays as training proceeds, and the sub-gradient of the global L2 regularization term is alsocombined in the problem through wk+ 14 .The Lagrangian dual of Equation 12 isargmin?e?,e?12??(f,e)?b,e?,e??e?,e??
+(f, e?, e?)?22??(f,e)?b,e?,e??e?,e?
+{1?w?k+ 14?
+(f, e?, e?
+)}(14)subject to?(f,e)?b,e?,e??e?,e?
+?
+?k.We used a dual coordinate descent algorithm (Hsiehet al, 2008)2 to efficiently solve the quadratic pro-gram (QP) in Equation 14, leading to an updatewk+ 12 ?
+wk+ 14 +?(f,e)?b,e?,e??e?,e??
+(f, e?, e?).
+(15)When compared with Equation 11, the update pro-cedure in Equation 15 rescales the contribution fromeach sub-gradient through the Lagrange multipliers?e?,e?
+.
+Note that if we set ?e?,e?
+= ?k/M(?
+), we sat-isfy the constraints in Eq.
+14, and recover the updatein Eq.
+11.In the same manner as Eq.
+12, we derive an opti-mized update procedure for the softmax loss, whichreplaces the update with Equation 10, by solving the2Specifically, each parameter is bound constrained 0 ?
+?
+?
+?k but is not summation constrained??
+?
+?k.
+Thus, we re-normalize ?
+after optimization.256following problemargminw12?w ?
+wk+ 14 ?22 + ?k?
+(f,e)?b?f (16)such thatw??
+(wk; f, e) ?
+?L(wk; f, e)?
+?f?f ?
+0in which ?(w?
+; f, e) = ?
+?wL(w; f, e)??w=w?
+.
+Equa-tion 16 can be interpreted as a cutting-plane approx-imation for the objective of Eq.
+7, in which the orig-inal objective of Eq.
+7 with the softmax loss in Eq.6 is approximated by |b| linear constraints derivedfrom the sub-gradients at pointwk (Teo et al, 2010).Eq.
+16 is efficiently solved by its Lagrange dual,leading to an updatewk+ 12 ?
+wk+ 14 +?(f,e)?b?f?
+(wk; f, e) (17)subject to?
+(f,e)?b ?f ?
+?k.
+Similar to Eq.
+15, theparameter update by?(?)
+is rescaled by its Lagrangemultipliers ?f in place of the uniform scale of 1/|b|in the sub-gradient of Eq.
+10.4.2 Line Search for Parameter MixingFor faster training, we employ an efficient paral-lel training strategy proposed by McDonald et al(2010).
+The training data D is split into S disjointshards, {D1, ..., DS}.
+Each shard learns its own pa-rameters in each single epoch t and performs param-eter mixing by averaging parameters across shards.We propose an optimized parallel training in Al-gorithm 3 which performs better mixing with re-spect to the task loss, i.e.
+negative BLEU.
+In line5, wt+12 is computed by averaging wt+1,s from allthe shards after local training using their own dataDs.
+Then, the new parameters wt+1 are obtained bylinearly interpolating with the parameters from theprevious epoch wt.
+The linear interpolation weight?
+is efficiently computed by a line search proce-dure which directly minimizes the negative corpus-BLEU.
+The procedure is exactly the same as the linesearch strategy employed in MERT using wt as ourstarting point with the direction wt+12 ?
+wt.
+Theidea of using the line search procedure is to find theoptimum parameters under corpus-BLEU without aAlgorithm 3 Distributed training with line search1: w1 ?
+02: for t = 1, ..., T do3: wt,s ?
+wt ?
+Distribute parameters4: Each shard learns wt+1,s using Ds?
+Line 3?10 in Alg.
+25: wt+12 ?
+1/S?s wt+1,s ?
+Mixing6: wt+1 ?
+(1?
+?
+)wt + ?wt+12 ?
+Line search7: end for8: return wT+1batch-local approximation.
+Unlike MERT, however,we do not memorize nor merge all the n-bests gener-ated across iterations, but keep only n-bests in eachiteration for faster training and for memory saving.Thus, the optimum ?
+obtained by the line search maybe suboptimal in terms of the training objective, butpotentially better than averaging for minimizing thefinal task loss.5 ExperimentsExperiments were carried out on the NIST 2008Chinese-to-English Open MT task.
+The trainingdata consists of nearly 5.6 million bilingual sen-tences and additional monolingual data, EnglishGigaword, for 5-gram language model estimation.MT02 and MT06 were used as our tuning and devel-opment testing, and MT08 as our final testing withall data consisting of four reference translations.We use an in-house developed hypergraph-basedtoolkit for training and decoding with synchronous-CFGs (SCFG) for hierarchical phrase-bassed SMT(Chiang, 2007).
+The system employs 14 features,consisting of standard Hiero-style features (Chiang,2007), and a set of indicator features, such as thenumber of synchronous-rules in a derivation.
+Two5-gram language models are also included, one fromthe English-side of bitexts and the other from En-glish Gigaword, with features counting the numberof out-of-vocabulary words in each model (Dyer etal., 2011).
+For faster experiments, we precomputedtranslation forests inspired by Xiao et al (2011).
+In-stead of generating forests from bitexts in each it-eration, we construct and save translation forests byintersecting the source side of SCFG with input sen-tences and by keeping the target side of the inter-257sected rules.
+n-bests are generated from the pre-computed forests on the fly using the forest rescor-ing framework (Huang and Chiang, 2007) with ad-ditional non-local features, such as 5-gram languagemodels.We compared four algorithms, MERT, PRO,MIRA and our proposed online settings, online rankoptimization (ORO).
+Note that ORO without our op-timization methods in Section 4 is essentially thesame as Pegasos, but differs in that we employ thealgorithm for ranking structured outputs with var-ied objectives, hinge loss or softmax loss3.
+MERTlearns parameters from forests (Kumar et al, 2009)with 4 restarts and 8 random directions in each it-eration.
+We experimented on a variant of PRO4, inwhich the objective in Eq.
+4 with the hinge loss ofEq.
+5 was solved in each iteration in line 4 of Alg.
+1using an off-the-shelf solver5.
+Our MIRA solves theproblem in Equation 13 in line 7 of Alg.
+2.
+For a sys-tematic comparison, we used our exhaustive oracletranslation selection method in Section 3 for PRO,MIRA and ORO.
+For each learning algorithm, weran 30 iterations and generated duplicate removed1,000-best translations in each iteration.
+The hyper-parameter ?
+for PRO and ORO was set to 10?5, se-lected from among {10?3, 10?4, 10?5}, and 102 forMIRA, chosen from {10, 102, 103} by preliminarytesting on MT06.
+Both decoding and learning areparallelized and run on 8 cores.
+Each online learn-ing took roughly 12 hours, and PRO took one day.
+Ittook roughly 3 days for MERT with 20 iterations.Translation results are measured by case sensitiveBLEU.Table 1 presents our main results.
+Among the pa-rameters from multiple iterations, we report the out-puts that performed the best on MT06.
+With Moses(Koehn et al, 2007), we achieved 30.36 and 23.64BLEU for MT06 and MT08, respectively.
+We de-note the ?O-?
+prefix for the optimized parameter up-dates discussed in Section 4.1, and the ?-L?
+suffix3The other major difference is the use of a simpler learningrate, 1?k , which was very slow in our preliminary studies.4Hopkins and May (2011) minimized logistic loss sampledfrom the merged n-bests, and sentence-BLEU was used for de-termining ranks.5We used liblinear (Fan et al, 2008) at http://www.csie.ntu.edu.tw/?cjlin/liblinear with the solvertype of 3.MT06 MT08MERT 31.45?
+24.13?PRO 31.76?
+24.43?MIRA-L 31.42?
+24.15?ORO-Lhinge 29.76 21.96O-ORO-Lhinge 32.06 24.95ORO-Lsoftmax 30.77 23.07O-ORO-Lsoftmax 31.16?
+23.20Table 1: Translation results by BLEU.
+Results with-out significant differences from the MERT baselineare marked ?.
+The numbers in boldface are signif-icantly better than the MERT baseline (both mea-sured by the bootstrap resampling (Koehn, 2004)with p > 0.05).05101520253035400  5  10  15  20  25  30BLEUiterationMIRA-L MT02MT08ORO-L MT02MT08O-ORO-L MT02MT08Figure 1: Learning curves for three algorithms,MIRA-L, ORO-Lhinge and O-ORO-Lhinge.for parameter mixing by line search as described inSection 4.2.
+The batch size was set to 16 for MIRAand ORO.
+In general, our PRO and MIRA settingsachieved the results very comparable to MERT.
+Thehinge-loss and softmax objective OROs were lowerthan those of the three baselines.
+The softmax ob-jective with the optimized update (O-ORO-Lsoftmax)performed better than the non-optimized version,but it was still lower than our baselines.
+In the caseof the hinge-loss objective with the optimized update(O-ORO-Lhinge), the gain in MT08 was significant,and achieved the best BLEU.Figure 1 presents the learning curves for three al-gorithms MIRA-L, ORO-Lhinge and O-ORO-Lhinge,in which the performance is measured by BLEU258MT06 MT08MIRA 30.95 23.06MIRA-L 31.42?
+24.15?OROhinge 29.09 21.93ORO-Lhinge 29.76 21.96OROsoftmax 30.80 23.06ORO-Lsoftmax 30.77 23.07O-OROhinge 31.15?
+23.20O-ORO-Lhinge 32.06 24.95O-OROsoftmax 31.40?
+23.93?O-ORO-Lsoftmax 31.16?
+23.20Table 2: Parameter mixing by line search.on the training data (MT02) and on the test data(MT08).
+MIRA-L quickly converges and is slightlyunstable in the test set, while ORO-Lhinge is very sta-ble and slow to converge, but with low performanceon the training and test data.
+The stable learningcurve in ORO-Lhinge is probably influenced by ourlearning rate parameter ?0 = 0.2, which will beinvestigated in future work.
+O-ORO-Lhinge is lessstable in several iterations, but steadily improves itsBLEU.
+The behavior is justified by our optimizedupdate procedure, in which the learning rate ?k isused as a tradeoff parameter.
+Thus, it tries a veryaggressive update at the early stage of training, buteventually becomes conservative in updating param-eters.Next, we compare the effect of line search for pa-rameter mixing in Table 2.
+Line search was veryeffective for MIRA and O-OROhinge, but less effec-tive for the others.
+Since the line search proceduredirectly minimizes a task loss, not objectives, thismay hurt the performance for the softmax objective,where the margins between the correct and incorrecttranslations are softly penalized.Finally, Table 3 shows the effect of batch size se-lected from {1, 4, 8, 16}.
+There seems to be no cleartrends in MIRA, and we achieved BLEU score of24.58 by setting the batch size to 8.
+Clearly, set-ting smaller batch size is better for ORO, but it isthe reverse for the optimized variants of both thehinge and softmax objectives.
+Figure 2 comparesORO-Lhinge and O-ORO-Lhinge on MT02 with dif-ferent batch size settings.
+ORO-Lhinge convergesfaster when the batch size is smaller and fine tun-20253035400  5  10  15  20  25  30BLEUiterationORO-L batch-16batch-8batch-4O-ORO-L batch-16batch-8batch-4Figure 2: Learning curves on MT02 for ORO-Lhingeand O-ORO-Lhinge with different batch size.ing of the learning rate parameter will be requiredfor a larger batch size.
+As discussed in Section 3,the smaller batch size means frequent updates to pa-rameters and a faster convergence, but potentiallyleads to a poor performance since the corpus-BLEUis approximately computed in a local batch.
+Our op-timized update algorithms address the problem byadjusting the tradeoff between the amount of up-date to parameters and the loss, and perform betterfor larger batch sizes with a more accurate corpus-BLEU.6 Related WorkOur work is largely inspired by pairwise rank op-timization (Hopkins and May, 2011), but runs inan online fashion similar to (Watanabe et al, 2007;Chiang et al, 2008b).
+Major differences come fromthe corpus-BLEU computation used to select oracletranslations.
+Instead of the sentence-BLEU used byHopkins andMay (2011) or the corpus-BLEU statis-tics accumulated from previous translations gener-ated by different parameters (Watanabe et al, 2007;Chiang et al, 2008b), we used a simple batch lo-cal corpus-BLEU (Haddow et al, 2011) in the sameway as an online approximation to the objectives.An alternative is the use of a Taylor series approxi-mation (Smith and Eisner, 2006; Rosti et al, 2011),which was not investigated in this paper.Training is performed by SGD with a parame-ter projection method (Shalev-Shwartz et al, 2007).Slower training incurred by the larger batch size259MT06 MT08batch size 1 4 8 16 1 4 8 16MIRA-L 31.28?
+31.53?
+31.63?
+31.42?
+23.46 23.97?
+24.58 24.15?ORO-Lhinge 31.32?
+30.69 29.61 29.76 23.63 23.12 22.07 21.96O-ORO-Lhinge 31.44?
+31.54?
+31.35?
+32.06 23.72 24.02?
+24.28?
+24.95ORO-Lsoftmax 25.10 31.66?
+31.31?
+30.77 19.27 23.59 23.50 23.07O-ORO-Lsoftmax 31.15?
+31.17?
+30.90 31.16?
+23.62 23.31 23.03 23.20Table 3: Translation results with varied batch size.for more accurate corpus-BLEU is addressed byoptimally scaling parameter updates in the spiritof a passive-aggressive algorithm (Crammer et al,2006).
+The derived algorithm is very similar toMIRA, but differs in that the learning rate is em-ployed as a hyperparameter for controlling the fit-ness to training data which decays when trainingproceeds.
+The non-uniform sub-gradient based up-date is also employed in an exponentiated gradient(EG) algorithm (Kivinen and Warmuth, 1997; Kivi-nen andWarmuth, 2001) in which parameter updatesare maximum-likely estimated using an exponen-tially combined sub-gradients.
+In contrast, our ap-proach relies on an ultraconservative update whichtradeoff between the amount of updates performedto the parameters and the progress made for the ob-jectives by solving a QP subproblem.Unlike a complex parallelization by Chiang etal.
+(2008b), in which support vectors are asyn-chronously exchanged among parallel jobs, train-ing is efficiently and easily carried out by distribut-ing training data among shards and by mixing pa-rameters in each iteration (McDonald et al, 2010).Rather than simple averaging, new parameters arederived by linearly interpolating with the previouslymixed parameters, and its weight is determined bythe line search algorithm employed in (Och, 2003).7 ConclusionWe proposed a variant of an online learning al-gorithm inspired by a batch learning algorithm of(Hopkins and May, 2011).
+Training is performed bySGDwith a parameter projection (Shalev-Shwartz etal., 2007) using a larger batch size for a more accu-rate batch local corpus-BLEU estimation.
+Parameterupdates in each iteration is further optimized usingan idea from a passive-aggressive algorithm (Cram-mer et al, 2006).
+Learning is efficiently parallelized(McDonald et al, 2010) and the locally learned pa-rameters are mixed by an additional line search step.Experiments indicate that better performance wasachieved by our optimized updates and by the moresophisticated parameter mixing.In future work, we would like to investigate otherobjectives with a more direct task loss, such as max-margin (Taskar et al, 2004), risk (Smith and Eisner,2006) or softmax-loss (Gimpel and Smith, 2010),and different regularizers, such as L1-norm for asparse solution.
+Instead of n-best approximations,we may directly employ forests for a better con-ditional log-likelihood estimation (Li and Eisner,2009).
+We would also like to explore other mix-ing strategies for parallel training which can directlyminimize the training objectives like those proposedfor a cutting-plane algorithm (Franc and Sonnen-burg, 2008).AcknowledgmentsWe would like to thank anonymous reviewers andour colleagues for helpful comments and discussion.ReferencesAdam L. Berger, Vincent J. Della Pietra, and StephenA.
+Della Pietra.
+1996.
+A maximum entropy approachto natural language processing.
+Computational Lin-guistics, 22:39?71, March.Phil Blunsom, Trevor Cohn, and Miles Osborne.
+2008.A discriminative latent variable model for statisticalmachine translation.
+In Proc.
+of ACL-08: HLT, pages200?208, Columbus, Ohio, June.Peter F. Brown, Vincent J. Della Pietra, Stephen A. DellaPietra, and Robert L. Mercer.
+1993.
+The mathematicsof statistical machine translation: parameter estima-tion.
+Computational Linguistics, 19:263?311, June.260Eugene Charniak and Mark Johnson.
+2005.
+Coarse-to-fine n-best parsing and maxent discriminative rerank-ing.
+In Proc.
+of ACL 2005, pages 173?180, Ann Arbor,Michigan, June.David Chiang, Steve DeNeefe, Yee Seng Chan, andHwee Tou Ng.
+2008a.
+Decomposability of transla-tion metrics for improved evaluation and efficient al-gorithms.
+In Proc.
+of EMNLP 2008, pages 610?619,Honolulu, Hawaii, October.David Chiang, Yuval Marton, and Philip Resnik.
+2008b.Online large-margin training of syntactic and struc-tural translation features.
+In Proc.
+of EMNLP 2008,pages 224?233, Honolulu, Hawaii, October.David Chiang.
+2007.
+Hierarchical phrase-based transla-tion.
+Computational Linguistics, 33(2):201?228.Jonathan H. Clark, Chris Dyer, Alon Lavie, and Noah A.Smith.
+2011.
+Better hypothesis testing for statisticalmachine translation: Controlling for optimizer insta-bility.
+In Proc.
+of ACL 2011, pages 176?181, Portland,Oregon, USA, June.Michael Collins and Terry Koo.
+2005.
+Discrimina-tive reranking for natural language parsing.
+Compu-tational Linguistics, 31:25?70, March.Koby Crammer, Ofer Dekel, Joseph Keshet, Shai Shalev-Shwartz, and Yoram Singer.
+2006.
+Online passive-aggressive algorithms.
+Journal of Machine LearningResearch, 7:551?585, March.Chris Dyer, Kevin Gimpel, Jonathan H. Clark, andNoah A. Smith.
+2011.
+The cmu-ark german-englishtranslation system.
+In Proc.
+of SMT 2011, pages 337?343, Edinburgh, Scotland, July.Rong-En Fan, Kai-Wei Chang, Cho-Jui Hsieh, Xiang-Rui Wang, and Chih-Jen Lin.
+2008.
+Liblinear: Alibrary for large linear classification.
+Journal of Ma-chine Learning Research, 9:1871?1874, June.Vojte?ch Franc and Soeren Sonnenburg.
+2008.
+Optimizedcutting plane algorithm for support vector machines.In Proc.
+of ICML ?08, pages 320?327, Helsinki, Fin-land.Michel Galley and Chris Quirk.
+2011.
+Optimal searchfor minimum error rate training.
+In Proc.
+of EMNLP2011, pages 38?49, Edinburgh, Scotland, UK., July.Kevin Gimpel and Noah A. Smith.
+2010.
+Softmax-margin crfs: Training log-linear models with costfunctions.
+In Proc.
+of NAACL-HLT 2010, pages 733?736, Los Angeles, California, June.Barry Haddow, Abhishek Arun, and Philipp Koehn.2011.
+Samplerank training for phrase-based machinetranslation.
+In Proc.
+of SMT 2011, pages 261?271, Ed-inburgh, Scotland, July.Ralf Herbrich, Thore Graepel, and Klaus Obermayer.1999.
+Support vector learning for ordinal regression.In In Proc.
+of International Conference on ArtificialNeural Networks, pages 97?102.Mark Hopkins and Jonathan May.
+2011.
+Tuning as rank-ing.
+In Proc.
+of EMNLP 2011, pages 1352?1362, Ed-inburgh, Scotland, UK., July.Cho-Jui Hsieh, Kai-Wei Chang, Chih-Jen Lin, S. SathiyaKeerthi, and S. Sundararajan.
+2008.
+A dual coordinatedescent method for large-scale linear svm.
+In Proc.
+ofICML ?08, pages 408?415, Helsinki, Finland.Liang Huang and David Chiang.
+2007.
+Forest rescor-ing: Faster decoding with integrated language models.In Proc.
+of ACL 2007, pages 144?151, Prague, CzechRepublic, June.Jyrki Kivinen and Manfred K. Warmuth.
+1997.
+Expo-nentiated gradient versus gradient descent for linearpredictors.
+Information and Computation, 132(1):1?63, January.J.
+Kivinen and M. K. Warmuth.
+2001.
+Relativeloss bounds for multidimensional regression problems.Machine Learning, 45(3):301?329, December.Philipp Koehn, Hieu Hoang, Alexandra Birch, ChrisCallison-Burch, Marcello Federico, Nicola Bertoldi,Brooke Cowan, Wade Shen, Christine Moran, RichardZens, Chris Dyer, Ondrej Bojar, Alexandra Con-stantin, and Evan Herbst.
+2007.
+Moses: Open sourcetoolkit for statistical machine translation.
+In Procc ofACL 2007, pages 177?180, Prague, Czech Republic,June.Philipp Koehn.
+2004.
+Statistical significance tests formachine translation evaluation.
+In Proc.
+of EMNLP2004, pages 388?395, Barcelona, Spain, July.Shankar Kumar, Wolfgang Macherey, Chris Dyer, andFranz Och.
+2009.
+Efficient minimum error rate train-ing and minimum bayes-risk decoding for translationhypergraphs and lattices.
+In Proc.
+of ACL-IJCNLP2009, pages 163?171, Suntec, Singapore, August.Zhifei Li and Jason Eisner.
+2009.
+First- and second-orderexpectation semirings with applications to minimum-risk training on translation forests.
+In Proc.
+of EMNLP2009, pages 40?51, Singapore, August.Percy Liang, Alexandre Bouchard-Co?te?, Dan Klein, andBen Taskar.
+2006.
+An end-to-end discriminativeapproach to machine translation.
+In Proc.
+of COL-ING/ACL 2006, pages 761?768, Sydney, Australia,July.Ryan McDonald, Keith Hall, and Gideon Mann.
+2010.Distributed training strategies for the structured per-ceptron.
+In Proc.
+of NAACL-HLT 2010, pages 456?464, Los Angeles, California, June.Robert C. Moore and Chris Quirk.
+2008.
+Randomrestarts in minimum error rate training for statisticalmachine translation.
+In Proc.
+of COLING 2008, pages585?592, Manchester, UK, August.Franz Josef Och and Hermann Ney.
+2002.
+Discrimina-tive training and maximum entropy models for statis-261tical machine translation.
+In Proc.
+of ACL 2002, pages295?302, Philadelphia, July.Franz Josef Och.
+2003.
+Minimum error rate training instatistical machine translation.
+In Proc.
+of ACL 2003,pages 160?167, Sapporo, Japan, July.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2002.
+Bleu: a method for automatic evalu-ation of machine translation.
+In Proc.
+of ACL 2002,pages 311?318, Philadelphia, Pennsylvania, USA,July.Antti-Veikko Rosti, Bing Zhang, Spyros Matsoukas, andRichard Schwartz.
+2011.
+Expected bleu training forgraphs: Bbn system description for wmt11 systemcombination task.
+In Proc.
+of SMT 2011, pages 159?165, Edinburgh, Scotland, July.Shai Shalev-Shwartz, Yoram Singer, and Nathan Srebro.2007.
+Pegasos: Primal estimated sub-gradient solverfor svm.
+In Proc.
+of ICML ?07, pages 807?814, Cor-valis, Oregon.David A. Smith and Jason Eisner.
+2006.
+Minimumrisk annealing for training log-linear models.
+In Proc.of COLING/ACL 2006, pages 787?794, Sydney, Aus-tralia, July.Ben Taskar, Dan Klein, Mike Collins, Daphne Koller, andChristopher Manning.
+2004.
+Max-margin parsing.
+InProc.
+of EMNLP 2004, pages 1?8, Barcelona, Spain,July.Choon Hui Teo, S.V.N.
+Vishwanthan, Alex J. Smola, andQuoc V. Le.
+2010.
+Bundle methods for regularizedrisk minimization.
+Journal of Machine Learning Re-search, 11:311?365, March.Yoshimasa Tsuruoka, Jun?ichi Tsujii, and Sophia Ana-niadou.
+2009.
+Stochastic gradient descent trainingfor l1-regularized log-linear models with cumulativepenalty.
+In Proc.
+of ACL-IJCNLP 2009, pages 477?485, Suntec, Singapore, August.Ashish Venugopal.
+2005.
+Considerations in maximummutual information and minimum classification errortraining for statistical machine translation.
+In Proc.
+ofEAMT-05, page 3031.Taro Watanabe, Jun Suzuki, Hajime Tsukada, and HidekiIsozaki.
+2007.
+Online large-margin training for statis-tical machine translation.
+In Proc.
+of EMNLP-CoNLL2007, pages 764?773, Prague, Czech Republic, June.Xinyan Xiao, Yang Liu, Qun Liu, and Shouxun Lin.2011.
+Fast generation of translation forest for large-scale smt discriminative training.
+In Proc.
+of EMNLP2011, pages 880?888, Edinburgh, Scotland, UK., July.262

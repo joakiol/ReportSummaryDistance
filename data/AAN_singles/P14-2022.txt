@@ -1,0 +1,169 @@
+Proceedings of the 52nd Annual Meeting of the Association for Computational Linguistics (Short Papers), pages 130?135,Baltimore, Maryland, USA, June 23-25 2014.c?2014 Association for Computational LinguisticsFaster Phrase-Based Decoding by Refining Feature StateKenneth Heafield Michael Kayser Christopher D. ManningComputer Science Department Stanford University, Stanford, CA, 94305{heafield,mkayser,manning}@stanford.eduAbstractWe contribute a faster decoding algo-rithm for phrase-based machine transla-tion.
+Translation hypotheses keep trackof state, such as context for the languagemodel and coverage of words in the sourcesentence.
+Most features depend upon onlypart of the state, but traditional algorithms,including cube pruning, handle state atom-ically.
+For example, cube pruning will re-peatedly query the language model withhypotheses that differ only in source cov-erage, despite the fact that source cover-age is irrelevant to the language model.Our key contribution avoids this behav-ior by placing hypotheses into equivalenceclasses, masking the parts of state thatmatter least to the score.
+Moreover, we ex-ploit shared words in hypotheses to itera-tively refine language model scores ratherthan handling language model state atom-ically.
+Since our algorithm and cube prun-ing are both approximate, improvementcan be used to increase speed or accuracy.When tuned to attain the same accuracy,our algorithm is 4.0?7.7 times as fast asthe Moses decoder with cube pruning.1 IntroductionTranslation speed is critical to making suggestionsas translators type, mining for parallel data bytranslating the web, and running on mobile de-vices without Internet connectivity.
+We contributea fast decoding algorithm for phrase-based ma-chine translation along with an implementation ina new open-source (LGPL) decoder available athttp://kheafield.com/code/.Phrase-based decoders (Koehn et al, 2007; Ceret al, 2010; Wuebker et al, 2012) keep trackof several types of state with translation hypothe-ses: coverage of the source sentence thus far, con-text for the language model, the last position forthe distortion model, and anything else featuresneed.
+Existing decoders handle state atomically:hypotheses that have exactly the same state can berecombined and efficiently handled via dynamicprogramming, but there is no special handling forpartial agreement.
+Therefore, features are repeat-edly consulted regarding hypotheses that differonly in ways irrelevant to their score, such as cov-erage of the source sentence.
+Our decoder bun-dles hypotheses into equivalence classes so thatfeatures can focus on the relevant parts of state.We pay particular attention to the languagemodel because it is responsible for much of the hy-pothesis state.
+As the decoder builds translationsfrom left to right (Koehn, 2004), it records the lastN ?
+1 words of each hypothesis so that they canbe used as context to score the first N ?
+1 wordsof a phrase, where N is the order of the languagemodel.
+Traditional decoders (Huang and Chiang,2007) try thousands of combinations of hypothe-ses and phrases, hoping to find ones that the lan-guage model likes.
+Our algorithm instead discov-ers good combinations in a coarse-to-fine manner.The algorithm exploits the fact that hypotheses of-ten share the same suffix and phrases often sharethe same prefix.
+These shared suffixes and prefixesallow the algorithm to coarsely reason over manycombinations at once.Our primary contribution is a new search algo-rithm that exploits the above observations, namelythat state can be divided into pieces relevant toeach feature and that language model state can befurther subdivided.
+The primary claim is that ouralgorithm is faster and more accurate than the pop-ular cube pruning algorithm.2 Related WorkOur previous work (Heafield et al, 2013) devel-oped language model state refinement for bottom-130up decoding in syntatic machine translation.
+Inbottom-up decoding, hypotheses can be extendedto the left or right, so hypotheses keep track ofboth their prefix and suffix.
+The present phrase-based setting is simpler because sentences areconstructed from left to right, so prefix infor-mation is unnecessary.
+However, phrase-basedtranslation implements reordering by allowing hy-potheses that translate discontiguous words in thesource sentence.
+There are exponentially manyways to cover the source sentence and hypothesescarry this information as additional state.
+A maincontribution in this paper is efficiently ignoringcoverage when evaluating the language model.
+Incontrast, syntactic machine translation hypothesescorrespond to contiguous spans in the source sen-tence, so in prior work we simply ran the searchalgorithm in every span.Another improvement upon Heafield et al(2013) is that we previously made no effort toexploit common words that appear in translationrules, which are analogous to phrases.
+In thiswork, we explicitly group target phrases by com-mon prefixes, doing so directly in the phrase table.Coarse-to-fine approaches (Petrov et al, 2008;Zhang and Gildea, 2008) invoke the decodermultiple times with increasingly detailed models,pruning after each pass.
+The key difference in ourwork is that, rather than refining models in lockstep, we effectively refine the language model ondemand for hypotheses that score well.
+More-over, their work was performed in syntactic ma-chine translation while we address issues specificto phrase-based translation.Our baseline is cube pruning (Chiang, 2007;Huang and Chiang, 2007), which is both a wayto organize search and an algorithm to searchthrough cross products of sets.
+We adopt the samesearch organization (Section 3.1) but change howcross products are searched.Chang and Collins (2011) developed an exactdecoding algorithm based on Lagrangian relax-ation.
+However, it has not been shown to tractablyscale to 5-gram language models used by manymodern translation systems.3 DecodingWe begin by summarizing the high-level organiza-tion of phrase-based cube pruning (Koehn, 2004;Koehn et al, 2007; Huang and Chiang, 2007).Sections 3.2 and later show our contribution.0 word 1 wordthecat.2 wordscatthe catcat the.
+the3 wordscat .the cat .cat the .. the catFigure 1: Stacks to translate the French ?le chat .
+?into English.
+Filled circles indicate that the sourceword has been translated.
+A phrase translates ?lechat?
+as simply ?cat?, emphasizing that stacks areorganized by the number of source words ratherthan the number of target words.3.1 Search OrganizationPhrase-based decoders construct hypotheses fromleft to right by appending phrases in the target lan-guage.
+The decoder organizes this search processusing stacks (Figure 1).
+Stacks contain hypothe-ses that have translated the same number of sourcewords.
+The zeroth stack contains one hypothe-sis with nothing translated.
+Subsequent stacks arebuilt by extending hypotheses in preceding stacks.For example, the second stack contains hypothe-ses that translated two source words either sepa-rately or as a phrasal unit.
+Returning to Figure 1,the decoder can apply a phrase pair to translate ?lechat?
+as ?cat?
+or it can derive ?the cat?
+by translat-ing one word at a time; both appear in the secondstack because they translate two source words.
+Togeneralize, the decoder populates the ith stack bypairing hypotheses in the i ?
+jth stack with tar-get phrases that translate source phrases of lengthj.
+Hypotheses remember which source word theytranslated, as indicated by the filled circles.The reordering limit prevents hypotheses fromjumping around the source sentence too much anddramatically reduces the search space.
+Formally,the decoder cannot propose translations that wouldrequire jumping back more than R words in thesource sentence, including multiple small jumps.In practice, stacks are limited to k hypothe-ses, where k is set by the user.
+Small k is fasterbut may prune good hypotheses, while large k isslower but more thorough, thereby comprising atime-accuracy trade-off.
+The central question inthis paper is how to select these k hypotheses.Populating a stack boils down to two steps.First, the decoder matches hypotheses with sourcephrases subject to three constraints: the totalsource length matches the stack being populated,none of the source words has already been trans-131countryanationsfewcountriesFigure 2: Hypothesis suffixes arranged into a trie.The leaves indicate source coverage and any otherhypothesis state.lated, and the reordering limit.
+Second, the de-coder searches through these matches to selectk high-scoring hypotheses for placement in thestack.
+We improve this second step.The decoder provides our algorithm with pairsconsisting of a hypothesis and a compatible sourcephrase.
+Each source phrase translates to multipletarget phrases.
+The task is to grow these hypothe-ses by appending a target phrase, yielding new hy-potheses.
+These new hypotheses will be placedinto a stack of size k, so we are interested in se-lecting k new hypotheses that score highly.Beam search (Lowerre, 1976; Koehn, 2004)tries every hypothesis with every compatible tar-get phrase then selects the top k new hypothesesby score.
+This is wasteful because most hypothe-ses are discarded.
+Instead, we follow cube pruning(Chiang, 2007) in using a priority queue to gen-erate k hypotheses.
+A key difference is that wegenerate these hypotheses iteratively.3.2 TriesFor each source phrase, we collect the set of com-patible hypotheses.
+We then place these hypothe-ses in a trie that emphasizes the suffix words be-cause these matter most when appending a targetphrase.
+Figure 2 shows an example.
+While it suf-fices to build this trie on the last N ?
+1 wordsthat matter to the language model, Li and Khu-danpur (2008) have identified cases where fewerwords are necessary because the language modelwill back off.
+The leaves of the trie are completehypotheses and reveal information irrelevant to thelanguage model, such as coverage of the sourcesentence and the state of other features.Each source phrase translates to a set of tar-get phrases.
+Because these phrases will be ap-pended to a hypothesis, the first few words mat-ter the most to the language model.
+We thereforewhichhave diplomaticarethat havediplomaticFigure 3: Target phrases arranged into a trie.
+Setin italic, leaves reveal parts of the phrase that areirrelevant to the language model.arrange the target phrases into a prefix trie.
+Anexample is shown in Figure 3.
+Similar to the hy-pothesis trie, the depth may be shorter than N ?
+1in cases where the language model will provablyback off (Li and Khudanpur, 2008).
+The trie canalso be short because the target phrase has fewerthan N ?
+1 words.
+We currently store this triedata structure directly in the phrase table, thoughit could also be computed on demand to save mem-ory.
+Empirically, our phrase table uses less RAMthan Moses?s memory-based phrase table.As an optimization, a trie reveals multiplewords when there would otherwise be no branch-ing.
+This allows the search algorithm to make de-cisions only when needed.Following Heafield et al (2013), leaves in thetrie take the score of the underlying hypothesis ortarget phrase.
+Non-leaf nodes take the maximumscore of their descendants.
+Children of a node aresorted by score.3.3 Boundary PairsThe idea is that the decoder reasons over pairs ofnodes in the hypothesis and phrase tries before de-vling into detail.
+In this way, it can determine whatthe language model likes and, conversely, quicklydiscard combinations that the model does not like.A boundary pair consists of a node in the hy-pothesis trie and a node in the target phrase trie.For example, the decoder starts at the root of eachtrie with the boundary pair (, ).
+The score of aboundary pair is the sum of the scores of the un-derlying trie nodes.
+However, once some wordshave been revealed, the decoder calls the languagemodel to compute a score adjustment.
+For exam-ple, the boundary pair (country, that) has score ad-justmentlogp(that | country)p(that)times the weight of the language model.
+Thishas the effect of cancelling out the estimate made132when the phrase was scored in isolation, replacingit with a more accurate estimate based on avail-able context.
+These score adjustments are efficientto compute because the decoder retained a pointerto ?that?
+in the language model?s data structure(Heafield et al, 2011).3.4 SplittingRefinement is the notion that the boundary pair(, ) divides into several boundary pairs that re-veal specific words from hypotheses or targetphrases.
+The most straightforward way to do thisis simply to split into all children of a trie node.Continuing the example from Figure 2, we couldsplit (, ) into three boundary pairs: (country, ),(nations, ), and (countries, ).
+However, it issomewhat inefficient to separately consider thelow-scoring child (countries, ).
+Instead, we con-tinue to split off the best child (country, ) andleave a note that the zeroth child has been split off,denoted ([1+], ).
+The index increases each timea child is split off.The the boundary pair ([1+], ) no longercounts (country, ) as a child, so its score is lower.Splitting alternates sides.
+For example,(country, ) splits into (country, that) and(country, [1+]).
+If one side has completelyrevealed words that matter to the language model,then splitting continues with the other side.This procedure ensures that the language modelscore is completely resolved before consideringirrelevant differences, such as coverage of thesource sentence.3.5 Priority QueueSearch proceeds in a best-first fashion controlledby a priority queue.
+For each source phrase,we convert the compatible hypotheses into a trie.The target phrases were already converted into atrie when the phrase table was loaded.
+We thenpush the root (, ) boundary pair into the prior-ity queue.
+We do this for all source phrases underconsideration, putting their root boundary pairsinto the same priority queue.
+The algorithm thenloops by popping the top boundary pair.
+It the topboundary pair uniquely describes a hypothesis andtarget phrase, then remaining features are evalu-ated and the new hypothesis is output to the de-coder?s stack.
+Otherwise, the algorithm splits theboundary pair and pushes both split versions.
+Iter-ation continues until k new hypotheses have beenfound.3.6 Overall AlgorithmWe build hypotheses from left-to-right and man-age stacks just like cube pruning.
+The only dif-ference is how the k elements of these stacks areselected.When the decoder matches a hypothesis with acompatible source phrase, we immediately evalu-ate the distortion feature and update future costs,both of which are independent of the target phrase.Our future costs are exactly the same as those usedin Moses (Koehn et al, 2007): the highest-scoringway to cover the rest of the source sentence.
+Thisincludes the language model score within targetphrases but ignores the change in language modelscore that would occur were these phrases to beappended together.
+The hypotheses compatiblewith each source phrase are arranged into a trie.Finally, the priority queue algorithm from the pre-ceding section searches for options that the lan-guage model likes.4 ExperimentsThe primary claim is that our algorithm performsbetter than cube pruning in terms of the trade-offbetween time and accuracy.
+We compare our newdecoder implementation with Moses (Koehn et al,2007) by translating 1677 sentences from Chineseto English.
+These sentences are a deduplicatedsubset of the NIST Open MT 2012 test set andwere drawn from Chinese online text sources, suchas discussion forums.
+We trained our phrase tableusing a bitext of 10.8 million sentence pairs, whichafter tokenization amounts to approximately 290million words on the English side.
+The bitext con-tains data from several sources, including news ar-ticles, UN proceedings, Hong Kong governmentdocuments, online forum data, and specializedsources such as an idiom translation table.
+We alsotrained our language model on the English half ofthis bitext using unpruned interpolated modifiedKneser-Ney smoothing (Kneser and Ney, 1995;Chen and Goodman, 1998).The system has standard phrase table, length,distortion, and language model features.
+Weplan to implement lexicalized reordering in futurework; without this, the test system is 0.53 BLEU(Papineni et al, 2002) point behind a state-of-the-art system.
+We set the reordering limit to R = 15.The phrase table was pre-pruned by applying thesame heuristic as Moses: select the top 20 targetphrases by score, including the language model.133-29.5-29.0-28.5-28.0-27.50 1 2 3 4AveragemodelscoreCPU seconds/sentenceThis WorkMoses1314150 1 2 3 4UncasedBLEUCPU seconds/sentenceThis WorkMosesFigure 4: Performance of our decoder and Moses for various stack sizes k.Moses (Koehn et al, 2007) revision d6df825was compiled with all optimizations recom-mended in the documentation.
+We use the in-memory phrase table for speed.
+Tests were runon otherwise-idle identical machines with 32 GBRAM; the processes did not come close to runningout of memory.
+The language model was com-piled into KenLM probing format (Heafield, 2011)and placed in RAM while text phrase tables wereforced into the disk cache before each run.
+Timingis based on CPU usage (user plus system) minusloading time, as measured by running on emptyinput; our decoder is also faster at loading.
+All re-sults are single-threaded.
+Model score is compa-rable across decoders and averaged over all 1677sentences; higher is better.
+The relationship be-tween model score and uncased BLEU (Papineniet al, 2002) is noisy, so peak BLEU is not attainedby the highest search accuracy.Figure 4 shows the results for pop limits k rang-ing from 5 to 10000 while Table 1 shows selectresults.
+For Moses, we also set the stack size tok to disable a second pruning pass, as is common.Because Moses is slower, we also ran our decoderwith higher beam sizes to fill in the graph.
+Ourdecoder is more accurate, but mostly faster.
+Wecan interpret accuracy improvments as speed im-provements by asking how much time is requiredto attain the same accuracy as the baseline.
+Bythis metric, our decoder is 4.0 to 7.7 times as fastas Moses, depending on k.Model CPU BLEUStack Moses This Moses This Moses This10 -29.96 -29.70 0.019 0.004 12.92 13.46100 -28.68 -28.54 0.057 0.016 14.19 14.401000 -27.87 -27.80 0.463 0.116 14.91 14.9510000 -27.46 -27.39 4.773 1.256 15.32 15.28Table 1: Results for select stack sizes k.5 ConclusionWe have contributed a new phrase-based search al-gorithm based on the principle that the languagemodel cares the most about boundary words.
+Thisleads to two contributions: hiding irrelevant statefrom features and an incremental refinement algo-rithm to find high-scoring combinations.
+This al-gorithm is implemented in a new fast phrase-baseddecoder, which we release as open-source underthe LGPL at kheafield.com/code/.AcknowledgementsThis work was supported by the Defense Ad-vanced Research Projects Agency (DARPA)Broad Operational Language Translation (BOLT)program through IBM.
+This work used Stam-pede provided by the Texas Advanced Comput-ing Center (TACC) at The University of Texas atAustin under XSEDE allocation TG-CCR140009.XSEDE is supported by NSF grant number OCI-1053575.
+Any opinions, findings, and conclusionsor recommendations expressed in this material arethose of the author(s) and do not necessarily reflectthe view of DARPA or the US government.134ReferencesDaniel Cer, Michel Galley, Daniel Jurafsky, andChristopher D. Manning.
+2010.
+Phrasal: A statis-tical machine translation toolkit for exploring newmodel features.
+In Proceedings of the NAACL HLT2010 Demonstration Session, pages 9?12, Los An-geles, California, June.
+Association for Computa-tional Linguistics.Yin-Wen Chang and Michael Collins.
+2011.
+Exact de-coding of phrase-based translation models throughlagrangian relaxation.
+In Proceedings of the 2011Conference on Empirical Methods in Natural Lan-guage Processing, Edinburgh, Scotland, UK, July.Association for Computational Linguistics.Stanley Chen and Joshua Goodman.
+1998.
+An em-pirical study of smoothing techniques for languagemodeling.
+Technical Report TR-10-98, HarvardUniversity, August.David Chiang.
+2007.
+Hierarchical phrase-based trans-lation.
+Computational Linguistics, 33:201?228,June.Kenneth Heafield, Hieu Hoang, Philipp Koehn, Tet-suo Kiso, and Marcello Federico.
+2011.
+Left lan-guage model state for syntactic machine translation.In Proceedings of the International Workshop onSpoken Language Translation, San Francisco, CA,USA, December.Kenneth Heafield, Philipp Koehn, and Alon Lavie.2013.
+Grouping language model boundary wordsto speed k-best extraction from hypergraphs.
+InProceedings of the 2013 Conference of the NorthAmerican Chapter of the Association for Computa-tional Linguistics: Human Language Technologies,Atlanta, Georgia, USA, June.Kenneth Heafield.
+2011.
+KenLM: Faster and smallerlanguage model queries.
+In Proceedings of the SixthWorkshop on Statistical Machine Translation, Edin-burgh, UK, July.
+Association for Computational Lin-guistics.Liang Huang and David Chiang.
+2007.
+Forest rescor-ing: Faster decoding with integrated language mod-els.
+In Proceedings of ACL, Prague, Czech Repub-lic, June.Reinhard Kneser and Hermann Ney.
+1995.
+Improvedbacking-off for m-gram language modeling.
+InProceedings of the IEEE International Conferenceon Acoustics, Speech and Signal Processing, pages181?184.Philipp Koehn, Hieu Hoang, Alexandra Birch, ChrisCallison-Burch, Marcello Federico, Nicola Bertoldi,Brooke Cowan, Wade Shen, Christine Moran,Richard Zens, Chris Dyer, Ond?rej Bojar, Alexan-dra Constantin, and Evan Herbst.
+2007.
+Moses:Open source toolkit for statistical machine transla-tion.
+In Annual Meeting of the Association for Com-putational Linguistics (ACL), Prague, Czech Repub-lic, June.Philipp Koehn.
+2004.
+Pharaoh: a beam search de-coder for phrase-based statistical machine transla-tion models.
+In Machine translation: From realusers to research, pages 115?124.
+Springer, Septem-ber.Zhifei Li and Sanjeev Khudanpur.
+2008.
+A scalabledecoder for parsing-based machine translation withequivalent language model state maintenance.
+InProceedings of the Second ACL Workshop on Syn-tax and Structure in Statistical Translation (SSST-2),pages 10?18, Columbus, Ohio, June.Bruce T. Lowerre.
+1976.
+The Harpy speech recogni-tion system.
+Ph.D. thesis, Carnegie Mellon Univer-sity, Pittsburgh, PA, USA.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2002.
+BLEU: A method for automaticevalution of machine translation.
+In Proceedings40th Annual Meeting of the Association for Com-putational Linguistics, pages 311?318, Philadelphia,PA, July.Slav Petrov, Aria Haghighi, and Dan Klein.
+2008.Coarse-to-fine syntactic machine translation usinglanguage projections.
+In Proceedings of the 2008Conference on Empirical Methods in Natural Lan-guage Processing, pages 108?116, Honolulu, HI,USA, October.Joern Wuebker, Matthias Huck, Stephan Peitz, MalteNuhn, Markus Freitag, Jan-Thorsten Peter, SaabMansour, and Hermann Ney.
+2012.
+Jane 2: Opensource phrase-based and hierarchical statistical ma-chine translation.
+In Proceedings of COLING 2012:Demonstration Papers, pages 483?492, Mumbai, In-dia, December.Hao Zhang and Daniel Gildea.
+2008.
+Efficient multi-pass decoding for synchronous context free gram-mars.
+In Proceedings of ACL-08: HLT, pages 209?217, Columbus, Ohio.135

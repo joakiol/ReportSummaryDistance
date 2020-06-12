@@ -1,0 +1,322 @@
+Proceedings of the 2014 Conference on Empirical Methods in Natural Language Processing (EMNLP), pages 740?750,October 25-29, 2014, Doha, Qatar.c?2014 Association for Computational LinguisticsA Fast and Accurate Dependency Parser using Neural NetworksDanqi ChenComputer Science DepartmentStanford Universitydanqi@cs.stanford.eduChristopher D. ManningComputer Science DepartmentStanford Universitymanning@stanford.eduAbstractAlmost all current dependency parsersclassify based on millions of sparse indi-cator features.
+Not only do these featuresgeneralize poorly, but the cost of featurecomputation restricts parsing speed signif-icantly.
+In this work, we propose a novelway of learning a neural network classifierfor use in a greedy, transition-based depen-dency parser.
+Because this classifier learnsand uses just a small number of dense fea-tures, it can work very fast, while achiev-ing an about 2% improvement in unla-beled and labeled attachment scores onboth English and Chinese datasets.
+Con-cretely, our parser is able to parse morethan 1000 sentences per second at 92.2%unlabeled attachment score on the EnglishPenn Treebank.1 IntroductionIn recent years, enormous parsing success hasbeen achieved by the use of feature-based discrim-inative dependency parsers (K?ubler et al., 2009).In particular, for practical applications, the speedof the subclass of transition-based dependencyparsers has been very appealing.However, these parsers are not perfect.
+First,from a statistical perspective, these parsers sufferfrom the use of millions of mainly poorly esti-mated feature weights.
+While in aggregate bothlexicalized features and higher-order interactionterm features are very important in improving theperformance of these systems, nevertheless, thereis insufficient data to correctly weight most suchfeatures.
+For this reason, techniques for introduc-ing higher-support features such as word class fea-tures have also been very successful in improvingparsing performance (Koo et al., 2008).
+Second,almost all existing parsers rely on a manually de-signed set of feature templates, which require a lotof expertise and are usually incomplete.
+Third, theuse of many feature templates cause a less stud-ied problem: in modern dependency parsers, mostof the runtime is consumed not by the core pars-ing algorithm but in the feature extraction step (Heet al., 2013).
+For instance, Bohnet (2010) reportsthat his baseline parser spends 99% of its time do-ing feature extraction, despite that being done instandard efficient ways.In this work, we address all of these problemsby using dense features in place of the sparse indi-cator features.
+This is inspired by the recent suc-cess of distributed word representations in manyNLP tasks, e.g., POS tagging (Collobert et al.,2011), machine translation (Devlin et al., 2014),and constituency parsing (Socher et al., 2013).Low-dimensional, dense word embeddings can ef-fectively alleviate sparsity by sharing statisticalstrength between similar words, and can provideus a good starting point to construct features ofwords and their interactions.Nevertheless, there remain challenging prob-lems of how to encode all the available infor-mation from the configuration and how to modelhigher-order features based on the dense repre-sentations.
+In this paper, we train a neural net-work classifier to make parsing decisions withina transition-based dependency parser.
+The neu-ral network learns compact dense vector represen-tations of words, part-of-speech (POS) tags, anddependency labels.
+This results in a fast, com-pact classifier, which uses only 200 learned densefeatures while yielding good gains in parsing ac-curacy and speed on two languages (English andChinese) and two different dependency represen-tations (CoNLL and Stanford dependencies).
+Themain contributions of this work are: (i) showingthe usefulness of dense representations that arelearned within the parsing task, (ii) developing aneural network architecture that gives good accu-racy and speed, and (iii) introducing a novel acti-740vation function for the neural network that bettercaptures higher-order interaction features.2 Transition-based Dependency ParsingTransition-based dependency parsing aims to pre-dict a transition sequence from an initial configu-ration to some terminal configuration, which de-rives a target dependency parse tree, as shown inFigure 1.
+In this paper, we examine only greedyparsing, which uses a classifier to predict the cor-rect transition based on features extracted from theconfiguration.
+This class of parsers is of great in-terest because of their efficiency, although theytend to perform slightly worse than the search-based parsers because of subsequent error prop-agation.
+However, our greedy parser can achievecomparable accuracy with a very good speed.1As the basis of our parser, we employ thearc-standard system (Nivre, 2004), one of themost popular transition systems.
+In the arc-standard system, a configuration c = (s, b, A)consists of a stack s, a buffer b, and a set ofdependency arcs A.
+The initial configurationfor a sentence w1, .
+.
+.
+, wnis s = [ROOT], b =[w1, .
+.
+.
+, wn], A = ?.
+A configuration c is termi-nal if the buffer is empty and the stack containsthe single node ROOT, and the parse tree is givenby Ac.
+Denoting si(i = 1, 2, .
+.
+.)
+as the ithtopelement on the stack, and bi(i = 1, 2, .
+.
+.)
+as theithelement on the buffer, the arc-standard systemdefines three types of transitions:?
+LEFT-ARC(l): adds an arc s1?
+s2withlabel l and removes s2from the stack.
+Pre-condition: |s| ?
+2.?
+RIGHT-ARC(l): adds an arc s2?
+s1withlabel l and removes s1from the stack.
+Pre-condition: |s| ?
+2.?
+SHIFT: moves b1from the buffer to thestack.
+Precondition: |b| ?
+1.In the labeled version of parsing, there are in total|T | = 2Nl+ 1 transitions, where Nlis numberof different arc labels.
+Figure 1 illustrates an ex-ample of one transition sequence from the initialconfiguration to a terminal one.The essential goal of a greedy parser is to pre-dict a correct transition from T , based on one1Additionally, our parser can be naturally incorporatedwith beam search, but we leave this to future work.Single-word features (9)s1.w; s1.t; s1.wt; s2.w; s2.t;s2.wt; b1.w; b1.t; b1.wtWord-pair features (8)s1.wt ?
+s2.wt; s1.wt ?
+s2.w; s1.wts2.t;s1.w ?
+s2.wt; s1.t ?
+s2.wt; s1.w ?
+s2.ws1.t ?
+s2.t; s1.t ?
+b1.tThree-word feaures (8)s2.t ?
+s1.t ?
+b1.t; s2.t ?
+s1.t ?
+lc1(s1).t;s2.t ?
+s1.t ?
+rc1(s1).t; s2.t ?
+s1.t ?
+lc1(s2).t;s2.t ?
+s1.t ?
+rc1(s2).t; s2.t ?
+s1.w ?
+rc1(s2).t;s2.t ?
+s1.w ?
+lc1(s1).t; s2.t ?
+s1.w ?
+b1.tTable 1: The feature templates used for analysis.lc1(si) and rc1(si) denote the leftmost and right-most children of si, w denotes word, t denotesPOS tag.given configuration.
+Information that can be ob-tained from one configuration includes: (1) allthe words and their corresponding POS tags (e.g.,has / VBZ); (2) the head of a word and its label(e.g., nsubj, dobj) if applicable; (3) the posi-tion of a word on the stack/buffer or whether it hasalready been removed from the stack.Conventional approaches extract indicator fea-tures such as the conjunction of 1 ?
+3 elementsfrom the stack/buffer using their words, POS tagsor arc labels.
+Table 1 lists a typical set of featuretemplates chosen from the ones of (Huang et al.,2009; Zhang and Nivre, 2011).2These featuressuffer from the following problems:?
+Sparsity.
+The features, especially lexicalizedfeatures are highly sparse, and this is a com-mon problem in many NLP tasks.
+The sit-uation is severe in dependency parsing, be-cause it depends critically on word-to-wordinteractions and thus the high-order features.To give a better understanding, we perform afeature analysis using the features in Table 1on the English Penn Treebank (CoNLL rep-resentations).
+The results given in Table 2demonstrate that: (1) lexicalized features areindispensable; (2) Not only are the word-pairfeatures (especially s1and s2) vital for pre-dictions, the three-word conjunctions (e.g.,{s2, s1, b1}, {s2, lc1(s1), s1}) are also veryimportant.2We exclude sophisticated features using labels, distance,valency and third-order features in this analysis, but we willinclude all of them in the final evaluation.741ROOT He has good control .PRP VBZ JJ NN .rootnsubjpunctdobjamod1ROOT has VBZHe PRPnsubjgood JJ control NN .
+.Stack Bu?erCorrect transition: SHIFT1Transition Stack Buffer A[ROOT] [He has good control .]
+?SHIFT [ROOT He] [has good control .
+]SHIFT [ROOT He has] [good control .
+]LEFT-ARC(nsubj) [ROOT has] [good control .]
+A?
+nsubj(has,He)SHIFT [ROOT has good] [control .
+]SHIFT [ROOT has good control] [.
+]LEFT-ARC(amod) [ROOT has control] [.]
+A?amod(control,good)RIGHT-ARC(dobj) [ROOT has] [.]
+A?
+dobj(has,control).
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.RIGHT-ARC(root) [ROOT] [] A?
+root(ROOT,has)Figure 1: An example of transition-based dependency parsing.
+Above left: a desired dependency tree,above right: an intermediate configuration, bottom: a transition sequence of the arc-standard system.Features UASAll features in Table 1 88.0single-word & word-pair features 82.7only single-word features 76.9excluding all lexicalized features 81.5Table 2: Performance of different feature sets.UAS: unlabeled attachment score.?
+Incompleteness.
+Incompleteness is an un-avoidable issue in all existing feature tem-plates.
+Because even with expertise and man-ual handling involved, they still do not in-clude the conjunction of every useful wordcombination.
+For example, the conjunc-tion of s1and b2is omitted in almost allcommonly used feature templates, howeverit could indicate that we cannot perform aRIGHT-ARC action if there is an arc from s1to b2.?
+Expensive feature computation.
+The fea-ture generation of indicator features is gen-erally expensive ?
+we have to concatenatesome words, POS tags, or arc labels for gen-erating feature strings, and look them up in ahuge table containing several millions of fea-tures.
+In our experiments, more than 95% ofthe time is consumed by feature computationduring the parsing process.So far, we have discussed preliminaries oftransition-based dependency parsing and existingproblems of sparse indicator features.
+In the fol-lowing sections, we will elaborate our neural net-work model for learning dense features along withexperimental evaluations that prove its efficiency.3 Neural Network Based ParserIn this section, we first present our neural networkmodel and its main components.
+Later, we givedetails of training and speedup of parsing process.3.1 ModelFigure 2 describes our neural network architec-ture.
+First, as usual word embeddings, we repre-sent each word as a d-dimensional vector ewi?
+Rdand the full embedding matrix is Ew?
+Rd?Nwwhere Nwis the dictionary size.
+Meanwhile,we also map POS tags and arc labels to a d-dimensional vector space, where eti, elj?
+Rdarethe representations of ithPOS tag and jtharc la-bel.
+Correspondingly, the POS and label embed-ding matrices are Et?
+Rd?Ntand El?
+Rd?Nlwhere Ntand Nlare the number of distinct POStags and arc labels.We choose a set of elements based on thestack / buffer positions for each type of in-formation (word, POS or label), which mightbe useful for our predictions.
+We denote thesets as Sw, St, Slrespectively.
+For example,given the configuration in Figure 2 and St=742?
+?
+?
+?
+?
+??
+?
+??
+?
+?Input layer: [xw, xt, xl]Hidden layer:h = (Ww1xw+Wt1xt+Wl1xl+ b1)3Softmax layer:p = softmax(W2h)wordsPOS tagsarc labelsROOT has VBZHe PRPnsubjgood JJcontrol NN .
+.Stack BufferConfigurationFigure 2: Our neural network architecture.
+{lc1(s2).t, s2.t, rc1(s2).t, s1.t}, we will extractPRP, VBZ, NULL, JJ in order.
+Here we use a spe-cial token NULL to represent a non-existent ele-ment.We build a standard neural network with onehidden layer, where the corresponding embed-dings of our chosen elements from Sw, St, Slwillbe added to the input layer.
+Denoting nw, nt, nlasthe number of chosen elements of each type, weadd xw= [eww1; eww2; .
+.
+.
+ewwnw] to the input layer,where Sw= {w1, .
+.
+.
+, wnw}.
+Similarly, we addthe POS tag features xtand arc label features xltothe input layer.We map the input layer to a hidden layer withdhnodes through a cube activation function:h = (Ww1xw+Wt1xt+Wl1xl+ b1)3where Ww1?
+Rdh?
+(d?nw), Wt1?
+Rdh?(d?nt),Wl1?
+Rdh?
+(d?nl), and b1?
+Rdhis the bias.A softmax layer is finally added on the top ofthe hidden layer for modeling multi-class prob-abilities p = softmax(W2h), where W2?R|T |?dh.POS and label embeddingsTo our best knowledge, this is the first attempt tointroduce POS tag and arc label embeddings in-stead of discrete representations.Although the POS tags P = {NN,NNP,NNS,DT,JJ, .
+.
+.}
+(for English) and arc labelsL = {amod,tmod,nsubj,csubj,dobj, .
+.
+.
+}(for Stanford Dependencies on English) are rela-tively small discrete sets, they still exhibit manysemantical similarities like words.
+For example,NN (singular noun) should be closer to NNS (plural?1 ?0.8 ?0.6 ?0.4 ?0.2 0.2 0.4 0.6 0.8 1?1?0.50.51cubesigmoidtanhidentityFigure 3: Different activation functions used inneural networks.noun) than DT (determiner), and amod (adjectivemodifier) should be closer to num (numeric mod-ifier) than nsubj (nominal subject).
+We expectthese semantic meanings to be effectively capturedby the dense representations.Cube activation functionAs stated above, we introduce a novel activationfunction: cube g(x) = x3in our model insteadof the commonly used tanh or sigmoid functions(Figure 3).Intuitively, every hidden unit is computed by a(non-linear) mapping on a weighted sum of inputunits plus a bias.
+Using g(x) = x3can modelthe product terms of xixjxkfor any three differentelements at the input layer directly:g(w1x1+ .
+.
+.+ wmxm+ b) =?i,j,k(wiwjwk)xixjxk+?i,jb(wiwj)xixj.
+.
+.In our case, xi, xj, xkcould come from differentdimensions of three embeddings.
+We believe thatthis better captures the interaction of three ele-743ments, which is a very desired property of depen-dency parsing.Experimental results also verify the success ofthe cube activation function empirically (see morecomparisons in Section 4).
+However, the expres-sive power of this activation function is still opento investigate theoretically.The choice of Sw, St, SlFollowing (Zhang and Nivre, 2011), we pick arich set of elements for our final parser.
+In de-tail, Swcontains nw= 18 elements: (1) The top 3words on the stack and buffer: s1, s2, s3, b1, b2, b3;(2) The first and second leftmost / rightmostchildren of the top two words on the stack:lc1(si), rc1(si), lc2(si), rc2(si), i = 1, 2.
+(3)The leftmost of leftmost / rightmost of right-most children of the top two words on the stack:lc1(lc1(si)), rc1(rc1(si)), i = 1, 2.We use the corresponding POS tags for St(nt= 18), and the corresponding arc labels ofwords excluding those 6 words on the stack/bufferfor Sl(nl= 12).
+A good advantage of our parseris that we can add a rich set of elements cheaply,instead of hand-crafting many more indicator fea-tures.3.2 TrainingWe first generate training examples {(ci, ti)}mi=1from the training sentences and their gold parsetrees using a ?shortest stack?
+oracle which alwaysprefers LEFT-ARClover SHIFT, where ciis aconfiguration, ti?
+T is the oracle transition.The final training objective is to minimize thecross-entropy loss, plus a l2-regularization term:L(?)
+= ?
+?ilog pti+?2??
+?2where ?
+is the set of all parameters{Ww1,Wt1,Wl1, b1,W2, Ew, Et, El}.
+A slightvariation is that we compute the softmax prob-abilities only among the feasible transitions inpractice.For initialization of parameters, we use pre-trained word embeddings to initialize Ewand userandom initialization within (?0.01, 0.01) for Etand El.
+Concretely, we use the pre-trained wordembeddings from (Collobert et al., 2011) for En-glish (#dictionary = 130,000, coverage = 72.7%),and our trained 50-dimensional word2vec em-beddings (Mikolov et al., 2013) on Wikipediaand Gigaword corpus for Chinese (#dictionary =285,791, coverage = 79.0%).
+We will also com-pare with random initialization of Ewin Section4.
+The training error derivatives will be back-propagated to these embeddings during the train-ing process.We use mini-batched AdaGrad (Duchi et al.,2011) for optimization and also apply a dropout(Hinton et al., 2012) with 0.5 rate.
+The parame-ters which achieve the best unlabeled attachmentscore on the development set will be chosen forfinal evaluation.3.3 ParsingWe perform greedy decoding in parsing.
+At eachstep, we extract all the corresponding word, POSand label embeddings from the current configu-ration c, compute the hidden layer h(c) ?
+Rdh,and pick the transition with the highest score:t = argmaxt is feasibleW2(t, ?
+)h(c), and then ex-ecute c?
+t(c).Comparing with indicator features, our parserdoes not need to compute conjunction features andlook them up in a huge feature table, and thusgreatly reduces feature generation time.
+Instead,it involves many matrix addition and multiplica-tion operations.
+To further speed up the parsingtime, we apply a pre-computation trick, similarto (Devlin et al., 2014).
+For each position cho-sen from Sw, we pre-compute matrix multiplica-tions for most top frequent 10, 000 words.
+Thus,computing the hidden layer only requires lookingup the table for these frequent words, and addingthe dh-dimensional vector.
+Similarly, we also pre-compute matrix computations for all positions andall POS tags and arc labels.
+We only use this opti-mization in the neural network parser, but it is onlyfeasible for a parser like the neural network parserwhich uses a small number of features.
+In prac-tice, this pre-computation step increases the speedof our parser 8 ?
+10 times.4 Experiments4.1 DatasetsWe conduct our experiments on the English PennTreebank (PTB) and the Chinese Penn Treebank(CTB) datasets.For English, we follow the standard splits ofPTB3, using sections 2-21 for training, section22 as development set and 23 as test set.
+Weadopt two different dependency representations:CoNLL Syntactic Dependencies (CD) (Johansson744Dataset #Train #Dev #Test #words (Nw) #POS (Nt) #labels (Nl) projective (%)PTB: CD 39,832 1,700 2,416 44,352 45 17 99.4PTB: SD 39,832 1,700 2,416 44,389 45 45 99.9CTB 16,091 803 1,910 34,577 35 12 100.0Table 3: Data Statistics.
+?Projective?
+is the percentage of projective trees on the training set.and Nugues, 2007) using the LTH Constituent-to-Dependency Conversion Tool3and Stanford BasicDependencies (SD) (de Marneffe et al., 2006) us-ing the Stanford parser v3.3.0.4The POS tags areassigned using Stanford POS tagger (Toutanova etal., 2003) with ten-way jackknifing of the trainingdata (accuracy ?
+97.3%).For Chinese, we adopt the same split of CTB5as described in (Zhang and Clark, 2008).
+Depen-dencies are converted using the Penn2Malt tool5with the head-finding rules of (Zhang and Clark,2008).
+And following (Zhang and Clark, 2008;Zhang and Nivre, 2011), we use gold segmenta-tion and POS tags for the input.Table 3 gives statistics of the three datasets.6Inparticular, over 99% of the trees are projective inall datasets.4.2 ResultsThe following hyper-parameters are used in all ex-periments: embedding size d = 50, hidden layersize h = 200, regularization parameter ?
+= 10?8,initial learning rate of Adagrad ?
+= 0.01.To situate the performance of our parser, we firstmake a comparison with our own implementa-tion of greedy arc-eager and arc-standard parsers.These parsers are trained with structured averagedperceptron using the ?early-update?
+strategy.
+Thefeature templates of (Zhang and Nivre, 2011) areused for the arc-eager system, and they are alsoadapted to the arc-standard system.7Furthermore, we also compare our parserwith two popular, off-the-shelf parsers: Malt-Parser ?
+a greedy transition-based dependencyparser (Nivre et al., 2006),8and MSTParser ?3http://nlp.cs.lth.se/software/treebank converter/4http://nlp.stanford.edu/software/lex-parser.shtml5http://stp.lingfil.uu.se/ nivre/research/Penn2Malt.html6Pennconverter and Stanford dependencies generateslightly different tokenization, e.g., Pennconverter splits thetoken WCRS\/Boston NNP into three tokens WCRS NNP /CC Boston NNP.7Since arc-standard is bottom-up, we remove all featuresusing the head of stack elements, and also add the right childfeatures of the first stack element.8http://www.maltparser.org/a first-order graph-based parser (McDonald andPereira, 2006).9In this comparison, for Malt-Parser, we select stackproj (arc-standard) andnivreeager (arc-eager) as parsing algorithms,and liblinear (Fan et al., 2008) for optimization.10For MSTParser, we use default options.On all datasets, we report unlabeled attach-ment scores (UAS) and labeled attachment scores(LAS) and punctuation is excluded in all evalua-tion metrics.11Our parser and the baseline arc-standard and arc-eager parsers are all implementedin Java.
+The parsing speeds are measured on anIntel Core i7 2.7GHz CPU with 16GB RAM andthe runtime does not include pre-computation orparameter loading time.Table 4, Table 5 and Table 6 show the com-parison of accuracy and parsing speed on PTB(CoNLL dependencies), PTB (Stanford dependen-cies) and CTB respectively.ParserDev Test SpeedUAS LAS UAS LAS (sent/s)standard 89.9 88.7 89.7 88.3 51eager 90.3 89.2 89.9 88.6 63Malt:sp 90.0 88.8 89.9 88.5 560Malt:eager 90.1 88.9 90.1 88.7 535MSTParser 92.1 90.8 92.0 90.5 12Our parser 92.2 91.0 92.0 90.7 1013Table 4: Accuracy and parsing speed on PTB +CoNLL dependencies.Clearly, our parser is superior in terms of bothaccuracy and speed.
+Comparing with the base-lines of arc-eager and arc-standard parsers, ourparser achieves around 2% improvement in UASand LAS on all datasets, while running about 20times faster.It is worth noting that the efficiency of our9http://www.seas.upenn.edu/ strctlrn/MSTParser/MSTParser.html10We do not compare with libsvm optimization, which isknown to be sightly more accurate, but orders of magnitudeslower (Kong and Smith, 2014).11A token is a punctuation if its gold POS tag is {?
+?
+: , .
+}for English and PU for Chinese.745ParserDev Test SpeedUAS LAS UAS LAS (sent/s)standard 90.2 87.8 89.4 87.3 26eager 89.8 87.4 89.6 87.4 34Malt:sp 89.8 87.2 89.3 86.9 469Malt:eager 89.6 86.9 89.4 86.8 448MSTParser 91.4 88.1 90.7 87.6 10Our parser 92.0 89.7 91.8 89.6 654Table 5: Accuracy and parsing speed on PTB +Stanford dependencies.ParserDev Test SpeedUAS LAS UAS LAS (sent/s)standard 82.4 80.9 82.7 81.2 72eager 81.1 79.7 80.3 78.7 80Malt:sp 82.4 80.5 82.4 80.6 420Malt:eager 81.2 79.3 80.2 78.4 393MSTParser 84.0 82.1 83.0 81.2 6Our parser 84.0 82.4 83.9 82.4 936Table 6: Accuracy and parsing speed on CTB.parser even surpasses MaltParser using liblinear,which is known to be highly optimized, while ourparser achieves much better accuracy.Also, despite the fact that the graph-based MST-Parser achieves a similar result to ours on PTB(CoNLL dependencies), our parser is nearly 100times faster.
+In particular, our transition-basedparser has a great advantage in LAS, especiallyfor the fine-grained label set of Stanford depen-dencies.4.3 Effects of Parser ComponentsHerein, we examine components that account forthe performance of our parser.Cube activation functionWe compare our cube activation function (x3)with two widely used non-linear functions: tanh(ex?e?xex+e?x), sigmoid (11+e?x), and also theidentity function (x), as shown in Figure 4(left).In short, cube outperforms all other activationfunctions significantly and identity works theworst.
+Concretely, cube can achieve 0.8% ?1.2% improvement in UAS over tanh and otherfunctions, thus verifying the effectiveness of thecube activation function empirically.Initialization of pre-trained word embeddingsWe further analyze the influence of using pre-trained word embeddings for initialization.
+Fig-ure 4 (middle) shows that using pre-trained wordembeddings can obtain around 0.7% improve-ment on PTB and 1.7% improvement on CTB,compared with using random initialization within(?0.01, 0.01).
+On the one hand, the pre-trainedword embeddings of Chinese appear more use-ful than those of English; on the other hand, ourmodel is still able to achieve comparable accuracywithout the help of pre-trained word embeddings.POS tag and arc label embeddingsAs shown in Figure 4 (right), POS embeddingsyield around 1.7% improvement on PTB andnearly 10% improvement on CTB and the labelembeddings yield a much smaller 0.3% and 1.4%improvement respectively.However, we can obtain little gain from la-bel embeddings when the POS embeddings arepresent.
+This may be because the POS tags of twotokens already capture most of the label informa-tion between them.4.4 Model AnalysisLast but not least, we will examine the parame-ters we have learned, and hope to investigate whatthese dense features capture.
+We use the weightslearned from the English Penn Treebank usingStanford dependencies for analysis.What do Et, Elcapture?We first introduced Etand Elas the dense rep-resentations of all POS tags and arc labels, andwe wonder whether these embeddings could carrysome semantic information.Figure 5 presents t-SNE visualizations (van derMaaten and Hinton, 2008) of these embeddings.It clearly shows that these embeddings effectivelyexhibit the similarities between POS tags or arclabels.
+For instance, the three adjective POS tagsJJ, JJR, JJS have very close embeddings, andalso the three labels representing clausal comple-ments acomp, ccomp, xcomp are grouped to-gether.Since these embeddings can effectively encodethe semantic regularities, we believe that they canbe also used as alternative features of POS tags (orarc labels) in other NLP tasks, and help boost theperformance.746What do Ww1, Wt1, Wl1capture?Knowing that Etand El(as well as the word em-beddings Ew) can capture semantic informationvery well, next we hope to investigate what eachfeature in the hidden layer has really learned.Since we currently only have h = 200 learneddense features, we wonder if it is sufficient tolearn the word conjunctions as sparse indicatorfeatures, or even more.
+We examine the weightsWw1(k, ?)
+?
+Rd?nw, Wt1(k, ?)
+?
+Rd?nt, Wl1(k, ?)
+?Rd?nlfor each hidden unit k, and reshape them tod ?
+nt, d ?
+nw, d ?
+nlmatrices, such that theweights of each column corresponds to the embed-dings of one specific element (e.g., s1.t).We pick the weights with absolute value > 0.2,and visualize them for each feature.
+Figure 6 givesthe visualization of three sampled features, and itexhibits many interesting phenomena:?
+Different features have varied distributions ofthe weights.
+However, most of the discrim-inative weights come from Wt1(the middlezone in Figure 6), and this further justifies theimportance of POS tags in dependency pars-ing.?
+We carefully examine many of the h = 200features, and find that they actually encodevery different views of information.
+For thethree sampled features in Figure 6, the largestweights are dominated by:?
+Feature 1: s1.t, s2.t, lc(s1).t.?
+Feautre 2: rc(s1).t, s1.t, b1.t.?
+Feature 3: s1.t, s1.w, lc(s1).t, lc(s1).l.These features all seem very plausible, as ob-served in the experiments on indicator featuresystems.
+Thus our model is able to automati-cally identify the most useful information forpredictions, instead of hand-crafting them asindicator features.?
+More importantly, we can extract features re-garding the conjunctions of more than 3 ele-ments easily, and also those not presented inthe indicator feature systems.
+For example,the 3rd feature above captures the conjunc-tion of words and POS tags of s1, the tag ofits leftmost child, and also the label betweenthem, while this information is not encodedin the original feature templates of (Zhangand Nivre, 2011).5 Related WorkThere have been several lines of earlier work in us-ing neural networks for parsing which have pointsof overlap but also major differences from ourwork here.
+One big difference is that much earlywork uses localist one-hot word representationsrather than the distributed representations of mod-ern work.
+(Mayberry III and Miikkulainen, 1999)explored a shift reduce constituency parser withone-hot word representations and did subsequentparsing work in (Mayberry III and Miikkulainen,2005).
+(Henderson, 2004) was the first to attempt to useneural networks in a broad-coverage Penn Tree-bank parser, using a simple synchrony network topredict parse decisions in a constituency parser.More recently, (Titov and Henderson, 2007) ap-plied Incremental Sigmoid Belief Networks toconstituency parsing and then (Garg and Hender-son, 2011) extended this work to transition-baseddependency parsers using a Temporal RestrictedBoltzman Machine.
+These are very different neu-ral network architectures, and are much less scal-able and in practice a restricted vocabulary wasused to make the architecture practical.There have been a number of recent uses ofdeep learning for constituency parsing (Collobert,2011; Socher et al., 2013).
+(Socher et al., 2014)has also built models over dependency representa-tions but this work has not attempted to learn neu-ral networks for dependency parsing.Most recently, (Stenetorp, 2013) attempted tobuild recursive neural networks for transition-based dependency parsing, however the empiricalperformance of his model is still unsatisfactory.6 ConclusionWe have presented a novel dependency parser us-ing neural networks.
+Experimental evaluationsshow that our parser outperforms other greedyparsers using sparse indicator features in both ac-curacy and speed.
+This is achieved by represent-ing all words, POS tags and arc labels as densevectors, and modeling their interactions through anovel cube activation function.
+Our model onlyrelies on dense features, and is able to automat-ically learn the most useful feature conjunctionsfor making predictions.An interesting line of future work is to combineour neural network based classifier with search-based models to further improve accuracy.
+Also,747PTB:CD PTB:SD CTB808590UASscorecube tanh sigmoid identityPTB:CD PTB:SD CTB808590UASscorepre-trained randomPTB:CD PTB:SD CTB707580859095UASscoreword+POS+label word+POS word+label wordFigure 4: Effects of different parser components.
+Left: comparison of different activation functions.Middle: comparison of pre-trained word vectors and random initialization.
+Right: effects of POS andlabel embeddings.
+?600 ?400 ?200 0 200 400 600?800?600?400?2000200400600?ROOT?INDTNNPCDNN???
+?POS(VBNNNSVBP,CC)VBDRBTO.VBZNNPSPRPPRP$VBJJMDVBGRBR:WPWDTJJRPDTRBSWRBJJS$RPFWEXSYM#LSUHWP$miscnounpunctuationverbadverbadjective?600 ?400 ?200 0 200 400 600 800?1000?800?600?400?2000200400600800negacompdetpredetrootinfmodcopquantmodnnconjnsubjauxnpadvmodcsubjmwepossessiveexplauxpasscsubjpassadvclpcompdiscoursedeppartmodpossadvmodapposprtnumbermarkdobjparataxisprepccompnumpunctrcmodxcomppreconjpobjnsubjpassiobjamodcctmodmiscclausal complementnoun pre?modifierverbal auxiliariessubjectpreposition complementnoun post?modifierFigure 5: t-SNE visualization of POS and label embeddings.Figure 6: Three sampled features.
+In each feature, each row denotes a dimension of embeddings andeach column denotes a chosen element, e.g., s1.t or lc(s1).w, and the parameters are divided into 3zones, corresponding to Ww1(k, :) (left), Wt1(k, :) (middle) and Wl1(k, :) (right).
+White and black dotsdenote the most positive weights and most negative weights respectively.748there is still room for improvement in our architec-ture, such as better capturing word conjunctions,or adding richer features (e.g., distance, valency).AcknowledgmentsStanford University gratefully acknowledges thesupport of the Defense Advanced ResearchProjects Agency (DARPA) Deep Exploration andFiltering of Text (DEFT) Program under AirForce Research Laboratory (AFRL) contract no.FA8750-13-2-0040 and the Defense Threat Re-duction Agency (DTRA) under Air Force Re-search Laboratory (AFRL) contract no.
+FA8650-10-C-7020.
+Any opinions, findings, and conclu-sion or recommendations expressed in this mate-rial are those of the authors and do not necessarilyreflect the view of the DARPA, AFRL, or the USgovernment.ReferencesBernd Bohnet.
+2010.
+Very high accuracy and fast de-pendency parsing is not a contradiction.
+In Coling.Ronan Collobert, Jason Weston, L?eon Bottou, MichaelKarlen, Koray Kavukcuoglu, and Pavel Kuksa.2011.
+Natural language processing (almost) fromscratch.
+Journal of Machine Learning Research.Ronan Collobert.
+2011.
+Deep learning for efficientdiscriminative parsing.
+In AISTATS.Marie-Catherine de Marneffe, Bill MacCartney, andChristopher D. Manning.
+2006.
+Generating typeddependency parses from phrase structure parses.
+InLREC.Jacob Devlin, Rabih Zbib, Zhongqiang Huang, ThomasLamar, Richard Schwartz, and John Makhoul.
+2014.Fast and robust neural network joint models for sta-tistical machine translation.
+In ACL.John Duchi, Elad Hazan, and Yoram Singer.
+2011.Adaptive subgradient methods for online learningand stochastic optimization.
+The Journal of Ma-chine Learning Research.Rong-En Fan, Kai-Wei Chang, Cho-Jui Hsieh, Xiang-Rui Wang, and Chih-Jen Lin.
+2008.
+Liblinear: Alibrary for large linear classification.
+The Journal ofMachine Learning Research.Nikhil Garg and James Henderson.
+2011.
+Temporalrestricted boltzmann machines for dependency pars-ing.
+In ACL-HLT.He He, Hal Daum?e III, and Jason Eisner.
+2013.
+Dy-namic feature selection for dependency parsing.
+InEMNLP.James Henderson.
+2004.
+Discriminative training of aneural network statistical parser.
+In ACL.Geoffrey E. Hinton, Nitish Srivastava, AlexKrizhevsky, Ilya Sutskever, and Ruslan Salakhut-dinov.
+2012.
+Improving neural networks bypreventing co-adaptation of feature detectors.CoRR, abs/1207.0580.Liang Huang, Wenbin Jiang, and Qun Liu.
+2009.Bilingually-constrained (monolingual) shift-reduceparsing.
+In EMNLP.Richard Johansson and Pierre Nugues.
+2007.
+Ex-tended constituent-to-dependency conversion for en-glish.
+In Proceedings of NODALIDA, Tartu, Estonia.Lingpeng Kong and Noah A. Smith.
+2014.
+An em-pirical comparison of parsing methods for Stanforddependencies.
+CoRR, abs/1404.4314.Terry Koo, Xavier Carreras, and Michael Collins.2008.
+Simple semi-supervised dependency parsing.In ACL.Sandra K?ubler, Ryan McDonald, and Joakim Nivre.2009.
+Dependency Parsing.
+Synthesis Lectures onHuman Language Technologies.
+Morgan & Clay-pool.Marshall R. Mayberry III and Risto Miikkulainen.1999.
+Sardsrn: A neural network shift-reduceparser.
+In IJCAI.Marshall R. Mayberry III and Risto Miikkulainen.2005.
+Broad-coverage parsing with neural net-works.
+Neural Processing Letters.Ryan McDonald and Fernando Pereira.
+2006.
+Onlinelearning of approximate dependency parsing algo-rithms.
+In EACL.Tomas Mikolov, Ilya Sutskever, Kai Chen, Greg S Cor-rado, and Jeff Dean.
+2013.
+Distributed representa-tions of words and phrases and their compositional-ity.
+In NIPS.Joakim Nivre, Johan Hall, and Jens Nilsson.
+2006.Maltparser: A data-driven parser-generator for de-pendency parsing.
+In LREC.Richard Socher, John Bauer, Christopher D Manning,and Andrew Y Ng.
+2013.
+Parsing with composi-tional vector grammars.
+In ACL.Richard Socher, Andrej Karpathy, Quoc V. Le, Christo-pher D. Manning, and Andrew Y. Ng.
+2014.Grounded compositional semantics for finding anddescribing images with sentences.
+TACL.Pontus Stenetorp.
+2013.
+Transition-based dependencyparsing using recursive neural networks.
+In NIPSWorkshop on Deep Learning.Ivan Titov and James Henderson.
+2007.
+Fast and ro-bust multilingual dependency parsing with a gener-ative latent variable model.
+In EMNLP-CoNLL.749Kristina Toutanova, Dan Klein, Christopher D. Man-ning, and Yoram Singer.
+2003.
+Feature-rich part-of-speech tagging with a cyclic dependency network.In NAACL.Laurens van der Maaten and Geoffrey Hinton.
+2008.Visualizing data using t-SNE.
+The Journal of Ma-chine Learning Research.Yue Zhang and Stephen Clark.
+2008.
+A tale oftwo parsers: Investigating and combining graph-based and transition-based dependency parsing us-ing beam-search.
+In EMNLP.Yue Zhang and Joakim Nivre.
+2011.
+Transition-baseddependency parsing with rich non-local features.
+InACL.750

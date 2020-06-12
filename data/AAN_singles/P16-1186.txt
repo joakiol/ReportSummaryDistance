@@ -1,0 +1,342 @@
+Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics, pages 1975?1985,Berlin, Germany, August 7-12, 2016.c?2016 Association for Computational LinguisticsStrategies for Training Large Vocabulary Neural Language ModelsWenlin Chen David Grangier Michael AuliFacebook, Menlo Park, CAAbstractTraining neural network language mod-els over large vocabularies is computa-tionally costly compared to count-basedmodels such as Kneser-Ney.
+We presenta systematic comparison of neural strate-gies to represent and train large vocabular-ies, including softmax, hierarchical soft-max, target sampling, noise contrastive es-timation and self normalization.
+We ex-tend self normalization to be a proper esti-mator of likelihood and introduce an effi-cient variant of softmax.
+We evaluate eachmethod on three popular benchmarks, ex-amining performance on rare words, thespeed/accuracy trade-off and complemen-tarity to Kneser-Ney.1 IntroductionNeural network language models (Bengio et al,2003; Mikolov et al, 2010) have gained popular-ity for tasks such as automatic speech recognition(Arisoy et al, 2012) and statistical machine trans-lation (Schwenk et al, 2012; Vaswani et al, 2013;Baltescu and Blunsom, 2014).
+Similar models arealso developed for translation (Le et al, 2012; De-vlin et al, 2014; Bahdanau et al, 2015), summa-rization (Chopra et al, 2015) and language gener-ation (Sordoni et al, 2015).Language models assign a probability to a wordgiven a context of preceding, and possibly sub-sequent, words.
+The model architecture deter-mines how the context is represented and thereare several choices including recurrent neural net-works (Mikolov et al, 2010; Jozefowicz et al,2016), or log-bilinear models (Mnih and Hinton,2010).
+This paper does not focus on architec-ture or context representation but rather on how toefficiently deal with large output vocabularies, aproblem common to all approaches to neural lan-guage modeling and related tasks (machine trans-lation, language generation).
+We therefore experi-ment with a classical feed-forward neural networkmodel similar to Bengio et al (2003).Practical training speed for these models quicklydecreases as the vocabulary grows.
+This is dueto three combined factors: (i) model evaluationand gradient computation become more time con-suming, mainly due to the need of computing nor-malized probabilities over a large vocabulary; (ii)large vocabularies require more training data inorder to observe enough instances of infrequentwords which increases training times; (iii) a largertraining set often allows for larger models whichrequires more training iterations.This paper provides an overview of popularstrategies to model large vocabularies for languagemodeling.
+This includes the classical softmax overall output classes, hierarchical softmax which in-troduces latent variables, or clusters, to simplifynormalization, target sampling which only con-siders a random subset of classes for normaliza-tion, noise contrastive estimation which discrim-inates between genuine data points and samplesfrom a noise distribution, and infrequent normal-ization, also referred as self-normalization, whichcomputes the partition function at an infrequentrate.
+We also extend self-normalization to be aproper estimator of likelihood.
+Furthermore, weintroduce differentiated softmax, a novel variationof softmax which assigns more parameters, or ca-pacity, to frequent words and which we show to befaster and more accurate than softmax (?2).Our comparison assumes a reasonable budget ofone week for training models on a high end GPU(Nvidia K40).
+We evaluate on three benchmarksdiffering in the amount of training data and vocab-ulary size, that is Penn Treebank, Gigaword andthe Billion Word benchmark (?3).Our results show that conclusions drawn fromsmall datasets do not always generalize to largersettings.
+For instance, hierarchical softmax is lessaccurate than softmax on the small vocabularyPenn Treebank task but performs best on the verylarge vocabulary Billion Word benchmark.
+This isbecause hierarchical softmax is the fastest methodfor training and can perform more training updatesin the same period of time.
+Furthermore, our re-1975sults with differentiated softmax demonstrate thatassigning capacity where it has the most impactallows to train better models in our time budget(?4).
+Our analysis also shows clearly that tradi-tional Kneser-Ney models are competitive on rarewords, contrary to the common belief that neuralmodels are better on infrequent words (?5).2 Modeling Large VocabulariesWe first introduce our model architecture with aclassical softmax and then describe various othermethods including a novel variation of softmax.2.1 Softmax Neural Language ModelOur feed-forward neural network implements ann-gram language model, i.e., it is a parametricfunction estimating the probability of the nextword wtgiven n ?
+1 previous context words,wt?1, .
+.
+.
+, wt?n+1.
+Formally, we take as input asequence of discrete indexes representing the n?1previous words and output a vocabulary-sized vec-tor of probability estimates, i.e.,f : {1, .
+.
+.
+, V }n?1?
+[0, 1]V,where V is the vocabulary size.
+This function re-sults from the composition of simple differentiablefunctions or layers.Specifically, f composes an input mapping fromdiscrete word indexes to continuous vectors, a suc-cession of linear operations followed by hyper-bolic tangent non-linearities, plus one final linearoperation, followed by a softmax normalization.The input layer maps each context word index toa continuous d?0-dimensional vector.
+It relies on amatrix W0?
+RV?d?0to convert the inputx = [wt?1, .
+.
+.
+, wt?n+1] ?
+{1, .
+.
+.
+, V }n?1to n ?
+1 vectors of dimension d?0.
+These vectorsare concatenated into a single (n?1)?d?0matrix,h0= [W0wt?1; .
+.
+.
+;W0wt?n+1] ?
+Rn?1?d?0.This state h0is considered as a d0= (n ?
+1) ?d?0vector by the next layer.
+The subsequent statesare computed through k layers of linear mappingsfollowed by hyperbolic tangents, i.e.
+?i = 1, .
+.
+.
+, k, hi= tanh(Wihi?1+ bi) ?
+Rdiwhere Wi?
+Rdi?di?1, b ?
+Rdiare learn-able weights and biases and tanh denotes thecomponent-wise hyperbolic tangent.Finally, the last layer performs a linear operationfollowed by a softmax normalization, i.e.,hk+1= Wk+1hk+ bk+1?
+RVand y =1Zexp(hk+1) ?
+[0, 1]V(1)where Z =?Vj=1exp(hk+1j) and exp denotes thecomponent-wise exponential.
+The network outputy is therefore a vocabulary-sized vector of proba-bility estimates.
+We use the standard cross-entropyloss with respect to the computed log probabilities?
+log yi?hk+1j= ?ij?
+yjwhere ?ij= 1 if i = j and 0 otherwise The gra-dient update therefore increases the score of thecorrect output hk+1iand decreases the score of allother outputs hk+1jfor j 6= i.A downside of the classical softmax formulationis that it requires computation of the activations forall output words, Eq.
+(1).
+The output layer withV activations is much larger than any other layerin the network and its matrix multiplication domi-nates the complexity of the entire network.2.2 Hierarchical SoftmaxHierarchical Softmax (HSM) organizes the out-put vocabulary into a tree where the leaves arethe words and the intermediate nodes are latentvariables, or classes (Morin and Bengio, 2005).The tree has potentially many levels and there is aunique path from the root to each word.
+The prob-ability of a word is the product of the probabilitiesof the latent variables along the path from the rootto the leaf, including the probability of the leaf.We follow Goodman (2001) and Mikolov et al(2011b) and model a two-level tree.
+Given contextx, HSM predicts the class of the next word ctandthe actual word wtp(wt|x) = p(ct|x) p(wt|ct, x) (2)If the number of classes isO(?V ) and classes arebalanced, then we only need to computeO(2?V )outputs.
+In practice, this strategy results in weightmatrices whose largest dimension is < 1, 000, asetting for which GPU hardware is fast.A popular strategy is frequency clustering.
+Itsorts the vocabulary by frequency and then formsclusters of words with similar frequency.
+Eachcluster contains an equal share of the total unigramprobability.
+We compare this strategy to randomclass assignment and to clustering based on word1976Wk+1hkdAdBdC|A||B||C|dAdBdCFigure 1: Output weight matrix Wk+1and hid-den layer hkfor differentiated softmax for vocab-ulary partitions A,B,C with embedding dimen-sions dA, dB, dC; non-shaded areas are zero.contexts, relying on PCA (Lebret and Collobert,2014).
+A full comparison of context-based clus-tering is beyond the scope of this work (Brown etal., 1992; Mikolov et al, 2013).2.3 Differentiated SoftmaxThis section introduces a novel variation of soft-max that assigns a variable number of parametersto each word in the output layer.
+The weight ma-trix of the final layer Wk+1?
+Rdk?Vstores out-put embeddings of size dkfor the V words thelanguage model may predict: Wk+11; .
+.
+.
+;Wk+1V.Differentiated softmax (D-Softmax) varies the di-mension of the output embeddings dkacrosswords depending on how much model capacity, orparameters, are deemed suitable for a given word.We assign more parameters to frequent words thanto rare words since more training occurrences al-low for fitting more parameters.We partition the output vocabulary based onword frequency and the words in each partitionshare the same embedding size.
+Partitioning thevocabulary in this way results in a sparse finalweight matrix Wk+1which arranges the embed-dings of the output words in blocks, each blockcorresponding to a separate partition (Figure 1).The size of the final hidden layer hkis the sumof the embedding sizes of the partitions.
+The fi-nal hidden layer is effectively a concatenation ofseparate features for each partition which are usedto compute the dot product with the correspond-ing embedding type in Wk+1.
+In practice, we effi-ciently compute separate matrix-vector products,or in batched form, matrix-matrix products, foreach partition in Wk+1and hk.Overall, differentiated softmax can lead to largespeed-ups as well as accuracy gains since wecan greatly reduce the complexity of computingthe output layer.
+Most significantly, this strategyspeeds up both training and inference.
+This isin contrast to hierarchical softmax which is fastduring training but requires even more effort thansoftmax for computing the most likely next word.2.4 Target SamplingSampling-based methods approximate the soft-max normalization, Eq.
+(1), by summing over asub-sample of impostor classes.
+This can signif-icantly speed-up each training iteration, depend-ing on the size of the impostor set.
+Target sam-pling builds upon the importance sampling workof Bengio and Sen?ecal (2008).
+We follow Jean etal.
+(2014) who choose as impostors all positiveexamples in a mini-batch as well as a subset ofthe remaining words.
+This subset is sampled uni-formly and its size is chosen by validation.2.5 Noise Contrastive EstimationNoise contrastive estimation (NCE) is anothersampling-based technique (Hyv?arinen, 2010;Mnih and Teh, 2012; Chen et al, 2015).
+Contraryto target sampling, it does not maximize the train-ing data likelihood directly.
+Instead, it solves atwo-class problem of distinguishing genuine datafrom noise samples.
+The training algorithm sam-ples a word w given the preceding context x froma mixturep(w|x) =1k + 1ptrain(w|x) +kk + 1pnoise(w|x)where ptrainis the empirical distribution of thetraining set and pnoiseis a known noise distri-bution which is typically a context-independentunigram distribution.
+The training algorithm fitsthe model p?
+(w|x) to recover whether a mixturesample came from the data or the noise distribu-tion, this amounts to minimizing the binary cross-entropy?y log p?
+(y = 1|w, x)?
+(1?y) log p?
+(y =0|w, x) where y is a binary variable indicatingwhere the current sample originates from{p?
+(y = 1|w, x) =p?(w|x)p?(w|x)+kpnoise(w|x)(data)p?
+(y = 0|w, x) = 1?
+p?
+(y = 1|w, x) (noise).This formulation still involves a softmax over thevocabulary to compute p?(w|x).
+However, Mnihand Teh (2012) suggest to forego normalizationand replace p?
+(w|x) with unnormalized exponen-tiated scores.
+This makes the training complex-ity independent of the vocabulary size.
+At testtime, softmax normalization is reintroduced to geta proper distribution.
+We also follow Mnih andTeh (2012) recommendations for pnoiseand relyon a unigram distribution of the training set.19772.6 Infrequent NormalizationDevlin et al (2014), followed by Andreasand Klein (2015), proposed to relax score nor-malization.
+Their strategy (here referred toas WeaknormSQ) associates unnormalized likeli-hood maximization with a penalty term that favorsnormalized predictions.
+This yields the followingloss over the training set TL(2)?= ??
+(w,x)?Ts(w|x) + ??
+(w,x)?T(logZ(x))2where s(w|x) refers to the unnormalized scoreof word w given context x and Z(x) =?wexp(s(w|x)) refers to the partition functionfor context x.
+This strategy therefore pushes thelog partition towards zero.
+For efficient training,the second term can be down-sampledL(2)?,?= ??(w,x)?Ts(w|x)+???(w,x)?T?
+(logZ(x))2where T?is the training set sampled at rate ?.
+Asmall rate implies computing the partition functiononly for a small fraction of the training data.We extend this strategy to the case where the logpartition term is not squared (Weaknorm), i.e.,L(1)?,?= ??
+(w,x)?Ts(w|x) +???
+(w,x)?T?logZ(x)For ?
+= 1, this loss is an unbiased estimator of thenegative log-likelihood of the training data L(2)1=??
+(w,x)?Ts(w|x) + logZ(x).3 Experimental SetupDatasets We run experiments over three newsdatasets of different sizes: Penn Treebank (PTB),WMT11-lm (billionW) and English Gigaword,version 5 (gigaword).
+Penn Treebank (Marcus etal., 1993) is the smallest corpus with 1M tokensand we use a vocabulary size of 10k (Mikolov etal., 2011a).
+The billion word benchmark (Chelbaet al, 2013) comprises almost one billion tokensand a vocabulary of about 800k words1.
+Giga-word (Parker et al, 2011) is even larger with 5 bil-lion tokens and was previously used for languagemodeling (Heafield, 2011) but there is no standardtrain/test split or vocabulary for this set.
+We splitaccording to time: training covers 1994?2009 andtest covers 2010.
+The vocabulary comprises the100k most frequent words in train.
+Table 1 sum-marizes the data statistics.1T.
+Robinson version http://tiny.cc/1billionLM .Dataset Train Test Vocab OOVPTB 1M 0.08M 10k 5.8%gigaword 4,631M 279M 100k 5.6%billionW 799M 8.1M 793k 0.3%Table 1: Dataset statistics.
+Number of tokens fortrain and test, vocabulary size, fraction of OOV.Evaluation We measure perplexity on the test set.For PTB and billionW, we report results on a persentence basis, i.e., models do not use contextwords across sentence boundaries and we scoreend-of-sentence markers.
+This is the standard set-ting for these benchmarks and allows comparisonwith other work.
+On gigaword, we use contextsacross sentence boundaries and evaluation doesnot include end-of-sentence markers.Our baseline is an interpolated Kneser-Ney (KN)model.
+We use KenLM (Heafield, 2011) to train5-gram models without pruning.
+For neural mod-els, we train 11-gram models for gigaword and bil-lionW; for PTB we train a 6-gram model.
+Themodel parameters (weights Wiand biases bifori = 0, .
+.
+.
+, k + 1) are learned to maximize thetraining log-likelihood relying on stochastic gra-dient descent (SGD; LeCun et al.
+1998).Validation Hyper-parameters are the number oflayers k and the dimension of each layer di,?i =0, .
+.
+.
+, k. We tune the following settings for eachtechnique on the validation set: the number ofclusters, the clustering technique for hierarchi-cal softmax, the number of frequency bands andtheir allocated capacity for differentiated softmax,the number of distractors for target sampling, thenoise/data ratio for NCE, as well as the regular-ization rate and strength for infrequent normaliza-tion.
+Similarly, SGD parameters (learning rate andmini-batch size) are set to maximize validationlikelihood.
+We also tune the dropout rate (Srivas-tava et al, 2014); dropout is employed after eachtanh non-linearity.2Training Time We train for 168 hours (one week)on the large datasets (billionW, gigaword) and 24hours (one day) for Penn Treebank.
+All exper-iments are performed on the same hardware, asingle K40 GPU.
+We select the hyper-parameterswhich yield the best validation perplexity after theallocated time and report the perplexity of the re-sulting model on the test set.
+This training time2More parameter settings are availablein an extended version of the paper athttp://arxiv.org/abs/1512.04906.1978is a trade-off between being able to do a compre-hensive exploration of the various settings for eachmethod and good accuracy.
+The chosen trainingtimes are not long enough to observe over-fitting,i.e.
+validation performance is still improving ?
+al-beit very slowly ?
+at the end of the training session.As a general observation, even on the small PTBwhere 24 hours is rather long, we always foundbetter results using the full training time, possiblyincreasing the dropout rate.A concern may be that a fixing the training timefavors models with better implementations.
+How-ever, all models are very similar and their corecomputations are always matrix/matrix products.Training differs mostly in the size and frequencyof large matrix/matrix products.
+Matrix productsrely on CuBLAS3, using torch4.
+For the matrixsizes involved (> 500?1, 000), the time complex-ity of matrix product is linear in each dimension,both on CPU (Intel MKL5) and GPU (CuBLAS),with a 10X speedup for GPU (Nvidia K40) com-pared to CPU (Intel Xeon E5-2680).
+Therefore,the speed trade-off applies to both CPU and GPUhardware, albeit with a different time scale.4 ResultsThe test perplexities (Table 2) and validationlearning curves (Figures 2, 3, and 4) show that thecompetitiveness of softmax diminishes with largervocabularies.
+Softmax does well on the small vo-cabulary PTB but poorly on the large vocabularybillionW corpus.
+Faster methods such as sam-pling, hierarchical softmax, and infrequent nor-malization (Weaknorm, WeaknormSQ) are muchbetter in the large vocabulary setting of billionW.D-Softmax is performing well on all sets andshows that assigning higher capacity where it ben-efits most results in better models.
+Target sam-pling performs worse than softmax on gigawordbut better on billionW.
+Hierarchical softmax per-forms poorly on Penn Treebank which is in starkcontrast to billionW where it does well.
+Noisecontrastive estimation has good accuracy on bil-lionW, where speed is essential to achieving goodaccuracy.Of all the methods, hierarchical softmax pro-cesses most training examples in a given timeframe (Table 3).
+Our test time speed compari-son assumes that we would like to find the highest3http://docs.nvidia.com/cuda/cublas/4http://torch.ch5https://software.intel.com/en-us/intel-mklPTB gigaW billionWKN 141.2 57.1 70.26Softmax 123.8 56.5 108.3D-Softmax 121.1 52.0 91.2Sampling 124.2 57.6 101.0HSM 138.2 57.1 85.2NCE 143.1 78.4 104.7Weaknorm 124.4 56.9 98.7WeaknormSQ 122.1 56.1 94.9KN+Softmax 108.5 43.6 59.4KN+D-Softmax 107.0 42.0 56.3KN+Sampling 109.4 43.8 58.1KN+HSM 115.0 43.9 55.6KN+NCE 114.6 49.0 58.8KN+Weaknorm 109.2 43.8 58.1KN+WeaknormSQ 108.8 43.8 57.7Table 2: Test perplexity of individual models andinterpolation with Kneser-Ney.120 130 140 150 160 170 180 1900  5  10  15  20Perplexity Training time (hours)SoftmaxSamplingHSMD-SoftmaxWeaknormWeaknormSQNCEFigure 2: PTB validation learning curve.scoring next word rather than rescoring an exist-ing string.
+This scenario requires scoring all out-put words and D-Softmax can process nearly twiceas many tokens per second than the other methodswhose complexity is similar to softmax.4.1 SoftmaxDespite being our baseline, softmax ranks amongthe most accurate methods on PTB and it is sec-ond best on gigaword after D-Softmax (with Wea-knormSQ performing similarly).
+For billionW,the extremely large vocabulary makes softmaxtraining too slow to compete with faster alterna-6This perplexity is higher than reported in (Chelba et al,2013), in which Kneser Ney is not trained on the 800m tokentraining set, but on a larger corpus of 1.1B tokens.197950 60 70 80 90 100 1100  20  40  60  80  100  120  140  160  180Perplexity Training time (hours)SoftmaxSamplingHSMD-SoftmaxWeaknormWeaknormSQNCEFigure 3: Gigaword validation learning curve.80 100 120 140 160 1800  20  40  60  80  100  120  140  160  180Perplexity Training time (hours)SoftmaxSamplingHSMD-SoftmaxWeaknormWeaknormSQNCEFigure 4: Billion Word validation learning curve.train testSoftmax 510 510D-Softmax 960 960Sampling 1,060 510HSM 12,650 510NCE 4,520 510Weaknorm 1,680 510WeaknormSQ 2,870 510Table 3: Training and test speed on billionW in to-kens per second for generation of the next word.Most techniques are identical to softmax at testtime.
+HSM can be faster for rescoring.50 60 70 80 90 100 110 1200  10  20  30  40  50  60  70  80  90  100Perplexity Distractors per Sample (% of vocabulary)SamplingFigure 5: Number of Distractors versus Perplexityfor Target Sampling over Gigawordtives.
+However, of all the methods softmax has thesimplest implementation and it has no additionalhyper-parameters compared to other methods.4.2 Target SamplingFigure 5 shows that target sampling is most accu-rate for distractor sets that amount to a large frac-tion of the vocabulary, i.e.
+> 30% on gigaword(billionW best setting > 50% is even higher).
+Tar-get sampling is faster and performs more itera-tions than softmax in the same time.
+However, itsperplexity reduction per iteration is less than soft-max.
+Overall, it is not much better than softmax.A reason might be that sampling chooses distrac-tors independently from context and current modelperformance.
+This does not favor distractors themodel incorrectly considers likely for the currentcontext.
+These distractors would yield higher gra-dients that could update the model faster.4.3 Hierarchical SoftmaxHierarchical softmax is very efficient for large vo-cabularies and it is the best method on billionW.On the other hand, HSM does poorly on small vo-cabularies as seen on PTB.
+We found that a goodword clustering structure is crucial: when clustersgather words occurring in similar contexts, clus-ter likelihoods are easier to learn; when the clusterstructure is uninformative, cluster likelihoods con-verge to the uniform distribution.
+This affects ac-curacy since words cannot have higher probabilitythan their clusters, Eq.
+(2).Our experiments organize words into a twolevel hierarchy and compare four clustering strate-gies on billionW and gigaword (?2.2).
+Randomclustering shuffles the vocabulary and splits itinto equally sized partitions.
+Frequency-basedclustering first orders words based on their fre-quency and assigns words to clusters such thateach cluster represents an equal share of thetotal frequency (Mikolov et al, 2011b).
+K-means runs the well-known clustering algorithmon Hellinger PCA word embeddings.
+Weighted k-means weights each word by its frequency.7Random clusters perform worst (Table 4) fol-lowed by frequency-based clustering but k-meansdoes best; weighted k-means performs similarlyto its unweighted version.
+In earlier experiments,plain k-means performed very poorly since themost frequent cluster captured up to 40% of the7The time to compute the clustering (multi-threaded wordco-occurrence counts, PCA and k-means) is under one hour,which is negligible given a one week training budget.1980billionW gigawordrandom 98.51 62,27frequency-based 92.02 59.47k-means 85.70 57.52weighted k-means 85.24 57.09Table 4: HSM with different clustering.token occurrences.
+We then explicitly capped thefrequency budget of each cluster to 10% whichbrought k-means on par with weighted k-means.4.4 Differentiated SoftmaxD-Softmax is the best technique on gigaword andsecond best on billionW after HSM.
+On PTBit ranks among the best techniques whose per-plexities cannot be reliably distinguished.
+Thevariable-capacity scheme of D-Softmax can as-sign large embeddings to frequent words, whilekeeping computational complexity manageablethrough small embeddings for rare words.Unlike for hierarchical softmax, NCE or Wea-knorm, the computational advantage of D-Softmax is preserved at test time (Table 3).
+D-Softmax is the fastest technique at test time, whileranking among the most accurate methods.
+Thisspeed advantage is due to the low dimensional rep-resentation of rare words which negatively affectsthe model accuracy on these words (Table 5).4.5 Noise Contrastive EstimationAlthough we report better perplexities than theoriginal NCE paper on PTB (Mnih and Teh, 2012),we found NCE difficult to use for large vocabular-ies.
+In order to work in this setting where mod-els are larger, we had to dissociate the number ofnoise samples from the data to noise ratio in themodeled mixture.
+For instance, a data/noise ra-tio of 1/50 gives good performance in our exper-iments but estimating only 50 noise sample pos-teriors per data point is wasteful given the cost ofnetwork evaluation.
+Moreover, 50 samples do notallow frequent sampling of every word in a largevocabulary.
+Our setting considers more noise sam-ples and up-weights the data sample.
+This allowsto set the data/noise ratio independently from thenumber of noise samples.Overall, NCE results are better than softmaxonly for billionW, a setting for which softmax isvery slow due to the very large vocabulary.
+Whydoes NCE perform so poorly?
+Figure 6 shows en-tropy on the validation set versus the NCE loss forseveral models.
+The results clearly show that sim-456789100.054  0.056  0.058  0.06  0.062  0.064EntropyNCE LossFigure 6: Validation entropy versus NCE loss ongigaword for experiments differing only in learn-ing rates and initial weights.
+Each color corre-sponds to one experiment, with one point per hour.ilar NCE loss values can result in very differentvalidation entropy.
+Although NCE might makesense for other metrics such as BLEU (Baltescuand Blunsom, 2014), it is not among the best tech-niques for minimizing perplexity.
+Jozefowicz etal.
+(2016) recently drew similar conclusions.4.6 Infrequent NormalizationInfrequent normalization (Weaknorm and Wea-knormSQ) performs better than softmax on bil-lionW and comparably to softmax on Penn Tree-bank and gigaword (Table 2).
+The speedup fromskipping partition function computations is sub-stantial.
+For instance, WeaknormSQ on billionWevaluates the partition only on 10% of the exam-ples.
+In one week, the model is evaluated and up-dated on 868M tokens (with 86.8M partition eval-uations) compared to 156M tokens for softmax.Although referred to as self-normalizing (An-dreas and Klein, 2015), the trained models stillneed normalization after training.
+The partitionvaries greatly between data samples.
+On billionW,the partition ranges between 9.4 to 10.3 in logscale for 10th to 90th percentile, i.e.
+a ratio of 2.5.We observed the squared version (Wea-knormSQ) to be unstable at times.
+Regularizationstrength could be found too low (collapse) ortoo high (blow-up) after a few days of training.We added an extra unit to bound unnormalizedpredictions x ?
+10 tanh(x/5), which yieldsstable training and better generalization.
+Forthe non-squared Weaknorm, stability was not anissue.
+A regularization strength of 1 was the bestsetting for Weaknorm.
+This choice makes the lossan unbiased estimator of the data likelihood.19811-4K 4-20K 20-40K 40-70K 70-100KKneser-Ney 3.48 7.85 9.76 10.76 11.57Softmax 3.46 7.87 9.76 11.09 12.39D-Softmax 3.35 7.79 10.13 12.22 12.69Target sampling 3.51 7.62 9.51 10.81 12.06HSM 3.49 7.86 9.38 10.30 11.24NCE 3.74 8.48 10.60 12.06 13.37Weaknorm 3.46 7.86 9.77 11.12 12.40WeaknormSQ 3.46 7.79 9.67 10.98 12.32Table 5: Test entropy on gigaword over subsets of the frequency ranked vocabulary; rank 1 is the mostfrequent word.5 Analysis5.1 Model CapacityTraining neural language models over large cor-pora highlights that training time, not trainingdata, is the main factor limiting performance.
+Thelearning curves on gigaword and billionW indicatethat most models are still making progress afterone week.
+Training time has therefore to be takeninto account when considering increasing capac-ity.
+Figure 7 shows validation perplexity versusthe number of iterations for a week of training.This figure shows that a softmax model with 1024hidden units in the last layer could perform bet-ter than the 512-hidden unit model with a longertraining horizon.
+However, in the allocated time,512 hidden units yield the best validation perfor-mance.
+D-softmax shows that it is possible to se-lectively increase capacity, i.e., to allocate morehidden units to the most frequent words at the ex-pense of rarer words.
+This captures most of thebenefit of a larger softmax model while stayingwithin a reasonable training budget.5.2 Effect of InitializationWe consider initializing both the input word em-beddings and the output matrix from HellingerPCA embeddings.
+Several alternative tech-niques for pre-training embeddings have been pro-posed (Mikolov et al, 2013; Lebret and Collobert,2014; Pennington et al, 2014).
+Our experimenthighlights the advantage of initialization and donot aim to compare embedding techniques.Figure 8 shows that PCA is better than randomfor initializing both input and output word rep-resentations; initializing both from PCA is evenbetter.
+We see that even after long training ses-sions, the initial conditions still impact the valida-tion perplexity.
+We observed this trend also with80 100 120 140 160 180 2000  50  100  150  200  250  300Perplexity Training tokens (millions)D-Softmax 1024x50K, 512x100K, 64x640KD-Softmax 1024x50K, 256x740KSoftmax 1024Softmax 512Figure 7: Validation perplexity per iteration onbillionW for softmax and D-softmax.
+Softmaxuses the same number of units for all words.
+Thefirst D-Softmax experiment uses 1024 units for the50K most frequent words, 512 for the next 100K,and 64 units for the rest; similarly for the secondexperiment.
+All experiments end after one week.other strategies than softmax.
+After one week oftraining, HSM is the only method which can reachcomparable accuracy to PCA initialization whenthe output matrix is randomly initialized.5.3 Training Set SizeLarge training sets and a fixed training time in-troduce competition between slower models withmore capacity and observing more training data.This trade-off only applies to iterative SGD op-timization and does not apply to classical count-based models, which visit the training set once andthen solve training in closed form.We compare Kneser-Ney and softmax, trainedfor one week, with gigaword on differently sizedsubsets of the training data.
+For each setting wetake care to include all data from the smaller sub-sets.
+Figure 9 shows that the performance of theneural model improves very little on more than198240 60 80 100 120 140 160 180 2000  20  40  60  80  100  120  140  160  180Perplexity Training time (hours)Input: PCA, Output: PCAInput: PCA, Output: RandomInput: Random, Output: PCAInput: Random, Output: RandomFigure 8: Effect of random initialization and withHellinger PCA on gigaword for softmax.55 60 65 70 750  0.5  1  1.5  2  2.5  3  3.5  4  4.5  5Perplexity Training data size (billions)SoftmaxKNFigure 9: Effect of training set size measured ontest of gigaword for Softmax and Kneser-Ney.500M tokens.
+In order to benefit from the fulltraining set we would require a much higher train-ing budget, faster hardware, or parallelization.Scaling training to large datasets can have a sig-nificant impact on perplexity, even when data fromthe distribution of interest is limited.
+As an illus-tration, we adapted a softmax model trained on bil-lionW to Penn Treebank and achieved a perplexityof 96 - a far better result than with any model wetrained from scratch on PTB (cf.
+Table 2).5.4 Rare WordsHow well do neural models perform on rarewords?
+To answer this question, we computedentropy across word frequency bands for Kneser-Ney and neural models.
+Table 5 reports entropyfor the 4, 000 most frequent words, then the nextmost frequent 16, 000 words, etc.
+For frequentwords, neural models are on par or better thanKneser-Ney.
+For rare words, Kneser-Ney is verycompetitive.
+Although neural models might even-tually close this gap with much longer training,one should consider that Kneser-Ney trains on gi-gaword in only 8 hours on CPU which contrastswith 168 hours of training for neural models onhigh end GPUs.
+This result highlights the comple-mentarity of both approaches, as observed in ourinterpolation experiments (Table 2).For neural models, D-Softmax excels on fre-quent words but performs poorly on rare ones.This is because D-Softmax assigns more capacityto frequent words at the expense of rare words.Overall, hierarchical softmax is the best neuraltechnique for rare words.
+HSM does more itera-tions than any other technique and so it can ob-serve every rare word more often.6 ConclusionsThis paper presents a comprehensive analysis ofstrategies to train neural language models withlarge vocabularies.
+This setting is very challeng-ing for neural networks as they need to computethe partition function over the entire vocabulary ateach evaluation.We compared classical softmax to hierarchicalsoftmax, target sampling, noise contrastive esti-mation and infrequent normalization, commonlyreferred to as self-normalization.
+Furthermore, weextend infrequent normalization to be a proper es-timator of likelihood and we introduce differenti-ated softmax, a novel variant of softmax assigningless capacity to rare words to reduce computation.Our results show that methods which are ef-fective on small vocabularies are not necessarilyequally so on large vocabularies.
+In our setting,target sampling and noise contrastive estimationfailed to outperform the softmax baseline.
+Over-all, differentiated softmax and hierarchical soft-max are the best strategies for large vocabularies.Compared to classical Kneser-Ney models, neuralmodels are better at modeling frequent words, butare less effective for rare words.
+A combination ofthe two is therefore very effective.We conclude that there is a lot to explore in train-ing from a combination of normalized and unnor-malized objectives.
+An interesting future direc-tion is to combine complementary approaches, ei-ther through combined parameterization (e.g.
+hi-erarchical softmax with differentiated capacity perword) or through a curriculum (e.g.
+transitioningfrom target sampling to regular softmax as trainingprogresses).
+Further promising areas are paralleltraining as well as better rare word modeling.ReferencesJacob Andreas and Dan Klein.
+2015.
+When and whyare log-linear models self-normalizing?
+In Proc.
+ofNAACL.1983Ebru Arisoy, Tara N. Sainath, Brian Kingsbury, andBhuvana Ramabhadran.
+2012.
+Deep Neural Net-work Language Models.
+In NAACL-HLT Workshopon the Future of Language Modeling for HLT, pages20?28, Stroudsburg, PA, USA.
+Association for Com-putational Linguistics.Dzmitry Bahdanau, Kyunghyun Cho, and Yoshua Ben-gio.
+2015.
+Neural machine translation by jointlylearning to align and translate.
+In Proc.
+of ICLR.
+As-sociation for Computational Linguistics, May.Paul Baltescu and Phil Blunsom.
+2014.
+Pragmatic neu-ral language modelling in machine translation.
+Tech-nical Report arXiv 1412.7119.Yoshua Bengio and Jean-S?ebastien Sen?ecal.
+2008.Adaptive importance sampling to accelerate train-ing of a neural probabilistic language model.
+IEEETransactions on Neural Networks.Yoshua Bengio, R?ejean Ducharme, Pascal Vincent, andChristian Jauvin.
+2003.
+A Neural Probabilistic Lan-guage Model.
+Journal of Machine Learning Re-search, 3:1137?1155.Peter F. Brown, Peter V. deSouza, Robert L. Mer-cer, Vincent J. Della Pietra, and Jenifer C. Lai.1992.
+Class-based n-gram models of natural lan-guage.
+Computational Linguistics, 18(4):467?479,Dec.Ciprian Chelba, Tom?a?s Mikolov, Mike Schuster, Qi Ge,Thorsten Brants, Phillipp Koehn, and Tony Robin-son.
+2013.
+One billion word benchmark for measur-ing progress in statistical language modeling.
+Tech-nical report, Google.Xie Chen, Xunying Liu, MJF Gales, and PC Wood-land.
+2015.
+Recurrent neural network languagemodel training with noise contrastive estimation forspeech recognition.
+In Acoustics, Speech and SignalProcessing (ICASSP).Sumit Chopra, Jason Weston, and Alexander M. Rush.2015.
+Tuning as ranking.
+In Proc.
+of EMNLP.
+Asso-ciation for Computational Linguistics, Sep.Jacob Devlin, Rabih Zbib, Zhongqiang Huang, ThomasLamar, Richard Schwartz, , and John Makhoul.2014.
+Fast and Robust Neural Network Joint Modelsfor Statistical Machine Translation.
+In Proc.
+of ACL.Association for Computational Linguistics, June.Joshua Goodman.
+2001.
+Classes for Fast MaximumEntropy Training.
+In Proc.
+of ICASSP.Kenneth Heafield.
+2011.
+KenLM: Faster and SmallerLanguage Model Queries.
+In Workshop on StatisticalMachine Translation, pages 187?197.Michael Gutmann Aapo Hyv?arinen.
+2010.
+Noise-contrastive estimation: A new estimation principlefor unnormalized statistical models.
+In Proc.
+of AIS-TATS.S?ebastien Jean, Kyunghyun Cho, Roland Memisevic,and Yoshua Bengio.
+2014.
+On Using Very LargeTarget Vocabulary for Neural Machine Translation.CoRR, abs/1412.2007.Rafal Jozefowicz, Oriol Vinyals, Mike Schuster, NoamShazeer, and Yonghui Wu.
+2016.
+Exploring the lim-its of language modeling.
+Technical Report arXiv1602.02410.Hai-Son Le, Alexandre Allauzen, and Franc?ois Yvon.2012.
+Continuous Space Translation Models withNeural Networks.
+In Proc.
+of HLT-NAACL, pages39?48, Montr?eal, Canada.
+Association for Computa-tional Linguistics.Remi Lebret and Ronan Collobert.
+2014.
+Word Em-beddings through Hellinger PCA.
+In Proc.
+of EACL.Yann LeCun, Leon Bottou, Genevieve Orr, and Klaus-Robert Mueller.
+1998.
+Efficient BackProp.
+InGenevieve Orr and Klaus-Robert Muller, editors,Neural Networks: Tricks of the trade.
+Springer.Mitchell P. Marcus, Mary Ann Marcinkiewicz, andBeatrice Santorini.
+1993.
+Building a Large Anno-tated Corpus of English: The Penn Treebank.
+Com-putational Linguistics, 19(2):314?330, Jun.Tom?a?s Mikolov, Karafi?at Martin, Luk?a?s Burget, JanCernock?y, and Sanjeev Khudanpur.
+2010.
+RecurrentNeural Network based Language Model.
+In Proc.
+ofINTERSPEECH, pages 1045?1048.Tom?a?s Mikolov, Anoop Deoras, Stefan Kombrink,Lukas Burget, and Jan Honza Cernocky.
+2011a.Empirical Evaluation and Combination of AdvancedLanguage Modeling Techniques.
+In Interspeech.Tom?a?s Mikolov, Stefan Kombrink, Luk?a?s Burget, JanCernock?y, and Sanjeev Khudanpur.
+2011b.
+Exten-sions of Recurrent Neural Network Language Model.In Proc.
+of ICASSP, pages 5528?5531.Tom?a?s Mikolov, Kai Chen, Greg Corrado, and JeffreyDean.
+2013.
+Efficient Estimation of Word Represen-tations in Vector Space.
+CoRR, abs/1301.3781.Andriy Mnih and Geoffrey E. Hinton.
+2010.
+A Scal-able Hierarchical Distributed Language Model.
+InProc.
+of NIPS.Andriy Mnih and Yee Whye Teh.
+2012.
+A fast andsimple algorithm for training neural probabilistic lan-guage models.
+In Proc.
+of ICML.Frederic Morin and Yoshua Bengio.
+2005.
+Hierarchi-cal Probabilistic Neural Network Language Model.In Proc.
+of AISTATS.Robert Parker, David Graff, Junbo Kong, Ke Chen, andKazuaki Maeda.
+2011.
+English Gigaword Fifth Edi-tion.
+Technical report, Linguistic Data Consortium.Jeffrey Pennington, Richard Socher, and Christopher DManning.
+2014.
+Glove: Global vectors for word rep-resentation.
+In Proceedings of the Empiricial Meth-ods in Natural Language Processing.1984Holger Schwenk, Anthony Rousseau, and MohammedAttik.
+2012.
+Large, Pruned or Continuous SpaceLanguage Models on a GPU for Statistical MachineTranslation.
+In NAACL-HLT Workshop on the Fu-ture of Language Modeling for HLT, pages 11?19.Association for Computational Linguistics.Alessandro Sordoni, Michel Galley, Michael Auli,Chris Brockett, Yangfeng Ji, Margaret Mitchell, Jian-Yun Nie1, Jianfeng Gao, and Bill Dolan.
+2015.
+ANeural Network Approach to Context-Sensitive Gen-eration of Conversational Responses.
+In Proc.
+ofNAACL.
+Association for Computational Linguistics,May.Nitish Srivastava, Geoffrey Hinton, Alex Krizhevsky,Ilya Sutskever, and Ruslan Salakhutdinov.
+2014.Dropout: A simple way to prevent neural networksfrom overfitting.
+Journal of Machine Learning Re-search.Ashish Vaswani, Yinggong Zhao, Victoria Fossum,and David Chiang.
+2013.
+Decoding with Large-scale Neural Language Models improves Transla-tion.
+In Proc.
+of EMNLP.
+Association for Compu-tational Linguistics, October.1985

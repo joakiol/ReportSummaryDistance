@@ -1,0 +1,254 @@
+Proceedings of the 51st Annual Meeting of the Association for Computational Linguistics, pages 12?17,Sofia, Bulgaria, August 4-9 2013. c?2013 Association for Computational LinguisticsA Tale about PRO and MonstersPreslav Nakov, Francisco Guzma?n and Stephan VogelQatar Computing Research Institute, Qatar FoundationTornado Tower, floor 10, PO box 5825Doha, Qatar{pnakov,fherrera,svogel}@qf.org.qaAbstractWhile experimenting with tuning on longsentences, we made an unexpected discov-ery: that PRO falls victim to monsters ?overly long negative examples with verylow BLEU+1 scores, which are unsuitablefor learning and can cause testing BLEUto drop by several points absolute.
+Wepropose several effective ways to addressthe problem, using length- and BLEU+1-based cut-offs, outlier filters, stochasticsampling, and random acceptance.
+Thebest of these fixes not only slay and pro-tect against monsters, but also yield higherstability for PRO as well as improved test-time BLEU scores.
+Thus, we recommendthem to anybody using PRO, monster-believer or not.1 Once Upon a Time...For years, the standard way to do statistical ma-chine translation parameter tuning has been touse minimum error-rate training, or MERT (Och,2003).
+However, as researchers started using mod-els with thousands of parameters, new scalable op-timization algorithms such as MIRA (Watanabe etal., 2007; Chiang et al, 2008) and PRO (Hopkinsand May, 2011) have emerged.
+As these algo-rithms are relatively new, they are still not quitewell understood, and studying their properties isan active area of research.For example, Nakov et al (2012) have pointedout that PRO tends to generate translations thatare consistently shorter than desired.
+Theyhave blamed this on inadequate smoothing inPRO?s optimization objective, namely sentence-level BLEU+1, and they have addressed the prob-lem using more sensible smoothing.
+We wonderedwhether the issue could be partially relieved sim-ply by tuning on longer sentences, for which theeffect of smoothing would naturally be smaller.To our surprise, tuning on the longer 50% of thetuning sentences had a disastrous effect on PRO,causing an absolute drop of three BLEU pointson testing; at the same time, MERT and MIRAdid not have such a problem.
+While investigatingthe reasons, we discovered hundreds of monsterscreeping under PRO?s surface...Our tale continues as follows.
+We first explainwhat monsters are in Section 2, then we present atheory about how they can be slayed in Section 3,we put this theory to test in practice in Section 4,and we discuss some related efforts in Section 5.Finally, we present the moral of our tale, and wehint at some planned future battles in Section 6.2 Monsters, Inc.PRO uses pairwise ranking optimization, wherethe learning task is to classify pairs of hypothesesinto correctly or incorrectly ordered (Hopkins andMay, 2011).
+It searches for a vector of weightsw such that higher evaluation metric scores cor-respond to higher model scores and vice versa.More formally, PRO looks for weights w such thatg(i, j) > g(i, j?)
+?
+hw(i, j) > hw(i, j?
+), whereg is a local scoring function (typically, sentence-level BLEU+1) and hw are the model scores fora given input sentence i and two candidate hy-potheses j and j?
+that were obtained using w. Ifg(i, j) > g(i, j?
+), we will refer to j and j?
+as thepositive and the negative example in the pair.Learning good parameter values requires nega-tive examples that are comparable to the positiveones.
+Instead, tuning on long sentences quicklyintroduces monsters, i.e., corrupted negative ex-amples that are unsuitable for learning: they are(i) much longer than the respective positive ex-amples and the references, and (ii) have very lowBLEU+1 scores compared to the positive exam-ples and in absolute terms.
+The low BLEU+1means that PRO effectively has to learn from pos-itive examples only.12Avg.
+Lengths Avg.
+BLEU+1iter.
+pos neg ref.
+pos neg1 45.2 44.6 46.5 52.5 37.62 46.4 70.5 53.2 52.8 14.53 46.4 261.0 53.4 52.4 2.194 46.4 250.0 53.0 52.0 2.305 46.3 248.0 53.0 52.1 2.34. .
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.25 47.9 229.0 52.5 52.2 2.81Table 1: PRO iterations, tuning on long sentences.Table 1 shows an optimization run of PRO whentuning on long sentences.
+We can see monstersafter iterations in which positive examples are onaverage longer than negative ones (e.g., iter.
+1).As a result, PRO learns to generate longer sen-tences, but it overshoots too much (iter.
+2), whichgives rise to monsters.
+Ideally, the learning algo-rithm should be able to recover from overshoot-ing.
+However, once monsters are encountered,they quickly start dominating, with no chance forPRO to recover since it accumulates n-best lists,and thus also monsters, over iterations.
+As a result,PRO keeps jumping up and down and converges torandom values, as Figure 1 shows.By default, PRO?s parameters are averagedover iterations, and thus the final result is quitemediocre, but selecting the highest tuning scoredoes not solve the problem either: for example,on Figure 1, PRO never achieves a BLEU betterthan that for the default initialization parameters.???
+?????
+???
+?
+?
+?
+?
+?
+?
+?
+?
+?
+?
+???
+?5 10 15 20 25010203040iterationBLEU score?????
+???
+???
+?
+?
+?
+?
+?
+?
+?
+?
+?
+?
+?
+?
+?
+?
+12345Length ratioFigure 1: PRO tuning results on long sentencesacross iterations.
+The dark-gray line shows thetuning BLEU (left axis), the light-gray one is thehypothesis/reference length ratio (right axis).Figure 2 shows the translations after iterations1, 3 and 4; the last two are monsters.
+The monsterat iteration 3 is potentially useful, but that at itera-tion 4 is clearly unsuitable as a negative example.Optimizer Objective BLEUPRO sent-BLEU+1 44.57MERT corpus-BLEU 47.53MIRA pseudo-doc-BLEU 47.80PRO (6= objective) pseudo-doc-BLEU 21.35MIRA (6= objective) sent-BLEU+1 47.59PRO, PC-smooth, ground fixed sent-BLEU+1 45.71Table 2: PRO vs. MERT vs. MIRA.We also checked whether other popular opti-mizers yield very low BLEU scores at test timewhen tuned on long sentences.
+Lines 2-3 in Ta-ble 2 show that this is not the case for MERT andMIRA.
+Since they optimize objectives that are dif-ferent from PRO?s,1 we further experimented withplugging MIRA?s objective into PRO and PRO?sobjective into MIRA.
+The resulting MIRA scoreswere not much different from before, while PRO?sscore dropped even further; we also found mon-sters.
+Next, we applied the length fix for PROproposed in (Nakov et al, 2012); this helped abit, but still left PRO two BLEU points behindMERT2 and MIRA, and the monsters did not goaway.
+We can conclude that the monster problemis PRO-specific, cannot be blamed on the objectivefunction, and is different from the length bias.Note also that monsters are not specific to adataset or language pair.
+We found them whentuning on the top-50% of WMT10 and testing onWMT11 for Spanish-English; this yielded a dropin BLEU from 29.63 (MERT) to 27.12 (PRO).From run 110 /home/guzmanhe/NIST12/ems/preslav-mada-atb/tuning/tmp.110**REF**: but we have to close ranks with each other and realize that inunity there is strength while in division there is weakness .-----------------------------------------------------**IT1**: but we are that we add our ranks to some of us and that we knowthat in the strength and weakness in**IT3**:, we are the but of the that that the , and , of ranks the the onthe the our the our the some of we can include , and , of to the of we knowthe the our in of the of some people , force of the that that the in of thethat that the the weakness Union the the , and**IT4**: namely Dr Heba Handossah and Dr Mona been pushed aside because alarger story EU Ambassador to Egypt Ian Burg highlighted 've dragged usbackwards and dragged our speaking , never balme your defaulting a December7th 1941 in Pearl Harbor ) we can include ranks will be joined by all 'vedragged us backwards and dragged our $ 3.8 billion in tourism incomeproceeds Chamber are divided among themselves : some 've dragged usbackwards and dragged our were exaggerated .
+Al @-@ Hakim namely Dr HebaHandossah and Dr Mona December 7th 1941 in Pearl Harbor ) cases might beknown to us December 7th 1941 in Pearl Harbor ) platform depends oncombating all liberal policies Track and Field Federation shortened strengthas well face several challenges , namely Dr Heba Handossah and Dr Monaplatform depends on combating all liberal policies the report forecast thatthe weak structure**IT7**: , the sakes of our on and the , the we can include however , the Alranks the the on the , to the = last of we , the long of the part of some ofto the affect that the of some is the with ] us our to the affect that thewith ] us our of the in baker , the cook , the on and the , the we know ,has are in the heaven of to the affect that the of weakness of @-@ Ittihad@-@ Al the force , toFigure 2: Example reference translation and hy-pothesis translations after iterations 1, 3 and 4.The last two hypotheses are monsters.1See (Cherry and Foster, 2012) for details on objectives.2Also, using PRO to initialize MERT, as implemented inMoses, yields 46.52 BLEU and monsters, but using MERT toinitialize PRO yields 47.55 and no monsters.133 Slaying Monsters: TheoryBelow we explain what monsters are and wherethey come from.
+Then, we propose various mon-ster slaying techniques to be applied during PRO?sselection and acceptance steps.3.1 What is PRO?PRO is a batch optimizer that iterates between(i) translation: using the current parameter values,generate k-best translations, and (ii) optimization:using the translations from all previous iterations,find new parameter values.
+The optimization stephas four substeps:1.
+Sampling: For each sentence, sample uni-formly at random ?
+= 5000 pairs from theset of all candidate translations for that sen-tence from all previous iterations.2.
+Selection: From these sampled pairs, selectthose for which the absolute difference be-tween their BLEU+1 scores is higher than?
+= 0.05 (note: this is 5 BLEU+1 points).3.
+Acceptance: For each sentence, accept the?
+= 50 selected pairs with the highest abso-lute difference in their BLEU+1 scores.4.
+Learning: Assemble the accepted pairs forall sentences into a single set and use it totrain a ranker to prefer the higher-scoringsentence in each pair.We believe that monsters are nurtured by PRO?sselection and acceptance policies.
+PRO?s selec-tion step filters pairs involving hypotheses that dif-fer by less than five BLEU+1 points, but it doesnot cut-off ones that differ too much based onBLEU+1 or length.
+PRO?s acceptance step selects?
+= 50 pairs with the highest BLEU+1 differ-entials, which creates breeding ground for mon-sters since these pairs are very likely to includeone monster and one good hypothesis.Below we discuss monster slaying geared to-wards the selection and acceptance steps of PRO.3.2 Slaying at SelectionIn the selection step, PRO filters pairs for whichthe difference in BLEU+1 is less than five points,but it has no cut-off on the maximum BLEU+1 dif-ferentials nor cut-offs based on absolute length ordifference in length.
+Here, we propose several se-lection filters, both deterministic and probabilistic.Cut-offs.
+A cut-off is a deterministic rule thatfilters out pairs that do not comply with some cri-teria.
+We experiment with a maximal cut-off on(a) the difference in BLEU+1 scores and (b) thedifference in lengths.
+These are relative cut-offsbecause they refer to the pair, but absolute cut-offsthat apply to each of the elements in the pair arealso possible (not explored here).
+Cut-offs (a) and(b) slay monsters by not allowing the negative ex-amples to get much worse in BLEU+1 or in lengththan the positive example in the pair.Filtering outliers.
+Outliers are rare or extremeobservations in a sample.
+We assume normal dis-tribution of the BLEU+1 scores (or of the lengths)of the translation hypotheses for the same sourcesentence, and we define as outliers hypotheseswhose BLEU+1 (or length) is more than ?
+stan-dard deviations away from the sample average.We apply the outlier filter to both the positive andthe negative example in a pair, but it is more im-portant for the latter.
+We experiment with valuesof ?
+like 2 and 3.
+This filtering slays monsters be-cause they are likely outliers.
+However, it will notwork if the population gets riddled with monsters,in which case they would become the norm.Stochastic sampling.
+Instead of filtering ex-treme examples, we can randomly sample pairsaccording to their probability of being typical.
+Letus assume that the values of the local scoring func-tions, i.e., the BLEU+1 scores, are distributed nor-mally: g(i, j) ?
+N(?, ?2).
+Given a sample of hy-pothesis translations {j} of the same source sen-tence i, we can estimate ?
+empirically.
+Then,the difference ?
+= g(i, j) ?
+g(i, j?)
+would bedistributed normally with mean zero and variance2?2.
+Now, given a pair of examples, we can calcu-late their ?, and we can choose to select the pairwith some probability, according to N(0, 2?2).3.3 Slaying at AcceptanceAnother problem is caused by the acceptancemechanism of PRO: among all selected pairs, itaccepts the top-?
+with the highest BLEU+1 dif-ferentials.
+It is easy to see that these differentialsare highest for nonmonster?monster pairs if suchpairs exist.
+One way to avoid focusing primarilyon such pairs is to accept a random set of ?
+pairs,among the ones that survived the selection step.One possible caveat is that we can lose some ofthe discriminative power of PRO by focusing onexamples that are not different enough.14TESTING TUNING (run 1, it.
+25, avg.)
+TEST(tune:full)Avg.
+for 3 reruns Lengths BLEU+1 Avg.
+for 3 rerunsPRO fix BLEU StdDev Pos Neg Ref Pos Neg BLEU StdDevPRO (baseline) 44.70 0.266 47.9 229.0 52.5 52.2 2.8 47.80 0.052Max diff.
+cut-off BLEU+1 max=10 ?
+47.94 0.165 47.9 49.6 49.4 49.4 39.9 47.77 0.035BLEU+1 max=20 ?
+47.73 0.136 47.7 55.5 51.1 49.8 32.7 47.85 0.049LEN max=5 ?
+48.09 0.021 46.8 47.0 47.9 52.9 37.8 47.73 0.051LEN max=10 ?
+47.99 0.025 47.3 48.5 48.7 52.5 35.6 47.80 0.056Outliers BLEU+1 ?=2.0 ?
+48.05 0.119 46.8 47.2 47.7 52.2 39.5 47.47 0.090BLEU+1 ?=3.0 47.12 1.348 47.6 168.0 53.0 51.7 3.9 47.53 0.038LEN ?=2.0 46.68 2.005 49.3 82.7 53.1 52.3 5.3 47.49 0.085LEN ?=3.0 47.02 0.727 48.2 163.0 51.4 51.4 4.2 47.65 0.096Stoch.
+sampl.
+?
+BLEU+1 46.33 1.000 46.8 216.0 53.3 53.1 2.4 47.74 0.035?
+LEN 46.36 1.281 47.4 201.0 52.9 53.4 2.9 47.78 0.081Table 3: Some fixes to PRO (select pairs with highest BLEU+1 differential, also require at least 5BLEU+1 points difference).
+A dagger (?)
+indicates selection fixes that successfully get rid of monsters.4 Attacking Monsters: PracticeBelow, we first present our general experimentalsetup.
+Then, we present the results for the var-ious selection alternatives, both with the originalacceptance strategy and with random acceptance.4.1 Experimental SetupWe used a phrase-based SMT model (Koehn et al,2003) as implemented in the Moses toolkit (Koehnet al, 2007).
+We trained on all Arabic-Englishdata for NIST 2012 except for UN, we tuned on(the longest-50% of) the MT06 sentences, and wetested on MT09.
+We used the MADA ATB seg-mentation for Arabic (Roth et al, 2008) and true-casing for English, phrases of maximal length 7,Kneser-Ney smoothing, and lexicalized reorder-ing (Koehn et al, 2005), and a 5-gram languagemodel, trained on GigaWord v.5 using KenLM(Heafield, 2011).
+We dropped unknown wordsboth at tuning and testing, and we used minimumBayes risk decoding at testing (Kumar and Byrne,2004).
+We evaluated the output with NIST?s scor-ing tool v.13a, cased.We used the Moses implementations of MERT,PRO and batch MIRA, with the ?return-best-devparameter for the latter.
+We ran these optimizersfor up to 25 iterations and we used 1000-best lists.For stability (Foster and Kuhn, 2009), we per-formed three reruns of each experiment (tuning +evaluation), and we report averaged scores.4.2 Selection AlternativesTable 3 presents the results for different selectionalternatives.
+The first two columns show the test-ing results: average BLEU and standard deviationover three reruns.The following five columns show statisticsabout the last iteration (it.
+25) of PRO?s tuningfor the worst rerun: average lengths of the positiveand the negative examples and average effectivereference length, followed by average BLEU+1scores for the positive and the negative examplesin the pairs.
+The last two columns present the re-sults when tuning on the full tuning set.
+These areincluded to verify the behavior of PRO in a non-monster prone environment.We can see in Table 3 that all selection mech-anisms considerably improve BLEU compared tothe baseline PRO, by 2-3 BLEU points.
+However,not every selection alternative gets rid of monsters,which can be seen by the large lengths and lowBLEU+1 for the negative examples (in bold).The max cut-offs for BLEU+1 and for lengthsboth slay the monsters, but the latter yields muchlower standard deviation (thirteen times lower thanfor the baseline PRO!
+), thus considerably increas-ing PRO?s stability.
+On the full dataset, BLEUscores are about the same as for the original PRO(with small improvement for BLEU+1 max=20),but the standard deviations are slightly better.Rejecting outliers using BLEU+1 and ?
+= 3 isnot strong enough to filter out monsters, but mak-ing this criterion more strict by setting ?
+= 2,yields competitive BLEU and kills the monsters.Rejecting outliers based on length does notwork as effectively though.
+We can think of twopossible reasons: (i) lengths are not normally dis-tributed, they are more Poisson-like, and (ii) theacceptance criterion is based on the top-?
+differ-entials based on BLEU+1, not based on length.On the full dataset, rejecting outliers, BLEU+1and length, yields lower BLEU and less stability.15TESTING TUNING (run 1, it.
+25, avg.)
+TEST(tune:full)Avg.
+for 3 reruns Lengths BLEU+1 Avg.
+for 3 rerunsPRO fix BLEU StdDev Pos Neg Ref Pos Neg BLEU StdDevPRO (baseline) 44.70 0.266 47.9 229.0 52.5 52.2 2.8 47.80 0.052Rand.
+accept PRO, rand ??
+47.87 0.147 47.7 48.5 48.70 47.7 42.9 47.59 0.114Outliers BLEU+1 ?=2.0, rand?
+47.85 0.078 48.2 48.4 48.9 47.5 43.6 47.62 0.091BLEU+1 ?=3.0, rand 47.97 0.168 47.6 47.6 48.4 47.8 43.6 47.44 0.070LEN ?=2.0, rand?
+47.69 0.114 47.8 47.8 48.6 47.9 43.6 47.48 0.046LEN ?=3.0, rand 47.89 0.235 47.8 48.0 48.7 47.7 43.1 47.64 0.090Stoch.
+sampl.
+?
+BLEU+1, rand?
+47.99 0.087 47.9 48.0 48.7 47.8 43.5 47.67 0.096?
+LEN, rand?
+47.94 0.060 47.8 47.9 48.6 47.8 43.6 47.65 0.097Table 4: More fixes to PRO (with random acceptance, no minimum BLEU+1).
+The (??)
+indicates thatrandom acceptance kills monsters.
+The asterisk (?)
+indicates improved stability over random acceptance.Reasons (i) and (ii) arguably also apply tostochastic sampling of differentials (for BLEU+1or for length), which fails to kill the monsters,maybe because it gives them some probability ofbeing selected by design.
+To alleviate this, we testthe above settings with random acceptance.4.3 Random AcceptanceTable 4 shows the results for accepting trainingpairs for PRO uniformly at random.
+To eliminatepossible biases, we also removed the min=0.05BLEU+1 selection criterion.
+Surprisingly, thissetup effectively eliminated the monster problem.Further coupling this with the distributional cri-teria can also yield increased stability, and evensmall further increase in test BLEU.
+For instance,rejecting BLEU outliers with ?
+= 2 yields com-parable average test BLEU, but with only half thestandard deviation.On the other hand, using the stochastic sam-pling of differentials based on either BLEU+1 orlengths improves the test BLEU score while in-creasing the stability across runs.
+The randomacceptance has a caveat though: it generally de-creases the discriminative power of PRO, yieldingworse results when tuning on the full, nonmonsterprone tuning dataset.
+Stochastic selection doeshelp to alleviate this problem.
+Yet, the results arenot as good as when using a max cut-off for thelength.
+Therefore, we recommend using the latteras a default setting.5 Related WorkWe are not aware of previous work that discussesthe issue of monsters, but there has been work ona different, length problem with PRO (Nakov etal., 2012).
+We have seen that its solution, fix thesmoothing in BLEU+1, did not work for us.The stability of MERT has been improved usingregularization (Cer et al, 2008), random restarts(Moore and Quirk, 2008), multiple replications(Clark et al, 2011), and parameter aggregation(Cettolo et al, 2011).With the emergence of new optimization tech-niques, there have been studies that compare sta-bility between MIRA?MERT (Chiang et al, 2008;Chiang et al, 2009; Cherry and Foster, 2012),PRO?MERT (Hopkins and May, 2011), MIRA?PRO?MERT (Cherry and Foster, 2012; Gimpeland Smith, 2012; Nakov et al, 2012).Pathological verbosity can be an issue whentuning MERT on recall-oriented metrics suchas METEOR (Lavie and Denkowski, 2009;Denkowski and Lavie, 2011).
+Large variance be-tween the results obtained with MIRA has alsobeen reported (Simianer et al, 2012).
+However,none of this work has focused on monsters.6 Tale?s Moral and Future BattlesWe have studied a problem with PRO, namely thatit can fall victim to monsters, overly long negativeexamples with very low BLEU+1 scores, whichare unsuitable for learning.
+We have proposed sev-eral effective ways to address this problem, basedon length- and BLEU+1-based cut-offs, outlier fil-ters and stochastic sampling.
+The best of thesefixes have not only slayed the monsters, but havealso brought much higher stability to PRO as wellas improved test-time BLEU scores.
+These bene-fits are less visible on the full dataset, but we stillrecommend them to everybody who uses PRO asprotection against monsters.
+Monsters are inher-ent in PRO; they just do not always take over.In future work, we plan a deeper look at themechanism of monster creation in PRO and itspossible connection to PRO?s length bias.16ReferencesDaniel Cer, Daniel Jurafsky, and Christopher Manning.2008.
+Regularization and search for minimum errorrate training.
+In Proc.
+of Workshop on StatisticalMachine Translation, WMT ?08, pages 26?34.Mauro Cettolo, Nicola Bertoldi, and Marcello Fed-erico.
+2011.
+Methods for smoothing the optimizerinstability in SMT.
+MT Summit XIII: the MachineTranslation Summit, pages 32?39.Colin Cherry and George Foster.
+2012.
+Batch tuningstrategies for statistical machine translation.
+In Pro-ceedings of the Conference of the North AmericanChapter of the Association for Computational Lin-guistics, NAACL-HLT ?12, pages 427?436.David Chiang, Yuval Marton, and Philip Resnik.
+2008.Online large-margin training of syntactic and struc-tural translation features.
+In Proceedings of the Con-ference on Empirical Methods in Natural LanguageProcessing, EMNLP ?08, pages 224?233.David Chiang, Kevin Knight, and Wei Wang.
+2009.11,001 new features for statistical machine transla-tion.
+In Proc.
+of the Conference of the North Amer-ican Chapter of the Association for ComputationalLinguistics, NAACL-HLT ?09, pages 218?226.Jonathan Clark, Chris Dyer, Alon Lavie, and NoahSmith.
+2011.
+Better hypothesis testing for statis-tical machine translation: Controlling for optimizerinstability.
+In Proceedings of the Meeting of the As-sociation for Computational Linguistics, ACL ?11,pages 176?181.Michael Denkowski and Alon Lavie.
+2011.
+Meteor-tuned phrase-based SMT: CMU French-English andHaitian-English systems for WMT 2011.
+Techni-cal report, CMU-LTI-11-011, Language Technolo-gies Institute, Carnegie Mellon University.George Foster and Roland Kuhn.
+2009.
+Stabiliz-ing minimum error rate training.
+In Proceedingsof the Workshop on Statistical Machine Translation,StatMT ?09, pages 242?249.Kevin Gimpel and Noah Smith.
+2012.
+Structured ramploss minimization for machine translation.
+In Pro-ceedings of the Conference of the North AmericanChapter of the Association for Computational Lin-guistics, NAACL-HLT ?12, pages 221?231.Kenneth Heafield.
+2011.
+KenLM: Faster and smallerlanguage model queries.
+In Workshop on StatisticalMachine Translation, WMT ?11, pages 187?197.Mark Hopkins and Jonathan May.
+2011.
+Tuning asranking.
+In Proceedings of the 2011 Conference onEmpirical Methods in Natural Language Process-ing, EMNLP ?11, pages 1352?1362.Philipp Koehn, Franz Josef Och, and Daniel Marcu.2003.
+Statistical phrase-based translation.
+In Pro-ceedings of the Conference of the North Ameri-can Chapter of the Association for ComputationalLinguistics on Human Language Technology, HLT-NAACL ?03, pages 48?54.Philipp Koehn, Amittai Axelrod, Alexandra BirchMayne, Chris Callison-Burch, Miles Osborne, andDavid Talbot.
+2005.
+Edinburgh system descrip-tion for the 2005 IWSLT speech translation evalu-ation.
+In Proceedings of the International Workshopon Spoken Language Translation, IWSLT ?05.Philipp Koehn, Hieu Hoang, Alexandra Birch, ChrisCallison-Burch, Marcello Federico, Nicola Bertoldi,Brooke Cowan, Wade Shen, Christine Moran,Richard Zens, Chris Dyer, Ondrej Bojar, AlexandraConstantin, and Evan Herbst.
+2007.
+Moses: Opensource toolkit for statistical machine translation.
+InProc.
+of the Meeting of the Association for Compu-tational Linguistics, ACL ?07, pages 177?180.Shankar Kumar and William Byrne.
+2004.
+MinimumBayes-risk decoding for statistical machine transla-tion.
+In Proceedings of the Conference of the NorthAmerican Chapter of the Association for Computa-tional Linguistics on Human Language Technology,HLT-NAACL ?04, pages 169?176.Alon Lavie and Michael Denkowski.
+2009.
+The ME-TEOR metric for automatic evaluation of machinetranslation.
+Machine Translation, 23:105?115.Robert Moore and Chris Quirk.
+2008.
+Randomrestarts in minimum error rate training for statisti-cal machine translation.
+In Proceedings of the Inter-national Conference on Computational Linguistics,COLING ?08, pages 585?592.Preslav Nakov, Francisco Guzma?n, and Stephan Vo-gel.
+2012.
+Optimizing for sentence-level BLEU+1yields short translations.
+In Proceedings of the Inter-national Conference on Computational Linguistics,COLING ?12, pages 1979?1994.Franz Josef Och.
+2003.
+Minimum error rate training instatistical machine translation.
+In Proceedings of theMeeting of the Association for Computational Lin-guistics, ACL ?03, pages 160?167.Ryan Roth, Owen Rambow, Nizar Habash, Mona Diab,and Cynthia Rudin.
+2008.
+Arabic morphologicaltagging, diacritization, and lemmatization using lex-eme models and feature ranking.
+In Proceedingsof the Meeting of the Association for ComputationalLinguistics, ACL ?08, pages 117?120.Patrick Simianer, Stefan Riezler, and Chris Dyer.
+2012.Joint feature selection in distributed stochastic learn-ing for large-scale discriminative training in smt.
+InProceedings of the Meeting of the Association forComputational Linguistics, ACL ?12, pages 11?21.Taro Watanabe, Jun Suzuki, Hajime Tsukada, andHideki Isozaki.
+2007.
+Online large-margin trainingfor statistical machine translation.
+In Proceedings ofthe Joint Conference on Empirical Methods in Natu-ral Language Processing and Computational Natu-ral Language Learning, EMNLP-CoNLL ?07, pages764?773.17

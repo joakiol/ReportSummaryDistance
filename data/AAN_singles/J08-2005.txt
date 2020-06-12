@@ -1,0 +1,803 @@
+The Importance of Syntactic Parsing andInference in Semantic Role LabelingVasin Punyakanok?
+?BBN TechnologiesDan Roth?
+?University of Illinois atUrbana-ChampaignWen-tau Yih?
+?Microsoft ResearchWe present a general framework for semantic role labeling.
+The framework combines a machine-learning technique with an integer linear programming?based inference procedure, which in-corporates linguistic and structural constraints into a global decision process.
+Within thisframework, we study the role of syntactic parsing information in semantic role labeling.
+Weshow that full syntactic parsing information is, by far, most relevant in identifying the argument,especially, in the very first stage?the pruning stage.
+Surprisingly, the quality of the pruningstage cannot be solely determined based on its recall and precision.
+Instead, it depends on thecharacteristics of the output candidates that determine the difficulty of the downstream prob-lems.
+Motivated by this observation, we propose an effective and simple approach of combiningdifferent semantic role labeling systems through joint inference, which significantly improves itsperformance.Our system has been evaluated in the CoNLL-2005 shared task on semantic role labeling,and achieves the highest F1 score among 19 participants.1.
+IntroductionSemantic parsing of sentences is believed to be an important task on the road to naturallanguage understanding, and has immediate applications in tasks such as informa-tion extraction and question answering.
+Semantic Role Labeling (SRL) is a shallowsemantic parsing task, in which for each predicate in a sentence, the goal is to identifyall constituents that fill a semantic role, and to determine their roles (Agent, Patient,Instrument, etc.)
+and their adjuncts (Locative, Temporal, Manner, etc.).?
+10 Moulton St., Cambridge, MA 02138, USA.
+E-mail: vpunyaka@bbn.com.??
+Department of Computer Science, University of Illinois at Urbana-Champaign, 201 N. Goodwin Ave.,Urbana, IL 61801, USA.
+E-mail: danr@uiuc.edu.?
+One Microsoft Way, Redmond, WA 98052, USA.
+E-mail: scottyih@microsoft.com.?
+Most of the work was done when these authors were at the University of Illinois at Urbana-Champaign.Submission received: 15 July 2006; revised submission received: 3 May 2007; accepted for publication:19 June 2007.?
+2008 Association for Computational LinguisticsComputational Linguistics Volume 34, Number 2The PropBank project (Kingsbury and Palmer 2002; Palmer, Gildea, and Kingsbury2005), which provides a large human-annotated corpus of verb predicates and their ar-guments, has enabled researchers to apply machine learning techniques to develop SRLsystems (Gildea and Palmer 2002; Chen and Rambow 2003; Gildea and Hockenmaier2003; Pradhan et al 2003; Surdeanu et al 2003; Pradhan et al 2004; Xue and Palmer 2004;Koomen et al 2005).
+However, most systems rely heavily on full syntactic parse trees.Therefore, the overall performance of the system is largely determined by the qualityof the automatic syntactic parsers of which the state of the art (Collins 1999; Charniak2001) is still far from perfect.Alternatively, shallow syntactic parsers (i.e., chunkers and clausers), although theydo not provide as much information as a full syntactic parser, have been shown tobe more robust in their specific tasks (Li and Roth 2001).
+This raises the very naturaland interesting question of quantifying the importance of full parsing information tosemantic parsing and whether it is possible to use only shallow syntactic information tobuild an outstanding SRL system.Although PropBank is built by adding semantic annotations to the constituents inthe Penn Treebank syntactic parse trees, it is not clear how important syntactic parsingis for an SRL system.
+To the best of our knowledge, this problem was first addressedby Gildea and Palmer (2002).
+In their attempt to use limited syntactic information, theparser they used was very shallow?clauses were not available and only chunks wereused.
+Moreover, the pruning stage there was very strict?only chunks were consideredas argument candidates.
+This results in over 60% of the actual arguments being ignored.Consequently, the overall recall in their approach was very low.The use of only shallow parsing information in an SRL system has largely beenignored until the recent CoNLL-2004 shared task competition (Carreras and Ma`rquez2004).
+In that competition, participants were restricted to using only shallow parsinginformation, which included part-of-speech tags, chunks, and clauses (the definitions ofchunks and clauses can be found in Tjong Kim Sang and Buchholz [2000] and Carreraset al [2002], respectively).
+As a result, the performance of the best shallow parsing?based system (Hacioglu et al 2004) in the competition is about 10 points in F1 below thebest system that uses full parsing information (Koomen et al 2005).
+However, this is notthe outcome of a true and fair quantitative comparison.
+The CoNLL-2004 shared taskused only a subset of the data for training, which potentially makes the problem harder.Furthermore, an SRL system is usually complicated and consists of several stages.
+Itwas still unclear howmuch syntactic information helps and precisely where it helps themost.The goal of this paper is threefold.
+First, we describe an architecture for an SRLsystem that incorporates a level of global inference on top of the relatively commonprocessing steps.
+This inference step allows us to incorporate structural and linguisticconstraints over the possible outcomes of the argument classifier in an easy way.
+Theinference procedure is formalized via an Integer Linear Programming framework andis shown to yield state-of-the-art results on this task.
+Second, we provide a fair com-parison between SRL systems that use full parse trees and systems that only use shal-low syntactic information.
+As with our full syntactic parse?based SRL system (Koomenet al 2005), our shallow parsing?based SRL system is based on the system that achievesvery competitive results and was one of the top systems in the CoNLL-2004 sharedtask competition (Carreras and Ma`rquez 2004).
+This comparison brings forward a care-ful analysis of the significance of full parsing information in the SRL task, and providesan understanding of the stages in the process in which this information makes the mostdifference.
+Finally, to relieve the dependency of the SRL system on the quality of258Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLautomatic parsers, we suggest a way to improve semantic role labeling significantly bydeveloping a global inference algorithm, which is used to combine several SRL systemsbased on different state-of-the-art full parsers.
+The combination process is done througha joint inference stage, which takes the output of each individual system as input andgenerates the best predictions, subject to various structural and linguistic constraints.The underlying system architecture can largely affect the outcome of our study.Therefore, to make the conclusions of our experimental study as applicable as possibleto general SRL systems, the architecture of our SRL system follows the most widelyused two-step design.
+In the first step, the system is trained to identify argument candi-dates for a given verb predicate.
+In the second step, the system classifies the argumentcandidates into their types.
+In addition, it is also a simple procedure to prune obviousnon-candidates before the first step, and to use post-processing inference to fix incon-sistent predictions after the second step.
+These two additional steps are also employedby our system.Our study of shallow and full syntactic information?based SRL systems was doneby comparing their impact at each stage of the process.
+Specifically, our goal is to investi-gate at what stage full parsing information is most helpful relative to a shallow parsing?based system.
+Therefore, our experiments were designed so that the compared systemsare as similar as possible, and the addition of the full parse tree?based features is theonly difference.
+The most interesting result of this comparison is that although eachstep of the shallow parsing information?based system exhibits very good performance,the overall performance is significantly inferior to the system that uses full parsinginformation.
+Our explanation is that chaining multiple processing stages to producethe final SRL analysis is crucial to understanding this analysis.
+Specifically, the qualityof the information passed from one stage to the other is a decisive issue, and it isnot necessarily judged simply by considering the F-measure.
+We conclude that, forthe system architecture used in our study, the significance of full parsing informationcomes into play mostly at the pruning stage, where the candidates to be processed laterare determined.
+In addition, we produce a state-of-the-art SRL system by combiningdifferent SRL systems based on two automatic full parsers (Collins 1999; Charniak 2001),which achieves the best result in the CoNLL-2005 shared task (Carreras and Ma`rquez2005).The rest of this paper is organized as follows.
+Section 2 introduces the task ofsemantic role labeling in more detail.
+Section 3 describes the four-stage architecture ofour SRL system, which includes pruning, argument identification, argument classifi-cation, and inference.
+The features used for building the classifiers and the learningalgorithm applied are also explained there.
+Section 4 explains why and where fullparsing information contributes to SRL by conducting a series of carefully designedexperiments.
+Inspired by the result, we examine the effect of inference in a single systemand propose an approach that combines different SRL systems based on joint inferencein Section 5.
+Section 6 presents the empirical evaluation of our system in the CoNLL-2005 shared task competition.
+After that, we discuss the related work in Section 7 andconclude this paper in Section 8.2.
+The Semantic Role Labeling (SRL) TaskThe goal of the semantic role labeling task is to discover the predicate?argument struc-ture of each predicate in a given input sentence.
+In this work, we focus only on the verbpredicate.
+For example, given a sentence I left my pearls to my daughter-in-law in my will,259Computational Linguistics Volume 34, Number 2the goal is to identify the different arguments of the verb predicate left and produce theoutput:[A0 I] [V left ] [A1 my pearls] [A2 to my daughter-in-law] [AM-LOC in my will].Here A0 represents the leaver, A1 represents the thing left, A2 represents the beneficiary,AM-LOC is an adjunct indicating the location of the action, and V determines theboundaries of the predicate, which is important when a predicate contains many words,for example, a phrasal verb.
+In addition, each argument can be mapped to a constituentin its corresponding full syntactic parse tree.Following the definition of the PropBank and CoNLL-2004 and 2005 shared tasks,there are six different types of arguments labeled as A0?A5 and AA.
+These labels havedifferent semantics for each verb and each of its senses as specified in the PropBankFrame files.
+In addition, there are also 13 types of adjuncts labeled as AM-adj where adjspecifies the adjunct type.
+For simplicity in our presentation, we will also refer to theseadjuncts as arguments.
+In some cases, an argument may span over different parts ofa sentence; the label C-arg is then used to specify the continuity of the arguments, asshown in this example:[A1 The pearls] , [A0 I] [V said] , [C-A1 were left to my daughter-in-law].In some other cases, an argumentmight be a relative pronoun that in fact refers to the ac-tual agent outside the clause.
+In this case, the actual agent is labeled as the appropriateargument type, arg, while the relative pronoun is instead labeled as R-arg.
+For example,[A1 The pearls] [R-A1 which] [A0 I] [V left] [A2 to my daughter-in-law] are fake.Because each verb may have different senses producing different semantic rolesfor the same labels, the task of discovering the complete set of semantic roles shouldinvolve not only identifying these labels, but also the underlying sense for a givenverb.
+However, as in all current SRL work, this article focuses only on identifying theboundaries and the labels of the arguments, and ignores the verb sense disambiguationproblem.The distribution of these argument labels is fairly unbalanced.
+In the official releaseof PropBank I, core arguments (A0?A5 and AA) occupy 71.26% of the arguments, wherethe largest parts are A0 (25.39%) and A1 (35.19%).
+The rest mostly consists of adjunctarguments (24.90%).
+The continued (C-arg) and referential (R-arg) arguments are rela-tively few, occupying 1.22% and 2.63%, respectively.
+For more information on PropBankand the semantic role labeling task, readers can refer to Kingsbury and Palmer (2002)and Carreras and Ma`rquez (2004, 2005).Note that the semantic arguments of the same verb do not overlap.
+We define over-lapping arguments to be those that share some of their parts.
+An argument is consideredembedded in another argument if the second argument completely covers the first one.Arguments are exclusively overlapping if they are overlapping but are not embedded.3.
+SRL System ArchitectureAdhering to the most common architecture for SRL systems, our SRL system consists offour stages: pruning, argument identification, argument classification, and inference.In particular, the goal of pruning and argument identification is to identify argumentcandidates for a given verb predicate.
+In the first three stages, however, decisionsare independently made for each argument, and information across arguments is not260Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLincorporated.
+The final inference stage allows us to use this type of information alongwith linguistic and structural constraints in order to make consistent global predictions.This system architecture remains unchanged when used for studying the impor-tance of syntactic parsing in SRL, although different information and features are used.Throughout this article, when full parsing information is available, we assume thatthe system is presented with the full phrase-structure parse tree as defined in the PennTreebank (Marcus, Marcinkiewicz, and Santorini 1993) but without trace and functionaltags.
+On the other hand, when only shallow parsing information is available, the fullparse tree is reduced to only the chunks and the clause constituents.A chunk is a phrase containing syntactically related words.
+Roughly speaking,chunks are obtained by projecting the full parse tree onto a flat tree; hence, they areclosely related to the base phrases.
+Chunks were not directly defined as part of thestandard annotation of the treebank, but, rather, their definition was introduced in theCoNLL-2000 shared task on text chunking (Tjong Kim Sang and Buchholz 2000), whichaimed to discover such phrases in order to facilitate full parsing.
+A clause, on the otherhand, is the clausal constituent as defined by the treebank standard.
+An example ofchunks and clauses is shown in Figure 1.3.1 PruningWhen the full parse tree of a sentence is available, only the constituents in the parsetree are considered as argument candidates.
+Our system exploits the heuristic rulesintroduced by Xue and Palmer (2004) to filter out simple constituents that are veryunlikely to be arguments.
+This pruning method is a recursive process starting from thetarget verb.
+It first returns the siblings of the verb as candidates; then it moves to theparent of the verb, and collects the siblings again.
+The process goes on until it reachesthe root.
+In addition, if a constituent is a PP (prepositional phrase), its children are alsocollected.
+For example, in Figure 1, if the predicate (target verb) is assume, the pruningheuristic will output: [PP by John Smith who has been elected deputy chairman], [NP JohnSmith who has been elected deputy chairman], [VB be], [MD will], and [NP His duties].3.2 Argument IdentificationThe argument identification stage utilizes binary classification to identify whether acandidate is an argument or not.
+When full parsing is available, we train and applythe binary classifiers on the constituents supplied by the pruning stage.
+When onlyshallow parsing is available, the system does not have a pruning stage, and also doesnot have constituents to begin with.
+Therefore, conceptually, the system has to considerall possible subsequences (i.e., consecutive words) in a sentence as potential argumentcandidates.
+We avoid this by using a learning scheme that utilizes two classifiers, one topredict the beginnings of possible arguments, and the other the ends.
+The predictionsare combined to form argument candidates.
+However, we can employ a simple heuristicto filter out some candidates that are obviously not arguments.
+The final predicationincludes those that do not violate the following constraints.1.
+Arguments cannot overlap with the predicate.2.
+If a predicate is outside a clause, its arguments cannot be embedded inthat clause.3.
+Arguments cannot exclusively overlap with the clauses.261Computational Linguistics Volume 34, Number 2Figure 1An example of a parse tree and its predicate?argument structure.The first constraint comes from the definition of this task that the predicate simplycannot take itself or any constituents that contain itself as arguments.
+The other twoconstraints are due to the fact that a clause can be treated as a unit that has its ownverb?argument structure.
+If a verb predicate is outside a clause, then its argument canonly be the whole clause, but may not be embedded in or exclusively overlap with theclause.For the argument identification classifier, the features used in full parsing andshallow parsing settings are all binary features, which are described subsequently.3.2.1 Features Used When Full Parsing is Available.
+Most of the features used in oursystem are common features for the SRL task.
+The creation of PropBank was inspiredby the works of Levin (1993) and Levin and Hovav (1996), which discuss the relationbetween syntactic and semantic information.
+Following this philosophy, the featuresaim to indicate the properties of the predicate, the constituent which is an argumentcandidate, and the relationship between them through the available syntactic infor-mation.
+We explain these features herein.
+For further discussion of these features, we262Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLrefer the readers to the article by Gildea and Jurafsky (2002), which introduced thesefeatures. Predicate and POS tag of predicate: indicate the lemma of the predicateverb and its POS tag. Voice: indicates passive/active voice of the predicate. Phrase type: provides the phrase type of the constituent, which is the tagof the corresponding constituent in the parse tree. Head word and POS tag of the head word: provides the head word of theconstituent and its POS tag.
+We use the rules introduced by Collins (1999)to extract this feature. Position: describes if the constituent is before or after the predicate,relative to the position in the sentence. Path: records the tags of parse tree nodes in the traversal path from theconstituent to the predicate.
+For example, in Figure 1, if the predicate isassume and the constituent is [S who has been elected deputy chairman], thepath is S?NP?PP?VP?VBN, where ?
+and ?
+indicate the traversal directionin the path. Subcategorization: describes the phrase structure around the predicate?sparent.
+It records the immediate structure in the parse tree that expands toits parent.
+As an example, if the predicate is elect in Figure 1, itssubcategorization is VP?
+(VBN)-NP while the subcategorization of thepredicate assume is VP?(VBN)-PP.
+Parentheses indicate the position of thepredicate.Generally speaking, we consider only the arguments that correspond to some con-stituents in parse trees.
+However, in some cases, we need to consider an argument thatdoes not exactly correspond to a constituent, for example, in our experiment in Sec-tion 4.2 where the gold-standard boundaries are used with the parse trees generated byan automatic parse.
+In such cases, if the information on the constituent, such as phrasetype, needs to be extracted, the deepest constituent that covers the whole argument willbe used.
+For example, in Figure 1, the phrase type for by John Smith is PP, and its pathfeature to the predicate assume is PP?VP?VBN.We also use the following additional features.
+These features have been shownto be useful for the systems by exploiting other information in the absence of thefull parse tree information (Punyakanok et al 2004), and, hence, can be helpful inconjunction with the features extracted from a full parse tree.
+They also aim to encodethe properties of the predicate, the constituent to be classified, and their relationship inthe sentence. Context words and POS tags of the context words: the featureincludes the two words before and after the constituent, and theirPOS tags. Verb class: the feature is the VerbNet (Kipper, Palmer, and Rambow 2002)class of the predicate as described in PropBank Frames.
+Note that a263Computational Linguistics Volume 34, Number 2verb may inhabit many classes and we collect all of these classes asfeatures, regardless of the context-specific sense which we do not attemptto resolve. Lengths: of the constituent, in the numbers of words and chunksseparately. Chunk: tells if the constituent ?is,?
+?embeds,?
+?exclusively overlaps,?
+or?is embedded in?
+a chunk with its type.
+For instance, in Figure 1, if theconstituents are [NP His duties], [PP by John Smith], and [VBN elected], thentheir chunk features are ?is-NP,?
+?embed-PP & embed-NP,?
+and?embedded-in-VP,?
+respectively. Chunk pattern: encodes the sequence of chunks from the constituent tothe predicate.
+For example, in Figure 1 the chunk sequence from [NP Hisduties] to the predicate elect is VP-PP-NP-NP-VP. Chunk pattern length: the feature counts the number of chunks in thechunk pattern feature. Clause relative position: encodes the position of the constituent relativeto the predicate in the pseudo-parse tree constructed only from clauseconstituents, chunks, and part-of-speech tags.
+In addition, we label theclause with the type of chunk that immediately precedes the clause.This is a simple rule to distinguish the type of clause based onthe intuition that a subordinate clause often modifies the part of thesentence immediately before it.
+Figure 2 shows the pseudo-parsetree of the parse tree in Figure 1.
+By disregarding the chunks, thereare four configurations?
+?target constituent and predicate aresiblings,?
+?target constituent?s parent is an ancestor of predicate,?
+?predicate?s parent is an ancestor of target word,?
+or ?otherwise.
+?This feature can be viewed as a generalization of the Path featuredescribed earlier. Clause coverage: describes how much of the local clause from thepredicate is covered by the target argument. NEG: the feature is active if the target verb chunk has not or n?t. MOD: the feature is active when there is a modal verb in the verb chunk.The rules of the NEG and MOD features are used in a baseline SRL systemdeveloped by Erik Tjong Kim Sang (Carreras and Ma`rquez 2004).Figure 2The pseudo-parse tree generated from the parse tree in Figure 1.264Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLIn addition, we also use the conjunctions of features which conjoin any two featuresinto a new feature.
+For example, the conjunction of the predicate and path featuresfor the predicate assume and the constituent [S who has been elected deputy chairman] inFigure 1 is (S?NP?PP?VP?VBN, assume).3.2.2 Features Used When Only Shallow Parsing is Available.
+Most features used here aresimilar to those used by the systemwith full parsing information.
+However, for featuresthat need full parse trees in their extraction procedures, we either try to mimic themwith some heuristic rules or discard them.
+The details of these features are as follows. Phrase type: uses a simple heuristic to identify the type of the argumentcandidate as VP, PP, or NP. Head word and POS tag of the head word: are the rightmost word forNP, and the leftmost word for VP and PP. Shallow-Path: records the traversal path in the pseudo-parse tree.This aims to approximate the Path features extracted from the fullparse tree. Shallow-Subcategorization: describes the chunk and clause structurearound the predicate?s parent in the pseudo-parse tree.
+This aims toapproximate the Subcategorization feature extracted from the full parsetree.3.3 Argument ClassificationThis stage assigns labels to the argument candidates identified in the previous stage.A multi-class classifier is trained to predict the types of the argument candidates.
+Inaddition, to reduce the excessive candidates mistakenly output by the previous stage,the classifier can also label an argument as ?null?
+(meaning ?not an argument?)
+to dis-card it.The features used here are the same as those used in the argument identificationstage.
+However, when full parsing is available, an additional feature introduced by Xueand Palmer (2004) is used. Syntactic frame: describes the sequential pattern of the noun phrases andthe predicate in the sentence which aims to complement the Path andSubcategorization features.The learning algorithm used for training the argument classifier and argument iden-tifier is a variation of the Winnow update rule incorporated in SNoW (Roth 1998;Carlson et al 1999), a multi-class classifier that is tailored for large scale learning tasks.SNoW learns a sparse network of linear functions, in which the targets (argumentborder predictions or argument type predictions, in this case) are represented as linearfunctions over a common feature space; multi-class decisions are done via a winner-take-all mechanism.
+It improves the basic Winnow multiplicative update rule with aregularization term, which has the effect of separating the data with a large marginseparator (Dagan, Karov, and Roth 1997; Grove and Roth 2001; Zhang, Damerau, andJohnson 2002) and voted (averaged) weight vector (Freund and Schapire 1999; Goldingand Roth 1999).265Computational Linguistics Volume 34, Number 2The softmax function (Bishop 1995) is used to convert raw activation to conditionalprobabilities.
+If there are n classes and the raw activation of class i is acti, the posteriorestimation for class i isProb(i) = eacti?1?j?n eactjNote that in training this classifier, unless specified otherwise, the argument can-didates used to generate the training examples are obtained from the output of theargument identifier, not directly from the gold-standard corpus.
+In this case, we au-tomatically obtain the necessary examples to learn for class ?null.
+?3.4 InferenceIn the previous stages, decisions were always made for each argument independently,ignoring the global information across arguments in the final output.
+The purposeof the inference stage is to incorporate such information, including both linguisticand structural knowledge, such as ?arguments do not overlap?
+or ?each verb takesat most one argument of each type.?
+This knowledge is useful to resolve any incon-sistencies of argument classification in order to generate final legitimate predictions.We design an inference procedure that is formalized as a constrained optimizationproblem, represented as an integer linear program (Roth and Yih 2004).
+It takes asinput the argument classifiers?
+confidence scores for each type of argument, alongwith a list of constraints.
+The output is the optimal solution that maximizes the lin-ear sum of the confidence scores, subject to the constraints that encode the domainknowledge.The inference stage can be naturally extended to combine the output of severaldifferent SRL systems, as we will show in Section 5.
+In this section we first introducethe constraints and formalize the inference problem for the semantic role labeling task.We then demonstrate how we apply integer linear programming (ILP) to generate theglobal label assignment.3.4.1 Constraints over Argument Labeling.
+Formally, the argument classifiers attempt toassign labels to a set of arguments, S1:M, indexed from 1 toM.
+Each argument Si can takeany label from a set of argument labels, P , and the indexed set of arguments can take aset of labels, c1:M ?
+PM.
+If we assume that the classifiers return a score score(Si = ci) thatcorresponds to the likelihood of argument Si being labeled ci then, given a sentence, theunaltered inference task is solved by maximizing the overall score of the arguments,c?1:M = argmaxc1:M?PMscore(S1:M = c1:M) = argmaxc1:M?PMM?i=1score(Si = ci) (1)In the presence of global constraints derived from linguistic information and struc-tural considerations, our system seeks to output a legitimate labeling that maximizes thisscore.
+Specifically, it can be thought of as if the solution space is limited through the useof a filter function, F , which eliminates many argument labelings from consideration.266Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLHere, we are concerned with global constraints as well as constraints on the arguments.Therefore, the final labeling becomesc?1:M = argmaxc1:M?F (PM )M?i=1score(Si = ci) (2)When the confidence scores correspond to the conditional probabilities estimated bythe argument classifiers, the value of the objective function represents the expectednumber of correct argument predictions.
+Hence, the solution of Equation (2) is the onethat maximizes this expected value among all legitimate outputs.The filter function used considers the following constraints:11.
+Arguments cannot overlap with the predicate.2.
+Arguments cannot exclusively overlap with the clauses.3.
+If a predicate is outside a clause, its arguments cannot be embedded inthat clause.4.
+No overlapping or embedding arguments.This constraint holds because semantic arguments are labeled onnon-embedding constituents in the syntactic parse tree.
+In addition, asdefined in the CoNLL-2004 and 2005 shared tasks, the legitimate output ofan SRL system must satisfy this constraint.5.
+No duplicate argument classes for core arguments, such as A0?A5 and AA.The only exception is when there is a conjunction in the sentence.
+Forexample,[A0 I] [V left ] [A1 my pearls] [A2 to my daughter] and [A1 my gold] [A2 tomy son].Despite this exception, we treat it as a hard constraint because it almostalways holds.6.
+If there is an R-arg argument, then there has to be an arg argument.
+That is,if an argument is a reference to some other argument arg, then thisreferenced argument must exist in the sentence.
+This constraint is directlyderived from the definition of R-arg arguments.7.
+If there is a C-arg argument, then there has to be an arg argument; inaddition, the C-arg argument must occur after arg.
+This is stricter thanthe previous rule because the order of appearance also needs to beconsidered.
+Similarly, this constraint is directly derived from the definitionof C-arg arguments.8.
+Given the predicate, some argument classes are illegal (e.g., predicatestalk can take only A0 or A1).
+This information can be found inPropBank Frames.1 There are other constraints such as ?exactly one V argument per class,?
+or ?V?A1?C-V pattern?
+asintroduced by Punyakanok et al (2004).
+However, we did not find them particularly helpful in ourexperiments.
+Therefore, we exclude those constraints in the presentation here.267Computational Linguistics Volume 34, Number 2This constraint comes from the fact that different predicates takedifferent types and numbers of arguments.
+By checking thePropBank Frame file of the target verb, we can exclude some coreargument labels.Note that constraints 1, 2, and 3 are actually implemented in the argument identifi-cation stage (see Section 3.2).
+In addition, they need to be explicitly enforced only whenfull parsing information is not available because the output of the pruning heuristicsnever violates these constraints.The optimization problem (Equation (2)) can be solved using an ILP solver byreformulating the constraints as linear (in)equalities over the indicator variables thatrepresent the truth value of statements of the form [argument i takes label j], as describedin detail next.3.4.2 Using Integer Linear Programming.
+As discussed previously, a collection of po-tential arguments is not necessarily a valid semantic labeling because it may notsatisfy all of the constraints.
+We enforce a legitimate solution using the followinginference algorithm.
+In our context, inference is the process of finding the best (ac-cording to Equation (1)) valid semantic labels that satisfy all of the specified con-straints.
+We take a similar approach to the one previously used for entity/relationrecognition (Roth and Yih 2004), and model this inference procedure as solving an ILPproblem.An integer linear program is a linear program with integral variables.
+That is,the cost function and the (in)equality constraints are all linear in terms of the variables.The only difference in an integer linear program is that the variables can only takeintegers as their values.
+In our inference problem, the variables are in fact binary.
+Ageneral binary integer linear programming problem can be stated as follows.Given a cost vector p ?d, a collection of variables u = (u1, .
+.
+.
+,ud) and cost ma-trices C1 ?c1 ?d,C2 ?c2 ?d , where c1 and c2 are the numbers of inequality andequality constraints and d is the number of binary variables, the ILP solution u?
+is thevector that maximizes the cost function,u?
+= argmaxu?
+{0,1}dp ?
+usubject toC1u ?
+b1, and C2u = b2where b1 ?c1 ,b2 ?c2 , and for all u ?
+{0, 1}d.To solve the problem of Equation (2) in this setting, we first reformulate theoriginal cost function?Mi=1 score(Si = ci) as a linear function over several binary vari-ables, and then represent the filter function F using linear inequalities and equalities.We set up a bijection from the semantic labeling to the variable set u.
+This is doneby setting u to be a set of indicator variables that correspond to the labels assigned to ar-guments.
+Specifically, let uic = [Si = c] be the indicator variable that represents whether268Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLor not the argument type c is assigned to Si, and let pic = score(Si = c).
+Equation (1) canthen be written as an ILP cost function asargmaxuic?{0,1}:?i?
+[1,M],c?PM?i=1?c?Ppicuicsubject to?c?Puic = 1 ?i ?
+[1,M]which means that each argument can take only one type.
+Note that this new constraintcomes from the variable transformation, and is not one of the constraints used in thefilter function F .Of the constraints listed earlier, constraints 1 through 3 can be evaluated on a per-argument basis and, for the sake of efficiency, arguments that violate these constraintsare eliminated even before being given to the argument classifier.
+Next, we show how totransform the constraints in the filter function into the form of linear (in)equalities overu and use them in this ILP setting.
+For a more complete example of this ILP formulation,please see Appendix A.Constraint 4: No overlapping or embedding.
+If arguments Sj1 , .
+.
+.
+,Sjk cover the same wordin a sentence, then this constraint ensures that at most one of the arguments is assignedto an argument type.
+In other words, at least k?
+1 arguments will be the special classnull.
+If the special class null is represented by the symbol ?, then for every set of sucharguments, the following linear equality represents this constraint.k?i=1uji?
+?
+k?
+1Constraint 5: No duplicate argument classes.
+Within the same clause, several types ofarguments cannot appear more than once.
+For example, a predicate can only take oneA0.
+This constraint can be represented using the following inequality.M?i=1uiA0 ?
+1Constraint 6: R-arg arguments.
+Suppose the referenced argument type is A0 and thereferential type is R-A0.
+The linear inequalities that represent this constraint are:?m ?
+{1, .
+.
+.
+,M} :M?i=1uiA0 ?
+umR-A0If there are ?
+referential types, then the total number of inequalities needed is ?M.Constraint 7: C-arg arguments.
+This constraint is similar to the reference argument con-straints.
+The difference is that the continued argument arg has to occur before C-arg.269Computational Linguistics Volume 34, Number 2Assume that the argument pair is A0 and C-A0, and arguments are sorted by theirbeginning positions, i.e., if i < k, the position of the beginning of Sjk is not before that ofthe beginning of Sji .
+The linear inequalities that represent this constraint are:?m ?
+{2, .
+.
+.
+,M} :m?1?i=1ujiA0 ?
+ujmC-A0Constraint 8: Illegal argument types.
+Given a specific verb, some argument types shouldnever occur.
+For example, most verbs do not have arguments A5.
+This constraint isrepresented by summing all the corresponding indicator variables to be 0.M?i=1uiA5 = 0Using ILP to solve this inference problem enjoys several advantages.
+Linear con-straints are very general, and are able to represent any Boolean constraint (Gue?ret, Prins,and Sevaux 2002).
+Table 1 summarizes the transformations of common constraints (mostare Boolean), which are revised from Gue?ret, Prins, and Sevaux (2002), and can be usedfor constructing complicated rules.Previous approaches usually rely on dynamic programming to resolve non-overlapping/embedding constraints (i.e., Constraint 4) when the constraint structureis sequential.
+However, they are not able to handle more expressive constraintssuch as those that take long-distance dependencies and counting dependencies intoaccount (Roth and Yih 2005).
+The ILP approach, on the other hand, is flexible enoughto handle more expressive and general constraints.
+Although solving an ILP problem isNP-hard in the worst case, with the help of today?s numerical packages, this problemcan usually be solved very quickly in practice.
+For instance, in our experiments itonly took about 10 minutes to solve the inference problem for 4,305 sentences, usingTable 1Rules of mapping constraints to linear (in)equalities for Boolean variables.Original constraint Linear formexactly k of x1, x2, ?
+?
+?
+, xn x1 + x2 + ?
+?
+?+ xn = kat most k of x1, x2, ?
+?
+?
+, xn x1 + x2 + ?
+?
+?+ xn ?
+kat least k of x1, x2, ?
+?
+?
+, xn x1 + x2 + ?
+?
+?+ xn ?
+ka ?
+b a ?
+ba = b?
+a = 1?
+ba ?
+b?
+a+ b ?
+1a?
+?
+b a+ b ?
+1a ?
+b a = ba ?
+b ?
+c a ?
+b and a ?
+ca ?
+b ?
+c a ?
+b+ cb ?
+c ?
+a a ?
+b+ c?
+1b ?
+c ?
+a a ?
+(b+ c)/2a?
+at least k of x1, x2, ?
+?
+?
+, xn a ?
+(x1 + x2 + ?
+?
+?+ xn)/kAt least k of x1, x2, ?
+?
+?
+, xn ?
+a a ?
+(x1 + x2 + ?
+?
+?+ xn ?
+(k?
+1))/(n?
+(k?
+1))270Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLXpress-MP (2004) running on a Pentium-III 800 MHz machine.
+Note that ordinarysearch methods (e.g., beam search) are not necessarily faster than solving an ILPproblem and do not guarantee the optimal solution.4.
+The Importance of Syntactic ParsingWe experimentally study the significance of syntactic parsing by observing the effectsof using full parsing and shallow parsing information at each stage of an SRL system.We first describe, in Section 4.1, how we prepare the data.
+The comparison of fullparsing and shallow parsing on the first three stages of the process is presented in thereverse order (Sections 4.2, 4.3, 4.4).
+Note that in the following sections, in additionto the performance comparison at various stages, we present also the overall systemperformance for the different scenarios.
+In all cases, the overall system performance isderived after the inference stage.4.1 Experimental SettingWe use PropBank Sections 02 through 21 as training data, Section 23 as testing, andSection 24 as a validation set when necessary.
+In order to apply the standard CoNLLshared task evaluation script, our system conforms to both the input and output formatdefined in the shared task.The goal of the experiments in this section is to understand the effective contribu-tion of full parsing information versus shallow parsing information (i.e., using only thepart-of-speech tags, chunks, and clauses).
+In addition, we also compare performancewhen using the correct (gold-standard) data versus using automatic parse data.
+Theperformance is measured in terms of precision, recall, and the F1 measure.
+Note thatall the numbers reported here do not take into account the V arguments as it is quitetrivial to predict V and, hence, this gives overoptimistic overall performance if included.When doing the comparison, we also compute the 95% confidence interval of F1 us-ing the bootstrap resampling method (Noreen 1989), and the difference is consideredsignificant if the compared F1 lies outside this interval.
+The automatic full parse treesare derived using Charniak?s parser (2001) (version 0.4).
+In automatic shallow parsing,the information is generated by different state-of-the-art components, including a POStagger (Even-Zohar and Roth 2001), a chunker (Punyakanok and Roth 2001), and aclauser (Carreras, Ma`rquez, and Castro 2005).4.2 Argument ClassificationTo evaluate the performance gap between full parsing and shallow parsing in argumentclassification, we assume the argument boundaries are known, and only train classifiersto classify the labels of these arguments.
+In this stage, the only difference between theuses of full parsing and shallow parsing information is the construction of phrase type,head word, POS tag of the head word, path, subcategorization, and syntactic frame features.As described in Section 3.2.2, most of these features can be approximated using chunksand clauses, with the exception of the syntactic frame feature.
+It is unclear how thisfeature can be mimicked because it relies on the internal structure of a full parse tree.Therefore, it does not have a corresponding feature in the shallow parsing case.Table 2 reports the experimental results of argument classification when argumentboundaries are known.
+In this case, because the argument classifier of our SRL systemdoes not overpredict or miss any arguments, we do not need to train with a null class,271Computational Linguistics Volume 34, Number 2Table 2The accuracy of argument classification when argument boundaries are known.Full Parsing Shallow ParsingGold 91.50 ?
+0.48 90.75 ?
+0.45Auto 90.32 ?
+0.48 89.71 ?
+0.50and we can simply measure the performance using accuracy instead of F1.
+The trainingexamples include 90,352 propositions with a total of 332,381 arguments.
+The test datacontain 5,246 propositions and 19,511 arguments.
+As shown in the table, although thefull-parsing features are more helpful than the shallow-parsing features, the perfor-mance gap is quite small (0.75% on gold-standard data and 0.61% with the automaticparsers).The rather small difference in the performance between argument classifiers usingfull parsing and shallow parsing information almost disappears when their output isprocessed by the inference stage.
+Table 3 shows the final results in recall, precision, andF1, when the argument boundaries are known.
+In all cases, the differences in F1 betweenthe full parsing?based and the shallow parsing?based systems are not statisticallysignificant.Conclusion.
+When the argument boundaries are known, the performance of the fullparsing?based SRL system is about the same as the shallow parsing?based SRL system.4.3 Argument IdentificationArgument identification is an important stage that effectively reduces the number ofargument candidates after the pruning stage.
+Given an argument candidate, an argu-ment identifier is a binary classifier that decides whether or not the candidate should beconsidered as an argument.
+To evaluate the influence of full parsing information in thisstage, the candidate list used here is the outputs of the pruning heuristic applied on thegold-standard parse trees.
+The heuristic results in a total number of 323,155 positive and686,887 negative examples in the training set, and 18,988 positive and 39,585 negativeexamples in the test set.Similar to the argument classification stage, the only difference between fullparsing?
+and shallow parsing?based systems is in the construction of some features.Specifically, phrase type, head word, POS tag of the head word, path, and subcategorizationfeatures are approximated using chunks and clauses when the binary classifier is trainedusing shallow parsing information.Table 4 reports the performance of the argument identifier on the test set usingthe direct predictions of the trained binary classifier.
+The recall and precision of theTable 3The overall system performance when argument boundaries are known.Full Parsing Shallow ParsingPrec Rec F1 Prec Rec F1Gold 91.58 91.90 91.74 ?
+0.51 91.14 91.48 91.31 ?
+0.51Auto 90.71 91.14 90.93 ?
+0.53 90.50 90.88 90.69 ?
+0.53272Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLTable 4The performance of argument identification after pruning (based on the gold standard full parsetrees).Full Parsing Shallow ParsingPrec Rec F1 Prec Rec F1Gold 96.53 93.57 95.03 ?
+0.32 93.66 91.72 92.68 ?
+0.38Auto 94.68 90.60 92.59 ?
+0.39 92.31 88.36 90.29 ?
+0.43full parsing?based system are around 2 to 3 percentage points higher than the shallowparsing?based system on the gold-standard data.
+As a result, the F1 score is 2.5 percent-age points higher.
+The performance on automatic parse data is unsurprisingly lowerbut the difference between the full parsing?
+and the shallow parsing?based systems isas observed previously.
+In terms of filtering efficiency, around 25% of the examples arepredicted as positive.
+In other words, both argument identifiers filter out around 75%of the argument candidates after pruning.Because the recall in the argument identification stage sets the upper-bound therecall in argument classification, the threshold that determines when examples arepredicted to be positive is usually lowered to allow more positive predictions.
+Thatis, a candidate is predicted as positive when its probability estimation is larger thanthe threshold.
+Table 5 shows the performance of the argument identifiers when thethreshold is 0.1.2Because argument identification is just an intermediate step in a complete system,a more realistic evaluation method is to see how each final system performs.
+Using anargument identifier with threshold = 0.1 (i.e., Table 5), Table 6 reports the final resultsin recall, precision, and F1.
+The F1 difference is 1.5 points when using the gold-standarddata.
+However, when automatic parsers are used, the shallow parsing?based system is,in fact, slightly better; although the difference is not statistically significant.
+This may bedue to the fact that chunk and clause predictions are very important here, and shallowparsers are more accurate in chunk or clause predictions than a full parser (Li and Roth2001).Conclusion.
+Full parsing information helps in argument identification.
+However, whenthe automatic parsers are used, using the full parsing information may not have betteroverall results compared to using shallow parsing.4.4 PruningAs shown in the previous two sections, the overall performance gaps of full parsing andshallow parsing are small.
+When automatic parsers are used, the difference is less than 1point in F1 or accuracy.
+Therefore, we conclude that themain contribution of full parsingis in the pruning stage.
+Because the shallow parsing system does not have enough in-formation for the pruning heuristics, we train two word-based classifiers to replace thepruning stage.
+One classifier is trained to predict whether a given word is the start (S) of2 The value was determined by experimenting with the complete system using automatic full parse trees,on the development set.
+In our tests, lowering the threshold in argument identification always leads tohigher overall recall and lower overall precision.
+As a result, the gain in F1 is limited.273Computational Linguistics Volume 34, Number 2Table 5The performance of argument identification after pruning (based on the gold-standard full parsetrees) and with threshold = 0.1.Full Parsing Shallow ParsingPrec Rec F1 Prec Rec F1Gold 92.13 95.62 93.84 ?
+0.37 88.54 94.81 91.57 ?
+0.42Auto 89.48 94.14 91.75 ?
+0.41 86.14 93.21 89.54 ?
+0.47Table 6The overall system performance using the output from the pruning heuristics, applied on thegold-standard full parse trees.Full Parsing Shallow ParsingPrec Rec F1 Prec Rec F1Gold 86.22 87.40 86.81 ?
+0.59 84.14 85.31 84.72 ?
+0.63Auto 84.21 85.04 84.63 ?
+0.63 86.17 84.02 85.08 ?
+0.63an argument; the other classifier is to predict the end (E) of an argument.
+If the productof probabilities of a pair of S and E predictions is larger than a predefined threshold,then this pair is considered as an argument candidate.
+The threshold used here wasobtained by using the validation set.
+Both classifiers use very similar features to thoseused by the argument identifier as explained in Section 3.2, treating the target word asa constituent.
+Particularly, the features are predicate, POS tag of the predicate, voice,context words, POS tags of the context words, chunk pattern, clause relative position,and shallow-path.
+The headword and its POS tag are replaced by the target word and itsPOS tag.
+The comparison of using the classifiers and the heuristics is shown in Table 7.Even without the knowledge of the constituent boundaries, the classifiers seemsurprisingly better than the pruning heuristics.
+Using either the gold-standard data setor the output of automatic parsers, the classifiers achieve higher F1 scores.
+One possiblereason for this phenomenon is that the accuracy of the pruning strategy is limited bythe number of agreements between the correct arguments and the constituents of theparse trees.
+Table 8 summarizes the statistics of the examples seen by both strategies.The pruning strategy needs to decide which are the potential arguments among all con-stituents.
+This strategy is upper-bounded by the number of correct arguments that agreewith some constituent.
+On the other hand, the classifiers do not have this limitation.
+Thenumber of examples they observe is the total number of words to be processed, and thepositive examples are those arguments that are annotated as such in the data set.Table 7The performance of pruning using heuristics and classifiers.Full Parsing Classifier Threshold = 0.04Prec Rec F1 Prec Rec F1Gold 25.94 97.27 40.96 ?
+0.51 29.58 97.18 45.35 ?
+0.83Auto 22.79 86.08 36.04 ?
+0.52 24.68 94.80 39.17 ?
+0.79274Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLTable 8Statistics of the training and test examples for the pruning stage.Words Arguments Constituents AgreementsGold Auto Gold AutoTrain 2,575,665 332,381 4,664,954 4,263,831 327,603 319,768Test 147,981 19,511 268,678 268,482 19,266 18,301The Agreements column shows the number of arguments that match the boundaries of someconstituents.Note that because each verb is processed independently, a sentence is processedonce for each verb in the sentence.
+Therefore, the words and constituents in eachsentence are counted as many times as the number of verbs to be processed.As before, in order to compare the systems that use full parsing and shallowparsing information, we need to see the impact on the overall performance.
+There-fore, we built two semantic role systems based on full parsing and shallow parsinginformation.
+The full parsing?based system follows the pruning, argument identifica-tion, argument classification, and inference stages, as described earlier.
+For the shallowparsing system, the pruning heuristic is replaced by the word-based pruning classi-fiers, and the remaining stages are designed to use only shallow parsing as described inprevious sections.
+Table 9 shows the overall performance of the two evaluation systems.As indicated in the tables, the gap in F1 between full parsing and shallow parsing?based systems enlarges tomore than 11 points on the gold-standard data.
+At first glance,this result seems to contradict our conclusion in Section 4.3.
+After all, if the pruningstage of shallow parsing SRL system performs equally well or even better, the overallperformance gap in F1 should be small.After we carefully examined the output of the word-based classifier, we realizedthat it filters out easy candidates, and leaves examples that are difficult to the laterstages.
+Specifically, these argument candidates often overlap and differ only in one ortwowords.
+On the other hand, the pruning heuristic based on full parsing never outputsoverlapping candidates and consequently provides input that is easier for the next stageto handle.
+Indeed, the following argument identification stage turns out to be good indiscriminating these non-overlapping candidates.Conclusion.
+The most crucial contribution of full parsing is in the pruning stage.
+Theinternal tree structure significantly helps in discriminating argument candidates, whichmakes the work done by the following stages easier.Table 9The overall system performance.Full Parsing Shallow ParsingPrec Rec F1 Prec Rec F1Gold 86.22 87.40 86.81 ?
+0.59 75.34 75.28 75.31 ?
+0.76Auto 77.09 75.51 76.29 ?
+0.76 75.48 67.13 71.06 ?
+0.80275Computational Linguistics Volume 34, Number 25.
+The Effect of InferenceOur inference procedure plays an important role in improving accuracy when the localpredictions violate the constraints among argument labels.
+In this section, we firstpresent the overall system performance when most constraints are not used.
+We thendemonstrate how the inference procedure can be used to combine the output of severalsystems to yield better performance.5.1 Inference with Limited ConstraintsThe inference stage in our system architecture provides a principled way to resolveconflicting local predictions.
+It is interesting to see whether this procedure improves theperformance differently for the full parsing?
+vs. the shallow parsing?based system, aswell as gold-standard vs. automatic parsing input.Table 10 shows the results of using only constraints 1, 2, 3, and 4.
+As mentionedpreviously, the first three constraints are handled before the argument classificationstage.
+Constraint 4, which forbids overlapping or embedding arguments, is requiredin order to use the official CoNLL-2005 evaluation script and is therefore kept.By comparing Table 9 with Table 10, we can see that the effect of adding moreconstraints is quite consistent over the four settings.
+Precision is improved by 1 to 2 per-centage points but recall is decreased a little.
+As a result, the gain in F1 is about 0.5 to 1point.
+It is not surprising to see this lower recall and higher precision phenomenon afterthe constraints described in Section 3.4.1 are examined.
+Most constraints punish falsenon-null output, but do not regulate false null predictions.
+For example, an assignmentthat has two A1 arguments clearly violates the non-duplication constraint.
+However, ifan assignment has no predicted arguments at all, it still satisfies all the constraints.5.2 Joint InferenceThe empirical study in Section 4 indicates that the performance of an SRL systemprimarily depends on the very first stage?pruning, which is directly derived fromthe full parse trees.
+This also means that in practice the quality of the syntactic parseris decisive to the quality of the SRL system.
+To improve semantic role labeling, onepossible way is to combine different SRL systems through a joint inference stage, giventhat the systems are derived using different full parse trees.To test this idea, we first build two SRL systems that use Collins?s parser (Collins1999)3 and Charniak?s parser (Charniak 2001), respectively.
+In fact, these two parsershave noticeably different outputs.
+Applying the pruning heuristics on the output ofCollins?s parser produces a list of candidates with 81.05% recall.
+Although this numberis significantly lower than the 86.08% recall produced by Charniak?s parser, the unionof the two candidate lists still significantly improves recall to 91.37%.
+We construct thetwo systems by implementing the first three stages, namely, pruning, argument identifi-cation, and argument classification.
+When a test sentence is given, a joint inference stageis used to resolve the inconsistency of the output of argument classification in these twosystems.We first briefly review the objective function used in the inference procedure in-troduced in Section 3.4.
+Formally speaking, the argument classifiers attempt to assign3 We use the Collins parser implemented by Bikel (2004).276Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLTable 10The impact of removing most constraints in overall system performance.Full Parsing Shallow ParsingPrec Rec F1 Prec Rec F1Gold 85.07 87.50 86.27 ?
+0.58 73.19 75.63 74.39 ?
+0.75Auto 75.88 75.81 75.84 ?
+0.75 73.56 67.45 70.37 ?
+0.80labels to a set of arguments, S1:M, indexed from 1 toM.
+Each argument Si can take anylabel from a set of argument labels, P , and the indexed set of arguments can take aset of labels, c1:M ?
+PM.
+If we assume that the argument classifier returns an estimatedconditional probability distribution, Prob(Si = ci), then, given a sentence, the inferenceprocedure seeks a global assignment that maximizes the objective function denoted byEquation (2), which can be rewritten as follows,c?1:M = argmaxc1:M?F (PM )M?i=1Prob(Si = ci) (3)where the linguistic and structural constraints are represented by the filter F .
+In otherwords, this objective function reflects the expected number of correct argument predic-tions, subject to the constraints.When there are two or more argument classifiers from different SRL systems, a jointinference procedure can take the output estimated probabilities for all these candidatesas input, although some candidates may refer to the same phrases in the sentence.
+Forexample, Figure 3 shows the two candidate sets for a fragment of a sentence, ..., traderssay, unable to cool the selling panic in both stocks and futures.
+In this example, system A hastwo argument candidates, a1 = traders and a4 = the selling panic in both stocks and futures;system B has three argument candidates, b1 = traders, b2 = the selling panic, and b3 = inboth stocks and futures.A straightforward solution to the combination is to treat each argument producedby a system as a possible output.
+Each possible labeling of the argument is associatedwith a variable which is then used to set up the inference procedure.
+However, the finalpredictionwill be likely dominated by the system that producesmore candidates, whichis system B in this example.
+The reason is that our objective function is the sum of theprobabilities of all the candidate assignments.This bias can be corrected by the following observation.
+Although system A onlyhas two candidates, a1 and a4, it can be treated as if it also has two additional phantomcandidates, a2 and a3, where a2 and b2 refer to the same phrase, and so do a3 and b3.Similarly, system B has a phantom candidate b4 that corresponds to a4.
+Because systemAdoes not really generate a2 and a3, we can assume that these two phantom candidates arepredicted by it as ?null?
+(i.e., not an argument).
+We assign the same prior distribution toeach phantom candidate.
+In particular, the probability of the ?null?
+class is set to be 0.55based on empirical tests, and the probabilities of the remaining classes are set based ontheir occurrence frequencies in the training data.Then, we treat each possible final argument output as a single unit.
+Each probabilityestimation by a system can be viewed as evidence in the final probability estimation and,therefore, we can simply average their estimation.
+Formally, let Si be the argument set277Computational Linguistics Volume 34, Number 2Figure 3The output of two SRL systems: system A has two candidates, a1 = traders and a4 = the sellingpanic in both stocks and futures; system B has three argument candidates, b1 = traders, b2 = theselling panic, and b3 = in both stocks and futures.
+In addition, we create two phantom candidates a2and a3 for system A that correspond to b2 and b3 respectively, and b4 for system B thatcorresponds to a4.output by system i, and S =?ki=1 Si be the set of all arguments where k is the numberof systems; let N be the cardinality of S. Our augmented objective function is then:c?1:N = argmaxc1:N?F (PN )N?i=1Prob(Si = ci) (4)where Si ?
+S, andProb(Si = ci) = 1kk?j=1Probj(Si = ci) (5)where Probj is the probability output by system j.Note that we may also treat the individual systems differently by applying differentpriors (i.e., weights) on the estimated probabilities of the argument candidates.
+Forexample, if the performance of system A is much better than system B, then we maywant to trust system A?s output more by multiplying the output probabilities by alarger weight.Table 11 reports the performance of two individual systems based on Collins?sparser and Charniak?s parser, as well as the joint system, where the two individualsystems are equally weighted.
+The joint system based on this straightforward strategysignificantly improves the performance compared to the two original SRL systems inboth recall and precision, and thus achieves a much higher F1.6.
+Empirical Evaluation?CoNLL Shared Task 2005In this section, we present the detailed evaluation of our SRL system, in the competi-tion on semantic role labeling?the CoNLL-2005 shared task (Carreras and Ma`rquez278Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLTable 11The performance of individual and combined SRL systems.Prec Rec F1Collins?
+parser 75.92 71.45 73.62 ?
+0.79Charniak?s parser 77.09 75.51 76.29 ?
+0.76Combined result 80.53 76.94 78.69 ?
+0.712005).
+The setting of this shared task is basically the same as it was in 2004, withsome extensions.
+First, it allows much richer syntactic information.
+In particular, fullparse trees generated using Collins?s parser (Collins 1999) and Charniak?s parser(Charniak 2001) were provided.
+Second, the full parsing standard partition was used?the training set was enlarged and covered Sections 02?21, the development set wasSection 24, and the test set was Section 23.
+Finally, in addition to the Wall Street Journal(WSJ) data, three sections of the Brown corpus were used to provide cross-corporaevaluation.The system we used to participate in the CoNLL-2005 shared task is an enhancedversion of the system described in Sections 3 and 5.
+The main difference was thatthe joint-inference stage was extended to combine six basic SRL systems instead oftwo.
+Specifically for this implementation, we first trained two SRL systems that useCollins?s parser and Charniak?s parser, respectively, because of their noticeably dif-ferent outputs.
+In evaluation, we ran the system that was trained with Charniak?sparser five times, with the top-5 parse trees output by Charniak?s parser.
+Together wehave six different outputs per predicate.
+For each parse tree output, we ran the firstthree stages, namely, pruning, argument identification, and argument classification.Then, a joint-inference stage, where each individual system is weighted equally, wasused to resolve the inconsistency of the output of argument classification in thesesystems.Table 12 shows the overall results on the development set and different test sets; thedetailed results on WSJ section 23 are shown in Table 13.
+Table 14 shows the results ofindividual systems and the improvement gained by the joint inference procedure on thedevelopment set.Our system reached the highest F1 scores on all the test sets and was the best systemamong the 19 participating teams.
+After the competition, we improved the systemslightly by tuning the weights of the individual systems in the joint inference procedure,where the F1 scores onWSJ test section and the Brown test set are 79.59 points and 67.98points, respectively.Table 12Overall CoNLL-2005 shared task results.Prec.
+Rec.
+F1Development 80.05 74.83 77.35Test WSJ 82.28 76.78 79.44Test Brown 73.38 62.93 67.75Test WSJ+Brown 81.18 74.92 77.92279Computational Linguistics Volume 34, Number 2Table 13Detailed CoNLL-2005 shared task results on the WSJ test set.Test WSJ Prec.
+Rec.
+F1Overall 82.28 76.78 79.44A0 88.22 87.88 88.05A1 82.25 77.69 79.91A2 78.27 60.36 68.16A3 82.73 52.60 64.31A4 83.91 71.57 77.25AM-ADV 63.82 56.13 59.73AM-CAU 64.15 46.58 53.97AM-DIR 57.89 38.82 46.48AM-DIS 75.44 80.62 77.95AM-EXT 68.18 46.88 55.56AM-LOC 66.67 55.10 60.33AM-MNR 66.79 53.20 59.22AM-MOD 96.11 98.73 97.40AM-NEG 97.40 97.83 97.61AM-PNC 60.00 36.52 45.41AM-TMP 78.16 76.72 77.44R-A0 89.72 85.71 87.67R-A1 70.00 76.28 73.01R-A2 85.71 37.50 52.17R-AM-LOC 85.71 57.14 68.57R-AM-TMP 72.34 65.38 68.69In terms of the computation time, for both the argument identifier and the argumentclassifier, the training of each model, excluding feature extraction, takes 50?70 minutesusing less than 1GB memory on a 2.6GHz AMD machine.
+On the same machine, theaverage test time for each stage, excluding feature extraction, is around 2 minutes.7.
+Related WorkThe pioneering work on building an automatic semantic role labeler was proposedby Gildea and Jurafsky (2002).
+In their setting, semantic role labeling was treated as atagging problem on each constituent in a parse tree, solved by a two-stage architectureconsisting of an argument identifier and an argument classifier.
+This is similar to ourTable 14The results of individual systems and the result with joint inference on the development set.Prec.
+Rec.
+F1Charniak-1 75.40 74.13 74.76Charniak-2 74.21 73.06 73.63Charniak-3 73.52 72.31 72.91Charniak-4 74.29 72.92 73.60Charniak-5 72.57 71.40 71.98Collins 73.89 70.11 71.95Joint inference 80.05 74.83 77.35280Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLmain architecture with the exclusion of the pruning and inference stages.
+There aretwo additional key differences between their system and ours.
+First, their systemused a back-off probabilistic model as its main engine.
+Second, it was trained onFrameNet (Baker, Fillmore, and Lowe 1998)?another large corpus, besides PropBank,that contains selected examples of semantically labeled sentences.Later that year, the same approach was applied on PropBank by Gildea and Palmer(2002).
+Their system achieved 57.7% precision and 50.0% recall with automatic parsetrees, and 71.1% precision and 64.4% recall with gold-standard parse trees.
+It is worthnoticing that at that time the PropBank project was not finished and the data setavailable was only a fraction in size of what it is today.
+Since these pioneering works, thetask has gained increasing popularity and created a new line of research.
+The two-stepconstituent-by-constituent architecture became a common blueprint for many systemsthat followed.Partly due to the expansion of the PropBank dataset, researchers have graduallymade improvement on the performance of automatic SRL systems by using new tech-niques and new features.
+Some of the early systems are described in Chen and Rambow(2003), Gildea and Hockenmaier (2003), and Surdeanu et al (2003).
+All are based on atwo-stage architecture similar to the one proposed by Gildea and Palmer (2002) withthe differences in the machine-learning techniques and the features used.
+The firstbreakthrough in terms of performance was due to Pradhan et al (2003), who firstviewed the task as a massive classification problem and applied multiple SVMs to it.Their final result (after a few more improvements) reported in Pradhan et al (2004)achieved 84% and 75% in precision and recall, respectively.A second significant contribution beyond the two-stage architecture is due to Xueand Palmer (2004), who introduced the pruning heuristics to the two-stage architecture,and remarkably reduced the number of candidate arguments a system needs to con-sider; this approach was adopted by many systems.
+Another significant advancementwas in the realization that global information can be exploited and benefits the resultssignificantly.
+Inference based on an integer linear programming technique, which wasoriginally introduced by Roth and Yih (2004) on a relation extraction problem, wasfirst applied to the SRL problem by Punyakanok et al (2004).
+It showed that domainknowledge can be easily encoded and contributes significantly through inference overthe output of classifiers.
+The idea of exploiting global information, which is detailed inthis paper, was pursued later by other researchers, in different forms.Besides the constituent-by-constituent based architecture, others have also beenexplored.
+The alternative frameworks include representing semantic role labeling asa sequence-tagging problem (Ma`rquez, Pere Comas, and Catala` 2005) and tagging theedges in the corresponding dependency trees (Hacioglu 2004).
+However, the most pop-ular architecture by far is the constituent-by-constituent based multi-stage architecture,perhaps due to its conceptual simplicity and its success.
+In the CoNLL-2005 sharedtask competition (Carreras and Ma`rquez 2005), the majority of the systems followedthe constituent-by-constituent based two-stage architecture, and the use of the pruningheuristics was also fairly common.The CoNLL-2005 shared task also highlighted the importance of system combina-tion, such as our ILP technique when used in joint inference, in order to achieve superiorperformance.
+The top four systems, which produced significantly better results than therest, all used some schemes to combine the output of several SRL systems, ranging fromusing a fixed combination function (Haghighi, Toutanova, and Manning 2005; Koomenet al 2005) to using a machine-learned combination strategy (Ma`rquez, Pere Comas,and Catala` 2005; Pradhan, Hacioglu, Ward et al 2005).281Computational Linguistics Volume 34, Number 2The work of Gildea and Palmer (2002) pioneered not only the fundamental archi-tecture of SRL, but was also the first to investigate the interesting question regardingthe significance of using full parsing for high quality SRL.
+They compared their fullsystem with another system that only used chunking, and found that the chunk-basedsystem performed much worse.
+The precision and recall dropped from 57.7% and50.0% to 27.6% and 22.0%, respectively.
+That led to the conclusion that full parsinginformation is necessary to solving the SRL problem, especially at the stage of argu-ment identification?a finding that is quite similar to ours in this article.
+However,their chunk-based approach was very weak?only chunks were considered as possiblecandidates; hence, it is not very surprising that the boundaries of the arguments couldnot be reliably found.
+In contrast, our shallow parse?based system does not have theserestrictions on the argument boundaries and therefore performs much better at thisstage, providing a more fair comparison.A related comparison can be found also in the work by Pradhan, Hacioglu, Krugleret al (2005) (their earlier version appeared in Pradhan et al [2003]), which reportedthe performance on several systems using different information sources and systemarchitectures.
+Their shallow parse?based system is modeled as a sequence tagging prob-lem while the full system is a constituent-by-constituent based two-stage system.
+Dueto technical difficulties, though, they reported the results of the chunk-based systemsonly on a subset of the full data set.
+Their shallow parse?based system achieved 60.4%precision and 51.4% recall and their full system achieved 80.6% precision and 67.1%recall on the same data set (but 84% precision and 75% recall with the full data set).Therefore, due to the use of different architectures and data set sizes, the questionsof ?how much one can gain from full parsing over shallow parsing when using thefull PropBank data set?
+and ?what are the sources of the performance gain?
+were leftopen.Similarly, in the CoNLL-2004 shared task (Carreras andMa`rquez 2004), participantswere asked to develop SRL systems with the restriction that only shallow parsing infor-mation (i.e., chunks and clauses) were allowed.
+The performance of the best systemwasat 72.43% precision and 66.77% recall, which was about 10 points in F1 lower than thebest system based on full parsing in the literature.
+However, the training examples werederived from only 5 sections and not all the 19 sections usually used in the standardsetting.
+Hence, the question was not yet fully answered.Our experimental study, on the other hand, is done with a consistent architecture,by considering each stage in a controlled manner, and using the full data set, allowingone to draw direct conclusions regarding the impact of this information source.8.
+ConclusionThis paper studies the important task of semantic role labeling.
+We presented an ap-proach to SRL and a principled and general approach to incorporating global informa-tion in natural language decisions.
+Beyond presenting this approach which leads to astate-of-the-art SRL system, we focused on investigating the significance of using fullparse tree information as input to an SRL system adhering to the most common systemarchitecture, and the stages in the process where this information has the most impact.We performed a detailed and fair experimental comparison between shallow and fullparsing information and concluded that, indeed, full syntactic information can improvethe performance of an SRL system.
+In particular, we have shown that this informationis most crucial in the pruning stage of the system, and relatively less important in thefollowing stages.282Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLIn addition, we showed the importance of global inference to good performance inthis task, characterized by rich structural and linguistic constraints among the predictedlabels of the arguments.
+Our integer linear programming?based inference procedureis a powerful and flexible optimization strategy that finds the best solution subject tothese constraints.
+As we have shown, it can be used to resolve conflicting argumentpredictions in an individual system but can also serve as an effective and simpleapproach to combining different SRL systems, resulting in a significant improvementin performance.In the future, we plan to extend our work in several directions.
+By adding moreconstraints to the inference procedure, an SRL system may be further improved.Currently, the constraints are provided by human experts in advance.
+Learning bothhard and statistical constraints from the data will be our top priority.
+Some work oncombining statistical and declarative constraints has already started and is reportedin Roth and Yih (2005).
+Another issue we want to address is domain adaptation.It has been clearly shown in the CoNLL-2005 shared task that the performance ofcurrent SRL systems degrades significantly when tested on a corpus different fromthe one used in training.
+This may be due to the underlying components, especiallythe syntactic parsers which are very sensitive to changes in data genre.
+Developinga better model that more robustly combines these components could be a promisingdirection.
+In addition, although the shallow parsing?based system was shown here tobe inferior, shallow parsers were shown to be more robust than full parsers (Li andRoth 2001).
+Therefore, combining these two systems may bring forward both of theiradvantages.Appendix A: An ILP Formulation for SRLIn this section, we show a complete example of the ILP formulation formulated to solvethe inference problem as described in Section 3.4.Example.
+Assume the sentence is four words long with the following argumentcandidates, and the following illegal argument types for the predicate of interest.Sentence: w1 w2 w3 w4Candidates: [ S1 ] [ S2 ] [ S3 ] [ S5 ][ S4 ]Illegal argument types: A3, A4, A5Indicator Variables and Their Costs.
+The followings are the indicator variables and theirassociated costs set up for the example.Indicator Variables:u1A0,u1A1, .
+.
+.
+,u1AM-LOC, .
+.
+.
+,u1C-A0, .
+.
+.
+,u1R-A0, .
+.
+.
+,u1?u2A0,u2A1, .
+.
+.
+,u2AM-LOC, .
+.
+.
+,u2C-A0, .
+.
+.
+,u2R-A0, .
+.
+.
+,u2?...u5A0,u5A1, .
+.
+.
+,u5AM-LOC, .
+.
+.
+,u5C-A0, .
+.
+.
+,u5R-A0, .
+.
+.
+,u5?Costs:p1A0, p1A1, .
+.
+.
+, p1AM-LOC, .
+.
+.
+, p1C-A0, .
+.
+.
+, p1R-A0, .
+.
+.
+, p1?p2A0, p2A1, .
+.
+.
+, p2AM-LOC, .
+.
+.
+, p2C-A0, .
+.
+.
+, p2R-A0, .
+.
+.
+, p2?...p5A0, p5A1, .
+.
+.
+, p5AM-LOC, .
+.
+.
+, p5C-A0, .
+.
+.
+, p5R-A0, .
+.
+.
+, p5?283Computational Linguistics Volume 34, Number 2Objective Function.
+The objective function can be written as the following.argmaxuic?{0,1}:?i?
+[1,5],c?P?5i=1?c?P picuicwhereP = {A0,A1, .
+.
+.
+, AM-LOC, .
+.
+.
+, C-A0, .
+.
+.
+, R-A0, .
+.
+.
+,?
+}subject tou1A0 + u1A1 + .
+.
+.+ u1AM-LOC + .
+.
+.+ u1C-A0 + .
+.
+.+ u1R-A0 + .
+.
+.+ u1?
+= 1u2A0 + u2A1 + .
+.
+.+ u2AM-LOC + .
+.
+.+ u2C-A0 + .
+.
+.+ u2R-A0 + .
+.
+.+ u2?
+= 1...u5A0 + u5A1 + .
+.
+.+ u5AM-LOC + .
+.
+.+ u2C-A0 + .
+.
+.+ u5R-A0 + .
+.
+.+ u5?
+= 1Additional Constraints.
+The rest of the constraints can be formulated as the following.Constraint 4: No overlapping or embeddingu3?
++ u4?
+?
+1u4?
++ u5?
+?
+1Constraint 5: No duplicate argument classesu1A0 + u2A0 + .
+.
+.+ u5A0 ?
+1u1A1 + u2A1 + .
+.
+.+ u5A1 ?
+1u1A2 + u2A2 + .
+.
+.+ u5A2 ?
+1Constraint 6: R-arg argumentsu1A0 + u2A0 + .
+.
+.+ u5A0 ?
+u1R-A0u1A0 + u2A0 + .
+.
+.+ u5A0 ?
+u2R-A0...u1A0 + u2A0 + .
+.
+.+ u5A0 ?
+u5R-A0u1A1 + u2A1 + .
+.
+.+ u5A1 ?
+u1R-A1...u1AM-LOC + u2AM-LOC + .
+.
+.+ u5AM-LOC ?
+u1R-AM-LOC...Constraint 7: C-arg argumentsu1A0 ?
+u2C-A0u1A0 + u2A0 ?
+u3C-A0...u1A0 + u2A0 + .
+.
+.+ u4A0 ?
+u5C-A0u1A1 ?
+u2C-A1...u1AM-LOC ?
+u2C-AM-LOC...284Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLConstraint 8: Illegal argument typesu1A3 + u2A3 + .
+.
+.+ u5A3 = 0u1A4 + u2A4 + .
+.
+.+ u5A4 = 0u1A5 + u2A5 + .
+.
+.+ u5A5 = 0AcknowledgmentsWe thank Xavier Carreras and Llu?
+?s Ma`rquezfor the data and scripts, Szu-ting Yi for herhelp in improving our joint inferenceprocedure, and Nick Rizzolo as well as theanonymous reviewers for their commentsand suggestions.
+We are also grateful to DashOptimization for the free academic use ofXpress-MP and AMD for their equipmentdonation.
+This research is supported by theAdvanced Research and DevelopmentActivity (ARDA)?s Advanced QuestionAnswering for Intelligence (AQUAINT)Program, a DOI grant under the Reflexprogram, NSF grants ITR-IIS-0085836,ITR-IIS-0085980, and IIS-9984168,EIA-0224453, and an ONR MURI Award.ReferencesBaker, Collin F., Charles J. Fillmore, andJohn B. Lowe.
+1998.
+The Berkeley Framenetproject.
+In Proceedings of COLING-ACL,pages 86?90, Montreal, Canada.Bikel, Daniel M. 2004.
+Intricacies of Collins?parsing model.
+Computational Linguistics,30(4):479?511.Bishop, Christopher M., 1995.
+NeuralNetworks for Pattern Recognition, chapter6.4: Modelling conditional distributions,page 215.
+Oxford University Press,Oxford, UK.Carlson, Andrew J., Chad M. Cumby, Jeff L.Rosen, and Dan Roth.
+1999.
+The SNoWlearning architecture.
+Technical ReportUIUCDCS-R-99-2101, UIUC ComputerScience Department.Carreras, Xavier and Llu?is Ma`rquez.
+2004.Introduction to the CoNLL-2004 sharedtasks: Semantic role labeling.
+In Proceedingsof CoNLL-2004, pages 89?97, Boston, MA.Carreras, Xavier and Llu?is Ma`rquez.
+2005.Introduction to the CoNLL-2005 sharedtask: Semantic role labeling.
+In Proceedingsof the Ninth Conference on ComputationalNatural Language Learning (CoNLL-2005),pages 152?164, Ann Arbor, MI.Carreras, Xavier, Llu?is Ma`rquez, and JorgeCastro.
+2005.
+Filtering?ranking perceptronlearning for partial parsing.MachineLearning, 60:41?71.Carreras, Xavier, Llu?is Ma`rquez, VasinPunyakanok, and Dan Roth.
+2002.Learning and inference for clauseidentification.
+In Proceedings of the 13thEuropean Conference on Machine Learning(ECML-2002), pages 35?47, Helsinki,Finland.Charniak, Eugene.
+2001.
+Immediate-headparsing for language models.
+InProceedings of the 39th Annual Meeting of theAssociation of Computational Linguistics(ACL-2001), pages 116?123, Toulouse,France.Chen, John and Owen Rambow.
+2003.
+Use ofdeep linguistic features for the recognitionand labeling of semantic arguments.
+InProceedings of the 2003 Conference onEmpirical Methods in Natural LanguageProcessing (EMNLP-2003), pages 41?48,Sapporo, Japan.Collins, Michael.
+1999.
+Head-drivenStatistical Models for Natural LanguageParsing.
+Ph.D. thesis, Computer ScienceDepartment, University of Pennsylvania,Philadelphia, PA.Dagan, Ido, Yael Karov, and Dan Roth.1997.
+Mistake-driven learning in textcategorization.
+In Proceedings of theSecond Conference on Empirical Methodsin Natural Language Processing(EMNLP-1997), pages 55?63,Providence, RI.Even-Zohar, Yair and Dan Roth.
+2001.
+Asequential model for multi-classclassification.
+In Proceedings of the 2001Conference on Empirical Methods in NaturalLanguage Processing (EMNLP-2001),pages 10?19, Pittsburgh, PA.Freund, Yoav and Robert E. Schapire.
+1999.Large margin classification using thePerceptron algorithm.Machine Learning,37(3):277?296.Gildea, Daniel and Julia Hockenmaier.
+2003.Identifying semantic roles usingcombinatory categorial grammar.
+InProceedings of the 2003 Conference onEmpirical Methods in Natural LanguageProcessing (EMNLP-2003), pages 57?64,Sapporo, Japan.Gildea, Daniel and Daniel Jurafsky.
+2002.Automatic labeling of semantic roles.Computational Linguistics, 28(3):245?288.285Computational Linguistics Volume 34, Number 2Gildea, Daniel and Martha Palmer.
+2002.The necessity of parsing for predicateargument recognition.
+In Proceedingsof the 40th Annual Meeting of theAssociation of Computational Linguistics(ACL-2002), pages 239?246,Philadelphia, PA.Golding, Andrew R. and Dan Roth.
+1999.A Winnow based approach tocontext-sensitive spelling correction.Machine Learning, 34(1-3):107?130.Grove, Adam J. and Dan Roth.
+2001.
+Linearconcepts and hidden variables.MachineLearning, 42(1?2):123?141.Gue?ret, Christelle, Christian Prins, and MarcSevaux.
+2002.
+Applications of Optimizationwith Xpress-MP.
+Dash Optimization.Translated and revised by SusanneHeipcke.
+http://www.dashoptimization.com/home/downloads/book/booka4.pdf.Hacioglu, Kadri.
+2004.
+Semantic role labelingusing dependency trees.
+In Proceedings ofthe 20th International Conference onComputational Linguistics (COLING),Geneva, Switzerland.Hacioglu, Kadri, Sameer Pradhan, WayneWard, James H. Martin, and DanielJurafsky.
+2004.
+Semantic role labeling bytagging syntactic chunks.
+In Proceedings ofCoNLL-2004, pages 110?113, Boston, MA.Haghighi, Aria, Kristina Toutanova, andChristopher D. Manning.
+2005.
+A jointmodel for semantic role labeling.
+InProceedings of the Ninth Conference onComputational Natural LanguageLearning (CoNLL-2005), pages 173?176,Ann Arbor, MI.Kingsbury, Paul and Martha Palmer.
+2002.From Treebank to PropBank.
+In Proceedingsof LREC-2002, Las Palmas, Canary Islands,Spain.Kipper, Karin, Martha Palmer, and OwenRambow.
+2002.
+Extending PropBank withVerbNet semantic predicates.
+InProceedings of Workshop on AppliedInterlinguas, Tiburon, CA.Koomen, Peter, Vasin Punyakanok, DanRoth, and Wen-tau Yih.
+2005.
+Generalizedinference with multiple semantic rolelabeling systems.
+In Proceedings of the NinthConference on Computational NaturalLanguage Learning (CoNLL-2005),pages 181?184, Ann Arbor, MI.Levin, Beth.
+1993.
+English Verb Classes andAlternations: A Preliminary Investigation.University of Chicago Press, Chicago.Levin, Beth and Malka R. Hovav.
+1996.
+Fromlexical semantics to argument realization.Unpublished manuscript.Li, Xin and Dan Roth.
+2001.
+Exploringevidence for shallow parsing.
+InProceedings of CoNLL-2001, pages 107?110,Toulouse, France.Marcus, Mitchell P., Mary AnnMarcinkiewicz, and Beatrice Santorini.1993.
+Building a large annotated corpus ofEnglish: The Penn Treebank.
+ComputationalLinguistics, 19(2):313?330.Ma`rquez, Llu?is, Jesus Gime?nez Pere Comas,and Neus Catala`.
+2005.
+Semantic rolelabeling as sequential tagging.
+InProceedings of the Ninth Conference onComputational Natural LanguageLearning (CoNLL-2005), pages 193?196,Ann Arbor, MI.Noreen, Eric W. 1989.
+Computer-IntensiveMethods for Testing Hypotheses.
+New York:John Wiley & Sons.Palmer, Martha, Daniel Gildea, and PaulKingsbury.
+2005.
+The proposition bank: Anannotated corpus of semantic roles.Computational Linguistics, 31(1):71?106.Pradhan, Sameer, Kadri Hacioglu, ValerieKrugler, Wayne Ward, James H. Martin,and Daniel Jurafsky.
+2005.
+Support vectorlearning for semantic argumentclassification.Machine Learning, 60:11?39.Pradhan, Sameer, Kadri Hacioglu, WayneWard, James H. Martin, and DanielJurafsky.
+2003.
+Semantic role parsingadding semantic structure tounstructured text.
+In Proceedings of the3rd IEEE International Conference on DataMining (ICDM 2003), pages 629?632,Melbourne, FL.Pradhan, Sameer, Kadri Hacioglu, WayneWard, James H. Martin, and DanielJurafsky.
+2005.
+Semantic role chunkingcombining complementary syntacticviews.
+In Proceedings of the Ninth Conferenceon Computational Natural LanguageLearning (CoNLL-2005), pages 217?220,Ann Arbor, MI.Pradhan, Sameer, Wayne Ward, KadriHacioglu, James H. Martin, and DanielJurafsky.
+2004.
+Shallow semantic parsingusing support vector machines.
+InProceedings of NAACL-HLT 2004,pages 233?240, Boston, MA.Punyakanok, Vasin, Dan Roth, Wen-tau Yih,and Dav Zimak.
+2004.
+Semantic rolelabeling via integer linear programminginference.
+In Proceedings the 20thInternational Conference on ComputationalLinguistics (COLING), pages 1346?1352,Geneva, Switzerland.Punyakanok, Vasin and Dan Roth.
+2001.
+Theuse of classifiers in sequential inference.
+In286Punyakanok, Roth, and Yih Importance of Parsing and Inference in SRLTodd K. Leen, Thomas G. Dietterich, andVolker Tresp, editors, Advances in NeuralInformation Processing Systems 13,pages 995?1001.
+MIT Press.Roth, Dan.
+1998.
+Learning to resolvenatural language ambiguities: A unifiedapproach.
+In Proceedings of the FifteenthNational Conference on ArtificialIntelligence (AAAI-98), pages 806?813,Madison, WI.Roth, Dan and Wen-tau Yih.
+2004.
+A linearprogramming formulation for globalinference in natural language tasks.
+InProceedings of CoNLL-2004, pages 1?8,Boston, MA.Roth, Dan and Wen-tau Yih.
+2005.
+Integerlinear programming inference forconditional random fields.
+In Proceedings ofthe 22nd International Conference on MachineLearning (ICML-2005), pages 737?744,Bonn, Germany.Surdeanu, Mihai, Sanda Harabagiu, JohnWilliams, and Paul Aarseth.
+2003.
+Usingpredicate-argument structures forinformation extraction.
+In Proceedings of the41st Annual Meeting on Association forComputational Linguistics, pages 8?15,Sapporo, Japan.Tjong Kim Sang, Erik F. and SabineBuchholz.
+2000.
+Introduction to theCoNLL-2000 shared task: Chunking.
+InProceedings of CoNLL-2000 and LLL-2000,pages 127?132, Lisbon, Portugal.Xpress-MP.
+2004.
+Dash Optimization.Xpress-MP.
+http://www.dashoptimization.com.Xue, Nianwen and Martha Palmer.
+2004.Calibrating features for semantic rolelabeling.
+In Proceedings of the 2004Conference on Empirical Methods in NaturalLanguage Processing (EMNLP-2004),pages 88?94, Barcelona, Spain.Zhang, Tong, Fred Damerau, and DavidJohnson.
+2002.
+Text chunking based on ageneralization of Winnow.
+Journal ofMachine Learning Research, 2:615?637.287

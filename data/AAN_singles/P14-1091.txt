@@ -1,0 +1,308 @@
+Proceedings of the 52nd Annual Meeting of the Association for Computational Linguistics, pages 967?976,Baltimore, Maryland, USA, June 23-25 2014.c?2014 Association for Computational LinguisticsKnowledge-Based Question Answering as Machine TranslationJunwei Bao?
+?, Nan Duan?, Ming Zhou?, Tiejun Zhao?
+?Harbin Institute of Technology?Microsoft Researchbaojunwei001@gmail.com{nanduan, mingzhou}@microsoft.comtjzhao@hit.edu.cnAbstractA typical knowledge-based question an-swering (KB-QA) system faces two chal-lenges: one is to transform natural lan-guage questions into their meaning repre-sentations (MRs); the other is to retrieveanswers from knowledge bases (KBs) us-ing generated MRs.
+Unlike previous meth-ods which treat them in a cascaded man-ner, we present a translation-based ap-proach to solve these two tasks in one u-nified framework.
+We translate questionsto answers based on CYK parsing.
+An-swers as translations of the span coveredby each CYK cell are obtained by a ques-tion translation method, which first gener-ates formal triple queries as MRs for thespan based on question patterns and re-lation expressions, and then retrieves an-swers from a given KB based on triplequeries generated.
+A linear model is de-fined over derivations, and minimum er-ror rate training is used to tune featureweights based on a set of question-answerpairs.
+Compared to a KB-QA system us-ing a state-of-the-art semantic parser, ourmethod achieves better results.1 IntroductionKnowledge-based question answering (KB-QA)computes answers to natural language (NL) ques-tions based on existing knowledge bases (KBs).Most previous systems tackle this task in a cas-caded manner: First, the input question is trans-formed into its meaning representation (MR) byan independent semantic parser (Zettlemoyer andCollins, 2005; Mooney, 2007; Artzi and Zettle-moyer, 2011; Liang et al, 2011; Cai and Yates,?This work was finished while the author was visiting Mi-crosoft Research Asia.2013; Poon, 2013; Artzi et al, 2013; Kwiatkowskiet al, 2013; Berant et al, 2013); Then, the answer-s are retrieved from existing KBs using generatedMRs as queries.Unlike existing KB-QA systems which treat se-mantic parsing and answer retrieval as two cas-caded tasks, this paper presents a unified frame-work that can integrate semantic parsing into thequestion answering procedure directly.
+Borrow-ing ideas from machine translation (MT), we treatthe QA task as a translation procedure.
+Like MT,CYK parsing is used to parse each input question,and answers of the span covered by each CYK cel-l are considered the translations of that cell; un-like MT, which uses offline-generated translationtables to translate source phrases into target trans-lations, a semantic parsing-based question trans-lation method is used to translate each span intoits answers on-the-fly, based on question patternsand relation expressions.
+The final answers can beobtained from the root cell.
+Derivations generatedduring such a translation procedure are modeledby a linear model, and minimum error rate train-ing (MERT) (Och, 2003) is used to tune featureweights based on a set of question-answer pairs.Figure 1 shows an example: the question direc-tor of movie starred by Tom Hanks is translated toone of its answers Robert Zemeckis by three mainsteps: (i) translate director of to director of ; (ii)translate movie starred by Tom Hanks to one of it-s answers Forrest Gump; (iii) translate director ofForrest Gump to a final answer Robert Zemeckis.Note that the updated question covered by Cell[0,6] is obtained by combining the answers to ques-tion spans covered by Cell[0, 1] and Cell[2, 6].The contributions of this work are two-fold: (1)We propose a translation-based KB-QA methodthat integrates semantic parsing and QA in oneunified framework.
+The benefit of our methodis that we don?t need to explicitly generate com-plete semantic structures for input questions.
+Be-967Cell[0, 6]Cell[2, 6]Cell[0, 1]director of movie starred by Tom Hanks(ii) movie starred by Tom Hanks ?
+Forrest Gump(iii) director of Forrest Gump ?
+Robert Zemeckis(i) director of ?
+director ofFigure 1: Translation-based KB-QA examplesides which, answers generated during the transla-tion procedure help significantly with search spacepruning.
+(2) We propose a robust method to trans-form single-relation questions into formal triplequeries as their MRs, which trades off betweentransformation accuracy and recall using questionpatterns and relation expressions respectively.2 Translation-Based KB-QA2.1 OverviewFormally, given a knowledge base KB and an N-L question Q, our KB-QA method generates a setof formal triples-answer pairs {?D,A?}
+as deriva-tions, which are scored and ranked by the distribu-tion P (?D,A?|KB,Q) defined as follows:exp{?Mi=1?i?
+hi(?D,A?,KB,Q)}??D?,A???H(Q)exp{?Mi=1?i?
+hi(?D?,A??,KB,Q)}?
+KB denotes a knowledge base1that stores aset of assertions.
+Each assertion t ?
+KB is inthe form of {eIDsbj, p, eIDobj}, where p denotesa predicate, eIDsbjand eIDobjdenote the subjectand object entities of t, with unique IDs2.?
+H(Q) denotes the search space {?D,A?}.
+Dis composed of a set of ordered formal triples{t1, ..., tn}.
+Each triple t = {esbj, p, eobj}ji?D denotes an assertion in KB, where i andj denotes the beginning and end indexes ofthe question span from which t is trans-formed.
+The order of triples in D denotesthe order of translation steps from Q to A.E.g., ?director of, Null, director of ?10, ?Tom1We use a large scale knowledge base in this paper, whichcontains 2.3B entities, 5.5K predicates, and 18B assertions.
+A16-machine cluster is used to host and serve the whole data.2Each KB entity has a unique ID.
+For the sake of conve-nience, we omit the ID information in the rest of the paper.Hanks, Film.Actor.Film, Forrest Gump?62and?Forrest Gump, Film.Film.Director, RobertZemeckis?60are three ordered formal triplescorresponding to the three translation steps inFigure 1.
+We define the task of transformingquestion spans into formal triples as questiontranslation.
+A denotes one final answer ofQ.?
+hi(?)
+denotes the ithfeature function.?
+?idenotes the feature weight of hi(?
+).According to the above description, our KB-QA method can be decomposed into four tasks as:(1) search space generation for H(Q); (2) ques-tion translation for transforming question spans in-to their corresponding formal triples; (3) featuredesign for hi(?
+); and (4) feature weight tuning for{?i}.
+We present details of these four tasks in thefollowing subsections one-by-one.2.2 Search Space GenerationWe first present our translation-based KB-QAmethod in Algorithm 1, which is used to generateH(Q) for each input NL question Q.Algorithm 1: Translation-based KB-QA1 for l = 1 to |Q| do2 for all i, j s.t.
+j ?
+i = l do3 H(Qji) = ?
+;4 T = QTrans(Qji,KB);5 foreach formal triple t ?
+T do6 create a new derivation d;7 d.A = t.eobj;8 d.D = {t};9 update the model score of d;10 insert d toH(Qji);11 end12 end13 end14 for l = 1 to |Q| do15 for all i, j s.t.
+j ?
+i = l do16 for all m s.t.
+i ?
+m < j do17 for dl?
+H(Qmi) and dr?
+H(Qjm+1) do18 Qupdate= dl.A+ dr.A;19 T = QTrans(Qupdate,KB);20 foreach formal triple t ?
+T do21 create a new derivation d;22 d.A = t.eobj;23 d.D = dl.D?dr.D?
+{t};24 update the model score of d;25 insert d toH(Qji);26 end27 end28 end29 end30 end31 returnH(Q).968The first half (from Line 1 to Line 13) gen-erates a formal triple set T for each unary spanQji?
+Q, using the question translation methodQTrans(Qji,KB) (Line 4), which takesQjias theinput.
+Each triple t ?
+T returned is in the form of{esbj, p, eobj}, where esbj?s mention occurs inQji,p is a predicate that denotes the meaning expressedby the context of esbjin Qji, eobjis an answer ofQjibased on esbj, p and KB.
+We describe the im-plementation detail of QTrans(?)
+in Section 2.3.The second half (from Line 14 to Line 31) firstupdates the content of each bigger spanQjiby con-catenating the answers to its any two consecutivesmaller spans covered by Qji(Line 18).
+Then,QTrans(Qji,KB) is called to generate triples forthe updated span (Line 19).
+The above operationsare equivalent to answering a simplified question,which is obtained by replacing the answerablespans in the original question with their corre-sponding answers.
+The search spaceH(Q) for theentire question Q is returned at last (Line 31).2.3 Question TranslationThe purpose of question translation is to translatea span Q to a set of formal triples T .
+Each triplet ?
+T is in the form of {esbj, p, eobj}, where esbj?smention3occurs inQ, p is a predicate that denotesthe meaning expressed by the context of esbjinQ, eobjis an answer to Q retrieved from KB us-ing a triple query q = {esbj, p, ?}.
+Note that ifno predicate p or answer eobjcan be generated,{Q, Null,Q} will be returned as a special triple,which sets eobjto be Q itself, and p to be Null.This makes sure the un-answerable spans can bepassed on to the higher-level operations.Question translation assumes each span Q is asingle-relation question (Fader et al, 2013).
+Suchassumption simplifies the efforts of semantic pars-ing to the minimum question units, while leavingthe capability of handling multiple-relation ques-tions (Figure 1 gives one such example) to the out-er CYK-parsing based translation procedure.
+Twoquestion translation methods are presented in therest of this subsection, which are based on ques-tion patterns and relation expressions respectively.2.3.1 Question Pattern-based TranslationA question pattern QP includes a pattern stringQPpattern, which is composed of words and a slot3For simplicity, a cleaned entity dictionary dumped fromthe entire KB is used to detect entity mentions inQ.Algorithm 2:QP-based Question Translation1 T = ?
+;2 foreach entity mention eQ?
+Q do3 Qpattern= replace eQinQ with [Slot];4 foreach question patternQP do5 ifQpattern==QPpatternthen6 E = Disambiguate(eQ,QPpredicate);7 foreach e ?
+E do8 create a new triple query q;9 q = {e,QPpredicate, ?
+};10 {Ai} = AnswerRetrieve(q,KB);11 foreach A ?
+{Ai} do12 create a new formal triple t;13 t = {q.esbj, q.p,A};14 t.score = 1.0;15 insert t to T ;16 end17 end18 end19 end20 end21 return T .symbol [Slot], and a KB predicate QPpredicate,which denotes the meaning expressed by the con-text words in QPpattern.Algorithm 2 shows how to generate formaltriples for a span Q based on question pattern-s (QP-based question translation).
+For each en-tity mention eQ?
+Q, we replace it with [Slot]and obtain a pattern string Qpattern(Line 3).
+IfQpatterncan match one QPpattern, then we con-struct a triple query q (Line 9) using QPpredicateas its predicate and one of the KB entities re-turned by Disambiguate(eQ,QPpredicate) as it-s subject entity (Line 6).
+Here, the objective ofDisambiguate(eQ,QPpredicate) is to output a setof disambiguated KB entities E in KB.
+The nameof each entity returned equals the input entitymention eQand occurs in some assertions whereQPpredicateare the predicates.
+The underlyingidea is to use the context (predicate) information tohelp entity disambiguation.
+The answers of q arereturned by AnswerRetrieve(q,KB) based on qand KB (Line 10), each of which is used to con-struct a formal triple and added to T for Q (fromLine 11 to Line 16).
+Figure 2 gives an example.Question patterns are collected as follows: First,5W queries, which begin with What, Where, Who,When, or Which, are selected from a large scalequery log of a commercial search engine; Then, acleaned entity dictionary is used to annotate eachquery by replacing all entity mentions it containswith the symbol [Slot].
+Only high-frequent querypatterns which contain one [Slot] are maintained;969?
+: who is the director of Forrest Gump?????????
+: who is the director of [Slot]???????????
+: Film.Film.Director?
+: <Forrest Gump, Film.Film.Director, ?>?
+: <Forrest Gump, Film.Film.Director, Robert Zemeckis>KBFigure 2: QP-based question translation exampleLastly, annotators try to manually label the most-frequent 50,000 query patterns with their corre-sponding predicates, and 4,764 question patternswith single labeled predicates are obtained.From experiments (Table 3 in Section 4.3) wecan see that, question pattern based question trans-lation can achieve high end-to-end accuracy.
+Butas human efforts are needed in the mining proce-dure, this method cannot be extended to large scalevery easily.
+Besides, different users often type thequestions with the same meaning in different NLexpressions.
+For example, although the questionForrest Gump was directed by which moviemakermeans the same as the question Q in Figure 2, noquestion pattern can cover it.
+We need to find analternative way to alleviate such coverage issue.2.3.2 Relation Expression-based TranslationAiming to alleviate the coverage issue occurring inQP-based method, an alternative relation expres-sion (RE) -based method is proposed, and will beused when the QP-based method fails.We define REpas a relation expression set fora given KB predicate p ?
+KB.
+Each relation ex-pressionRE ?
+REpincludes an expression stringREexpression, which must contain at least one con-tent word, and a weight REweight, which denotesthe confidence thatREexpressioncan represent p?smeaning in NL.
+For example, is the director ofis one relation expression string for the predicateFilm.Film.Director, which means it is usually usedto express this relation (predicate) in NL.Algorithm 3 shows how to generate triples fora question Q based on relation expressions.
+Foreach possible entity mention eQ?
+Q and a K-B predicate p ?
+KB that is related to a KB enti-ty e whose name equals eQ, Sim(eQ,Q,REp) iscomputed (Line 5) based on the similarity betweenquestion context and REp, which measures howlikely Q can be transformed into a triple queryAlgorithm 3:RE-based Question Translation1 T = ?
+;2 foreach entity mention eQ?
+Q do3 foreach e ?
+KB s.t.
+e.name==eQdo4 foreach predicate p ?
+KB related to e do5 score = Sim(eQ,Q,REp);6 if score > 0 then7 create a new triple query q;8 q = {e, p, ?
+};9 {Ai} = AnswerRetrieve(q,KB);10 foreach A ?
+{Ai} do11 create a new formal triple t;12 t = {q.esbj, q.p,A};13 t.score = score;14 insert t to T ;15 end16 end17 end18 end19 end20 sort T based on the score of each t ?
+T ;21 return T .q = {e, p, ?}.
+If this score is larger than 0, whichmeans there are overlaps betweenQ?s context andREp, then q will be used as the triple query of Q,and a set of formal triples will be generated basedon q andKB (from Line 7 to Line 15).
+The compu-tation of Sim(eQ,Q,REp) is defined as follows:?n1|Q| ?
+n+ 1?
+{?
+?n?Q,?n?eQ=?P (?n|REp)}where n is the n-gram order which ranges from 1to 5, ?nis an n-gram occurring inQ without over-lapping with eQand containing at least one con-tent word, P (?n|REp) is the posterior probabilitywhich is computed by:P (?n|REp) =Count(?n,REp)???n?REpCount(?
+?n,REp)Count(?,REp) denotes the weighted sum oftimes that ?
+occurs inREp:Count(?,REp) =?RE?REp{#?
+(RE) ?
+REweight}where #?
+(RE) denotes the number of times that?
+occurs inREexpression, andREweightis decidedby the relation expression extraction component.Figure 3 gives an example, where n-grams withrectangles are the ones that occur in bothQ?s con-text and the relation expression set of a given pred-icate p = Film.F ilm.Director.
+Unlike the QP-based method which needs a perfect match, the970?
+: Forrest Gump was directed by which moviemaker????????????????????
+: is directed bywas directed and written byis the moviemaker ofwas famous as the director of??
+: <Forrest Gump, Film.Film.Director, ?>?
+: <Forrest Gump, Film.Film.Director, Robert Zemeckis>KBFigure 3: RE-based question translation exampleRE-based method allows fuzzy matching betweenQ andREp, and records this (Line 13) in generat-ed triples, which is used as features later.Relation expressions are mined as follows: Giv-en a set of KB assertions with an identical predi-cate p, we first extract all sentences from EnglishWiki pages4, each of which contains at least onepair of entities occurring in one assertion.
+Then,we extract the shortest path between paired entitiesin the dependency tree of each sentence as an REcandidate for the given predicate.
+The intuition isthat any sentence containing such entity pairs oc-cur in an assertion is likely to express the predi-cate of that assertion in some way.
+Last, all rela-tion expressions extracted are filtered by heuristicrules, i.e., the frequency must be larger than 4, thelength must be shorter than 10, and then weightedby the pattern scoring methods proposed in (Ger-ber and Ngomo, 2011; Gerber and Ngomo, 2012).For each predicate, we only keep the relation ex-pressions whose pattern scores are larger than apre-defined threshold.
+Figure 4 gives one relationexpression extraction example.
+The statistics andoverall quality of the relation expressions are list-ed in Section 4.1.
+{ Forrest Gump , Robert Zemeckis }{ Titanic, James Cameron }{ The Dark Knight Rises , C hristopher  Nolan }Paired entity of aKB predicate?
+?Film.Film.DirectorPassage retrievalfrom Wiki pagesRelation expressionweightingRobert Zemeckis  is the director of Forrest GumpJames Cameron  is the moviemaker of TitanicThe Dark Knight Rises is directed by C hristopher  Nolanis the director of           ||| 0.25is the moviemaker of   ||| 0.23is directed by                 ||| 0.20Figure 4: RE extraction example4http://en.wikipedia.org/wiki/Wikipedia:Database download2.3.3 Question DecompositionSometimes, a question may provide multiple con-straints to its answers.
+movie starred by Tom Han-ks in 1994 is one such question.
+All the films asthe answers of this question should satisfy the fol-lowing two constraints: (1) starred by Tom Hanks;and (2) released in 1994.
+It is easy to see that suchquestions cannot be translated to single triples.We propose a dependency tree-based method tohandle such multiple-constraint questions by (i)decomposing the original question into a set ofsub-questions using syntax-based patterns; and (ii)intersecting the answers of all sub-questions as thefinal answers of the original question.
+Note, ques-tion decomposition only operates on the originalquestion and question spans covered by completedependency subtrees.
+Four syntax-based patterns(Figure 5) are used for question decomposition.
+Ifa question matches any one of these patterns, thensub-questions are generated by collecting the path-s between n0and each ni(i > 0) in the pattern,where each n denotes a complete subtree with anoun, number, or question word as its root node,the symbol ?
+above prep?denotes this prepositioncan be skipped in matching.
+For the question men-tioned at the beginning, its two sub-questions gen-erated are movie starred by Tom Hanks and moviestarred in 1994, as its dependency form matchespattern (a).
+Similar ideas are used in IBM Wat-son (Kalyanpur et al, 2012) as well.????????????????????????????
+??
+????(a)??????????
+(c)and  ???????????????(d)?????
+and  ???????????
+(b)Figure 5: Four syntax-based patterns for questiondecompositionAs dependency parsing is not perfect, we gen-erate single triples for such questions without con-sidering constraints as well, and add them to thesearch space for competition.
+hsyntax constraint(?
+)971is used to boost triples that are converted from sub-questions generated by question decomposition.The more constraints an answer satisfies, the bet-ter.
+Obviously, current patterns used can?t coverall cases but most-common ones.
+We leave a moregeneral pattern mining method for future work.2.4 Feature DesignThe objective of our KB-QA system is to seek thederivation ??D,?A?
+that maximizes the probabilityP (?D,A?|KB,Q) described in Section 2.1 as:??D,?A?
+= argmax?D,A?
+?H(Q)P (?D,A?|KB,Q)= argmax?D,A??H(Q)M?i=1?i?
+hi(?D,A?,KB,Q)We now introduce the feature sets {hi(?)}
+that areused in the above linear model:?
+hquestion word(?
+), which counts the number oforiginal question words occurring inA.
+It pe-nalizes those partially answered questions.?
+hspan(?
+), which counts the number of spansin Q that are converted to formal triples.
+Itcontrols the granularity of the spans used inquestion translation.?
+hsyntax subtree(?
+), which counts the numberof spans inQ that are (1) converted to formaltriples, whose predicates are not Null, and(2) covered by complete dependency subtreesat the same time.
+The underlying intuitionis that, dependency subtrees of Q should betreated as units for question translation.?
+hsyntax constraint(?
+), which counts the num-ber of triples in D that are converted fromsub-questions generated by the question de-composition component.?
+htriple(?
+), which counts the number of triplesin D, whose predicates are not Null.?
+htripleweight(?
+), which sums the scores of alltriples {ti} in D as?ti?Dti.score.?
+hQPcount(?
+), which counts the number oftriples in D that are generated by QP-basedquestion translation method.?
+hREcount(?
+), which counts the number oftriples in D that are generated by RE-basedquestion translation method.?
+hstaticranksbj(?
+), which sums the static rankscores of all subject entities in D?s triple setas?ti?Dti.esbj.static rank.?
+hstaticrankobj(?
+), which sums the static rankscores of all object entities inD?s triple set as?ti?Dti.eobj.static rank.?
+hconfidenceobj(?
+), which sums the confidencescores of all object entities inD?s triple set as?t?Dt.eobj.confidence.For each assertion {esbj, p, eobj} stored in KB,esbj.static rank and eobj.static rank denote thestatic rank scores5for esbjand eobjrespectively;eobj.confidence rank represents the probabilityp(eobj|esbj, p).
+These three scores are used as fea-tures to rank answers generated in QA procedure.2.5 Feature Weight TuningGiven a set of question-answer pairs {Qi,Arefi}as the development (dev) set, we use the minimumerror rate training (MERT) (Och, 2003) algorithmto tune the feature weights ?Miin our proposedmodel.
+The training criterion is to seek the featureweights that can minimize the accumulated errorsof the top-1 answer of questions in the dev set:?
+?M1= argmin?M1N?i=1Err(Arefi,?Ai;?M1)N is the number of questions in the dev set, Arefiis the correct answers as references of the ithques-tion in the dev set,?Aiis the top-1 answer candi-date of the ithquestion in the dev set based onfeature weights ?M1, Err(?)
+is the error functionwhich is defined as:Err(Arefi,?Ai;?M1) = 1?
+?
+(Arefi,?Ai)where ?
+(Arefi,?Ai) is an indicator function whichequals 1 when?Aiis included in the reference setArefi, and 0 otherwise.3 Comparison with Previous WorkOur work intersects with two research directions:semantic parsing and question answering.Some previous works on semantic pars-ing (Zelle and Mooney, 1996; Zettlemoyer andCollins, 2005; Wong and Mooney, 2006; Zettle-moyer and Collins, 2007; Wong and Mooney,5The static rank score of an entity represents a generalindicator of the overall quality of that entity.9722007; Kwiatkowski et al, 2010; Kwiatkowskiet al, 2011) require manually annotated logicalforms as supervision, and are hard to extend result-ing parsers from limited domains, such as GEO,JOBS and ATIS, to open domains.
+Recent work-s (Clarke and Lapata, 2010; Liang et al, 2013)have alleviated such issues using question-answerpairs as weak supervision, but still with the short-coming of using limited lexical triggers to link NLphrases to predicates.
+Poon (2013) has proposedan unsupervised method by adopting grounded-learning to leverage the database for indirect su-pervision.
+But transformation from NL questionsto MRs heavily depends on dependency parsingresults.
+Besides, the KB used (ATIS) is limited aswell.
+Kwiatkowski et al (2013) use Wiktionaryand a limited manual lexicon to map POS tags toa set of predefined CCG lexical categories, whichaims to reduce the need for learning lexicon fromtraining data.
+But it still needs human efforts to de-fine lexical categories, which usually can not coverall the semantic phenomena.Berant et al (2013) have not only enlarged theKB used for Freebase (Google, 2013), but alsoused a bigger lexicon trigger set extracted by theopen IE method (Lin et al, 2012) for NL phrasesto predicates linking.
+In comparison, our methodhas further advantages: (1) Question answeringand semantic parsing are performed in an join-t way under a unified framework; (2) A robustmethod is proposed to map NL questions to theirformal triple queries, which trades off the mappingquality by using question patterns and relation ex-pressions in a cascaded way; and (3) We use do-main independent feature set which allowing us touse a relatively small number of question-answerpairs to tune model parameters.Fader et al (2013) map questions to formal(triple) queries over a large scale, open-domaindatabase of facts extracted from a raw corpus byReVerb (Fader et al, 2011).
+Compared to theirwork, our method gains an improvement in twoaspects: (1) Instead of using facts extracted us-ing the open IE method, we leverage a large scale,high-quality knowledge base; (2) We can han-dle multiple-relation questions, instead of single-relation queries only, based on our translationbased KB-QA framework.Espana-Bonet and Comas (2012) have proposedan MT-based method for factoid QA.
+But MT inthere work means to translate questions into n-best translations, which are used for finding simi-lar sentences in the document collection that prob-ably contain answers.
+Echihabi and Marcu (2003)have developed a noisy-channel model for QA,which explains how a sentence containing an an-swer to a given question can be rewritten into thatquestion through a sequence of stochastic opera-tions.
+Compared to the above two MT-motivatedQA work, our method uses MT methodology totranslate questions to answers directly.4 Experiment4.1 Data SetsFollowing Berant et al (2013), we use the samesubset of WEBQUESTIONS (3,778 questions) asthe development set (Dev) for weight tuning inMERT, and use the other part of WEBQUES-TIONS (2,032 questions) as the test set (Test).
+Ta-ble 1 shows the statistics of this data set.Data Set # Questions # WordsWEBQUESTIONS 5,810 6.7Table 1: Statistics of evaluation set.
+# Questions isthe number of questions in a data set, # Words isthe averaged word count of a question.Table 2 shows the statistics of question patternsand relation expressions used in our KB-QA sys-tem.
+As all question patterns are collected with hu-man involvement as we discussed in Section 2.3.1,the quality is very high (98%).
+We also sample1,000 instances from the whole relation expressionset and manually label their quality.
+The accuracyis around 89%.
+These two resources can cover 566head predicates in our KB.# Entries AccuracyQuestion Patterns 4,764 98%Relation Expressions 133,445 89%Table 2: Statistics of question patterns and relationexpressions.4.2 KB-QA SystemsSince Berant et al (2013) is one of the latestwork which has reported QA results based on alarge scale, general domain knowledge base (Free-base), we consider their evaluation result on WE-BQUESTIONS as our baseline.Our KB-QA system generates the k-best deriva-tions for each question span, where k is set to 20.973The answers with the highest model scores areconsidered the best answers for evaluation.
+Forevaluation, we follow Berant et al (2013) to al-low partial credit and score an answer using the F1measure, comparing the predicted set of entities tothe annotated set of entities.One difference between these two systems is theKB used.
+Since Freebase is completely containedby our KB, we disallow all entities which are notincluded by Freebase.
+By doing so, our KB pro-vides the same knowledge as Freebase does, whichmeans we do not gain any extra advantage by us-ing a larger KB.
+But we still allow ourselves touse the static rank scores and confidence scores ofentities as features, as we described in Section 2.4.4.3 Evaluation ResultsWe first show the overall evaluation results of ourKB-QA system and compare them with baseline?sresults on Dev and Test.
+Note that we do not re-implement the baseline system, but just list theirevaluation numbers reported in the paper.
+Com-parison results are listed in Table 3.Dev (Accuracy) Test (Accuracy)Baseline 32.9% 31.4%Our Method 42.5% (+9.6%) 37.5% (+6.1%)Table 3: Accuracy on evaluation sets.
+Accuracy isdefined as the number of correctly answered ques-tions divided by the total number of questions.Table 3 shows our KB-QA method outperformsbaseline on both Dev and Test.
+We think the po-tential reasons of this improvement include:?
+Different methods are used to map NL phras-es to KB predicates.
+Berant et al (2013)have used a lexicon extracted from a subsetof ReVerb triples (Lin et al, 2012), whichis similar to the relation expression set usedin question translation.
+But as our relationexpressions are extracted by an in-house ex-tractor, we can record their extraction-relatedstatistics as extra information, and use themas features to measure the mapping quality.Besides, as a portion of entities in our KBare extracted from Wiki, we know the one-to-one correspondence between such entitiesand Wiki pages, and use this information inrelation expression extraction for entity dis-ambiguation.
+A lower disambiguation errorrate results in better relation expressions.?
+Question patterns are used to map NL contextto KB predicates.
+Context can be either con-tinuous or discontinues phrases.
+Althoughthe size of this set is limited, they can actuallycover head questions/queries6very well.
+Theunderlying intuition of using patterns is thatthose high-frequent questions/queries shouldand can be treated and solved in the QA task,by involving human effort at a relative smallprice but with very impressive accuracy.In order to figure out the impacts of questionpatterns and relation expressions, another exper-iment (Table 4) is designed to evaluate their in-dependent influences, where QPonlyand REonlydenote the results of KB-QA systems which onlyallow question patterns and relation expressions inquestion translation respectively.Settings Test (Accuracy) Test (Precision)QPonly11.8% 97.5%REonly32.5% 73.2%Table 4: Impacts of question patterns and relationexpressions.
+Precision is defined as the num-ber of correctly answered questions divided by thenumber of questions with non-empty answers gen-erated by our KB-QA system.From Table 4 we can see that the accuracy ofREonlyon Test (32.5%) is slightly better thanbaseline?s result (31.4%).
+We think this improve-ment comes from two aspects: (1) The quality ofthe relation expressions is better than the qualityof the lexicon entries used in the baseline; and(2) We use the extraction-related statistics of re-lation expressions as features, which brings moreinformation to measure the confidence of map-ping between NL phrases and KB predicates, andmakes the model to be more flexible.
+Meanwhile,QPonlyperform worse (11.8%) than REonly, dueto coverage issue.
+But by comparing the precision-s of these two settings, we find QPonly(97.5%)outperforms REonly(73.2%) significantly, due toits high quality.
+This means how to extract high-quality question patterns is worth to be studied forthe question answering task.As the performance of our KB-QA system re-lies heavily on the k-best beam approximation, weevaluate the impact of the beam size and list thecomparison results in Figure 6.
+We can see that as6Head questions/queries mean the questions/queries withhigh frequency and clear patterns.974we increase k incrementally, the accuracy increaseat the same time.
+However, a larger k (e.g.
+200)cannot bring significant improvements comparingto a smaller one (e.g., 20), but using a large k hasa tremendous impact on system efficiency.
+So wechoose k = 20 as the optimal value in above ex-periments, which trades off between accuracy andefficiency.00.050.10.150.20.250.30.350.40.455 20 50 100 200Accuracy on TestAccuracyFigure 6: Impacts of beam size on accuracy.Actually, the size of our system?s search spaceis much smaller than the one of the semantic parserused in the baseline.This is due to the fact that, iftriple queries generated by the question translationcomponent cannot derive any answer from KB, wewill discard such triple queries directly during theQA procedure.
+We can see that using a small kcan achieve better results than baseline, where thebeam size is set to be 200.4.4 Error Analysis4.4.1 Entity DetectionSince named entity recognizers trained on PennTreeBank usually perform poorly on web queries,We instead use a simple string-match method todetect entity mentions in the question using acleaned entity dictionary dumped from our KB.One problem of doing so is the entity detectionissue.
+For example, in the question who was Es-ther?s husband ?, we cannot detect Esther as anentity, as it is just part of an entity name.
+We needan ad-hoc entity detection component to handlesuch issues, especially for a web scenario, whereusers often type entity names in their partial or ab-breviation forms.4.4.2 Predicate MappingSome questions lack sufficient evidences to detec-t predicates.
+where is Byron Nelson 2012 ?
+is anexample.
+Since each relation expression must con-tain at least one content word, this question cannotmatch any relation expression.
+Except for ByronNelson and 2012, all the others are non-contentwords.Besides, ambiguous entries contained in rela-tion expression sets of different predicates canbring mapping errors as well.
+For the follow-ing question who did Steve Spurrier play profootball for?
+as an example, since the unigramplay exists in both Film.Film.Actor and Ameri-can Football.Player.Current Team ?s relation ex-pression sets, we made a wrong prediction, whichled to wrong answers.4.4.3 Specific QuestionsSometimes, we cannot give exact answers tosuperlative questions like what is the first bookSherlock Holmes appeared in?.
+For this example,we can give all book names where SherlockHolmes appeared in, but we cannot rank thembased on their publication date , as we cannotlearn the alignment between the constraint wordfirst occurred in the question and the predicateBook.Written Work.Date Of First Publicationfrom training data automatically.
+Although wehave followed some work (Poon, 2013; Lianget al, 2013) to handle such special linguisticphenomena by defining some specific operators,it is still hard to cover all unseen cases.
+We leavethis to future work as an independent topic.5 Conclusion and Future WorkThis paper presents a translation-based KB-QAmethod that integrates semantic parsing and QAin one unified framework.
+Comparing to the base-line system using an independent semantic parserwith state-of-the-art performance, we achieve bet-ter results on a general domain evaluation set.Several directions can be further explored in thefuture: (i) We plan to design a method that canextract question patterns automatically, using ex-isting labeled question patterns and KB as weaksupervision.
+As we discussed in the experimentpart, how to mine high-quality question patterns isworth further study for the QA task; (ii) We planto integrate an ad-hoc NER into our KB-QA sys-tem to alleviate the entity detection issue; (iii) Infact, our proposed QA framework can be general-ized to other intelligence besides knowledge basesas well.
+Any method that can generate answers toquestions, such as the Web-based QA approach,can be integrated into this framework, by usingthem in the question translation component.975ReferencesYoav Artzi and Luke S. Zettlemoyer.
+2011.
+Boot-strapping semantic parsers from conversations.
+InEMNLP, pages 421?432.Yoav Artzi, Nicholas FitzGerald, and Luke S. Zettle-moyer.
+2013.
+Semantic parsing with combinatorycategorial grammars.
+In ACL (Tutorial Abstracts),page 2.Jonathan Berant, Andrew Chou, Roy Frostig, and Per-cy Liang.
+2013.
+Semantic parsing on freebase fromquestion-answer pairs.
+In EMNLP, pages 1533?1544.Qingqing Cai and Alexander Yates.
+2013.
+Large-scalesemantic parsing via schema matching and lexiconextension.
+In ACL, pages 423?433.James Clarke and Mirella Lapata.
+2010.
+Discourseconstraints for document compression.
+Computa-tional Linguistics, 36(3):411?441.Abdessamad Echihabi and Daniel Marcu.
+2003.
+Anoisy-channel approach to question answering.
+InACL.Cristina Espana-Bonet and Pere R. Comas.
+2012.
+Fullmachine translation for factoid question answering.In EACL, pages 20?29.Anthony Fader, Stephen Soderland, and Oren Etzion-i.
+2011.
+Identifying relations for open informationextraction.
+In EMNLP, pages 1535?1545.Anthony Fader, Luke S. Zettlemoyer, and Oren Etzioni.2013.
+Paraphrase-driven learning for open questionanswering.
+In ACL, pages 1608?1618.Daniel Gerber and Axel-Cyrille Ngonga Ngomo.
+2011.Bootstrapping the linked data web.
+In ISWC.Daniel Gerber and Axel-Cyrille Ngonga Ngomo.
+2012.Extracting multilingual natural-language patternsfor rdf predicates.
+In ESWC.Google.
+2013.
+Freebase.
+In http://www.freebase.com.Aditya Kalyanpur, Siddharth Patwardhan, BranimirBoguraev, Adam Lally, and Jennifer Chu-Carroll.2012.
+Fact-based question decomposition in deep-qa.
+IBM Journal of Research and Development,56(3):13.Tom Kwiatkowski, Luke S. Zettlemoyer, Sharon Gold-water, and Mark Steedman.
+2010.
+Inducing proba-bilistic ccg grammars from logical form with higher-order unification.
+In EMNLP, pages 1223?1233.Tom Kwiatkowski, Luke S. Zettlemoyer, Sharon Gold-water, and Mark Steedman.
+2011.
+Lexical general-ization in ccg grammar induction for semantic pars-ing.
+In EMNLP, pages 1512?1523.Tom Kwiatkowski, Eunsol Choi, Yoav Artzi, andLuke S. Zettlemoyer.
+2013.
+Scaling seman-tic parsers with on-the-fly ontology matching.
+InEMNLP, pages 1545?1556.Percy Liang, Michael I. Jordan, and Dan Klein.
+2011.Learning dependency-based compositional seman-tics.
+In ACL, pages 590?599.Percy Liang, Michael I. Jordan, and Dan Klein.
+2013.Learning dependency-based compositional seman-tics.
+Computational Linguistics, 39(2):389?446.Thomas Lin, Mausam, and Oren Etzioni.
+2012.
+Entitylinking at web scale.
+In AKBC-WEKEX, pages 84?88.Raymond J. Mooney.
+2007.
+Learning for semanticparsing.
+In CICLing, pages 311?324.Franz Josef Och.
+2003.
+Minimum error rate training instatistical machine translation.
+In ACL, pages 160?167.Hoifung Poon.
+2013.
+Grounded unsupervised seman-tic parsing.
+In ACL, pages 933?943.Yuk Wah Wong and Raymond J. Mooney.
+2006.Learning for semantic parsing with statistical ma-chine translation.
+In HLT-NAACL.Yuk Wah Wong and Raymond J. Mooney.
+2007.Learning synchronous grammars for semantic pars-ing with lambda calculus.
+In ACL.John M. Zelle and Raymond J. Mooney.
+1996.
+Learn-ing to parse database queries using inductive logicprogramming.
+In AAAI/IAAI, Vol.
+2, pages 1050?1055.Luke S. Zettlemoyer and Michael Collins.
+2005.Learning to map sentences to logical form: Struc-tured classification with probabilistic categorialgrammars.
+In UAI, pages 658?666.Luke S. Zettlemoyer and Michael Collins.
+2007.
+On-line learning of relaxed ccg grammars for parsing tological form.
+In EMNLP-CoNLL, pages 678?687.976

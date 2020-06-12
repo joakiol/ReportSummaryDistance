@@ -1,0 +1,738 @@
+Speculation and Negation: Rules, Rankers,and the Role of SyntaxErik Velldal?University of OsloLilja ?vrelid?University of OsloJonathon Read?University of OsloStephan Oepen?University of OsloThis article explores a combination of deep and shallow approaches to the problem of resolvingthe scope of speculation and negation within a sentence, specifically in the domain of biomedicalresearch literature.
+The first part of the article focuses on speculation.
+After first showing howspeculation cues can be accurately identified using a very simple classifier informed only bylocal lexical context, we go on to explore two different syntactic approaches to resolving thein-sentence scopes of these cues.
+Whereas one uses manually crafted rules operating over depen-dency structures, the other automatically learns a discriminative ranking function over nodesin constituent trees.
+We provide an in-depth error analysis and discussion of various linguisticproperties characterizing the problem, and show that although both approaches perform wellin isolation, even better results can be obtained by combining them, yielding the best publishedresults to date on the CoNLL-2010 Shared Task data.
+The last part of the article describes how ourspeculation system is ported to also resolve the scope of negation.
+With only modest modificationsto the initial design, the system obtains state-of-the-art results on this task also.1.
+IntroductionThe task of providing a principled treatment of speculation and negation is a problemthat has received increased interest within the NLP community during recent years.This is witnessed not only by this Special Issue, but also by the themes of several recentshared tasks and dedicated workshops.
+The Shared Task at the 2010 Conference on Nat-ural Language Learning (CoNLL) has been of central importance in this respect, wherethe topic was speculation detection for the domain of biomedical research literature?
+University of Oslo, Department of Informatics, PB 1080 Blindern, 0316 Oslo, Norway.E-mail: {erikve,liljao,jread,oe}@ifi.uio.no.Submission received: 5 April 2011; revised submission received: 30 September 2011; accepted for publication:2 December 2011.?
+2012 Association for Computational LinguisticsComputational Linguistics Volume 38, Number 2(Farkas et al 2010).
+This particular area has been the focus of much current research,triggered by the release of the BioScope corpus (Vincze et al 2008)?a collection ofscientific abstracts, full papers, and clinical reports with manual annotations of wordsthat signal speculation or negation (so-called cues), as well as of the scopes of these cueswithin the sentences.
+The following examples from BioScope illustrate how sentencesare annotated with respect to speculation.
+Cues are here shown using angle brackets,with braces corresponding to their annotated scopes:(1) {The specific role of the chromodomain is ?unknown?}
+but chromodomainswapping experiments in Drosophila {?suggest?
+that they {?might?
+beprotein interaction modules}} [18].
+(2) These data {?indicate that?
+IL-10 and IL-4 inhibit cytokine production bydifferent mechanisms}.Negation is annotated in the same way, as shown in the following examples:(3) Thus, positive autoregulation is {?neither?
+a consequence ?nor?
+the solecause of growth arrest}.
+(4) Samples of the protein pair space were taken {?instead of?
+considering thewhole space} as this was more computationally tractable.In this article we develop several linguistically informed approaches to automati-cally identify cues and resolve their scope within sentences, as in the example annota-tions.
+Our starting point is the system developed by Velldal, ?vrelid, and Oepen (2010)for the CoNLL-2010 Shared Task challenge.
+This system implements a two-stage hybridapproach for resolving speculation: First, a binary classifier is applied for identifyingcues, and then their in-sentence scope is resolved using a small set of manually definedrules operating on dependency structures.In the current article we present several important extensions to the initial systemdesign of Velldal, ?vrelid, and Oepen (2010): First, in Section 5, we present a simpli-fied approach to cue classification, greatly reducing the model size and complexityof our Support Vector Machine (SVM) classifier while at the same time giving betteraccuracy.
+Then, after reviewing the manually defined dependency-based scope rules(Section 6.1), we show how the scope resolution task can be handled using an alternativeapproach based on learning a discriminative ranking function over subtrees of HPSG-derived constituent trees (Section 6.2).
+Moreover, by combining this empirical rankingapproach with the manually defined rules (Section 6.3), we are able to obtain the bestpublished results so far (to the best of our knowledge) on the CoNLL-2010 SharedTask evaluation data.
+Finally, in Section 7, we show how our speculation system can beported to also resolve the scope of negation.
+Only requiring modest modifications, thesystem also obtains state-of-the-art results on this task.
+Rather than merely presentingthe implementation details of the new approaches we develop, we also provide in-deptherror analyses and discussion on the linguistic properties of the phenomena of bothspeculation and negation.Before turning to the details of our approach, however, we start by presenting therelevant data sets and the resources used for pre-processing in Section 2, followed bya presentation of the various evaluation measures we will use in Section 3.
+We alsoprovide a brief review of relevant previous work in Section 4.370Velldal et al Rules, Rankers, and the Role of Syntax2.
+Data Sets and PreprocessingOur experiments center on the biomedical abstracts, full papers, and clinical reports ofthe BioScope corpus (Vincze et al 2008).
+This comprises 20,924 sentences (or other root-level utterances), annotated with respect to both negation and speculation.
+Some basicdescriptive statistics for the data sets are provided in Table 1.
+We see that roughly 18% ofthe sentences are annotated as uncertain, and 13% contain negations.
+Note that, for ourspeculation experiments, we will be using only the abstracts and the papers for training,corresponding to the official CoNLL-2010 Shared Task training data.
+Moreover, we willbe using the Shared Task version of this data, in which certain annotation errors hadbeen corrected.
+The Shared Task task organizers also provided a set of newly annotatedbiomedical articles for evaluation purposes, constituting an additional 5,003 utterances.This latter data set (also detailed in Table 1) will be used for held-out testing of ourspeculation models.
+We will be using the following abbreviations when referring to thevarious parts of the data: BSA (BioScope abstracts), BSP (full papers), BSE (the held-out evaluation data), and BSR (clinical reports).
+Note that, when we get to the negationtask we will be using the original version of the BioScope data.
+Furthermore, as BSEdoes not annotate negation, we instead follow the experimental set-up of Morante andDaelemans (2009b) for the negation task, reporting 10-fold cross validation on BSA andheld-out testing on BSP and BSR.2.1 TokenizationThe BioScope data (and other data sets in the CoNLL-2010 Shared Task), are providedsentence-segmented only, and otherwise non-tokenized.
+Unsurprisingly, the GENIAtagger (Tsuruoka et al 2005) has a central role in our pre-processing set-up.
+We foundthat its tokenization rules are not always optimally adapted for the type of text in Bio-Scope, however.
+For example, GENIA unconditionally introduces token boundaries forsome punctuation marks that can also occur token-internally, thus incorrectly splittingtokens like 390,926, methlycobamide:CoM, or Ca(2+).
+Conversely, GENIA fails to isolatesome kinds of opening single quotes, because the quoting conventions assumed inBioScope differ from those used in the GENIA Corpus, and it mis-tokenizes LATEX-style n- and m-dashes.
+On average, one in five sentences in the CoNLL training dataTable 1The top three rows summarize the components of the BioScope corpus?abstracts (BSA), fullpapers (BSP), and clinical reports (BSR)?annotated for speculation and negation.
+The bottomrow details the held-out evaluation data (BSE) provided for the CoNLL-2010 Shared Task.Columns indicate the total number of sentences and their average length, the number ofhedged/negated sentences, the number of cues, and the number of multiword cues.
+(Note thatBSE is not annotated for negation, and we do not provide speculation statistics for BSR as thisdata set will only be used for the negation experiments.Speculation NegationSentences Length Sentences Cues MWCs Sentences Cues MWCsBSA 11,871 26.1 2,101 2,659 364 1,597 1,719 86BSP 2,670 25.7 519 668 84 339 376 23BSR 6,383 7.7 ?
+?
+?
+865 870 8BSE 5,003 27.6 790 1,033 87 ?
+?
+?371Computational Linguistics Volume 38, Number 2exhibited GENIA tokenization problems.
+Our pre-processing approach thus deploys acascaded finite-state tokenizer (borrowed and adapted from the open-source EnglishResource Grammar: Flickinger [2002]), which aims to implement the tokenization deci-sions made in the Penn Treebank (Marcus, Santorini, and Marcinkiewicz 1993)?muchlike GENIA, in principle?but more appropriately treating corner cases like the onesnoted here.2.2 PoS Tagging and LemmatizationFor part-of-speech (PoS) tagging and lemmatization, we combine GENIA (with itsbuilt-in, occasionally deviant tokenizer) and TnT (Brants 2000), which operates onpre-tokenized inputs but in its default model is trained on financial news from thePenn Treebank.
+Our general goal here is to take advantage of the higher PoS accuracyprovided by GENIA in the biomedical domain, while using our improved tokenizationand producing inputs to the parsers that as much as possible resemble the conventionsused in the original training data for the (dependency) parser (the Penn Treebank, onceagain).To this effect, for the vast majority of tokens we can align the GENIA tokeniza-tion with our own, and in these cases we typically use GENIA PoS tags and lemmas(i.e., base-forms).
+For better normalization, we downcase all lemmas except for propernouns.
+GENIA does not make a PoS distinction between proper vs. common nouns(as assumed in the Penn Treebank), however, and hence we give precedence to TnToutputs for tokens tagged as nominal by both taggers.
+Finally, for the small number ofcases where we cannot establish a one-to-one correspondence between GENIA tokensand our own tokenization, we rely on TnT annotation only.2.3 A Methodological CaveatUnsurprisingly, the majority of previous work on BioScope seems to incorporate infor-mation from the GENIA tagger in one way or another, whether it regards tokenization,lemmatization, PoS information, or named entity chunking.
+Using the GENIA tagger forpre-processing introduces certain dependencies to be aware of, however, as the abstractsin BioScope are in fact also part of the GENIA corpus (Collier et al 1999) on which theGENIA tagger is trained.
+This means that the accuracy of the information provided bythe tagger on this subset of BioScope cannot be expected to be representative of theaccuracy on other texts.
+Moreover, this effect might of course also carry over to anydownstream components using this information.For the experiments described in this article, GENIA supplies lemmas for then-gram features used by the cue classifiers, as well as PoS tags used in the input toboth the dependency parser and the Head-driven Phrase Structure Grammar (HPSG)parser (which in turn provide the inputs to our various scope resolution components).For the HPSG parser, a subset of the GENIA corpus was also used as part of thetraining data for estimating an underlying statistical parse selection model, producingn-best lists of ranked candidate parses (MacKinlay et al 2011).
+When reporting finaltest results on the full papers (BSP or BSE) or the clinical reports (BSR), no suchdependencies between information sources exists.
+It does mean, however, that we canreasonably expect to see some extra drop in performancewhen going fromdevelopmentresults on data that includes the BioScope abstracts to the test results on these otherdata sets.372Velldal et al Rules, Rankers, and the Role of Syntax3.
+Evaluation MeasuresIn this section we seek to clarify the type of measures we will be using for evaluatingboth the cue detection components (Section 3.1) and the scope resolution components(Section 3.2).
+Essentially, we here follow the evaluation scheme established by theCoNLL-2010 Shared Task on speculation detection, also applying this when evaluatingresults for the negation task.3.1 Evaluation Measures for Cue IdentificationFor the approaches presented for cue detection in this article (for both speculation andnegation), we will be reporting precision, recall, and F1 for three different levels ofevaluation; the sentence-level, the token-level, and the cue-level.
+The sentence-level scorescorrespond to Task 1 in the CoNLL-2010 Shared Task, that is, correctly identifyingwhether a sentence contains uncertainty or not.
+The scores at the token-level measurethe number of individual tokens within the span of a cue annotation that the classifierhas correctly labeled as a cue.
+Finally, the stricter cue-level scores measure how well aclassifier succeeds in identifying entire cues (which will in turn provide the input forthe downstream components that later try to resolve the scope of the speculation ornegation within the sentence).
+A true positive at the cue-level requires that the predictedcue exactly matches the annotation in its entirety (full multiword cues included).For assessing the statistical significance of any observed differences in performance,we will be using a two-tailed sign-test applied to the token-level predictions.
+Thisis a standard non-parametric test for paired samples, which in our setting considershow often the predictions of two given classifiers differ.
+Note that we will only beperforming significance testing for the token-level evaluation (unless otherwise stated),as this is the level that most directly corresponds to the classifier decisions.
+We will beassuming a significance level of ?
+= 0.05, but also reporting actual p-values in caseswhere differences are not found to be significant.3.2 Evaluation Measures for Scope ResolutionWhen evaluating scope resolution we will be following the methodology of the CoNLL-2010 Shared Task, also using the scoring software made available by the task organiz-ers.1 We have modified the software trivially so that it can also be used to evaluatenegation labeling.
+As pointed out by Farkas et al (2010), this way of evaluating scope israther strict: A true positive (TP) requires an exact match for both the entire cue and theentire scope.
+On the other hand, a false positive (FP) can be incurred by three differentevents; (1) incorrect cue labeling with correct scope boundaries, (2) correct cue labelingwith incorrect scope boundaries, or (3) incorrectly labeled cue and scope.
+Moreover,conditions (1) and (2) will give a double penalty, in the sense that they also count as falsenegatives (FN) given that the gold-standard cue or scope is missed (Farkas et al 2010).Finally, false negatives are of course also incurred by cases where the gold-standardannotations specify a scope but the system makes no such prediction.Of course, the evaluation scheme outlined here corresponds to an end-to-end eval-uation of the overall system, where the cue detection performance carries over to the1 The Java code for computing the scores can be downloaded from the CoNLL-2010 Shared Task Web site:http://www.inf.u-szeged.hu/rgai/conll2010st/.373Computational Linguistics Volume 38, Number 2scope-level performance.
+In order to better assess the performance of a scope resolutioncomponent in isolation, we will also report scope results against gold-standard cues.
+Notethat, when using gold-standard cues, the number of false negatives and false positiveswill always be identical, meaning that the scope-level figures for recall, precision, and F1will all be identical as well, and we will therefore only be reporting the latter in this set-up.
+(The reason for this is that, when assuming gold-standard cues, only error condition(2) can occur, which will in turn always count both a false positive and a false negative,making the two figures identical.
+)Exactly how to define the paired samples that form the basis of the statisticalsignificance testing is less straightforward for the end-to-end scope-level predictionsthan for the cue identification.
+It is also worth noting that the CoNLL-2010 Shared Taskorganizers themselves refrained from including any significance testing when report-ing the official results.
+In this article we follow a recall-centered approach: For eachcue/scope pair in the gold standard, we simply note whether it is correctly identifiedor not by a given system.
+The sequence of boolean values that results (FP = 0, TP = 1)can be directly paired with the corresponding sequence for a different system so thatthe sign-test can be applied as above.Note that our modified scorer for negation is available from our Web page of sup-plemental materials,2 together with the system output (in XML following the BioScopeDTD) for all end-to-end runs with our final model configurations.4.
+Related Work on Speculation LabelingAlthough there exists a body of earlier work on identifying uncertainty on the sentencelevel, (Light, Qiu, and Srinivasan 2004; Medlock and Briscoe 2007; Szarvas 2008), thetask of resolving the in-sentence scope of speculation cues was first pioneered byMoranteand Daelemans (2009a).
+In this sense, the CoNLL-2010 Shared Task (Farkas et al 2010)entered largely uncharted territory and contributed to an increased interest for this task.Virtually all systems for resolving speculation scope implement a two-stage archi-tecture: First there is a component that identifies the speculation cues and then there is acomponent for resolving the in-sentence scopes of these cues.
+In this section we provide abrief review of previous work on this problem, putting emphasis of the best performersfrom the two corresponding subtasks of the CoNLL-2010 Shared Task, cue detection(Task 1) and scope resolution (Task 2).4.1 Related Work on Identifying Speculation CuesThe top-ranked system for Task 1 in the official CoNLL-2010 Shared Task evaluationapproached cue identification as a sequence labeling problem (Tang et al 2010).
+Similarly tothe decision-tree approach of Morante and Daelemans (2009a), Tang et al (2010) set outto label tokens according to a BIO-scheme; indicating whether they are at the Beginning,Inside, or Outside of a speculation cue.
+In the ?cascaded?
+system architecture of Tang etal.
+(2010), the predictions of both a Conditional Random Field (CRF) sequence classifierand an SVM-based Hidden Markov Model (HMM) are both combined in a second CRF.In terms of the overall approach, namely, viewing the problem as a sequence la-beling task, Tang et al (2010) are actually representative of the majority of the SharedTask participants for Task 1 (Farkas et al 2010), including the top three performers on2 Supplemental materials; http://www.velldal.net/erik/modneg/.374Velldal et al Rules, Rankers, and the Role of Syntaxthe official held-out data.
+Many participants instead approached the task as a word-by-word token classification problem, however.
+Examples of this approach are the systems ofVelldal, ?vrelid, and Oepen (2010) and Vlachos and Craven (2010), sharing the fourthrank position (out of 24 submitted systems) for Task 1.In both the sequence- and token-classification approaches, sentences are labeledas uncertain if they are found to contain a cue.
+In contrast to this, a third group ofsystems instead label sentences directly, typically using bag-of-words features.
+Suchsentence classifiers tended to achieve a somewhat lower relative rank in the official Task 1evaluation (Farkas et al 2010).4.2 Related Work on Resolving Speculation ScopeAs mentioned earlier, the task of resolving the scope of speculation was first introducedinMorante andDaelemans (2009a), where a system initially designed for negation scoperesolution (Morante, Liekens, and Daelemans 2008) was ported to speculation.
+Theirgeneral approach treats the scope resolution task in much the same way as the cueidentification task: as a sequence labeling task and using only token-level, lexical infor-mation.
+Morante, van Asch, and Daelemans (2010) then extended on this system by alsoadding syntactic features, resulting in the top performing system of the CoNLL-2010Shared Task at the scope-level (corresponding to the second subtask).
+It is interestingto note that all the top performers use various types of syntactic information in theirscope resolution systems: The output from a dependency parser (MaltParser) (Morante,van Asch, and Daelemans 2010; Velldal, ?vrelid, and Oepen 2010), a tag sequencegrammar (RASP) (Rei and Briscoe 2010), as well as constituent analysis in combinationwith dependency triplets (Stanford lexicalized parser) (Kilicoglu and Bergler 2010).The majority of systems perform classification at the token level, using some variantof machine learning with a BIO classification scheme and a post-processing step toassemble the full scope (Farkas et al 2010), although several of the top performersemploy manually constructed rules (Kilicoglu and Bergler 2010; Velldal, ?vrelid, andOepen 2010) or even combinations of machine learning and rules (Rei and Briscoe 2010).5.
+Identifying Speculation CuesWe now turn to look at the details of our own system, starting in this section withdescribing a simple yet effective approach to identifying speculation cues.
+A cue is heretaken to mean the words or phrases that signal the attitude of uncertainty or specula-tion.
+As noted by Farkas et al (2010), most hedge cues typically fall in the following cate-gories; adjectives or adverbs (probable, likely, possible, unsure, etc.
+), auxiliaries (may,might,could, etc.
+), conjunctions (either.
+.
+.
+or, etc.
+), or verbs of speculation (suggest, suspect, sup-pose, seem, etc.).
+Judging by the examples in the Introduction, it might at first seem thatthe speculation cues can be identified merely by consulting a pre-compiled list.
+Most, ifnot all, words that can function as cues can also occur as non-cues, however.
+More than85% of the cue lemmas observed in the BioScope corpus also have non-cue occurrences.To give just one example, a hedge detection system needs to correctly discriminatebetween the use of appear as a cue in Example (5), and as a non-cue in Example (6):(5) In 5 patients the granulocytes {?appeared?
+polyclonal} [.
+.
+.
+](6) The effect appeared within 30 min and returned to basal levels after 2 h.375Computational Linguistics Volume 38, Number 2In the approach of Velldal, ?vrelid, and Oepen (2010), a binary token classifier wasapplied in a way that labeled each and every word as cue or non-cue.
+We will refer to thismode of classification as word-by-word classification (WbW).
+The follow-up experi-ments described by Velldal (2011) showed that comparable results could be achievedusing a filtering approach that ignores words not occurring as cues in the training data.This greatly reduces both the number of relevant training examples and the numberof features in the model, and in the current article we simplify this ?disambiguationapproach?
+even further.
+In terms of modeling framework, we implement our modelsas linear SVM classifiers, estimated using the SVMlight toolkit (Joachims 1999).
+We alsoinclude results for a very simple baseline model, however?to wit, a WbW approachclassifying each word simply based on its observed majority usage as a cue or non-cuein the training data.
+Then, as for all our models, if a given sentence is found to containa cue, the entire sentence is subsequently labeled uncertain.
+Before turning to the indi-vidual models, however, we first describe how we deal with the issue ofmultiword cues.5.1 Multiword CuesIn the BioScope annotations, it is possible for a speculation cue to span multiple tokens(e.g., raise an intriguing hypothesis).
+As seen from Table 1, about 13.5% of the cues in thetraining data are such multiword cues (MWCs).
+The distribution of these cues is veryskewed, however.
+For instance, although the majority of MWCs are very infrequent(most of them occurring only once), the pattern indicate that accounts for more than 70%of the cases alone.
+Exactly which cases are treated as MWCs often seems somewhatarbitrary and we have come across several inconsistencies in the annotations.
+We there-fore choose to not let the classifiers we develop in this article be sensitive to the notionof multiword cues.
+A given word token is considered a cue as long as it falls withinthe span of a cue annotation.
+Multiword cues are instead treated in a separate post-processing step, applying a small set of heuristic rules that aim to capture only the mostfrequently occurring patterns observed in the training data.
+For example, if we find thatindicate is classified as a cue and it is followed by that, a rule will fire that ensures wetreat these tokens as a single cue.
+(Note that the rules are only applied to sentences thathave already been labeled uncertain by the classifier.)
+Table 2 lists the lemma patternscurrently covered by our rules.5.2 Reformulating the Classification Problem: A Filtered ModelBefore detailing our approach, we start with some general observations about the dataand the task.
+An error analysis of the initial WbW classifier developed by Velldal,Table 2Patterns covered by our rules for multiword speculation cues.cannot {be}?
+excludeeither .+ orindicate thatmay,?
+or may notno {evidence | proof | guarantee}not {known | clear | evident | understood | exclude}raise the .
+* {possibility | question | issue | hypothesis}whether or not376Velldal et al Rules, Rankers, and the Role of Syntax?vrelid, and Oepen (2010) revealed it was not able to generalize to new speculationcues beyond those observed during training.
+On the other hand, only a rather smallfragment of the test cues are actually unseen: Using a 10-fold split for the developmentdata, the average ratio of test cues that also occur as cues in training is more than 90%.Another important observation we can take into account is that although it seemsreasonable to assume that anyword occurring as a cue can also occur as a non-cue (recallthat more than 85% of the observed cues also have non-cue occurrences in the trainingdata), the converse is less likely.
+Whereas the training data contains a total of approxi-mately 17,600 unique base forms, only 143 of these ever occur as speculation cues.As a consequence of these observations, Velldal (2011) proposed that one mightreasonably treat the set of cue words as a near-closed class, at least for the biomedicaldata considered in this study.
+This means reformulating the problem as follows.
+Insteadof approaching the task as a classification problem defined for all words, we onlyconsider words that have a base form observed as a speculation cue in the trainingmaterial.
+By restricting the classifier to only this subset of words, we can simplify theclassification problem tremendously.
+As we shall see, it also has the effect of levelingout the initial imbalance between negative and positive examples in the data, acting asa (selective rather than random) downsampling technique.One reasonable fear here, perhaps, might be that this simplification comes at theexpense of recall, as we are giving up on generalizing our predictions to any previouslyunseen cues.
+As noted earlier, however, the initial WbW model of Velldal, ?vrelid, andOepen (2010) already failed to make any such generalizations, and, as we shall see, thisreformulation comes without any loss in performance and actually leads to an increasein recall compared to a full WbWmodel using the same feature set.Note that although we will approach the task as a ?disambiguation problem,?
+it isnot feasible to train separate classifiers for each individual base form.
+The frequencydistribution of the cue words in the training material is rather skewed with most cuesbeing very rare?many occurring as a cue only once (?
+40%, constituting less than1.5% of the total number of cue word instances).
+(Most of these words also have manyadditional occurrences in the training data as non-cues, however.)
+For the majority ofthe cue words, then, it seems we cannot hope to gather enough reliable information totrain individual classifiers.
+Instead, we want to be able to draw on information fromthe more frequently occurring cues also when classifying or disambiguating the lessfrequent ones.
+Consequently, we will still train a single global classifier.Extending on the approach of Velldal (2011), we include a final simple step to reducethe set of relevant training examples even further.
+As pointed out in Section 5.1, anytoken occurring within a cue annotation is initially regarded as a cue word.
+Manymultiword cues also include function words, punctuation, and so forth, however.
+Inorder to filter out such spurious but high-frequency ?cues,?
+we compiled a small stop-list on the basis of the MWCs in training data (containing just a dozen tokens, namely,a, an, as, be, for, of, that, the, to, with, ?,?, and ?-?
+).5.2.1 Features.
+After experimenting with a wide range of different features, ?vrelid,Velldal, and Oepen (2010) concluded that syntactic features appeared unnecessary forthe cue classification task, and that simple sequence-oriented n-gram features recordingimmediate lexical context based on lemmas and surface forms is what gave the bestperformance.Initially, the n-gram feature templates we use in the current article record neighborsfor up to three positions left/right of the focus word.
+For increased generality, we alsoinclude non-lexicalized variants, that is, recording only the neighbors while excluding377Computational Linguistics Volume 38, Number 2the focus word itself.
+After a grid search across the various configurations of thesefeatures, the best performance was found for a model recording n-grams of lemmas upto three positions left and right of the focus word, and n-grams of surface forms up totwo positions to the right.Table 3 shows the performance of the filteringmodel when using this feature config-uration and testing by 10-fold cross-validation on the training data (BSA and BSP), alsocontrasting performance with the majority usage baseline.
+Achieving a sentence-levelF1 of 92.04 (compared to 89.07 for the baseline), a token-level score of 89.57 (baseline =86.42), and a cue-level score of 89.11 (baseline = 85.57), it performs significantly betterthan the baseline.
+Applying the sign-test as described in Section 3.1, the token-leveldifferences were found to be significant for p < 0.05.
+It is also clear, however, that thesimple baseline appears to be fairly strong.As discussed previously, part of the motivation for introducing the filtering schemeis to create a model that is as simple as possible without sacrificing performance.
+Inaddition to the evaluation scores, therefore, it is also worth noting some statistics relatedto the classifier and the training data itself.
+Before looking into the properties of the fil-tering set-up though, let us start, for the sake of comparison, by considering some prop-erties of a learning set-up based on full WbW classification like the model of Velldal,?vrelid, and Oepen (2010), assuming an identical feature configuration as used for thegiven filtering model.
+The row titled WbW in Table 3 lists the development results forthis model, and we see that they are slightly lower than for the filtering model (with thedifferences being significant for ?
+= 0.05).
+Although precision is slightly higher, recall issubstantially lower.
+Assuming a 10-fold cross-validation scheme like this, the number oftraining examples presented to the WbW learner in each fold averages roughly 340,000,corresponding to the total number of word tokens.
+Among these training examples,the ratio of positive to negative examples (cues vs. non-cues) is roughly 1:100.
+In otherwords, the data is initially very skewed when it comes to class balance.
+In terms of thesize of the feature set, the average number of distinct feature types per fold, assumingthe given feature configuration, would be roughly 2,600,000 under a WbW set-up.Turning now to the filtering model, the average number of training examplespresented to the learner in each fold is reduced from roughly 340,000 to just 10,000.Correspondingly, the average number of distinct feature types is reduced from wellabove 2,600,000 to roughly 100,000.
+The class balance among the tokens given to thelearner is alsomuch less skewed, with positive examples now averaging 30%, comparedto 1% for the WbW set-up.
+Finally, we observe that the complexity of the model interms of how many training examples end up as support vectors (SVs) defining theseparating hyperplane is also considerably reduced: Although the average number ofSVs in each fold corresponds to roughly 14,000 examples for the WbW model, this isdown to roughly 5,000 for the final filtered model.
+Note that for the SVM regularizationTable 3Development results for detecting speculationCUES:Averaged 10-fold cross-validation results forthe cue classifiers on both the abstracts and full papers in the BioScope training data (BSA andBSP).Sentence Level Token Level Cue LevelModel Prec Rec F1 Prec Rec F1 Prec Rec F1Baseline 91.07 87.21 89.07 91.61 81.85 86.42 90.49 81.16 85.57WbW 95.01 88.03 91.37 95.29 82.78 88.58 94.65 82.26 88.02Filtering 94.52 89.72 92.04 94.88 84.86 89.57 94.13 84.60 89.11378Velldal et al Rules, Rankers, and the Role of Syntaxparameter C, governing the trade-off between training error and margin size, we willalways be using the default value set by SVMlight.
+This value is analytically determinedfrom the training data, and further empirical tuning has in general not led to improve-ments on our data sets.5.2.2 The Effect of Data Size.
+Given how the filtered classifier treats the set of cues as aclosed class, a reasonable concern is its sensitivity to the size of the training set.
+In orderto further assess this effect, we computed learning curves showing how classifier per-formance on the development data changes as we incrementally include more trainingexamples (see Figure 1).
+For reference we also include learning curves for the word-by-word classifier using the identical feature configuration, as well as the majority usagebaseline.As expected, we see that classifier performance steadily improves as more trainingdata is included.
+Although additional data would no doubt be beneficial, we reassur-ingly observe that the curve seems to start gradually flattening out somewhat.
+If weinstead look at the performance curve for the WbW classifier we find that, while havingroughly the same shape as that of the filtered classifier, although consistently lower, itnonetheless appears to be more sensitive to the size of the training set.
+Interestingly,we see that the baseline model seems to be the one that is least affected by data size.
+Itactually outperforms the standard WbWmodel for the first three increments, but at thesame time it seems unable to benefit much at all from additional data.5.2.3 Error Analysis.When looking at the distribution of errors at the cue-level (totalingjust below 700 across the 10-fold run), we find that roughly 74% are false negatives.Rather than being caused by legitimate cue words being filtered out during training,however, the FNs mostly pertain to a handful of high-frequency words that are alsohighly ambiguous.
+When sorted according to error frequency, the top four candidatesalone constitute almost half the total number of FNs: or (24% of the FNs), can (10%),could (7%), and either (6%).
+Looking more closely at the distribution of these words inFigure 1Learning curves showing the effect on token-level F1 for speculation cues when withdrawingsome portion of the training partitions across the 10-fold cycles.
+The size of the training set isshown on a logarithmic scale to better see whether improvements are constant for n-foldincreases of data.379Computational Linguistics Volume 38, Number 2the training data, it is easy to see how they pose a challenge for the learner.
+For example,whereas or has a total of 1,215 occurrences, only 153 of these are annotated as a cue.Distinguishing the different usages from each other can sometimes be difficult even fora human eye, as testified also by the many inconsistencies we observed in the gold-standard annotation of these cases.Turning our attention to the other end of the tail, we find that just over 40 (8%) of theFNs involve tokens for which there is only a single occurrence as a cue in the trainingdata.
+In other words, these would first appear to be exactly the tokens that we couldnever get right, given our filtering scheme.
+We find, however, that most of these casesregard tokens whose one and only appearance as a cue is as part of a multiword cue,although they typically have a high number of other non-cue occurrences as well.
+Forexample, although number occurs a total of 320 times, its one and only occurrence asa cue is in the multiword cue address a number of questions.
+Given that this and severalother equally rare patterns are not currently covered by our MWC rules in the firstplace, we would not have been able to get them right even if all the individual tokenshad been classified as cues (recall that a true positive at the cue-level requires an exactmatch of the entire span).
+In total we find that 16% of the cue-level FNs corresponds tomultiword cues.When looking at the frequency of multiword cues among the false positives, wefind that they only make up roughly 5% of the errors.
+Furthermore, a manual inspectionreveals that they can all be argued to be instances of annotation errors, in that we believethese should actually be counted as true positives.
+Most of them involve indicate that andnot known, as in the following examples (where the cues assigned by our system are notannotated as cues in BioScope):(7) In contrast, levels of the transcriptional factor AP-1, which is ?not known?to be important in B cell Ig production, were reduced by TGF-beta.
+(8) Analysis of the nuclear extracts [.
+.
+. ]
+?indicated that?
+the composition ofNF-kappa B was similar in neonatal and adult cells.All in all, the errors in the FP category make up 26% of the total number of errors.Just as for the FNs, the frequency distribution of the cues involved is quite skewed,with a handful of highly frequent and highly ambiguous cue words accounting for thebulk of the errors: The modal could (20%), and the adjectives putative (11%), possible(6%), potential (6%), and unknown (5%).
+After manually inspecting the full set of FPs,however, we find that at least 60% of them should really be counted as true positives.The following are just a few examples where cues predicted by our classifier are notannotated as such in BioScope and therefore counted as FPs.
+(9) IEF-1, a pancreatic beta-cell type-specific complex ?believed?
+to regulateinsulin expression, is demonstrated to consist of at least two distinctspecies, [.
+.
+.
+](10) We ?hypothesize?
+that a mutation of the hGR glucocorticoid-bindingdomain is the cause [.
+.
+.
+](11) Antioxidants have been ?proposed?
+to be anti-atherosclerotic agents; [.
+.
+.
+](12) Finally, matDCC might be further stabilized by the addition of roX1 RNA,which could interact with several of the MSLs and ?perhaps?
+roX2 RNAas well.380Velldal et al Rules, Rankers, and the Role of SyntaxOne interesting source of real FPs concerns ?anti-hedges,?
+which in the training dataappear with a negation and as part of a multiword cue, for example no proof.
+Duringtesting, the classifier will sometimes wrongly predict a word like proof to be a specu-lation cue, even when it is not negated.
+Because we already have MWC rules for caseslike this (see Section 5.1) it would be easy to also include a check for ?negative context,?making sure that such tokens are not classified as cues if the requiredmultiword contextis missing.Before rounding off this section, a brief look at the BioScope inter-annotator agree-ment rates may offer some further perspective on the results discussed here.
+Note thatwhen creating the BioScope data, the decisions of two independent annotators weremerged by a third expert linguist who resolved any differences.
+The F1 of each set ofannotations toward the final gold-standard cues are reported by Vincze et al (2008) tobe 83.92 / 92.05 for the abstracts and 81.49 / 90.81 for the full papers.
+(Recall from Table 3that our cue-level F1 for the cross-validation runs on the abstracts and papers is 89.11.
+)When instead comparing the decisions of the two annotators directly, the F1 is reportedto be 79.12 for the abstracts and 77.60 for the papers.5.3 Held-Out Results for Identifying Speculation CuesTable 4 presents the final evaluation of the various cue classifiers developed in thissection, as applied to the held-out BSE test data.
+In addition to the evaluation results forour own classifiers, Table 4 also includes the official test results for the system describedby Tang et al (2010).
+The sequence classifier developed by Tang et al (2010)?combininga CRF classifier and a large-margin HMM model?obtained the best results for theofficial Shared Task evaluation for Task 1 (i.e., sentence-level uncertainty detection), aswell as the highest cue-level scores.As seen from Table 4, although themodel of Tang et al (2010) still achieves a slightlyhigher F1 (81.34) than our filtered disambiguation model for the cue-level, our modelachieves a slightly higher F1 (86.58) for the sentence-level (yielding the best-publishedresult for this task so far, to the best of our knowledge).
+The differences are not deemedstatistically significant by a two-tailed sign-test, however (p = 0.37).
+It is interesting tonote, however, that the two approaches appear to have somewhat different strengthsand weaknesses: Whereas our filtering classifier consistently shows stronger precision(and theWbWmodel even more so), the model of Tang et al (2010) is stronger on recall.The sentence-level recall of our filtered classifier is still better than any of the remaining23 systems submitted for the Shared Task evaluation, however, and, more interestingly,it improves substantially on the recall of the full WbW classifier.Table 4Held-out results for identifying speculation cues: Applying the cue classifiers to the 5,003sentences in BSE?
+the biomedical papers provided for the CoNLL-2010 Shared Task evaluation.Sentence Level Token Level Cue LevelModel Prec Rec F1 Prec Rec F1 Prec Rec F1Baseline 77.59 81.52 79.51 77.16 72.39 74.70 75.15 72.49 73.80WbW 89.28 83.29 86.18 87.62 73.95 80.21 86.33 74.21 79.82Filtering 87.87 85.32 86.58 86.46 76.74 81.31 84.79 77.17 80.80Tang et al 2010 85.03 87.72 86.36 n/a n/a n/a 81.70 80.99 81.34381Computational Linguistics Volume 38, Number 2We find that, just as for the development data, the reformulation of the cue clas-sification task as a simple disambiguation problem improves F1 across all evaluationlevels, consistently outperforming the WbW classifiers.
+When computing a two-tailedsigned-test for the token-level decisions (where the WbW and filtering model achievesan F1 of 80.21 and 81.31, respectively) the differences are not found to be significant (p =0.12).
+As discussed in Section 5.2, however, it is important to bear in mind that the sizeand complexity of the filtered ?disambiguation?
+model is greatly reduced comparedto the WbW model, using a much smaller number of features and relevant trainingexamples.While on the topic of model complexity, it is also worth noting that many of thesystems participating in the CoNLL-2010 Shared Task challenge used fairly complexand resource-heavy feature types, being sensitive to properties of document structure,grammatical relations, deep syntactic structure, and so forth (Farkas et al 2010).
+The factthat comparable or better results can be obtained using a relatively simplistic approachas developed in this section, with surface-oriented features that are only sensitive to theimmediate lexical context, is an interesting result in its own right.
+In fact, even the simplemajority usage baseline classifier proves to be surprisingly competitive: Comparing itssentence-level F1 to those of the official Shared Task evaluation, it actually outranks 7 ofthe 24 submitted systems.A final point that deserves some discussion is the drop in F1 that we observe whengoing from the development results to the held-out results.
+There are several reasons forthis drop.
+Section 2.3 discussed how certain overfitting effects might be expected fromthe GENIA-based pre-processing.
+In addition to this, it is likely that there are MWCpatterns in the held-out data that were not observed in the training data, and that aretherefore not covered by our MWC rules.
+Another factor that may have slightly inflatedthe development results is the fact that we used a sentence-level rather than a document-level partitioning of the data for cross-validation.6.
+Resolving the Scope of Speculation CuesOnce the speculation cue has been determined using the cue detection system describedhere, we go on to determine the scope of the speculation within the sentence.
+This taskcorresponds to Task 2 of the CoNLL-2010 Shared Task.
+Example (13), which will beused as a running example throughout this section, shows a scope-resolved BioScopesentence where speculation is signaled by the modal verb may.
+(13) {The unknown amino acid ?may?
+be used by these species}.The exact scope will vary quite a lot depending on linguistic properties of the cuein question, and in our approaches to scope resolution we rely heavily on syntacticinformation.
+We experiment with two different approaches to syntactic analysis; data-driven dependency parsing and grammar-driven phrase structure parsing.
+Becausescope determination in BioScope makes reference to subtle and fine-grained linguisticdistinctions (e.g., passivization or subject raising), in both cases we choose parsingsystems that make available comparatively ?deep?
+syntactic analyses.
+In the followingwe present three different systems; a rule-based approach using dependency structures(Section 6.1), a data-driven approach using an SVM ranker for selecting appropriatesubtrees in constituent structures (Section 6.2), and finally a hybrid approach combiningthe rules and the ranker (Section 6.3).382Velldal et al Rules, Rankers, and the Role of Syntax6.1 A Rule-Based Approach Using Dependency Structures?vrelid, Velldal, and Oepen (2010) applied a small set of heuristic rules oper-ating over syntactic dependency structures to define the scope for each cue.
+In thefollowing we will provide a detailed description of these rules and the syntactic gen-eralizations they provide for the scope of speculation (Section 6.1.2).
+We will evalu-ate their performance using both gold-standard cues and cues predicted by our cueclassifier (Section 6.1.3), in addition to providing an in-depth manual error analysis(Section 6.1.5).
+We start out, however, by presenting some specifics about the processingof the data; introducing the stacked dependency parser that produces the input to ourrules (Section 6.1.1) and quantifying the effect of using a domain-adapted PoS tagger(Section 6.1.4).6.1.1 Stacked Dependency Parsing.
+For syntactic analysis we use the open-source Malt-Parser (Nivre, Hall, and Nilsson 2006), a platform for data-driven dependency parsing.For improved accuracy and portability across domains and genres, we make our parserincorporate the predictions of a large-scale, general-purpose Lexical-Functional Gram-mar parser.
+A technique dubbed parser stacking enables the data-driven parser to learnfrom the output of another parser, in addition to gold-standard treebank annotations(Martins et al 2008; Nivre and McDonald 2008).
+This technique has been shown toprovide significant improvements in accuracy for both English and German (?vrelid,Kuhn, and Spreyer 2009), and a similar set-up using an HPSG grammar has been shownto increase domain independence in data-driven dependency parsing (Zhang andWang2009).
+The stacked parser used here is identical to the parser described in ?vrelid,Kuhn, and Spreyer (2009), except for the preprocessing in terms of tokenization andPoS tagging, which is performed as detailed in Sections 2.1?2.2.
+The parser combinestwo quite different approaches?data-driven dependency parsing and ?deep?
+parsingwith a hand-crafted grammar?and thus provides us with a broad range of differenttypes of linguistic information to draw upon for the speculation resolution task.MaltParser is based on a deterministic parsing strategy in combination withtreebank-induced classifiers for predicting parse transitions.
+It supports a rich featurerepresentation of the parse history in order to guide parsing andmay easily be extendedto take into account additional features.
+The procedure to enable the data-driven parserto learn from the grammar-driven parser is quite simple.
+We parse a treebank withthe XLE platform (Crouch et al 2008) and the English grammar developed within theParGram project (Butt et al 2002).
+We then convert the LFG output to dependencystructures, so that we have two parallel versions of the treebank?one gold-standardand one with LFG annotation.
+We extend the gold-standard treebank with additionalinformation from the corresponding LFG analysis and train MaltParser on theenhanced data set.
+For a description of the parse model features and the dependencysubstructures proposed by XLE for each word token, see Nivre and McDonald (2008).For further background on the conversion and training procedures, see ?vrelid, Kuhn,and Spreyer (2009).Table 5 shows the enhanced dependency representation for the sentence in Ex-ample (13).
+For each token, the parsed data contains information on the word form,lemma, and PoS, as well as the head and dependency relation (last two columns).
+Theadded XLE information resides in the Features column and in the XLE-specific head anddependency columns (XHead and XDep).
+Parser outputs, which in turn form the basisfor our scope resolution rules, also take this same form.
+The parser used in this work istrained on the Wall Street Journal Sections 2?24 of the Penn Treebank (PTB), converted383Computational Linguistics Volume 38, Number 2Table 5Stacked dependency representation of the sentence in Example (13), lemmatized and annotatedwith GENIA PoS tags, Malt parses (Head,DepRel), and XLE parses (XHead, XDep), as well asother morphological and lexical semantic features extracted from the XLE analysis (Features).Id Form PoS Features XHead XDep Head DepRel1 The DT _ 4 SPECDET 4 NMOD2 unknown JJ degree:attributive 4 ADJUNCT 4 NMOD3 amino JJ degree:attributive 4 ADJUNCT 4 NMOD4 acid NN pers:3|case:nom|num:sg|ntype:common 3 SUBJ 5 SBJ5 may MD mood:ind|subcat:MODAL|tense:pres|clauseType:decl 0 ROOT 0 ROOT6 be VB _ 7 PHI 5 VC7 used VBN subcat:V-SUBJ-OBJ|vtype:main|passive:+ 5 XCOMP 6 VC8 by IN _ 9 PHI 7 LGS9 these DT deixis:proximal 10 SPECDET 10 NMOD10 species NNS num:pl|pers:3|case:obl|common:count|ntype:common 7 OBL-AG 8 PMOD11 .
+.
+_ 0 PUNC 5 Pto dependency format (Johansson andNugues 2007) and extendedwith XLE features, asdescribed previously.
+Parsing uses the arc-eager mode of MaltParser and an SVMwith apolynomial kernel.
+When tested using 10-fold cross validation on the enhanced PTB, theparser achieves a labeled accuracy score of 89.8, which is lower than the current state-of-the-art for transition-based dependency parsers (to wit, the 91.8 score of Zhang andNivre 2011, although not directly comparable given that they test exclusively on WSJSection 23), but with the advantage of providing us with the deep linguistic informationfrom the XLE.6.1.2 Rule Overview.
+Our scope resolution rules take as input a parsed sentence that hasbeen further tagged with speculation cues.
+We assume the default scope to start at thecue word and span to the end of the sentence (modulo punctuation), and this scope alsoprovides the baseline when evaluating our rules.In developing the rules, we made use of the information provided by the guidelinesfor scope annotation in the BioScope corpus (Vincze et al 2008), combined with manualinspection of the training data in order to further generalize over the phenomenadiscussed by Vincze et al (2008) and work out interactions of constructions for varioustypes of cues.
+In the following, we discuss broad classes of rules, organized by categoriesof speculation cues.
+An overview is also provided in Table 6, detailing the source of thesyntactic information used by the rule; MaltParser (M) or XLE (X).
+Note that, as there isno explicit representation of phrase or clause boundaries in our dependency universe,we assume a set of functions over dependency graphs, for example, finding the left- orrightmost (direct) dependent of a given node, or recursively selecting left- or rightmostdescendants.Coordination.
+The dependency analysis of coordination provided by our parser makesthe first conjunct the head of the coordination.
+For cues that are coordinating conjunc-tions (PoS tag CC), such as or, we define the scope as spanning the whole coordinatestructure, that is, start scope is set to the leftmost dependent of the head of the coordina-tion, and end scope is set to its rightmost dependent (conjunct).
+This analysis providesus with coordinations at various syntactic levels, such as NP and N, AP and AdvP, orVP as in Example (14):(14) [...] the binding interfaces are more often {kept ?or?
+even reused} ratherthan lost in the course of evolution.384Velldal et al Rules, Rankers, and the Role of SyntaxTable 6Overview of dependency-based scope rules with information source (MaltParser or XLE),organized by the triggering PoS of the cue.PoS Description Sourcecc Coordinations scope over their conjuncts Min Prepositions scope over their argument with its descendants Mjjattr Attributive adjectives scope over their nominal head and its descendants Mjjpred Predicative adjectives scope over referential subjects and clausal arguments, M, Xif presentmd Modals inherit subject-scope from their lexical verb and scope over their M, Xdescendantsrb Adverbs scope over their heads with its descendants Mvbpass Passive verbs scope over referential subjects and the verbal descendants M, Xvbrais Raising verbs scope over referential subjects and the verbal descendants M, X* For multiword cues, the head determines scope for all elements* Back off from final punctuation and parenthesesAdjectives.We distinguish between adjectives (JJ) in attributive (nmod) function and adjec-tives in predicative (prd) function.
+Attributive adjectives take scope over their (nominal)head, with all its dependents, as in Example (15):(15) The {?possible?
+selenocysteine residues} are shown in red, [...]For adjectives in a predicative function the scope includes the subject argument of thehead verb (the copula), as well as a (possible) clausal argument, as in Example (16).
+Thescope does not, however, include expletive subjects, as in Example (17).
+(16) Therefore, {the unknown amino acid, if it is encoded by a stop codon, is?unlikely?
+to exist in the current databases of microbial genomes}.
+(17) [...] it is quite {?likely?
+that there exists an extremely long sequence that isentirely unique to U}.Verbs.
+The scope of verbal cues is a bit more complex and depends on several factors.In our rules, we distinguish passive usages from active usages, raising verbs from non-raising verbs, and the presence or absence of a subject-control embedding context.
+Thescopes of both passive and raising verbs include the subject argument of their headverb, as in Example (18), unless it is an expletive pronoun, as in Example (19).
+(18) {Genomes of plants and vertebrates ?seem?
+to be free of any recognizableTransib transposons} (Figure 1).
+(19) It has been {?suggested?
+that unstructured regions of proteins are ofteninvolved in binding interactions, particularly in the case of transientinteractions} 77.In the case of subject control involving a speculation cue, specifically modals, sub-ject arguments are included in scopes where the controller heads a passive constructionor a raising verb, as in our running Example (13).385Computational Linguistics Volume 38, Number 2In general, the end scope of verbs should extend over the minimal clause thatcontains the verb in question.
+In terms of dependency structures, we define the clauseboundary as comprising the chain of descendants of a verb which is not intervened bya token with a higher attachment in the graph than the verb in question.Prepositions and Adverbs.
+Cues that are tagged as prepositions (including some com-plementizers) take scope over their argument, with all its descendants, Example (20).Adverbs take scope over their head with all its (non-subject) syntactic descendantsExample (21).
+(20) {?Whether?
+the codon aligned to the inframe stop codon is a nonsensecodon or not} was neglected [...](21) These effects are {?probably?
+mediated through the 1,25(OH)2D3receptor}.Multiword Cues.
+In the case of multiword cues, such as indicate that or either.
+.
+.
+or, we setthe scope of the unit as a whole to the maximal scope encompassing the scopes of bothunits.As an illustration of processing by the rules, consider our running Example (13),with its syntactic analysis as shown in Table 5 and the dependency graph depictedin Figure 2.
+This example invokes a variety of syntactic properties, including parts ofspeech, argumenthood, voice, and so on.
+Initially, the scope of the speculation cue isset to default scope.
+Then the subject control rule is applied, it checks the properties ofthe verbal argument used, going through a chain of verbal dependents (VC) from themodal verb may (indicated in red in Figure 2).
+Because it is marked as passive inthe LFG analysis (+pass), the start scope is set to include the subject of the cue word(the leftmost descendant [NMOD] of its SBJ dependent, indicated in green in Figure 2).6.1.3 Evaluating the Rules.
+Table 7 summarizes scope resolution performance (viewed asa subtask in isolation) against both the CoNLL-2010 shared task training data (BSA andBSP) and held-out evaluation data (BSE), using gold-standard cues.
+First of all, we notethat the default scope baseline, that is, unconditionally extending the scope of a cue tothe end of the sentence, yields much better results for the abstracts than the full papers.The main reason is simply that the abstracts contain almost no cases of sentence finalbracketed expressions (e.g., citations and in-text references).
+Our scope rules improveon the baseline by only 3.8 percentage points on the BSA data (F1 up from 69.84 toFigure 2Dependency representation for Example (13), indicating rule processing of the cue word may.386Velldal et al Rules, Rankers, and the Role of SyntaxTable 7Resolving the scope of gold-standard speculation cues in the development and held-out datausing the dependency rules.
+For Default, the scope for each cue is always taken to spanrightwards to the end of the sentence.Data Configuration F1BSA Default 69.84Dependency Rules 73.67BSP Default 45.21Dependency Rules 72.31BSE Default 46.95Dependency Rules 66.6073.67).
+For BSP, however, we find that the rules improve on the baseline by as much as27 points (up from 45.21 to 72.31).
+Similarly for the papers in the held-out BSE data, therules improve the F1 by 19.7 points (F1 up from 46.95 to 66.60).Comparing to the result on the training data, we observe a substantial drop inperformance on the held-out data.
+There are several possible explanations for this effect.First of all, there may well be some degree of overfitting of our rules to the trainingdata.
+The held-out data may contain speculation constructions that are not coveredby our current set of scope rules, or annotation of parallel constructions may in somecases differ in subtle ways (see Section 6.1.5).
+The overfitting effects caused by the datadependencies introduced by the various GENIA-based domain adaptation steps, asdescribed in Section 2.3, must also be taken into account.6.1.4 PoS Tagging and Domain Variation.
+As mentioned in Section 6.1.1, an advantage ofstacking with a general-purpose LFG parser is that it can be expected to aid domainportability.
+Nonetheless, substantial differences in domain and genre are bound tonegatively affect syntactic analysis (Gildea 2001), and our parser is trained on financialnews.
+MaltParser presupposes that inputs have been PoS tagged, however, leavingroom for variation in preprocessing.
+In this article we have aimed, on the one hand,to make parser inputs conform as much as possible to the conventions established in itsPTB training data, while on the other hand taking advantage of specialized resourcesfor the biomedical domain.To assess the impact of improved, domain-adapted inputs on our scope resolutionrules, we contrast two configurations: Running the parser in the exact same manneras ?vrelid, Kuhn, and Spreyer (2009)?the first configuration uses TreeTagger (Schmid1994) and its standard model for English (trained on the PTB) for preprocessing.
+Inthe second configuration the parser input is provided by the refined GENIA-basedpreprocessing described in Section 2.2.
+Evaluating the two modes of preprocessing onthe BSP subset of BioScope using gold-standard speculation cues, our scope resolutionrules achieve an F1 of 66.31 when using TreeTagger parser inputs, and 72.31 (see Table 7)using our GENIA-based tagging and tokenization combination.
+These results underlinethe importance of domain adaptation for accurate syntactic analysis.6.1.5 Error Analysis.
+In Section 5.2.3 we discussed BioScope inter-annotator agreementrates for the cue-level.
+Focusing only on the cases where the annotators agree with thefinal gold-standard cues (as resolved by the chief annotator), Vincze et al (2008) report387Computational Linguistics Volume 38, Number 2the scope-level F1 of the two annotators toward the gold standard to be 66.72 / 89.67 forBSP.
+Comparing the decisions of the two annotators directly (i.e., treating one of theannotations as gold-standard) yields an F1 of 62.50.Using gold-standard cues, our scope resolution rules fail to exactly replicate thetarget annotation in 185 (of 668) cases in the papers portion of the training material(BSP), corresponding to an F1 of 72.31 as seen in Table 7.
+Two of the authors, whoare both trained linguists, performed a manual error analysis of these 185 cases.
+Theyclassify 156 (84%) as genuine system errors, 22 (12%) as likely3 annotation errors,and the remaining 7 cases as involving controversial or seemingly arbitrary decisions(?vrelid, Velldal, and Oepen 2010).
+Out of the 156 system errors, 85 (55%) were deemedas resulting from missing or defective rules, and 71 system errors (45%) resulted fromparse errors.
+The latter were annotated as parse errors even in cases where there wasalso a rule error.The two most frequent classes of system errors pertain to (a) the recognition ofphrase and clause boundaries and (b) not dealing successfully with relatively superficialproperties of the text.
+Examples (22) and (23) illustrate the first class of errors, wherein addition to the gold-standard annotation we use vertical bars (?|?)
+to indicate scopepredictions of our system.
+(22) [.
+.
+. ]
+{the reverse complement |mR of m will be ?considered?
+to .
+.
+.
+]|}(23) This |{?might?
+affect the results} if there is a systematic bias on thecomposition of a protein interaction set|.In our syntax-driven approach to scope resolution, system errors will almost alwayscorrespond to a failure in determining constituent boundaries, in a very general sense.In Example (22), for instance, the parser has failed to correctly locate the head of thesubject.
+Example (23), however, is specifically indicative of a key challenge in this task,where adverbials of condition, reason, or contrast frequently attach within the depen-dency domain of a speculation cue, yet are rarely included in the scope annotation.For these system errors, the syntactic analysis may well be correct, although additionalinformation is required to resolve the scope.Example (24) demonstrates our second frequent class of system errors.
+One in sixitems in the BSP training data contains a sentence-final parenthesized element or trailingnumber (e.g., Examples [18] or [19]); most of these are bibliographic or other in-textreferences, which are never included in scope annotation.
+Hence, our system includes arule to ?back out?
+from trailing parentheticals; in cases such as Example (24), however,syntax does not make explicit the contrast between an in-text reference versus anothertype of parenthetical.
+(24) More specifically, {|the bristle and leg phenotypes are ?likely?
+to resultfrom reduced signaling by Dl| (and not by Ser)}.3 In some cases, there is no doubt that annotation is erroneous, that is, in violation of the availableannotation guidelines (Vincze et al 2008) or in conflict with otherwise unambiguous patterns.
+In othercases, however, judgments are necessarily based on our own generalizations (e.g., assumptions aboutsyntactic analyses implicit in the BioScope annotations).
+Furthermore, selecting items for manual analysisthat do not align with the predictions made by our scope resolution rules is likely to bias our sample, suchthat our estimated proportion of 12% annotation errors cannot be used to project an overall error rate.388Velldal et al Rules, Rankers, and the Role of SyntaxMoving on to apparent annotation errors, the rules for inclusion (or not) of thesubject in the scope of verbal speculation cues and decisions on boundaries (or internalstructure) of nominals seem problematic?as illustrated in Examples (25) and (26).4(25) [.
+.
+. ]
+and |this is also {?thought?
+to be true for the full protein interactionnetworks we are modeling}|.
+(26) [.
+.
+. ]
+|redefinition of {one of them is ?feasible?
+}|.Finally, the difficult corner cases invoke non-constituent coordination, ellipsis,or NP-initial focus adverbs?and of course interactions of the phenomena discussedherein.
+Without making the syntactic structures assumed explicit, it is often very diffi-cult to judge such items.6.2 A Data-Driven Approach Using an SVM Constituent RankerThe error analysis indicated that it is often difficult to use dependency paths to definephenomena that actually correspond to syntactic constituents.
+Furthermore, we felt thatthe factors governing scope resolution would be better expressed in terms of soft con-straints instead of absolute rules, thus enabling the scope resolver to consider a rangeof relevant (potentially competing) contextual properties.
+In this section we describeexperiments with a novel approach to determining the in-sentence scope of speculationthat, rather than usingmanually defined heuristics operating on dependency structures,instead uses a data-driven approach, ranking candidate scopes on the basis of constituenttrees.
+More precisely, our parse trees are licensed by the LinGO English Resource Gram-mar (ERG; Flickinger [2002]), a general-purpose, wide-coverage grammar couched inthe framework of an HPSG (Pollard and Sag 1987, 1994).
+The approach rests on twomain assumptions: Firstly, that the annotated scope of a speculation cue corresponds toa syntactic constituent and secondly, that we can automatically learn a ranking functionthat selects the correct constituent.Our ranking approach to scope resolution is abstractly related to statistical parseselection, and in particular work on discriminative parse selection for unification basedgrammars, such as those by Johnson et al (1999), Riezler et al (2002), Malouf andvan Noord (2004), and Toutanova et al (2005).
+The overall goal is to learn a functionfor ranking syntactic structures, based on training data that annotates which tree(s) arecorrect and incorrect for each sentence.
+In our case, however, rather than discriminatingbetween complete analyses for a given sentence, we want to learn a ranking functionover candidate subtrees (i.e., constituents) within a parse (or possibly evenwithin severalparses).
+Figure 3 presents an example derivation tree that represents a complete HPSGanalysis.
+Starting from the cue and working through the tree bottom?up, there are threecandidate constituents to determine scope (marked in bold), each projecting onto asubstring of the full utterance, and each including at least the cue.
+Note that in the caseof multiword cues the intersection of each word?s candidates is selected, ensuring thatall cues appear within the scope projected by the candidate constituents.The training data is then defined as follows.
+Given a parsed BioScope sentence,the subtree that corresponds to the annotated scope for a given speculation cue will4 As in the presentation of system errors, we include scope predictions of our own rules here too, whichwe believe to be correct in these cases.
+Also in this class of errors, we find the occasional ?uninteresting?mismatch, for example related to punctuation marks and inconsistencies around parentheses.389Computational Linguistics Volume 38, Number 2Figure 3An example derivation tree.
+Internal nodes are labeled with ERG rule identifiers; common HPSGconstructions near the top (e.g., subject-head, head-complement, adjunct-head), and lexical rules(e.g., passivization of verbs or plural formation of nouns) closer to the leaves.
+The preterminalsare so-called LE types, corresponding to fine-grained parts of speech and reflecting close to athousand lexical distinctions.be labeled as correct.
+Any other remaining constituents that also span the cue arelabeled as incorrect.
+We then attempt to learn a linear SVM-based scoring function thatreflects these preferences, using the implementation of ordinal ranking in the SVMlighttoolkit (Joachims 2002).
+Our definition of the training data, however, glosses over twoimportant details.Firstly, the grammar will usually license not just one, but thousands or even hun-dreds of thousands of different parses for a given sentence which are ranked by anunderlying parse selection model.
+Some parses may not necessarily contain a subtreethat aligns with the annotated scope.We therefore experiment with defining the trainingdata relative to n-best lists of available parses.
+Secondly, the rate of alignment betweenannotated scopes and constituents of parsing results indicates the upper-bound per-formance: For inputs where no constituents align with the correct scope substring,a correct prediction will not be possible.
+Searching the n-best parses for alignmentsenables additional instances of scope to be presented to the learner, however.In the following, Section 6.2.1 summarizes the general parsing setup for the ERG, aswell as our rationale for the use of HPSG.
+Section 6.2.2 provides an empirical assessmentof the degree to which ERG analyses can be aligned with speculation scopes in BioScopeand reviews some frequent sources of alignment failures.
+After describing our featuretypes for representing candidate constituents in Section 6.2.3, Section 6.2.4 details thetuning of feature configurations and other ranker parameters.
+Finally, Section 6.2.5provides an empirical assessment of stand-alone ranker performance, before we discussthe integration of the dependency rules with the ranking approach in Section 6.3.6.2.1 Basic Set-up: Parsing Biomedical Text Using the ERG.
+At some level of abstraction,the approach to grammatical analysis embodied in the ERG is quite similar to the LFGparser that was ?stacked?
+with our data-driven dependency parser in Section 6.1.1?both are commonly considered comparatively ?deep?
+(and thus costly) approaches tosyntactic analysis.
+Judging from the BioScope annotation guidelines, subtle grammat-ical distinctions are at play when determining scopes, for example, different types ofcontrol verbs, expletives, or passivization (Vincze et al 2008).
+In contrast to the LFGframework (with its distinction between so-called constituent and functional struc-tures), the analyses provided by the ERG offer the convenience of a single syntactic390Velldal et al Rules, Rankers, and the Role of Syntaxrepresentation?HPSG derivation trees, as depicted in Figure 3?where all contextualinformation that we expect to be relevant for scope resolution is readily accessible.For parsing biomedical text using the ERG, we build on the same preprocessingpipeline as described in Section 2.
+A lattice of tokens annotated with parts of speechand named entity hypotheses contributed by the GENIA tagger is input to the PETHPSG parser (Callmeier 2002), a unification-based chart parser that first constructs apacked forest of candidate analyses and then applies a discriminative parse rankingmodel to selectively enumerate an n-best list of top-ranked candidates (Zhang, Oepen,and Carroll 2007).
+To improve parse selection for this kind of data, we re-trained thediscriminative model following the approach of MacKinlay et al (2011), combininggold-standard out-of-domain data from existing ERG treebanks with a fully automatedprocedure seeking to take advantage of syntactic annotations in the GENIA Treebank.Although we have yet to pursue domain adaptation in earnest and have not systemat-ically optimized the parse selection component for biomedical text, model re-trainingcontributed about a one-point F1 improvement in stand-alone ranker performance overthe parsed subset of BSP (compare to Table 8).As the ERG has not previously been adapted to the biomedical domain, unknownword handling in the parser plays an important role.
+Here we build on a set ofsomewhat underspecified ?generic?
+lexical entries for common open-class categoriesprovided by the ERG (thus complementing the 35,000-entry lexicon that comes with thegrammar), which are activated on the basis of PoS and NE annotation from preprocess-ing.
+Other than these, there are no robustness measures in the parser, such that syntacticanalysis will fail in a number of cases, to wit, when the ERG is unable to derive acomplete, well-formed syntactic structure for the full input string.
+In this configuration,the parser returns at least one derivation for 91.2% of all utterances in BSA, and 85.6%and 81.4% for BSP and BSE, respectively.6.2.2 Alignment of Constituents and Scopes.
+The constituent ranking approach makes ex-plicit an assumption that is also present at the core of our dependency-based heuristics(viz., the expectation that scope boundaries align with the boundaries of syntacticallymeaningful units).
+This assumption is motivated by general BioScope annotation prin-ciples, as Vincze et al (2008) suggest that the ?scope of a keyword can be determinedon the basis of syntax.?
+To determine the degree to which ERG analyses conform to thisexpectation, we computed the ratio of alignment between scopes and constituents (overparsed sentences) in BioScope, considering various sizes of n-best lists of parses.
+Toimprove alignment we also apply a small number of slackening heuristics.
+Theserules allow (a) minor adjustments of scope boundaries around punctuation marksTable 8Ranker optimization on BSP: Showing ranker performance for various feature typecombinations compared with a random-choice baseline, only considering instanceswhere the gold-standard scope aligns to a constituent within the 1-best parse.Features F1Baseline 26.76Path 78.10Path+Surface 79.93Path+Linguistic 83.72Path+Surface+Linguistic 85.30391Computational Linguistics Volume 38, Number 2(specifically, utterance-final punctuation is never included in BioScope annotations, yetthe ERG analyzes most punctuation marks as pseudo-affixes on lexical tokens; see Fig-ure 3).
+Furthermore, the slackening rules (b) reduce the scope of a constituent to the rightwhen it includes a citation (see the discussion of parentheticals in Section 6.1.5); (c) re-duce the scope to the left when the left-most terminal is an adverb and is not the cue; and(d) ensure that the scope starts with the cue when the cue is a noun.
+Collectively, theserules improve alignment (over parsed sentences) in BSP from 74.10% to 80.54%, whenonly considering the syntactic analysis ranked most probable by the parse selectionmodel.
+Figure 4 further depicts the degree of alignment between speculation scopes andconstituents in the n-best derivations produced by the parser, again after application ofthe slackening rules.
+Alignment when inspecting only the top-ranked parse is 84.37%for BSA and 80.54% for BSP.
+Including the top 50-best derivations improves alignmentto 92.21% and 88.93%, respectively.
+Taken together with an observed parser coverage of85.6% for BSP, these results mean that for only about 76% of all utterances in BSP canthe ranker potentially identify a constituent matching the gold-standard scope.To shed some light on the cases where we fail to find an alignment, we manuallyinspected all utterances in the BSP segment for which there were (a) syntactic analysesavailable from the ERG and (b) no candidate constituents in any of the top-fifty parsesthat mapped onto the gold-standard scope (after the application of the slackening rules).The most interesting cases from this non-alignment analysis are ones judged as ?non-syntactic?
+(25% of the total mismatches), which we interpret as violating the assumptionof the annotation guidelines under any possible interpretation of syntactic structure.Following are select examples in this category:(27) This allows us to {?address a number of questions?
+: what proportion ofeach organism?s protein interaction network [.
+.
+. ]
+can be attributed to aknown domain-domain interaction}?
+(28) As {?suggested?
+in 18, by making more such data sets available, it will bepossible to [.
+.
+. ]
+determine the most likely human interactions}.Figure 4The effect of incrementally including additional derivations from the n-best list when searchingfor an alignment between a speculation scope and a constituent.
+Plots are shown for the BSA andBSP subsets of the training data.392Velldal et al Rules, Rankers, and the Role of Syntax(29) The {lack of specificity ?might?
+be attributed to a number of reasons, suchas the absence of other MSL components, the presence of other RNAsinteracting with MOF}, or worse [.
+.
+.
+].
+(30) [.
+.
+. ]
+thereby making {the use of this objective function ?
+and explorationof other complex objective functions ?
+?possible?
+}.Example (27) is representative of a handful of similar cases, where complete sen-tences are (implicitly or overtly) conjoined, yet the scope annotation encompasses onlypart of one of the sentences.
+Example (28) is in a similar spirit, only in this case atopicalized prepositional phrase (and hence an integral constituent) is only partiallyincluded in the gold-standard scope.
+Although our slackening heuristics address anumber of cases of partial noun phrases (with a left scope boundary right before thehead noun or a pre-head attributive adjective), another handful of non-syntactic scopesare of the type exemplified by Example (29), a class observed earlier already in the erroranalysis of our dependency-based scope resolution rules (see Section 6.1.5).
+Finally,Example (30) demonstrates one of many linguistically subtle corner cases: The causativemake in standard analyses of the resultative construction takes two arguments, namely,an NP (the use of this objective function.
+.
+. )
+and a predicative phrase (possible).Alongside cases like these, our analysis considered 16% of mismatches owed todivergent syntactic theories (i.e., structures that in principle can be analyzed in amannercompatible with the BioScope gold-standard annotations, yet do not form matchingconstituents in the ERG analyses).
+The by far largest class of mismatches was attributedto parse ranking deficiencies: In close to 40% of cases, the ERG is capable of derivinga constituent structure compatible with the scope annotations, but no such analysiswas available within the top 50 parses.
+Somewhat reassuringly, less than 6% of allmismatches were classified as BioScope annotation errors, whereas a majority of re-maining mismatches are owed to the recurring issue of parentheticals and bibliographicreferences (see examples in Section 6.1.5).6.2.3 Features of Candidate Scopes.
+We use three families of features to describe candi-date constituents.
+Given our working hypothesis that scopes are aligned with syn-tactic constituents, the most natural features to use are the location of constituentswithin trees.
+We define these in terms of the paths from speculation cues to can-didate constituents.
+For example, the correct candidate in Figure 3 has the featurev_vp_mdl-p_le\hd-cmp_u_c\sb-hd_mc_c.
+We include both lexicalized and unlexical-ized versions of this feature.
+As traversal from the cue to the candidate can involvemany nodes, we also include a more general version recording only the cue and theroot of the candidate constituent (rather than the full path including all intermediatenodes).
+In a similar spirit we also generate bigram features for each path node and itsparent.In addition to the given path features, we also exploit features describing thesurface properties of scope candidates.
+These include the enumeration of bigrams ofthe preterminal lexical types, the cue position within the candidate (in tertile binsrelative to the candidate length), and the candidate size (in quartile bins relative to thesentence length).
+Because punctuation may also be informative for scope resolution, wealso record whether punctuation was present at the end of the terminal preceding thecandidate or at the end of its right-most terminal.The third family of features is concerned with specific linguistic phenomena de-scribed in the BioScope annotation guidelines (Vincze et al 2008) or observed when393Computational Linguistics Volume 38, Number 2developing the rules in Section 6.1.
+These include detection of passivization, subjectcontrol verbs occurring with passivized verbs, subject raising verbs, and predicativeadjectives.
+Furthermore, these features are only activated when the subject of the con-struction is not an expletive pronoun, and they are represented by appending the typeof phenomenon observed to the path features described here.6.2.4 Ranker Optimization.
+We conducted several experiments designed to find anoptimal configuration of features.
+Table 8 lists the results of combinations of the fea-ture families on the BSP data set when using gold-standard cues, reporting 10-foldcross-validated F1 scores with respect to only the instances where the gold-standardspeculation scope aligns with constituents (i.e., the ?ideal circumstances?
+for theranker).
+The table also lists results for a random-choice baseline, calculated as themean ambiguity of each instance (i.e., the averaged reciprocal of the number of can-didates).
+The feature optimization results indicate that each feature family is infor-mative, and that the best result can be obtained by using all three in conjunction.The comparatively largest improvement in ranker performance is obtained from the?rule-like?
+linguistic feature family, which is noteworthy in two respects: First, ourcurrent system includes only four such features, and second, these features parallelsome of the dependency-based rules of Section 6.1.2?suggesting that subtle syntacticconfigurations are an important component also in our data-driven approach to scoperesolution.As discussed in Section 6.2.2 and depicted in Figure 4, searching the best-rankedparses can greatly increase the number of aligned constituents and thus improve theupper-bound potential of the ranker.
+We therefore experimented with training usingthe first aligned constituent in n-best derivations.
+At the same time we varied them-best derivations used during testing, using features from all m derivations.
+We foundthat performance did not vary greatly, but that the best result was achieved whenn = 1 and m = 3 (note, however, that such optimization over n-best lists of ERG parseswill play a much greater role in the hybrid approach to scope resolution developedin Section 6.3).
+As explained in Section 5.2.1, all experiments use the SVMlight de-fault value for the regularization parameter, determined analytically from the trainingdata.A cursory error analysis conducted over aligned items in BSP indicated similarerrors to those discussed in connection with the dependency rules (see Section 6.1.5).There are a number of instances where the predicted scope is correct according to theBioScope annotation guidelines, but the annotated scope is incorrect.
+We also note someinstances where the rule-like linguistic features are activated on the correct constituent,but the ranker nevertheless selects a different candidate.
+In a strictly rule-based system,these features would act as hard constraints and yield superior results in these cases.Therefore, these instances seem a prime source of inspiration for further improvementsto the ranker in future work.6.2.5 Evaluating the Ranker.
+Table 9 summarizes the performance of the constituentranker (coupledwith the default scope baseline in the case of unparsed items) comparedwith the dependency rules, resolving the scope of both gold-standard and predictedspeculation cues.
+We note that the constituent ranker performs slightly superior to thedependency rules on BSA but inferior (though well above the default scope baseline)on BSP and BSE.
+Applying the sign-test (in the manner described in Section 3.2) to thescope-level performance of the ranker and the rules on the held-out BSE data (usinggold-standard cues), the differences are found to be statistically significant.394Velldal et al Rules, Rankers, and the Role of SyntaxTable 9Resolving the scope of speculation cues using the dependency rules, the constituent ranker,and their combination.
+Whereas table (a) shows results for gold-standard cues, table (b) showsend-to-end results for the cues predicted by the classifier of Section 5.2.
+Results are shown bothfor the BioScope development data (for which both the scope ranker and the cue classifier isapplied using 10-fold cross-validation) and the CoNLL-2010 Shared Task evaluation data.Data System F1BSARules 73.67Ranker 75.48Combined 79.56BSPRules 72.31Ranker 66.17Combined 75.15BSAP Rules 73.40Ranker 73.61Combined 78.69BSERules 66.60Ranker 58.37Combined 69.60(a) Resolving Gold-Standard CuesData System Prec Rec F1BSARules 72.47 66.42 69.31Ranker 74.27 68.07 71.04Combined 77.80 71.31 74.41BSPRules 69.87 62.13 65.77Ranker 62.63 55.69 58.95Combined 72.05 64.07 67.83BSAP Rules 71.97 65.56 68.61Ranker 71.99 65.59 68.64Combined 76.67 69.85 73.11BSERules 58.95 54.21 56.48Ranker 51.68 47.53 49.52Combined 62.00 57.02 59.41(b) Resolving Predicted CuesAgain we also observe a drop in performance for the results on the held-out datacomparedwith the development data.We attribute this drop partly to overfitting causedby using GENIA abstracts to adapt the parse ranker to the biomedical domain (seeSection 2.3), but primarily to reduced parser coverage and constituent alignment in thelatter data sets.
+Improving these aspects should result in substantive gains in rankerperformance.
+Finally, note that the performance of the default baseline (which is muchbetter for the abstracts than the full papers of BSP and BSE) also carries over to rankerperformance for the cases where we do not have a parse.6.3 Combining the Constituent Ranker and the Dependency RulesAlthough both the constituent ranker and dependency rules perform well in isolation,they do not necessarily perform well on the same test items.
+Consequently, we inves-tigated the effects of combining their predictions.
+When ERG parses are available fora given sentence, the dependency rules may be combined with the information usedby the constituent ranker.
+We implement this coupling by adding features that recordwhether the (slackened) span of a candidate constituent matches the span of the scopepredicted by the rules (either exactly or just at one of its boundaries).
+When an ERGparse is not available we simply revert to the prediction of the dependency rules.Adding the rule prediction features may influence the effectiveness of consideringmultiple parses, by compensating for the extra ambiguity.
+We therefore repeated ourexamination of the effects of using the best-ranked parses for training and testing theranker.
+Figure 5 plots the effect on F1 for parsed sentences in BSP when includingconstituents from the n-best derivations in training, and from the m-best derivations intesting.We see that, when activating the dependency prediction features, the constituentranker performs best for n = 5 and m = 20.Looking at the performance summaries of Table 9, we see that the combined ap-proach consistently outperforms both the dependency rules and the constituent ranker395Computational Linguistics Volume 38, Number 2Figure 5Cross-validated F1 scores of the ranker combined with the dependency rules over gold cuesfor parsed sentences from BSP, varying the maximum number of parse results employed fortraining and testing.in isolation, and the improvements are deemed significant with respect to both of them(comparing results for BSE using gold-standard cues).Comparing the combined approach to the plain ranker runs, there are two sourcesfor the improvements: the addition of the rule prediction features and the fact that wefall back on using the rule predictions directly (rather than the default scope) when wedo not have an available constituent tree.
+To isolate the contribution of these factors,we applied the ranker without the rule-prediction features (as in the initial rankerset-up), but still using the rules as our fall-back strategy (as in the combined set-up).Testing on BSP using gold-standard cues this gives an F1 of 69.61, meaning that the8.98-percentage-point improvement of the combined model over the plain ranker owes3.44 points to the rule-based fall-back strategy and 5.54 to the new rule-based features.As discussed in Section 6.2.2, an important premise of the success of our rankingapproach is that scopes align with constituents.
+Indeed, we find that the performanceof both the ranker in isolation and the combined approach is superior on BSA, which isthe data set that exhibits the greatest proportion of aligned instances.
+We can thereforeexpect that any improvements in our alignment procedure, as well as in the domain-adapted ERG parse selection model, will also carry through to improve the overallperformance of our subtree ranking.As a final evaluation of speculation resolution, Table 10 compares the end-to-endperformance of our combined approach with the best end-to-end performer in theCoNLL-2010 Shared Task.
+In terms of both precision and recall, our cue classifier usingthe combination of constituent ranking and dependency rules for scope resolutionachieves superior performance on BSE comparedwith the system ofMorante, van Asch,and Daelemans (2010), improving on the overall F1 by more than 2 percentage points.Whereas the token-level differences for cue classification are found to be significant, theend-to-end scope-level differences are not (p = 0.39).7.
+Porting the Speculation System to NegationDealing with negation in natural language has been a long-standing topic and there hasbeen work attempting to resolve the scope of negation in particular within the area ofsentiment analysis (Moilanen and Pulman 2007), where treatment of negation clearlyconstitutes an important subtask and has been shown to provide improved sentiment396Velldal et al Rules, Rankers, and the Role of SyntaxTable 10Final end-to-end results for scope resolution: Held-out testing on BSE, using the cue classifierdescribed in Section 5.2 while combining the dependency rules and the constituent ranker forscope resolution.
+The results are compared to the system with the best end-to-end performancein the CoNLL-2010 Shared Task (Morante, van Asch, and Daelemans 2010).Cue Level Scope LevelSystem Configuration Prec Rec F1 Prec Rec F1Cue classifier + Scope Rules & Ranking 84.79 77.17 80.80 62.00 57.02 59.41Morante et al 2010 78.75 74.69 76.67 59.62 55.18 57.32analysis (Councill, McDonald, and Velikovich 2010).
+The BioScope corpus (Vincze et al2008), being annotated with negation as well as speculation, has triggered work onnegation detection in the biomedical domain as well.
+In this setting, there are a fewprevious studies where the same system architecture has been successfully applied forboth speculation and negation.
+For example, whereas Morante and Daelemans (2009a)try to resolve the scope of speculation using a system initially developed for negation(Morante, Liekens, and Daelemans 2008), Zhu et al (2010) develop a system targetingboth tasks.
+In this section we investigate to what degree our speculation system can beported to also deal with negation, hoping that the good results obtained for speculationwill carry over to the negation task at a minimal cost in terms of adaption and modifica-tion.
+We start by describing our experiments with porting the cue classifier to negationin Section 7.1, and then present our modified set of dependency rules for resolving thescope of the negation cues in Section 7.2.
+Section 7.3 presents the adaptation of theconstituent ranker, as well as the final end-to-end results when combining the rankerand the rules, paralleling what we did for speculation.
+The relation to other relevantwork is discussed as we go along.Some summarizing statistics for the negation annotations in BioScope were givenin Table 1.
+Note, however, that the additional evaluation data that we used for held-outtesting of the speculation system, does not contain negation annotations.
+For this reason,and in order to be able to compare our results to those obtained in previous studies, wehere follow the partitioning established by Morante and Daelemans (2009b), reporting10-fold cross-validation (for the cue classifier and the subtree ranker) on the abstracts(BSA) and using the full papers (BSP) for held-out and cross text-type testing.
+Notethat for the development results using cross-validation, we partition the data on thesentence-level, just as in Morante and Daelemans (2009b).7.1 Identifying Negation CuesSeveral previous approaches to detecting negation cues have been based on pre-compiled lexicons, either alone (Councill, McDonald, and Velikovich 2010) or in combi-nation with a learner (Morante and Daelemans 2009b).
+For the purpose of the currentarticle we wanted to investigate whether the ?filtered classification?
+approach that weapplied for detecting speculation cues would directly carry over to negation.
+Drawingheavily on much of the discussion previously given for the speculation cue classifiersin Section 5, the small modifications made to implement a classifier for negation cuesare described in Section 7.1.1.
+We then provide some discussion of the results in Sec-tion 7.1.2, including comparison to previous work on negation cue detection byMoranteand Daelemans (2009b) and Zhu et al (2010) in Section 7.1.3.397Computational Linguistics Volume 38, Number 27.1.1 Classifier Description.
+Apart from re-tuning the feature configuration, the onlymodifications that wemade with respect to the speculation classifier regard the rules formultiword cues (as described for speculation in Section 5.1) and the corresponding stop-list (Section 5.2).
+The overall approach, however, is the same:We train and apply a linearSVM classifier that only considers words whose lemma has been observed as a negationcue in the training data.
+Note that roughly 82% of the negation tokens are ambiguous inthe training data, in the sense that they have both cue and non-cue occurrences.
+Basedon the most frequently occurring MWC patterns observed in the abstracts we definedpost-processing rules to cover the cases shown in Table 11.
+Furthermore, and againbased on the MWCs, we compiled a small stop-list so that the classifier ignores certain?spurious?
+tokens (namely, can, could, notable, of, than, the, with, and ?(?).
+Although thisof course means that the classifier will never label any such word as a cue, they willtypically be captured by the MWC rules instead.When re-tuning the feature configuration based on the n-gram templates previouslydescribed in Section 5.2.1, we find that the best performer for negation is the combina-tion that records lemmas two positions to the left and the right of the target word, andsurface forms one position to the right.7.1.2 Development Results.
+The performance of this model, evaluated by 10-fold cross-validation on the BioScope abstracts, is shown in Table 12.
+Just as for speculation, wealso contrast the performance with a simple WbW majority usage baseline, classifyingeach and every word according to its most frequent usage (cue vs. non-cue) in thetraining data.
+Although this baseline proved to be surprisingly strong for speculation, itis even stronger for negation: Evaluated at the token-level (though after the applicationof the MWC rules) the baseline achieves an F1 of 93.60.
+Applying the filtering modelfurther improves this score to 96.00.
+The differences are found to be statistically signifi-cant (according to the testing scheme described in Section 3.1), and the filtering classifieralso improves greatly with respect to the sentence-, and cue-level evaluations as well,in particular with respect to the precision.Recall that, when looking at the distribution of error types for the token-levelmistakes made by the speculation classifier (see Section 5.2.3), we found that almost 75%were false negatives.
+The distribution of error types for the negation cue classifier is verydifferent: Almost 85% of the errors are false positives.
+After inspecting the actual cuesinvolved, we find the same situation as reported by Morante and Daelemans (2009b),namely, that a very high number of the errors concern cases where not is labeled as a cueby the classifier but not in the annotations.
+The same is true for the cue word absence,and many of these cases appear to be annotation errors.The class balance among tokens in the BioScope data is extremely skewed, with thepositive examples of negation constituting only 0.5% of the total number of examples.Table 11Patterns covered by our post-processing rules for multiword negation cues.rather than{can|could} notno longerinstead ofwith the * exception ofneither * nor{no(t?
+)|neither} * nor398Velldal et al Rules, Rankers, and the Role of SyntaxTable 12Results for negation cue detection, including the systems of Morante et al (2009b) and Zhu et al(2010).
+Whereas the scores for BSA are obtained by 10-fold cross validation, the scores on BSPand BSR represent held-out testing using a model trained on all the abstracts.
+The latter scoresthereby serves as a test of generalization performance across different text types within thesame domain.Sentence Level Token Level Cue LevelData Model Prec Rec F1 Prec Rec F1 Prec Rec F1BSA(10-Fold) Baseline 90.34 98.81 94.37 89.28 98.40 93.60 88.92 97.78 93.14Filtering 94.19 98.87 96.45 93.46 98.73 96.00 93.19 98.12 95.59Morante n/a n/a n/a 84.72 98.75 91.20 94.15 90.67 92.38Zhu n/a n/a n/a 94.35 94.99 94.67 n/a n/a n/aBSP(Held-out) Baseline 79.48 99.41 88.34 75.96 99.00 85.96 74.55 98.41 84.84Filtering 86.75 98.53 92.27 85.22 98.25 91.27 84.06 97.62 90.33Morante n/a n/a n/a 87.18 95.72 91.25 85.55 78.31 81.77Zhu n/a n/a n/a 87.47 90.48 88.95 n/a n/a n/aBSR(Held-out) Baseline 96.64 96.42 96.53 96.12 96.01 96.06 95.87 95.98 95.93Filtering 96.97 96.30 96.64 96.44 95.90 96.17 96.20 95.87 96.03Morante n/a n/a n/a 97.33 98.09 97.71 96.38 91.62 93.94Zhu n/a n/a n/a 88.54 86.81 87.67 n/a n/a n/aIn terms of the tokens actually considered by our filtering model, however, the numberslook much healthier, with the negative examples actually being slightly outweighedby the positives (just above 50%).
+Moreover, the average number of distinct n-gramfeatures instantiated across the 10-folds is approximately 17,500.
+The small size of thefeature set is of course due to the small number of training examples considered by thelearner: Whereas a WbW approach (like the majority usage baseline) would considerevery token in training data (just below 300,000 in each fold), this number is reducedby almost 99% for the filtered disambiguation model.
+In effect, we can conclude that theproposed approachmanages to combine very good results with very low computationalcost.Figure 6 shows learning curves for both the word-by-word baseline and the fil-tering model, plotting token-level F1 against percentages of data included in training.Compared to the learning curves previously shown for speculation detection (Figure 1),the curve for the filtering model seems to be somewhat flatter for negation.
+Looking atthe curve for the WbW unigram baseline, it again seems unable to benefit much fromany additional data after the first few increments.7.1.3 Comparison to Related Work.
+To the best of our knowledge, the systems currentlyachieving state-of-the-art results for detecting negation cues are those described byMorante and Daelemans (2009b), Zhu et al (2010), and Councill, McDonald, andVelikovich (2010).
+Although the latter work does not offer separate evaluation of thecue detection scheme in isolation, Morante and Daelemans (2009b) and Zhu et al (2010)provide cue evaluation for the data splits listed in Table 12; 10-fold cross-validationexperiments (with sentence-level partitioning) on the BioScope abstracts, and held-outtesting on the full papers and the clinical reports (with a model trained on the abstracts).399Computational Linguistics Volume 38, Number 2Figure 6Learning curves for both baseline and the filtered ?disambiguation?
+model showing the effect ontoken-level negation cue F1 when including larger percentages (shown on a logarithmic scale)of the training data across the 10-fold cycles on BSA.The results5 reported by Morante and Daelemans (2009b) and Zhu et al (2010) aretoken-level precision, recall, and F1.
+Having obtained the system output of Moranteand Daelemans (2009b), however, we also computed cue-level scores for their system.Morante and Daelemans (2009b) identify cues using a small list of unambiguouscue words compiled from the abstracts in combination with applying a decision treeclassifier to the remaining words.
+Their features record information about neighboringword forms, PoS, and chunk information from GENIA.
+Zhu et al (2010) train an SVMto classify tokens according to a BIO-scheme using surface-oriented n-gram features inaddition to various syntactic features extracted using the Berkley parser (Petrov andKlein 2007) trained on the GENIA treebank.
+Looking at the results in Table 12, we seethat the performance of our cue classifier compares favorably with the systems of bothMorante and Daelemans (2009b) and Zhu et al (2010), achieving a higher cue-level F1across all data sets (with differences in classifier decisions with respect to Morante andDaelemans [2009b] being statistically significant for all of them).For the 10-fold run, the biggest difference concerns token-level precision, whereboth the system of Zhu et al (2010) and our own achieves a substantially higher scorethan that of Morante and Daelemans (2009b).
+Turning to the cross-text experiment,however, the precision of our system and that of Zhu et al (2010) suffers a largedrop, whereas the system of Morante and Daelemans (2009b) actually obtains a higherprecision than for the 10-fold run.
+These effects are reversed for recall, however, whereour system still maintains the higher score, also resulting in a higher F1.
+Looking atthe cue-level scores, we find that the precision of our system and that of Morante andDaelemans (2009b) drops by an equal amount for the BSP cross-text testing.
+In terms ofrecall, however, the cue-level scores of Morante and Daelemans (2009b) suffers a muchlarger drop than that of our filtered classifier.5 As the results reported by Morante and Daelemans (2009b) were inaccurate, we instead refer to valuesobtained from personal communication with the authors.400Velldal et al Rules, Rankers, and the Role of SyntaxThe drop in performance when going from cross-validation to held-out testingcan largely be attributed to the same factors discussed in relation to speculationcues in Section 5.3 (e.g., GENIA-based pre-processing, sentence-level partitioning incross-validation, and unobserved MWCs).
+In addition, looking at the BioScope inter-annotator agreement rates for negation cues it is not surprising that we should ob-serve a drop in results going from BSA to BSP: Measured as the F1 of one of theannotators with respect to the other, it is reported as 91.46 for BSA, compared with79.42 for BSP (Vincze et al 2008).
+Turning to the F1-scores of each annotator withrespect to the final gold standard, the numbers are 91.71/98.05 for BSA and 86.77/91.71for BSP.The agreement rates for the clinical reports, on the other hand, are much closer tothose of the abstracts (Vincze et al 2008), and the held-out scores we observe on this dataset are generally also much better, not the least for the simple majority usage baseline.In general the baseline again proves to be surprisingly competitive, most notably withrespect to recall where it actually outperforms all the other systems for both the cross-text experiments.
+(Recall that the baseline scores also reflect the application of the MWCrules, though.
+)7.2 Adapting the Dependency Rules for Resolving Negation ScopeThere have been several previous studies on resolving the scope of negation based onthe BioScope corpus.
+For example, Morante and Daelemans (2009b) present a meta-learning approach that combines the output from three learners?a memory-basedmodel, an SVM classifier, and a CRF classifier?using lexical features, such as PoS andchunk tags.
+Councill, McDonald, and Velikovich (2010) use a CRF learner with featuresbased on dependency parsing (e.g., detailing the PoS of the head and the dependencypath to the negation cue).The annotation of speculation and negation in BioScope was performed using acommon set of principles.
+It therefore seems reasonable to assume our dependency-based scope resolution rules for speculation should be general enough to allow portingto negation with fairly limited efforts.
+On the other hand, negation is expressed linguis-tically using quite different syntactic structures from speculation, so it is clear that somemodifications will be necessary as well.As we recall, the dependency rules for speculation scope are triggered by the PoSof the cue.
+Several of the same parts-of-speech (verbs, adverbs) also express negation.As an initial experiment, therefore, we simply applied the speculation rules to negationunmodified.
+As before, taking default scope to start at the cue word and spanning tothe end of the sentence provides us with a baseline system.
+We find that applyingour speculation scope rules directly to the task of negation scope resolution offers afair improvement over the baseline.
+For BSA and BSP, the default scope achieves F1scores of 52.24 and 31.12, respectively, and the speculation rules applied directly withoutmodifications achieve 48.67 and 56.25.In order to further improve on these results, we introduce a few new rules toaccount specifically for negation.
+The general rule machinery is identical to the specu-lation scope rules described in Section 6.1: The rules are triggered by the part of speechof the cue and operate over the dependency representations output by the stackeddependency parser described in Section 6.1.1.
+In developing the rules we consulted theBioScope guidelines (Vincze et al 2008), as well as a descriptive study of negation in theBioScope corpus (Morante 2010).401Computational Linguistics Volume 38, Number 2Table 13Additional dependency-based scope rules for negation, with information source (MaltParser orXLE), organized by PoS of the cue.PoS Description SourceDT Determiners scope over their head node and its descendants MNN Nouns scope over their descendants MNNnone none take scope over entire sentence if subject and otherwise over its descendants MVB Verbs scope over their descendants MRBvb Adverbs with verbal head scope over the descendants of the lexical verb M, XRBother Adverbs scope over the descendants of the head M, X7.2.1 Rule Overview.
+The added rules are presented in Table 13 and are described in moredetail subsequently, organized by the triggering PoS of the negation cue.Determiners.
+Determiner cue words in BioScope are largely realized by the negativedeterminer no.
+These take scope over their nominal head and its descendants, as seen inExample (31):(31) The finding that dexamethasone has {?no?
+effect on TPA-inducedactivation of PKC} suggests [.
+.
+.
+]Nouns.
+Nominal cues take scope over their descendants (i.e., the members of the nounphrase), as shown in Example (32).
+(32) This unresponsiveness occurs because of a {?lack?
+of expression of thebeta-chain (accessory factor) of the IFN-gamma receptor}, while at thesame time [.
+.
+.
+]The negative pronoun none is tagged as a noun by our system, but deviates from regularnouns in their negation scope: If the pronoun is a subject, it scopes over the remainingsentence, as in Example (33), whereas in object function it simply scopes over the nounphrase (Morante 2010).
+These are therefore treated specifically by our system.
+(33) Similarly, {?none?
+of SCOPE?s component algorithms outperformed theother ten programs on this data set by a statistically significant margin}.Adverbs.
+Adverbs constitute the majority of negation cues and are largely realized bythe lexical item not.
+Syntactically, however, adverbs are a heterogeneous category.
+Theymay modify a number of different head words and their scope will thus depend largelyon properties of the head.
+For instance, when an adverb is a nominal modifier, as inExample (34), it has a narrow scope which includes only the head noun (34) and itspossible conjuncts.
+(34) This report directly demonstrates that OTF-2 but {?not?
+OTF-1} regulatesthe DRA geneVerbal adverbs scope over the clause headed by the verbal head.
+As shown by Figure 2,the parser?s analysis of verbal chains has the consequence that preverbal arguments andmodifiers, such as subjects and adverbs, are attached to the finite verb and postverbal402Velldal et al Rules, Rankers, and the Role of Syntaxarguments and modifiers are attached to the lexical verb, in cases where there is anauxiliary.
+This rule thus locates the lexical verb (e.g., affect in Example [35]), in thedependency path from the auxiliary head verb and defines scope over the descendantsof this verb.
+In cases where the lexical verb is passive, the subject is included in the scopeof the adverb, as in Example (36).
+(35) IL-1 did {?not?
+affect the stability of the c-fos and c-jun transcripts}.
+(36) {Levels of RNA coding for the receptor were ?not?
+modulated by exposureto high levels of ligand}.7.2.2 Evaluating the Negation Rules.
+The result of resolving the scope of gold-standardnegation cues using the new set of dependency rules (i.e., the speculation rules extendedwith the negation specific rules of Table 13), are presented in Table 14, along with theperformance of the default scope baseline.
+First of all, we note that the baseline scoresprovided by assigning default scope to all cues differ dramatically between the data sets,ranging from an F1 of 52.24 for BSA, 31.12 for BSP, and 91.43 for BSR.
+In comparison,the performance of the rules is fairly stable across BSA and BSP, and for both data setsthey improve substantially on the baseline (up by roughly 18.5 and 34.5 percentagepoints on BSA and BSP, respectively).
+On BSR, however, the default scope baseline issubstantially stronger than for the other data sets, and even performs slightly betterthan the rules.
+Recall from Table 1 that the average sentence length in the clinical reportsis substantially lower (7.7) than for the other data sets (average of 26), a property whichwill make the default scope much more likely to succeed.In order to shed more light on the performance of the rules on BSR, a manualerror analysis was performed, once again by two trained linguists working together.
+Wefound that out of the total of 74 errors, 30 (40.5%) were parse errors, 29 (39.2%) were ruleerrors, 8 (10.8%) were annotation errors, and 4 (5.4%) were undecided.
+Although it isusually the case that short sentences are easier to parse, the reports contain a substantialproportion of ungrammatical structures, such as missing subjects, dropped auxiliaries,and bare noun phrases, as in Example (37), which clearly lead to lower parse quality,resulting in 40% parse errors.
+There are also constructions, such as so-called run-onconstructions, as in Example (38), for which there is simply no correct analysis availableTable 14Scope resolution for gold-standard negation cues across the BioScope sub-corpora.Data Configuration F1BSADefault 52.24Dependency Rules 70.91Constituent Ranker 68.35Combined 74.35BSPDefault 31.12Dependency Rules 65.69Constituent Ranker 60.90Combined 70.21BSRDefault 91.43Dependency Rules 90.86Constituent Ranker 89.59Combined 90.74403Computational Linguistics Volume 38, Number 2within the dependency framework (which, for instance, requires that graphs should beconnected).
+In addition, the annotations of the reports data contain some idiosyncrasieswhich the rules fail to reproduce.
+Twenty-four percent of the errors are found with thesame cue, namely, the adjective negative.
+The rules make attributive adjectives scopeover their nominal heads, whereas the BSR annotations define the scope to only coverthe cue word itself; see Example (37).
+The annotation errors were very similar to theones observed in the earlier error analysis of Section 6.1.5.
+(37) |{?Negative?}
+chest radiograph|.
+(38) |{?No?
+focal pneumonia}, normal chest radiograph|.7.3 Adapting the Constituent Ranker for NegationAdapting the SVM-based discriminative constituent ranker of Section 6.2 to also predictthe scope of negation is a straightforward procedure, requiring only minor modifi-cations: Firstly, we developed a further slackening heuristic to ensure that predictedscope does not begin with an auxiliary.
+Secondly, we augmented the family of linguisticfeatures to also record the presence of adverb cues with verbal heads (as specified by thedependency-based scope rules in Table 13).
+Finally, we repeated the parameter tuningfor training with n-best and testing with m-best parses (as described in Section 6.2.4).Performing 10-fold cross-validation on BSA using gold-standard negation cues, wefound that the optimal values for the ranker in isolation were n = 10 and m = 1.When paralleling the combined approach developed in Section 6.3 (adding the rule-predictions as a feature in the ranker while falling back on rule-predicted scope forcases where we do not have an ERG parse) the optimal values were found to be n = 15andm = 5.
+Examining the coverage of the parser and the alignment of constituents withnegation scope (considering the 50-best parses), we found that the upper-bound of theconstituent ranker (disregarding any fall-back strategy) on the BSA development set is79.4% (compared to 83.6% for speculation).Table 14 lists the performance of both the constituent ranker in isolation and thecombined approachwhen resolving the scope of gold-standard negation cues (reporting10-fold cross-validation results for BSA, while using BSP and BSR for held-out testing).We see that the dependency rules perform consistently better than the constituentranker, although the differences are not found to be statistically significant (the p-valuesfor BSA, BSP, and BSR are 0.06, 0.11, and 0.25, respectively).
+The combined approachagain outperforms the dependency rules on both BSA and BSP (and by a much largermargin than we observed for speculation), however, with the improvements on bothdata sets being significant.
+Just as we observed for the dependency rules in Section 7.2.2,neither the constituent ranker nor the combined approach are effective in BSR.7.4 End-to-End Evaluation with Comparison to Related WorkWe now turn to evaluating our end-to-end negation system with SVM-based cueclassification and scope resolution using the combination of constituent ranking anddependency-based rules.
+To put the evaluation in perspective we also compare ourresults against the results of other state-of-the-art approaches to negation detection.Comparison to previous work is complicated slightly by the fact that different datasplits and evaluation measures have been used across various studies.
+A commonlyreported measure in the literature on resolving negation scope is the percentage of404Velldal et al Rules, Rankers, and the Role of Syntaxcorrect scopes (PCS) as used by Morante and Daelemans (2009b), and Councill,McDonald, and Velikovich (2010), among others.
+Councill, McDonald, and Velikovich(2010) define PCS as the number of correct spans divided by the number of true spans.
+Ittherefore corresponds roughly to the scope-level recall as reported in the current article.The PCS notion of a correct scope, however, is less strict than in our set-up (Section 3.2):Whereas we require an exact match of both the cue and the scope, Councill, McDonald,and Velikovich (2010) do not include the cue identification in their evaluation.Moreover, whereas the work of both Morante and Daelemans (2009b) and Councill,McDonald, and Velikovich (2010) is based on the BioScope corpus, only Morante andDaelemans (2009b) follow the same set-up assumed in the current article.
+Councill,McDonald, and Velikovich (2010), on the other hand, evaluate by 5-fold cross-validationon the papers alone, reporting a PCS score of 53.7%.
+When running our negation cueclassifier and constituent ranker (in the hybrid mode using the dependency features)by 5-fold cross-validation on the papers we achieve a scope-level recall of 68.62 (and anF1 of 64.50).Table 15 shows a comparison of our negation scope resolution system with thatof Morante and Daelemans (2009b).
+Rather than using the PCS measure reported byMorante and Daelemans (2009b), we have re-scored the output of their system accord-ing to the CoNLL-2010 shared task scoring scheme, and it should therefore be kept inmind that the system of Morante and Daelemans (2009b) originally was optimized withrespect to a slightly different metric.For the cross-validated BSA experiments we find the results of the two systemsto be fairly similar, although the F1 achieved by our system is higher by more than5 percentage points, mostly due to higher recall.
+For the cross-text experiments, thedifferences are much more pronounced, with the F1 of our system being more than22 points higher on BSP and more than 17 points higher on BSR.
+Again, the largestdifferences are to be found for recall?even though this is the score that most closelycorresponds to the PCS metric used by Morante and Daelemans (2009b)?but as seen inTable 15 there are substantial differences in precision as well.
+The scope-level differencesbetween the two systems are found to be statistically significant across all the threeBioScope sub-corpora.Table 15End-to-end results for our negation system, using the SVM cue classifier and the combinationof subtree ranking and dependency-based rules for scope resolution, comparing with Moranteet al (2009b).Scope LevelData Configuration Prec Rec F1BSA10-Fold Morante et al (2009b) 66.31 65.27 65.79Cue classifier & Scope Rules + Ranking 69.30 72.89 71.05BSPHeld-outMorante et al (2009b) 42.49 39.10 40.72Cue classifier & Scope Rules + Ranking 58.58 68.09 62.98BSRHeld-outMorante et al (2009b) 74.03 70.54 72.25Cue classifier & Scope Rules + Ranking 89.62 89.41 89.52405Computational Linguistics Volume 38, Number 2To some degree, some of the differences are to be expected, perhaps, at least withrespect to BSP.
+For example, the BSP evaluation represents a held-out setting for boththe cue and scope component in themachine learned system ofMorante andDaelemans(2009b).
+While also true for our cue classifier and subtree ranker, it is not strictlyspeaking the case for the dependency rules, and so the potential effect of any overfittingduring learningmight be less visible.
+The small set of manually defined rules are generalin nature, targeting the general syntactic constructions expressing negation, as shownin Table 13.
+In addition to being based on the BioScope annotation guidelines, however,both the abstracts and the full papers were consulted for patterns, and the fact that ruledevelopment has included intermediate testing on BSP (although mostly during thedevelopment of the initial set of speculation rules from which the negation rules arederived) has likely made our system more tailored to the peculiarities of this data set.When comparing the errors made by our system to those of Morante and Daelemans(2009b), the most striking example of this is the inclusion of post-processing rules in oursystem for ?backing off?
+from bracketed expressions (as discussed in Section 6.1).
+Al-thoughmaking little difference on the abstracts, this has a huge impact when evaluatingthe full papers, where bracketed expressions (citations, references to figures and tables,etc.)
+are muchmore common, and the system output ofMorante and Daelemans (2009b)seems to suffer from the lack of such robustness measures.
+In relation to the clinicalreports, one should bear in mind that, although our combined system outperforms thatof Morante and Daelemans (2009b) by a large margin, this result would still be rivaledby simply using our default scope baseline, as is clear from Table 14.The scope results of Zhu et al (2010) are unfortunately not currently directly com-parable to ours, due to differences in evaluation methodologies.
+Whereas we performan exact match evaluation at the scope-level, as described in Section 3, Zhu et al (2010)use a much less strict token-level evaluation even for their scopes in their end-to-endevaluation.
+Nevertheless, our results appear to be highly competitive, because evenwith the strict exact match criterion underlying our scope-level evaluation, our scoresare actually still higher for both the papers and the reports.
+(Zhu et al [2010] report anF1 of 78.50 for the 10-fold runs on the abstracts, and 57.22 and 81.41 for held-out testingon the papers and reports, respectively.)8.
+ConclusionThis article has explored several linguistically informed approaches to the problemof resolving the scope of speculation and negation within sentences.
+Our point ofdeparture was the system developed by Velldal, ?vrelid, and Oepen (2010) for theCoNLL-2010 Shared Task challenge on resolving speculation in biomedical texts, wherea binary maximum entropy cue classifier was used in combination with a small set ofmanually crafted scope resolution rules operating over dependency structures.
+In thecurrent article we have introduced several major extensions and improvements to thisinitial system design.First we presented a greatly simplified approach to cue identification using a linearSVM classifier.
+The classifier only considers features of the immediate lexical contextof a target word, and it only aims to ?disambiguate?
+words that have already beenobserved as speculation cues in the training data.
+The filtering imposed by this latter?closed class?
+assumption greatly reduces the size and complexity of the model whileincreasing classifier accuracy, yielding state-of-the-art performance on the CoNLL-2010Shared Task evaluation data.406Velldal et al Rules, Rankers, and the Role of SyntaxWe then presented a novel approach to the problem of resolving the scopes ofcues within a sentence.
+As an alternative to using the manually defined dependencyrules of our initial system, we showed how an SVM-based discriminative rankingfunction can be learned for choosing subtrees from HPSG-based constituent structures.An underlying assumption of the ranking approach is that annotated scopes actuallyalign with constituents, and we provided in-depth discussion and analysis of this issue.Furthermore, while both the dependency rules and the constituent ranker achievegood performance on their own, we showed how even better results can be achieved bycombining the two, as the errors they make are not always overlapping.
+The combinedapproach uses the dependency rules for all cases where we do not have an availableHPSG parse, and for the cases where we do, the scope predicted by the rules is includedas a feature in the constituent ranker model.
+Together with the reformulation of our cueclassifier, this combined model for scope resolution obtains the best published resultsso far on the CoNLL-2010 Shared Task evaluation data (to the best of our knowledge).Finally, we have showed how all components of our speculation system are easilyported to also handle the problem of resolving the scope of negation.
+With only modestmodifications, the system obtains state-of-the-art results also on the negation task.
+Thesystem outputs corresponding to the end-to-end experiments with our final model con-figurations, for both speculation and negation, aremade available online (see footnote 2)together with the relevant evaluation software.AcknowledgmentsWe are grateful to the organizers of the2010 CoNLL Shared Task and creators ofthe BioScope resource; first, for engaging inthese kinds of community service, andsecond for many in-depth discussions ofannotation and task details.
+We also wantto thank Buzhou Tang (HIT ShenzhenGraduate School) and Roser Morante(University of Antwerp), together withtheir colleagues, for providing us with theraw XML output of their negation andspeculation systems in order to enablesystem comparisons.
+Andrew MacKinlay(Melbourne University) and Dan Flickinger(Stanford University) were of invaluablehelp in adapting ERG parse selection tothe biomedical domain.
+We thank ourcolleagues at the University of Oslo fortheir comments and support during ouroriginal participation in the 2010 CoNLLShared Task, as well as more recently inpreparing this manuscript.
+Large-scaleexperimentation and engineering wasmade possible though access to the TITANhigh-performance computing facilities at theUniversity of Oslo, and we are grateful tothe Scientific Computation staff at UiO, aswell as to the Norwegian Metacenter forComputational Science.
+Last but not least,we are indebted to the anonymous reviewersfor their careful reading and insightfulcomments.ReferencesBrants, Thorsten.
+2000.
+TnT.
+A statisticalPart-of-Speech tagger.
+In Proceedings ofthe Sixth Conference on Applied NaturalLanguage Processing, pages 224?231,Seattle, WA.Butt, Miriam, Helge Dyvik, Tracy HollowayKing, Hiroshi Masuichi, and ChristianRohrer.
+2002.
+The Parallel GrammarProject.
+In Proceedings of the COLINGWorkshop on Grammar Engineering andEvaluation, pages 1?7, Taipei.Callmeier, Ulrich.
+2002.
+Preprocessing andencoding techniques in PET.
+In StephanOepen, Daniel Flickinger, Jun?ichi Tsujii,and Hans Uszkoreit, editors, CollaborativeLanguage Engineering.
+A Case Study inEfficient Grammar-based Processing.
+CSLIPublications, Stanford, CA, pages 127?143.Collier, Nigel, Hyun S. Park, Norihiro Ogata,Yuka Tateishi, Chikashi Nobata, TomokoOhta, Tateshi Sekimizu, Hisao Imai,Katsutoshi Ibushi, and Jun I. Tsujii.
+1999.The GENIA project: Corpus-basedknowledge acquisition and informationextraction from genome research papers.In Proceedings of the 9th Conference of theEuropean Chapter of the ACL, pages 271?272,Bergen.Councill, Isaac G., Ryan McDonald, andLeonid Velikovich.
+2010.
+What?s greatand what?s not: Learning to classify thescope of negation for improved sentiment407Computational Linguistics Volume 38, Number 2analysis.
+In Proceedings of the Workshopon Negation and Speculation in NaturalLanguage Processing, pages 51?59, Uppsala.Crouch, Dick, Mary Dalrymple, Ron Kaplan,Tracy King, John Maxwell, and PaulaNewman.
+2008.
+XLE documentation.
+PaloAlto Research Center, Palo Alto, CA.Farkas, Richard, Veronika Vincze, GyorgyMora, Janos Csirik, and Gy?rgy Szarvas.2010.
+The CoNLL 2010 Shared Task:Learning to detect hedges and their scopein natural language text.
+In Proceedings ofthe 14th Conference on Natural LanguageLearning, pages 1?12, Uppsala.Flickinger, Dan.
+2002.
+On building a moreefficient grammar by exploiting types.In Stephan Oepen, Dan Flickinger,Jun?ichi Tsujii, and Hans Uszkoreit,editors, Collaborative Language Engineering:A Case Study in Efficient Grammar-basedProcessing.
+CSLI Publications, Stanford,CA, pages 1?17.Gildea, Daniel.
+2001.
+Corpus variation andparser performance.
+In Proceedings of the2001 Conference on Empirical Methodsin Natural Language Processing,pages 167?202, Pittsburgh, PA.Joachims, Thorsten.
+1999.
+Making large-scaleSVM learning practical.
+In BernhardSch?lkopf, Christopher J. C. Burges, andAlexander J. Smola, editors, Advances inKernel Methods: Support Vector Learning.MIT Press, Cambridge, MA, pages 41?56.Joachims, Thorsten.
+2002.
+Optimizingsearch engines using clickthrough data.In Proceedings of the Eighth ACM SIGKDDInternational Conference on KnowledgeDiscovery and Data Mining, pages 133?142,Alberta.Johansson, Richard and Pierre Nugues.
+2007.Extended constituent-to-dependencyconversion for English.
+In Proceedings of16th Nordic Conference of ComputationalLinguistics, pages 105?112, Tartu.Johnson, Mark, Stuart Geman, StephenCanon, Zhiyi Chi, and Stefan Riezler.1999.
+Estimators for stochasticunification-based grammars.
+In Proceedingsof the 37th Meeting of the Association forComputational Linguistics, pages 535?541,College Park, MD.Kilicoglu, Halil and Sabine Bergler.
+2010.A high-precision approach to detectinghedges and their scopes.
+In Proceedings ofthe 14th Conference on Natural LanguageLearning, pages 70?77, Uppsala.Light, Marc, Xin Ying Qiu, and PadminiSrinivasan.
+2004.
+The language ofbioscience: Facts, speculations, andstatements in between.
+In Proceedingsof the HLT-NAACL 2004 Workshop:Biolink 2004, Linking Biological Literature,Ontologies and Databases, pages 17?24,Boston, MA.MacKinlay, Andrew, Rebecca Dridan,Dan Flickinger, Stephan Oepen, andTimothy Baldwin.
+2011.
+Treeblazing:Using external treebanks to filter parseforests for parse selection and treebanking.In Proceedings of the 5th International JointConference on Natural Language Processing,pages 246?254, Chiang Mai.Malouf, Robert and Gertjan van Noord.
+2004.Wide coverage parsing with stochasticattribute value grammars.
+In Proceedingsof the IJCNLP Workshop Beyond ShallowAnalysis, Hainan.Marcus, Mitchell P., Beatrice Santorini, andMary Ann Marcinkiewicz.
+1993.
+Building alarge annotated corpus of English.
+ThePenn Treebank.
+Computational Linguistics,19(2):313?330.Martins, Andre F. T., Dipanjan Das, Noah A.Smith, and Eric P. Xing.
+2008.
+Stackingdependency parsers.
+In Proceedingsof the 2008 Conference on EmpiricalMethods in Natural Language Processing,pages 157?166, Waikiki, HI.Medlock, Ben and Ted Briscoe.
+2007.Weakly supervised learning for hedgeclassification in scientific literature.In Proceedings of the 45th Meeting of theAssociation for Computational Linguistics,pages 992?999, Prague.Moilanen, Karo and Stephen Pulman.
+2007.Sentiment composition.
+In Proceedingsof the International Conference on RecentAdvances in Natural Language Processing,pages 378?382, Borovets.Morante, Roser.
+2010.
+Descriptive analysisof negation cues in biomedical texts.In Proceedings of the 7th InternationalConference on Language Resources andEvaluation, pages 1429?1436, Valletta.Morante, Roser and Walter Daelemans.2009a.
+Learning the scope of hedge cuesin biomedical texts.
+In Proceedings of theBioNLP 2009 Workshop, pages 28?36,Boulder, CO.Morante, Roser and Walter Daelemans.2009b.
+A metalearning approach toprocessing the scope of negation.In Proceedings of the 13th Conference onNatural Language Learning, pages 21?29,Boulder, CO.Morante, Roser, Anthony Liekens, andWalter Daelemans.
+2008.
+Learning thescope of negation in biomedical texts.408Velldal et al Rules, Rankers, and the Role of SyntaxIn Proceedings of the 2008 Conference onEmpirical Methods in Natural LanguageProcessing, pages 715?724, Waikiki, HI.Morante, Roser, Vincent van Asch, andWalter Daelemans.
+2010.
+Memory-basedresolution of in-sentence scope of hedgecues.
+In Proceedings of the 14th Conferenceon Natural Language Learning, pages 40?47,Uppsala.Nivre, Joakim, Johan Hall, and Jens Nilsson.2006.
+MaltParser: A data-drivenparser-generator for dependency parsing.In Proceedings of the 5th InternationalConference on Language Resources andEvaluation, pages 2216?2219, Genoa.Nivre, Joakim and Ryan McDonald.2008.
+Integrating graph-based andtransition-based dependencyparsers.
+In Proceedings of the 46thMeeting of the Association forComputational Linguistics,pages 950?958, Columbus, OH.
+?vrelid, Lilja, Jonas Kuhn, and KathrinSpreyer.
+2009.
+Cross-frameworkparser stacking for data-drivendependency parsing.
+TAL specialissue on Machine Learning for NLP,50(3):109?138.
+?vrelid, Lilja, Erik Velldal, and StephanOepen.
+2010.
+Syntactic scope resolutionin uncertainty analysis.
+In Proceedingsof the 23rd International Conference onComputational Linguistics, pages 1379?1387,Beijing.Petrov, Slav and Dan Klein.
+2007.Improved inference for unlexicalizedparsing.
+In Proceedings of Human LanguageTechnologies: The Annual Conference of theNorth American Chapter of the Association forComputational Linguistics, pages 404?411,Rochester, NY.Pollard, Carl and Ivan A.
+Sag.
+1987.Information-Based Syntax and Semantics.Vol.
+1: Fundamentals.
+CSLI LectureNotes # 13.
+CSLI Press, Stanford, CA.Pollard, Carl and Ivan A.
+Sag.
+1994.Head-driven Phrase Structure Grammar.The University of Chicago Press andCSLI Publications, Chicago, IL.Rei, Marek and Ted Briscoe.
+2010.Combining manual rules and supervisedlearning for hedge cue and scopedetection.
+In Proceedings of the 14thConference on Natural Language Learning,pages 56?63, Uppsala.Riezler, Stefan, Tracy H. King, Ronald M.Kaplan, Richard Crouch, John T. Maxwell,and Mark Johnson.
+2002.
+Parsing the WallStreet Journal using a lexical-functionalgrammar and discriminative estimationtechniques.
+In Proceedings of the40th Meeting of the Association forComputational Linguistics, pages 271?278,Philadelphia, PA.Schmid, Helmut.
+1994.
+Probabilisticpart-of-speech tagging using decisiontrees.
+In International Conference onNew Methods in Language Processing,pages 44?49, Manchester.Szarvas, Gy?rgy.
+2008.
+Hedge classificationin biomedical texts with a weaklysupervised selection of keywords.
+InProceedings of the 46th Meeting of theAssociation for Computational Linguistics,pages 281?289, Columbus, OH.Tang, Buzhou, Xiaolong Wang, Xuan Wang,Bo Yuan, and Shixi Fan.
+2010.
+A cascademethod for detecting hedges and theirscope in natural language text.
+InProceedings of the 14th Conference onNatural Language Learning, pages 13?17,Uppsala.Toutanova, Kristina, Christopher D.Manning, Dan Flickinger, and StephanOepen.
+2005.
+Stochastic HPSG parsedisambiguation using the Redwoodscorpus.
+Research on Language andComputation, 3(1):83?105.Tsuruoka, Yoshimasa, Yuka Tateishi,Jin-Dong Kim, Tomoko Ohta, JohnMcNaught, Sophia Ananiadou, andJun?ichi Tsujii.
+2005.
+Developing a robustPart-of-Speech tagger for biomedical text.In P. Bozanis and E. Houstis, editors,Advances in Informatics.
+Springer, Berlin,pages 382?392.Velldal, Erik.
+2011.
+Predicting speculation:A simple disambiguation approachto hedge detection in biomedicalliterature.
+Journal of Biomedical Semantics,2(Suppl 5):S7.Velldal, Erik, Lilja ?vrelid, and StephanOepen.
+2010.
+Resolving speculation:MaxEnt cue classification anddependency-based scope rules.In Proceedings of the 14th Conference onNatural Language Learning, pages 48?55,Uppsala.Vincze, Veronika, Gy?rgy Szarvas, Rich?rdFarkas, Gy?rgy M?ra, and J?nos Csirik.2008.
+The BioScope corpus: Biomedicaltexts annotated for uncertainty, negationand their scopes.
+BMC Bioinformatics, 9(Suppl.
+11).Vlachos, Andreas and Mark Craven.
+2010.Detecting speculative language usingsyntactic dependencies and logisticregression.
+In Proceedings of the 14th409Computational Linguistics Volume 38, Number 2Conference on Natural Language Learning,pages 18?25, Uppsala.Zhang, Yi, Stephan Oepen, and JohnCarroll.
+2007.
+Efficiency inunification-based n-best parsing.
+InProceedings of the 10th InternationalConference on Parsing Technologies,pages 48?59, Prague.Zhang, Yi and Rui Wang.
+2009.Cross-domain dependency parsingusing a deep linguistic grammar.In Proceedings of the 47th Meeting of theAssociation for Computational Linguistics,pages 378?386, Singapore.Zhang, Yue and Joakim Nivre.
+2011.Transition-based dependency parsingwith rich non-local features.
+In Proceedingsof the 49th Meeting of the Association forComputational Linguistics, pages 188?193,Portland, OR.Zhu, Qiaoming, Junhui Li, HonglingWang, and Guodong Zhou.
+2010.A unified framework for scopelearning via simplified shallowsemantic parsing.
+In Proceedings of the2010 Conference on Empirical Methodsin Natural Language Processing,pages 714?724, Cambridge, MA.410

@@ -1,0 +1,397 @@
+AN EFFICIENT AUGMENTED-CONTEXT-FREE PARSING ALGORITHM 1Masaru  Tomi taComputer  Science DepartmentandCenter  for Machine TranslationCarnegie-Mel lon UniversityPittsburgh, PA 15213An efficient parsing algorithm for augmented context-free grammars i introduced, and its application toon-line natural anguage interfaces discussed.
+The algorithm is a generalized LR parsing algorithm, whichprecomputes an LR shift-reduce parsing table (possibly with multiple entries) from a given augmentedcontext-free grammar.
+Unlike the standard LR parsing algorithm, it can handle arbitrary context-freegrammars, including ambiguous grammars, while most of the LR efficiency is preserved by introducing theconcept of a "graph-structured stack".
+The graph-structured stack allows an LR shift-reduce parser tomaintain multiple parses without parsing any part of the input twice in the same way.
+We can also view ourparsing algorithm as an extended chart parsing algorithm efficiently guided by LR parsing tables.
+The algo-rithm is fast, due to the LR table precomputation.
+In several experiments with different English grammarsand sentences, timings indicate a five- to tenfold speed advantage over Earley's context-free parsing algo-rithm.The algorithm parses a sentence strictly from left to right on-line, that is, it starts parsing as soon as theuser types in the first word of a sentence, without waiting for completion of the sentence.
+A practicalon-line parser based on the algorithm has been implemented in Common Lisp, and running on Symbolicsand HP AI workstations.
+The parser is used in the multi-lingual machine translation project at CMU.
+Also,a commercial on-line parser for Japanese language is being built by Intelligent Technology Incorporation,based on the technique developed at CMU.1 INTRODUCTIONParsing efficiency is crucial when building practicalnatural language systems on smaller computers uch aspersonal workstations.
+This is especially the case forinteractive systems such as natural language databaseaccess, interfaces to expert systems, and interactivemachine translation.
+This paper introduces an efficienton-line parsing algorithm, and focuses on its practicalapplication to natural anguage interfaces.The algorithm can be viewed as a generalized LR pars-ing algorithm that can handle arbitrary context-freegrammars, including ambiguous grammars.
+Section 2describes the algorithm by .extending the standard LRparsing algorithm with the idea of a "graph-structuredstack".
+Section 3 describes how to represent parse treesefficiently, so that all possible parse trees (the parseforest) take at most polynomial space as the ambiguity ofa sentence grows exponentially.
+In section 4, severalexamples are given.
+Section 5 presents everal empiricalresults of the algorithm's practical performance, includingcomparison with Earley's algorithm.
+In section 6, wediscuss how to enhance the algorithm to handleaugmented context-free grammars rather than purecontext-free grammars.
+Section 7 describes the conceptof on-line parsing, taking advantage of left-to-right oper-ation of our parsing algorithm.
+The on-line parser parsesa sentence strictly from left to right, and starts parsing assoon as the user types in the first word, without waitingfor the end of line.
+Benefits of on-line parsing are thendiscussed.
+Finally, several versions of on-line parser havebeen implemented, and they are mentioned in section 8.2 THE CONTEXT-FREE PARSING ALGORITHMThe LR parsing algorithms (Aho and Ullman 1972, Ahoand Johnson 1974) were developed originally forprogramming languages.
+An LR parsing algorithm is aCopyright 1987 by the Association for Computational Linguistics.
+Permission tocopy without fee all or part of this material isgranted provided thatthe copies are not made for direct commercial dvantage and the CL reference and this copyright notice are included on the first page.
+To copyotherwise, or to republish, requires a fee and/or specific permission.0362-613X/87/010031-46503.00Computational Linguistics, Volume 13, Numbers 1-2, January-June 1987 31Masaru Tomita An Efficient Augmented-Context-Free Parsing Algorithmshift-reduce parsing algorithm deterministically guided bya parsing table indicating what action should be takennext.
+The parsing table can be obtained automaticallyfrom a context-free phrase structure grammar, using analgorithm first developed by DeRemer (1969, 1971).
+Wedo not describe the algorithms here, referring the readerto chapter 6 in Aho and Ullman (1977).
+We assume thatthe reader is familiar with the standard LR parsing algo-rithm (not necessarily with the parsing table constructionalgorithm).The LR paring algorithm is one of the most efficientparsing algorithms.
+It is totally deterministic, and nobacktracking or search is involved.
+Unfortunately, wecannot directly adopt the LR parsing technique fornatural anguages, because it is applicable only to a smallsubset of context-free grammars called LR grammars,and it is almost certain that any practical naturallanguage grammars are not LR.
+If a grammar is non-LR,its parsing table will have multiple entries; 1 one or moreof the action table entries will be multiply defined (Shie-ber 1983).
+Figures 2.1 and 2.2 show an example of anon-LR grammar and its parsing table.
+Grammar symbolsstarting with "*" represent pre-terminals.
+Entries "sh n"in the action table (the left part of the table) indicate theaction "shift one word from input buffer onto the stack,and go to state n".
+Entries "re n" indicate the action"reduce constituents on the stack using rule n".
+Theentry "ace" stands for the action "accept", and blankspaces represent "error".
+The goto table (the right partof the table) decides to what state the parser should goafter a reduce action.
+These operations shall becomeclear when we trace the algorithm with examplesentences in section 4.
+The exact definition and operationof the LR parser can be found in Aho and Ullman(1977).We can see that there are two multiple entries in theaction table; on the rows of state 11 and 12 at the(1) S - ->  NP VP(2 )  S - ->  S PP(3)  NP - ->  *n(4)  NP - ->  *det  *n(5)  NP - ->  NP PP(6)  PP - ->  *prep NP(7)  VP - ->  *v NPFigure 2.1.
+An example ambiguous grammar.column labeled "*prep".
+Roughly speaking, this is thesituation where the parser encounters a preposition of aPP right after a NP.
+If this PP does not modify the NP,then the parser can go ahead to reduce the NP into ahigher nonterminal such as PP or VP, using rule 6 or 7,respectively (re6.
+and re7 in the multiple entries).
+If, onthe other hand, the PP does modify the NP, then theparser must wait (sh6) until the PP is completed so it canbuild a higher NP using rule 5.It has been thought that, for LR parsing, multipleentries are fatal because once a parsing table has multipleentries, deterministic parsing is no longer possible andsome kind of non-determinism is necessary.
+We handlemultiple entries with a special technique, named a graph-structured stack.
+In order to introduce the concept, wefirst give a simpler form of non-determinism, and makerefinements on it.
+Subsection 2.1 describes a simple andstraightforward non-deterministic technique, that is,pseudo-parallelism (breadth-first search), in which thesystem maintains a number of stacks simultaneously,called the Stack List.
+A disadvantage of the stack list isthen described.
+The next subsection describes the idea ofstack combination, which was introduced in the author'searlier research (Tomita 1984), to make the algorithmmuch more efficient.
+With this idea, stacks are repres-ented as trees (or a forest).
+Finally, a further refinement,the graph-structured stack, is described to make the algo-012 sh73 shlO4 re3State *det *n *v *prep $ NP PP VP Ssh3 sh4 2 1sh6 acc 5sh6 9 856789101112re3 re3reZ re2sh3 sh4 11sh3 sh4 12re1 re1re5 re5 re5re4 re4 re4re6 re6 ,sh6  re6 9re7 ,sh6  re7 9Figure 2.2.
+LR parsing table with multiple entries.32 Computational Linguistics, Volume 13, Numbers 1-2, January-June 1987Masaru Tomita An Efficient Augmented-Context-Free Parsing Algorithmrithm even more efficient; efficient enough to run inpolynomial time.2.1 HANDLING MULTIPLE ENTRIES WITH STACK LISTThe simplest idea would be to handle multiple entriesnon-deterministically.
+We adopt pseudo-parallelism(breadth-first search), maintaining a list of stacks (theStack List).
+The pseudo-parallelism works as follows.A number of processes are operated in parallel.
+Eachprocess has a stack and behaves basically the same as instandard LR parsing.
+When a process encounters a multi-ple entry, the process is split into several processes (onefor each entry), by replicating its stack.
+When a processencounters an error entry, the process is killed, byremoving its stack from the stack list.
+All processes aresynchronized; they shift a word at the same time so thatthey always look at the same word.
+Thus, if a processencounters a shift action, it waits until all other processesalso encounter a (possibly different) shift action.Figure 2.3 shows a snapshot of the stack list right aftershifting the word with in the sentence I saw a man on thebed in the apartment with a telescope using the grammar inFigure 2.1 and the parsing table in Figure 2.2.
+For thesake of convenience, we denote a stack with vertices andedges.
+The leftmost vertex is the bottom of the stack,and the rightmost vertex is the top of the stack.
+Verticesrepresented by a circle are called state vertices, and theyrepresent a state number.
+Vertices represented by asquare are called symbol vertices, and they represent agrammar symbol.
+Each stack is exactly the same as astack in the standard LR parsing algorithm.
+The distancebetween vertices (length of an edge) does not have anysignificance, xcept it may help the reader understand thestatus of the stacks.
+In the figures, "*p" stands for *prep,and "*d" stands for *det throughout this paper.Since the sentence is 14-way ambiguous, the stack hasbeen split into 14 stacks.
+For example, the sixth stack(0 S 1 *p 6 NP 11 *p 6)is in the status where I saw a man on the bed has beenreduced into S, and the apartment has been reduced intoNP.
+From the LR parsing table, we know that the top ofthe stack, state 6, is expecting *det or *n and eventually aNP.
+Thus, after a telescope comes in, a PP with a telescopewill be formed, and the PP will modify the NP the apart-ment, and in the apartment will modify the S I saw a man.We notice that some stacks in the stack list appear tobe identical.
+This is because they "have reached thecurrent state in different ways.
+For example, the sixthand seventh stacks are identical, because I saw a man onthe bed has been reduced into S in two different ways.A disadvantage of the stack list method is that thereare no interconnections between stacks (processes), andthere is no way in which a process can utilize what otherprocesses have done already.
+The number of stacks in thestack list grows exponentially as ambiguities areencountered.
+3 For example, these 14 processes in Figure2.3 will parse the rest of the sentence the telescope 140 S I *P 60 5 1 *P 60 5 1 ~ 6O 5 ~ ~P 60 S 1 ~P 5 NP !1 ~P &0 S I QP & NP 11 ~P 50 NP 2 ~v 7 NP 12 ~p 6 NP I1 *P 60 NP 2 *v  7 NP 12 *p 6 ~ !1 *P 8 NP ~ *P 6 A i A m A n A ~ A ~ o ~  ~O S 1 ~ 6 NP I I  *p 6 NP 11 *P 60 NP 2 ~v 7 NP 12 ~p 6 NP I1 ~P 6 J m J m J a J m ~  i J a J0 $ 1 ~P 6 NP I1 *P 6u ~ n  v m ~ u ~0 NP 2 Ov 7 NP I !
+op AO NP 2 *v 7 NP I1 *P 8 A D A i ~  i A m A  ~ m ~ i ~  i ~ i ~Figure 2.3.
+Stack list: after shifting with inI saw a man on the bed in the apartment with a telescope(with the the grammar and the table in Figures 2.1 and 2.2).times in exactly the same way.
+This can be avoided byusing a tree-structured stack, which is described in thefollowing subsection.2.2 WITH A TREE-STRUCTURE STACKIf two processes are in a common state, that is, if twostacks have a common state number at the rightmostvertex, they will behave in exactly the same manner untilthe vertex is popped from the stacks by a reduce action.To avoid this redundant operation, these processes areunified into one process by combining their stacks.Whenever two or more processes have a common statenumber on the top of their stacks, the top vertices areunified, and these stacks are represented as a tree, wherethe top vertex corresponds to the root Of the tree.
+We callthis a tree-structured stack.
+When the top vertex ispopped, the tree-structured stack is split into the originalnumber of stacks.
+In general, the system maintains anumber of tree-structured stacks in parallel, so stacks arerepresented as a forest.
+Figure 2.4 shows a snapshot ofthe tree-structured stack immediately after shifting theword with.
+In contrast o the previous example, the tele-scope will be parsed only once.Although the amount of computation is significantlyreduced by the stack combination technique, the numberof branches of the tree-structured stack (the number ofComputational Linguistics, Volume 13, Numbers 1-2, January-June 1987 33Masaru Tomita An Efficient Augmented-Context-Free Parsing Algorithmo0- - - - - .
+.
+.
+.
+.
+.
+, _ _~ , ~6- ' :O'mNP ~ 6v  ~ _ " ~ ~ _  .
+.
+/  oQ ; ' ;  ~ '= ~-" - =,2Figure 2.4.
+A tree-structured stack.
+Figure 2.5.
+A graph-structured stack.bottoms of the stack) that must be maintained still growsexponentially as ambiguities are encountered.
+In the nextsubsection, we describe a further modification in whichstacks are represented as a directed acyclic graph, inorder to avoid such inefficiency.2.3 WITH A GRAPH-STRUCTURE STACKSo far, when a stack is split, a copy of the whole stack ismade.
+However, we do not necessarily have to copy thewhole stack: even after different parallel operations onthe tree-structured stack, the bottom portion of the stackmay remain the same.
+Only the necessary portion of thestack should therefore be split.
+When a stack is split, thestack is thus represented as a tree, where the bottom ofthe stack corresponds to the root of the tree.
+With thestack combination technique described in the previoussubsection, stacks are represented as a directed acyclicgraph.
+Figure 2.5 shows a snapshot of the graph stack.
+Itis easy to show that the algorithm with the graph-struc-tured stack does not parse any part of an input sentencemore than once in the same way.
+This is because, if twoprocesses had parsed a part of a sentence in the sameway, they would have been in the same state, and theywould have been combined as one process.The graph-structured stack looks very similar to achart in chart parsing.
+In fact, one can also view ouralgorithm as an extended chart parsing algorithm that isguided by LR parsing tables.
+The major extension is thatnodes in the chart contain more information (LR statenumbers) than in conventional chart parsing.
+In thispaper, however, we describe the algorithm as a general-ized LR parsing algorithm only.So far, we have focussed on how to accept or reject asentence.
+In practice, however, the parser must not onlyaccept or reject sentences but also build the syntacticstructure(s) of the sentence (parse forest).
+The nextsection describes how to represent he parse forest andhow to build it with our parsing algorithm.3 AN EFFICIENT REPRESENTATION OF A PARSE FORESTOur parsing algorithm is an all-path parsing algorithm;that is, it produces all possible parses in case an inputsentence is ambiguous.
+Such all-path parsing is oftenneeded in natural anguage processing to manage tempo-rarily or absolutely ambiguous input sentences.
+Theambiguity (the number of parses) of a sentence maygrow exponentially as the length of a sentence grows(Church and Patil 1982).
+Thus, one might notice that,even with an efficient parsing algorithm such as the onewe described, the parser would take exponential timebecause exponential time would be required merely toprint out all parse trees (parse forest).
+We must thereforeprovide an efficient representation so that the size of theparse forest does not grow exponentially.This section describes two techniques for providing anefficient representation: subtree sharing and local ambi-guity packing.
+It should be mentioned that these twotechniques are not completely new ideas, and some exist-ing systems (e.g., Earley's (1970) algorithm) havealready adopted these techniques, either implicitly orexplicitly.3.1 SUB-TREE SHARINGIf two or more trees have a common subtree, the subtreeshould be represented only once.
+For example, the parseforest for the sentence I saw a man in the park  with atelescope should be represented as in Figure 3.1.To implement his, we no longer push grammaticalsymbols on the stack; instead, we push pointers to a nodeof the shared forest.
+4When the parser "shifts" a word, itcreates a leaf node labeled with the word and the pre-ter-minal, and, instead of the pre-terminal symbol, a pointerto the newly created leaf node is pushed onto the stack.If the exact same leaf node (i.e., the node labeled withthe same word and the same pre-terminal) already exists,a pointer to this existing node is pushed onto the stack,without creating another node.
+When the parser"reduces" the stack, it pops pointers from the stack,34 Computational Linguistics, Volume 13, Numbers 1-2, January-June 1987Masaru Tomila An Efficient Augmented-Context-Free Parsing AlgorilhmS$*n *v  *el *nI saw a man5 Sp d *n "p *el *nIn the apt wTth a telFigure 3.1.
+Unpacked shared forest.creates a new node whose successive nodes are pointedto by those popped pointers, and pushes a pointer to thenewly created node onto the stack.Using this relatively simple procedure, our parsingalgorithm can produce the shared forest as its outputwithout any other special book-keeping mechanism,because it never does the same reduce action twice in thesame manner.3.2 LOCAL AMBIGUITY PACKINGWe say that two or more subtrees represent local ambigu-ity if they have common leaf nodes and their top nodesare labeled with the same non-terminal symbol.
+That is tosay, a fragment of a sentence is locally ambiguous if thefragment can be reduced to a certain non-terminalsymbol in two or more ways.
+If a sentence has many localambiguities, the total ambiguity would grow exponential-ly.
+To avoid this, we use a technique called local ambigui-ty packing, which works in the following way.
+The topnodes of subtrees that represent local ambiguity aremerged and treated by higher-level structures as if therewere only one node.
+Such a node is called a packed node,and nodes before packing are called subnodes of thepacked node.
+An example of a shared-packed forest isshown in Figure 3.2.
+Packed nodes are represented byboxes.
+We have three packed nodes in Figure 3.2; onewith three subnodes and two with two subnodes.Local ambiguity packing can be easily implementedwith our parsing algorithm as follows.
+In the graph-struc-tured stack, if two or more symbol vertices have acommon state vertex immediately on their left and acommon state vertex immediately on their right, theyrepresent local ambiguity.
+Nodes pointed to by thesesymbol vertices are to be packed as one node.
+In Figure2.5, for example, we see one 5-way local ambiguity andtwo 2-way local ambiguities.
+The algorithm is made clearby the example in the following section./"1'1 tV 'Dcl *N ~D *~ ~n ~p *el *nI saw a man in the al~t wi th  a telFigure 3.2.
+Packed shared forest.Recently, the author (Tomita 1986) suggested a tech-nique to disambiguate a sentence out of the shared-packed forest representation by asking the user a minimalnumber of questions in natural anguage (without show-ing any tree structures).4 EXAMPLESThis section presents three examples.
+The first example,using the sentence I saw a man in the apartment with atelescope, is intended to help the reader understand thealgorithm m6re clearly.The second example, with the sentence That informa-tion is important is doubtful is presented to demonstratethat our algorithm is able to handle multi-part-of-speechwords without any special mechanism.
+In the sentence,that is a multi-part-of-speech word, because it could alsobe a determiner or a pronoun.The third example is provided to show that the algo-rithm is also able to handle unknown words by consider-ing an unknown word as a special multi-part-of-speechword whose part of speech can be anything.
+We use anexample sentence I * a *, where *s represent unknownwords.4.1 THE EXAMPLEThis subsection gives a trace of the algorithm with thegrammar in Figure 2.1, the parsing table in Figure 2.2,and the sentence I saw a man in the park with a telescope.At the very beginning, the stack contains only onevertex labeled 0, and the parse forest contains nothing.By looking at the action table, the next action, "shift 4",is determined as in standard LR parsing.ONext Word = T ?
+I sb41Computational Linguistics, Volume 13, Numbers 1-2, January-June 1987 35Masaru Tomita An Efficient Augmented-Context-Free Parsing AlgorithmWhen shifting the word I, the algorithm creates a leafnode in the parse forest labeled with the word I and itspreterminal *n, and pushes a pointer to the leaf nodeonto the stack.
+The next action, "reduce 3, is determinedfrom the action table.Next Word = 'saw'o o 4I reS1 0 \ [ 'n  ' I ' \ ]We reduce the stack basically in the same manner asstandard LR parsing.
+It pops the top vertex "4" and thepointer "0" from the stack, and creates a new node in theparse forest whose successor is the node pointed to bythe pointer.
+The newly created node is labeled with theNext  Word  = 'saw'left-hand side symbol of rule 3, namely "NP".
+The point-er to this newly created node, namely "1", is pushed ontothe stack.
+The action, "shift 7", is determined as the nextaction.
+Now, we have0 1 2 0 \ [ 'n  ' I ' \ ]i sb?
+l  | \[NP (0 ) \ ]After executing "shift 7", we haveNext Word = 'a'0 \ [ 'n  ' I ' \ ]0 !
+2 2 7 I (NP (0 ) )O- IHHl -e  tsh sl z (.v 'sa,'\]After executing "shift 3", we haveNext  Word = 'man'o I 2 2 7~ dllk aim d lho ( - ,  ' t ' )3 3 = ~ \[sh Io l  t the (0 ) )w Z ( 'v  ' sa . '
+\ ]3 \ [ *dot  'm"\]After executing "shift 10", we haveNext Word = 'in'0 .I, 2 2 7WW m WP' me0 ( ' .  '
+l ' \ ]3 3 4 Io  t \[NP (0 ) )am MEt ?
+w qW m ~ \[ro 41 t \ [ ?v  ' saw' \ ]3 \[ 'd iet 'a ?
+)4 \ [ * r l  'man'\]The next action is "reduce 4".
+It pops pointers, "3"and "4", and creates a new node in the parse forest suchthat node 3 and node 4 are its successors.
+The newlyNext  Word = 'in'created node is labeled with the left-hand side symbol ofrule 4, i.e., "NP".
+The pointer to this newly created node,"5", is pushed onto the stack.
+We now have0 !
+2 2 ?
+~ 12 I r - ?
+)- -  w - -  w - .
+, -  lsk-.La0 ( 'n  ' I ' \ ]1 (NP (0 ) )I ( ' v  ' saw' \ ]3 \ [ 'det  'a ' \ ]4 ,\[*n "man'\]5 (NP (3 4 ) )At this point, we encounter a multiple entry, "reduce7" and "shift 6", and both actions are to be executed.Reduce actions are always executed first, and shiftactions are executed only when there is no remainingreduce action to execute.
+In this way, the parser worksstrictly from left to right; it does everything that can bedone before shifting the next word.
+After executing"reduce 7", the stack and the parse forest look like thefollowing.
+The top vertex labeled "12" is not poppedaway, because it still has an action not yet executed.
+Sucha top vertex, or more generally, vertices with one or moreactions yet to be executed, are called "active".
+Thus, wehave two active vertices in the stack above: one labeled"12", and the other labeled "8".
+The action "reduce 1"is determined from the action table, and is associatedwith the latter vertex.36 Computational Linguistics, Volume 13, Numbers 1-2, January-June 1987Masaru Tomita An Efficient Augmented-Context-Free Parsing AlgorithmNext Word = ' in'2 2 5 12l r .
+t I0 ('n ' I ' \ ]I \[.P (o))z (-v 'say' \ ]3 \ [ 'det 'a ' \ ]4 \[ 'n 'man'\]S \[NP (3 4)\]6 (vp (z s))Because reduce actions have a higher priority thanshift actions, the algorithm next executes "reduce 1" onthe vertex labeled "8".
+The action "shift 6" is deter-mined from the action table.Next Word = 'in'o , i 2.
+2. t , , , \ ]q P ~ i ~  I tier u IIsk s lO\[ 'n 'X ' \ ]t ("P (0)\]Z ( 'v  'Saw'\]3 \['~Ot 'a ' \ ]4 ( 'n 'mn ' \ ]s (.P (a 4)\]+ (vp (z s)\]7 \[s ( t  6)\]Now we have two "shift 6'"s. The parser, however,creates only one new leaf node in the parse forest.
+Afterexecuting two shift actions, it combines vertices in thestack wherever possible.
+The stack and the parse forestlook like the following, and "shift 3" is determined fromthe action table as the next action.Next Word = 'the'Jllk III dltw Ish 3)0 \[ 'n ' l ' \ ]I \[NP (0 ) \ ]Z \ [ 'v  'saw'\]3.
+\ [ 'det  'a ' \ ]4 \ [ 'n 'mn ' \ ]s \[.P (3 4))6 \[VP (Z 5))7 ts (1 6))8 \['prep '4n'\]After about 20 steps (see below), the action "accept"is finally executed.
+It returns "25" as the top node of theparse forest, and halts the process.o t 2 2 ?
+5 12I I  I l l1.41I I  I Iire slIm slIre SlS Ire Zll i t  s l~ ,  , /  - - t,.,,~ S  Ire I I7 i ~ I  It.
+IIs InllI+ i l\ ,~ $  k .
+21o !
+| 2 ?
+5 I |  !
+?
+it I I  1.141Isi i lo t ~ 2_?_' ?_+ ~ g_~!L , , t ,I~  Io iComputational Linguistics, Volume 13, Numbers 1-2, January-June 1987 37Masaru Tomita?
+I 2 2 ?
+~ I~ O ?
+I!
+I1Ire 41Ire t l0 I 2 2 ?
+S 12 9 ?
+It I I20~ Ire SlI re !10 i 2 ~ ?
+~ 12 8 6 21 t !Ire SlI re61Ire 21An Efficient Augmented-Context-Free Parsing AlgorithmIce OI(re 1|-?
+'- -z ~ Z 2 '2  23 ," - ~ - -  --- ,L t .oS l0 t 2 2 ?
+222 12Ire 71(to l ' |0 I 2I,* t IIre 21I~o lIre ~l?
+:z~ vO----11--O am!The final parse forest iso C'" ' t ' \ ]t (Np (0)1Z ( 'v ' sa , , ' \ ]C'aot ' , '  \]4 ( 'n ' - an ' \ ]s C.P (3 4)\]e CVP (z s)\]tO \[-n 'DIrk ' \ ]  Z~ \[PP (tO {9)\]11 \[,P (g tO)\] Zl C.e !11 20)\]tz CPp (e t t ) \ ]  zz Cue (I3 zo)\]13 ( .p (s tz) \]  z3 fpp (s 21)\]14 Cup (z t3)1 zt CVP 12 zz ) \ ]tS \ [S  (1 14) (7 12)\] ZS (S ( t  Z4) (IS 22) ' (7  Z3)\]18 \[eprop 'wt th ' \ ]7 Cs (1 e)\] 17 ( 'sot 'a ' \ ]8 ('prep "on'\] t$ ( 'n "s?opo'\]C'eot ' tno ' J  tg (NP (17 ~e)\]4.2 MANAGING MULTI-PART-OF-SPEECH WORDSThis subsection gives a trace of the algorithm with thesentence That information is important is doubtful, todemonstrate that our algorithm can handle multi-part-of-speech words (in this sentence, that) just like multipleentries without any special mechanism.
+We use the gram-mar at the right and the parsing table below.
+(1) S - -> NP VP(2 )  NP - ->  *det  "n(3 )  NP - ->  *n(4 )  NP - ->  * that  S(5 )  VP - ->  *be *ad j01234S678910State *adJ *bo "det *n * that  $ NP S VPsh5 sh4 sh3 2 1Accsh6  7sh5 sh4 sh3 2 8to3sh9ShlOrot  ro tto4re2re5 reS38 Computational Linguistics, Volume 13, Numbers 1-2, January-June 1987Masaru Tomita An Efficient Augmented-Context-Free Parsing AlgorithmAt the very beginning, the parse forest contains noth-ing, and the stack contains only one vertex, labeled 0.The first word of the sentence is that, which can be cate-gorized as *that, *det or *n. The action table tells us thatNext Word = 'that'all of these categories are legal.
+Thus, the algorithmbehaves as if a multiple entry is encountered.
+Threeactions, "shift 3", "shift 4", and "shift 5", are to beexecuted.o Is.
+siO ish 4\]lsh 51After executing those three shift actions, we haveNext Word = ' in format ion '0 3O~__O (sh 41|error \] 0 \ [ ' that  ' that ' \ ]  1 \[*n ' that ' \ ]Z \ [ 'det  ' that ' \ ]Note that three different leaf nodes have been createdin the parse forest.
+One of the three possibilities, that asa noun, is discarded immediately after the parser sees theNext Word = 'is'next word information.actions, we have0 3 3 40 2 ~  Ire 31Ire 21After executing the two shift0 \ [ ' that  ' that ' \ ]1 \[ 'n ' that ' \ ]2 ( 'aet ' that ' \ ]3 \[ 'n 'Information'\]This time, only one leaf node has been created in theparse forest, because both shift actions regarded theword as belonging to the same category, i.e., noun.
+NowNext Word = 'is'we have two active vertices, and "reduce 3" is arbitrarilychosen as the next action to execute.
+After executing"reduce 3", we have0 0 3 4 2 0 \ [ ' that  ' that ' \ ]0 2 ~  1 \ [ 'n  ' that ' \ ]  lsh61 2 \ [ 'det  ' that ' \ ]\[re 21 3 \ [ 'n  ' tnromat' ion' \ ]4 \[NP (3)\]After executing "reduce 2", we haveNext Word = 'is'0 0 3 4 2 0 \ [ ' that  ' that ' \ ]1 \[an ' that ' \ ]\ [sh6l  2 \ [ 'aet  ' that ' \ ]~ ~.
+- '  3 \ [ 'n  ' tn romatton ' \ ]W 4 \[.P (3)\]s \[.P (z 3)\]After executing "shift 6", we haveNext Word = 'important'0 \ [ ' that  ' that ' \ ]O 0 3 4 2 6 6 I \[an ' that ' \ ]A m ,,h m A 2 \ [ 'dot  ' that ' \ ]'m',,.
+-- 'qw - -~  mm = \[sh 1O\] 3 \[*n ' inrormat|on' \ ]4 \[.P (3)\]s \[xP (z 3)\]8 \[eba ' tS ' \ ]After executing "shift 10", we haveNext Word = 'is'd lk  mm ~ mm-- -- w l reSl0 \ [ ' that  ' that ' \ ]I \ [ 'n  ' that ' \ ]2 \[*det ' that ' \ ]3 \[*n "information'\]4 \[NP (3)3S \[.P (Z 3)\]e \[-be ' i s ' \ ]7 \[*adj ' important' \]Computational Linguistics, Volume 13, Numbers 1-2, January-June 1987 39Masaru Tomita An Efficien!
+Augmented-Context-Free Parsing AlgorithmAfter  executing "reduce 5", we haveNext Word = 'is'0 0 3 4 2 B 7- -  ~ Ire I l m0 \ [ ' that  ' that ' \ ]1 \ [ 'n  ' that ' \ ]2 \ [ 'det  ' that ' \ ]3 \ [ 'n  ' in fo rmat ion ' \ ]4 \[NP (3) \ ]S \[NP (2 3)\]e \[-be ' t s ' \ ]7 \[*adJ ' Impor tant ' \ ]$ \[VP (6 7)\]Now, there are two ways to execute the action"reduce 1" After executing "reduce 1" in both ways,we have0 0 3 ~ 8\[re 41\ [error \ ]0 \ [ * that  ' that ' \ ]1 \[*n ' that ' \ ]2 \ [*det  ' that ' \ ]3 \[*n ' in fo rmat ion ' \ ]4 \[ .P (3) \ ]s \ [ .e  (z 3)\]e \[ 'ha ' i s ' \ ]7 \[*adj  ' important'\]o IV .
+(6 7)\]9 \[s (4 s)\]Next Word : 'is'An error action is finally found for the possibil ity, thatas a determiner.
+After  executing "reduce 4", we haveNext Word = 'is'0 i1 2\[sh 610 \ [ ' that  ' that ' \ ]  8 \[VP (6 7)31 \ [ 'n  ' that ' \ ]  9 \[S (4 8)32 \ [ .net  ' that ' \ ]  10 IS (5 8)\]3 \[*n ' In format ion ' \ ]  11 \[NP (0 9)\]4 \[NP (3) \ ]S \["P (Z 3 ) I6 \[*be ' t s ' \ ]7 \[*adj ' Important ' \ ]After executing "shift 6", and several steps later, wehave\[sh 10\]Next Word = '$'0 It 2 ~ 6 13 I0d lk  n l i m ~.m 'qW m ~ m 'qlW0 |~ 2 14 7Ire I l\[oc?lIre 510 \ [* that  ' that ' \ ]1 \ [ 'n  ' that ' \ ]2 \ [ 'det  ' that ' \ ]3 \[*n ' in format ion ' \ ]4 \[NP (3) \ ]S \[nP (2 3)\]e \[*be ' i s ' \ ]7 \[*adj ' important'\]e \[vP (6 7)\]\[s (4 8)\]lo \[s (s 8)\]t l  \[NP (o 9) \ ]tz \[ 'be ' i s ' \ ]13 \ [*adj 'doubtful ' \ ]14 \[VP (12 13)\]xs IS (11 14)\]The parser accepts the sentence, and returns "15"  asthe top node of the parse forest.
+The forest consists ofonly one tree which is the desired structure for Thatinformation is important is doubtful.4.3 MANAGING UNKNOWN WORDSIn the previous subsection, we saw the parsing algorithmhandling a mult i -part-of-speech word just like multipleentries without any special mechanism.
+That capabil i tycan also be applied to handle unknown words (wordswhose categories are unknown).
+An  unknown word canbe thought of as a special type of a mult i -part -of -speechword whose categories can be anything.
+In the following,we present another trace of the parser with the sentenceI * a * where *s represent an unknown word.
+We usethe same grammar and parsing table as in the first exam-ple (Figures 2.1 and 2.2).At  the very beginning, we haveoNextWord = '1' ?
+\[sh 4140 Computational Linguistics, Volume 13, Numbers 1-2, January-June 1987Masaru Tomita An Efficient Augmented-Conlexl-Free Parsing AlgorithmAfter executing "shift 4", we haveNext Word = '* '0 0 ?
+o \[ 'n 'x ' )Ire slAt this point, the parser is looking at the unknownword, "*";  in other words, a word whose categories are*det, *n, *v and *prep.
+On row 4 of the action table, weNext Word = '* 'have only one kind of action, "reduce 3".
+Thus the algo-rithm executes only the action "reduce 3", after whichwe haveI,h ~l 1 \[.pOn row 2 of the action table, there are two kinds ofactions, "shift 6" and "shift 7".
+This means the unknownNext Word = 'a'word has two possibilities, as a preposit ion or a verb.After  executing both actions, we have2 6o nn-O ( .
+.31v - v,,, sH \[sh 31e \[ 'n ' I ' \ ]I \[Np (0)\]Z \['prep ' " \ ]3 (.v ' - ' \ ]After executing "shift 3" twice, we haveNext Word = '*'2 60 i 2./iN-'A,,, 4 3e,-mHi.. 3 7 m--e \[;h IOJo \['n 'x ' \ ]I \[.P (o)\]2 \[*prep ' * ' \ ]3 \[ 'v  ' " \ ]4 \ [ 'det  'a ' \ ]At this point, the parser is again looking at theunknown word, "*".
+However,  since there is only oneentry on row 3 in the action table, we can uniquely deter-Next Word = '$'mine the category of the unknown word, which is a noun.After  shifting the unknown word as a noun, we have2 6Q - ~ - ~ I ~ \ ] I - .
+~  0 \[re ?
+lO\[ 'n 'X ' \ ]t \[NP (0)\]Z \['prep ' " \ ]3 ( 'v ' " \ ]4 \[ 'aet 'a ' \ ]6 \ [ 'n ' " \ ]After executing "reduce 4", we haveNext Word = '$'2 G 6 11Ire 6\]~r -- ~ Ire 710 \ [ 'n  ' I ' \ ]I \ [ .p  (o)\]2 \[*prep ' * ' \ ]3 \ [ - ,  ' . '
+\ ]4 \[*net.
+'e ' \ ]S \ [ ' .  '
+" )e \[NP (4 5)\]After executing both "reduce 6" and "reduce 7", wehaveNext Word = '$'7 98 ire 5lI t ,  !
+I0 \ [ 'n  'X ' \ ]t \[NP (0)32 \['prep '0 '33 \ [ 'v  ' " \ ]4 I -act  'a ' \ ]s \ [ ' .  '
+" )a C"P (4 s)\]7 CPP (z 8)\]a \[vP (3 8)\]Computational Linguistics, Volume 13, Numbers 1-2, January-June 1987 41Masarn Tomita An Efficient Augmented-Context-Free Parsing AlgorithmAfter executing both "reduce 5" and "reduce 1", wehaveNext Word = '$'9 20 I ~ 0  I err?r |lac?io \['n ' I ' \ ]s\[Ne (0)\]Z \['prep ,e , \ ]3 \[-v ' - ' \ ]4 \[*det 'a ' \ ]S \['n ' " \ ]s \[.e (4 5)\]7 \[pP (2 e)\]8 \[VP (3 6) \ ]9 \[NP (1 7)\]1o (s (1 e))The possibility of the first unknown word being apreposition has now disappeared.
+The parser accepts thesentence in only one way, and returns "10" as the rootnode of the parse forest.We have shown that our parsing algorithm can handleunknown words without any special mechanism.5 EMPIRICAL RESULTSIn this section, we present some empirical results of thealgorithm's practical performance.
+Since space is limited,we only show the highlights of the results, referring thereader to chapter 6 of Tomita (1985) for more detail.Figure 5.1 shows the relationship between parsing timeof the Tomita algorithm and the length of input sentence,and Figure 5.2 shows the comparison with Earley's algo-rithm (or active chart parsing), using a sample Englishgrammar that consists of 220 context-free rules and 40sample sentences taken from actual publications.
+Allprograms are run on DEC-20 and written in MacLisp, butnot compiled.
+Although the experiment is informal, theresult show that the Tomita algorithm is about 5 to 10times faster than Earley's algorithm, due to the pre-com-pilation of the grammar into the LR table.
+The~.90e ~8QE 7?b.S615oo oo ooo ooo Oo00o~o o o?
+o ~OoO o~oon ?
+i5 10 15000i i i m20 25  30  35Sentence Length (words)30~J~.
+2?1Co ?
+o oo8 s?o o ~oO o o$ o oo o?o  oo0 o| i i5 10 15i i i0 25  30  35Sentence Length (words)Figure 5.1.
+Parsing time and sentence length.
+Figure 5.2.
+Earley/Tomita ratio.~121.O 50 100 150 200 250 300 350 400Grammar  S ize (TI)e number ,of Rules)~800,oo3 6oo,QE 6oo I:Q.?
+400~ 300~ 2000e0000O0oooo.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+i .
+.
+.
+.
+.
+.
+.
+.
+i i  .
+.
+.
+.
+.10 I00  1000 10000 100000 1000000Sentence Ambiguity (the number of parses)Figure 5.3.
+Earley/Tomita ratio and grammar size.
+Figure 5.4.
+Size of parse forest and ambiguity.42 Computational Linguistics, Volume 13, Numbers i-2, January-June 1987Masaru Tomita An Efficient Augmented-Context-Free Parsing AlgorilhmEarley/Tomita ratio seems to increase as the size ofgrammar grows as shown in Figure 5.3.
+Figure 5.4 showsthe relationship between the size of a produced shared-packed forest representation (in terms of the number ofnodes) and the ambiguity of its input sentence (thenumber of possible parses).
+The sample sentences arecreated from the following schema.noun verb det noun (prep det noun)n-1An example sentence with this structure isI saw a man in the park on the hill with a telescope ....The result shows that all possible parses can be repres-ented in almost O(log n) space, where n is the number ofpossible parses in a sentence.
+5Figure 5.5 shows the relationship between the parsingtime and the ambiguity of a sentence.
+Recall that withinthe given time the algorithm produces all possible parsesin the shared-packed forest representation.
+It isconcluded that our algorithm can parse (and produce aforest for) a very ambiguous entence with a millionpossible parses in a reasonable time.?
+~ 600qb .L2500400E ==300zoo0 100oo.Nooooooooo10  100  1000 10000 100000 1000000Senlence Ambiguity (the number of parses)Figure 5.5.
+Parsing time and ambiguity.6 AUGMENTED CONTEXT-FREE GRAMMARSSo far, we have described the algorithm as a purecontext-free parsing algorithm.
+In practice, it is oftendesired for each grammar nonterminal to have attributes,and for each grammar ule to have an afigmentation todefine, pass, and test the attribute values.
+It is alsodesired to produce a functional structure (in the sense offunctional grammar formalism (Kay 1984, Bresnan andKaplan 1982) rather than the context-free forest.Subsection 6.1 describes the augmentation, andsubsection 6.2 discusses the shared-packed represen-tation for functional structures.6.1 THE AUGMENTATIONWe attach a Lisp function to each grammar ule for thisaugmentation.
+Whenever the parser reduces constituentsinto a higher-level nonterminal using a phrase structurerule, the Lisp program associated with the rule is evalu-ated.
+The Lisp program handles such aspects asconstruction of a syntax/semantic representation of theinput sentence, passing attribute values among constitu-ents at different levels and checking syntactic/semanticconstraints such as subject-verb agreement.If the Lisp function returns NIL, the parser does notdo the reduce action with the rule.
+If the Lisp functionreturns a non-NIL value, then this value is given to thenewly created non-terminal.
+The value includes attributesof the nonterminal and a partial syntactic/semanticrepresentation constructed thus far.
+Notice that thoseLisp functions can be precompiled into machine code bythe standard Lisp compiler.6.2 SHARING AND PACKING FUNCTIONAL STRUCTURESA functional structure used in the functional grammarformalisms (Kay 1984, Bresnan and Kaplan 1982, Shie-ber 1985) is in general a directed acyclic graph (dag)rather than a tree.
+This is because some value may beshared by two different attributes in the same sentence(e.g., the "agreement" attributes of subject and mainverb).
+Pereira (1985) introduced a method to share dagstructures.
+However, the dag structure sharing method ismuch more complex and computationally expensive thantree structure sharing.
+Therefore, we handle only tree-structured functional structures for the sake of efficiencyand simplicity.
+6 In the example, the "agreement" attri-butes of subject and main verb may thus have two differ-ent values.
+The identity of these two values is testedexplicitly by a test in the augmentation.
+Sharing tree-structured functional structures requires only a minormodification on the subtree sharing method for theshared-packed forest representation described insubsection 3.1.Local ambiguity packing for augmented context-freegrammars i not as easy.
+Suppose two certain nodes havebeen packed into one packed node.
+Although these twonodes have the same category name (e.g., NP), they mayhave different attribute values.
+When a certain test in theLisp function refers to an attribute of the packed node,its value may not be uniquely determined.
+In this case,the parser can no longer treat the packed node as onenode, and the parser will unpack the packed node intotwo individual nodes again.
+The question, then, is howoften this unpacking needs to take place in practice.
+Themore frequently it takes place, the less significant it is todo local ambiguity packing.
+However, most of sentenceambiguity comes from such phenomena s PP-attachmentand conjunction scoping, and it is unlikely to requireunpacking in these cases.
+For instance, consider the nounphrase:a man in the park with a telescope,which is locally ambiguous (whether telescope modifiesman or park).
+Two NP nodes (one for each interpreta-tion) will be packed into one node, but it is unlikely thatthe two NP nodes have different attribute values whichComputational Linguistics, Volume 13, Numbers 1-2, January-June 1987 43Masaru Tomita An Efficient Augmented-Context-Free Parsing Algorithmare referred to later by some tests in the augmentation.The same argument holds with the noun phrases:pregnant women and childrenlarge file equipmentAlthough more comprehensive experiments are desired, itis expected that only a few packed nodes need to beunpacked in practical applications.6.3 THE LFG COMPILERIt is in general very painful to create, extend, and modifyaugmentations written in Lisp.
+The Lisp functions shouldbe generated automatically from more abstract specifica-tions.
+We have implemented the LFG compiler thatcompiles augmentations in a higher level notation intoLisp functions.
+The notation is similar to the LexicalFunctional Grammar (LFG) formalism (Bresnan andKaplan 1982) and PATR-II (Shieber 1984).
+An exampleof the LFG-like notation and its compiled Lisp functionare shown in Figures 6.1 and 6.2.
+We generate onlynon-destructive functions with no side-effects to makesure that a process never alters other processes or theparser's control flow.
+A generated function takes a list ofarguments, each of which is a value associated with eachright-ha~d side symbol, and returns a value to be associ-ated with the left-hand side symbol.
+Each value is a listof f-structures, in case of disjunction and local ambiguity.That a semantic grammar in the LFG-like notation canalso be generated automatically from a domain semanticsspecification and a purely syntactic grammar is discussedfurther in Tomita and Carbonell (1986).
+The discussionis, however, beyond the scope of this paper.
+(<S> <==> (<NP> <VP>)( ( (x l  case) = nom)Figure 6.1.
+((x2 form) =c finite)(*OR"(((x2 :time) = present)((xl agr) = (x2.
+agr)))(((x2 :time) = past)))((xo) = (xz))((xO :mood) = dec)((xo subj) = (x l ) ) ) )Example grammar rule in theLFG-like notation.
+(<S> <==> (<NP> <VP>)(LAMBDA (XI X2)(LET ((X (LIST (LIST(AND(SETQ X(SETQ X(SETQ X(SETQ X(SETQ X(SETQ X(GETVALUE* X(CONS (,QUOTE X2) X2) (CONS (QUOTE XI) XI)))) )(UNIFYSETVALUE" (QUOTE (XI CASE)) (QUOTE (NOM))))(C-UNIFYSETVALUE" (QUOTE (X2 FORM)) (QUOTE (FINITE))))(APPEND(LET ((X X))(SETQ X (UNIFYSETVALUE" (QUOTE (X2 :TIME)) (QUOTE (PRESENT)))))(SETQ X (UNIFYVALUE* (QUOTE (X2 AGR)) (QUOTE (Xl AGR))))x)(LET ((X X))(SETQ X (UNIFYSETVALUE" (QUOTE (X2 :TIME)) (QUOTEx) ) )(UNIFYVALUE* (QUOTE (XO)) (QUOTE (X2))))(UNIFYSETVALUE* (QUOTE (XO :MOOD)) (QUOTE (DEC))))(UNIFYVALUE" (QUOTE (XO SUBJ)) (QUOTE (X1))))(QUOTE (XO)))))))(PAST))))Figure 6.2.
+The compiled grammar rule.44 Computational Linguistics, Volume 13, Numbers 1-2, January-June 1987Masaru Tomita An Efficient Augmented-Con(ext-Free Parsing Algorithm7 THE ON-L\]NEPARSEROur parsing algorithm parses a sentence strictly from leftto right.
+This characteristics makes on-line parsing possi-ble; i.e., to parse a sentence as the user types it in, with-out waiting for completion of the sentence.
+An examplesession of on-line parsing is presented in Figure 7.1 forthe sample sentence I saw a man with a telescope.>_>I>I>I sa_>I  saw>I  saw>\ ]  saw a_> I  saw a _> I  saw a b_> I  saw a bt_>!
+saw a b ig_> I  saw a b ig  _>1 saw a b ig  m>I  saw a b ig  ma_>I  saw a b ig  m_>I  saw a b ig  ->I saw a b ig_> I  saw a b i _> I  saw a b_> I  saw a _> I  saw a ~_.>l  saw a ma_>I  saw a man>I  saw a.man>I  saw a man ~>I  saw a man wt> I  saw a man w i t _>1 saw a man with>l  saw a man wt th>1 saw a man w i th  a_> I  saw a man wt th  a _> I  saw a man w i th  a t _> I  saw a man wt th  a to_>I saw a man w i th  a teZ_>I  saw a man w i th  a,tele_>I  saw a man wt th  a te les_> I  saw a man w i th  a te lesc_> I  saw a man w i th  a te lesco_>1 saw a man w i th  a te lescop_>I  saw a man w i th  a te lescope_>I  saw a man>l  saw a manStarts accepting a sentence.Starts parsing "1".Starts parsing "saw'.Starts parsing "a".Starts parsing "big'.User changes his mind.Starts unparsing "big".Starts parsing "man ".Starts parsing "with ".Starts parsing " a ".with  a te l  escope .
+_  Starts parsing "telescope".with  a te\]escope.
+User hits <return).
+Ends parsingFigure 7.1.
+Example of on-line parsing.As in this example, the user often wants to hit the"backspace" key to correct previously input words.
+Inthe case in which these words have already been proc-essed by the parser, the parser must be able to "un-parse" the words, without parsing the sentence from thebeginning all over again.
+To implement unparsing, theparser needs to store system status each time a word isparsed.
+Fortunately, this can be nicely done with ourparsing algorithm; only pointers to the graph-structuredstack and the parse forest need to be stored.It should be noted that our parsing algorithm is not theonly algorithm that parses a sentence strictly from left toright; Other left-to-right algorithms include Earley's(1970) algorithm, the active chart parsing algorithm(Winograd 1983), and a breadth-first version of ATN(Woods 1970).
+Despite the availability of left-to-rightalgorithms, surprisingly few on-line parsers exist.NLMenu (Tennant et al 1983) adopted on-line parsingfor a menu-based system but not for typed inputs.In the rest of this section, we discuss two benefits ofon-line parsing, quicker response time and early errordetection.
+One obvious benefit of on-line parsing is thatit reduces the parser's response time significantly.
+Whenthe user finishes typing a whole sentence, most of theinput sentence has been already processed by the parser.Although this does not affect CPU time, it could reduceresponse time from the user's point of view significantly.On-line parsing is therefore useful in interactive systemsin which input sentences are typed in by the user on-line;it is not particularly useful in batch systems in whichinput sentences are provided in a file.Another benefit of on-line parsing is that it can detectan error almost as soon as the error occurs, and it canwarn the user immediately.
+In this way, on-line parsingcould provide better man-machine communication.Further studies on human factors are necessary.8 CONCLUSIONThis paper has introduced an efficient context-free pars-ing algorithm, and its application to on-line naturallanguage interfaces has been discussed.A pilot on-line parser was first implemented inMacLisp at the Computer Science Department, Carne-gie-Mellon University (CMU) as a part of the author'sthesis work (Tomita 1985).
+The empirical results insection 5 are based on this parser.CMU's machine translation project (Carbonell andTomita 1986) adopts on-line parsing for multiplelanguages.
+It can parse unsegmented sentences (with nospaces between words, typical in Japanese).
+To handleunsegmented sentences, its grammar is written in a char-acter-based manner; all terminal symbols in the grammarare characters rather than words.
+Thus, morphologicalrules, as well as syntactic rules, are written in theaugmented context-free grammar.
+The parser takesabout 1-3 seconds CPU time per sentence on a Symbol-ics 3600 with about 800 grammar rules; its response time(real time), however, is less than a second due to on-lineparsing.
+This speed does not seem to be affected verymuch by the length of sentence or the size of grammar,as discussed in section 5.
+We expect further improve-ments for fully segmented sentences (such as English)where words rather then characters are the atomic units.A commercial on-line parser for Japanese language isbeing developed in Common Lisp jointly by IntelligentTechnology Incorporation (1TI) and Carnegie GroupIncorporation (CGI), based on the technique developedat CMU.Finally, in the continuous peech recognition projectat CMU (Hayes et al 1986), the on-line parsing algo-Computational Linguistics, Volume 13, Numbers 1-2, January-June 1987 45Masaru Tomita An Efficient Augmented-Context-Free Parsing Algorithmr i thm is being extended to handle speech input ,  to makethe speech parsing process ef f ic ient  and capable of beingpipel ined with lower  level processes such asacoust i c /phonet ic  level recogni t ion (Tomita  1986).AKNOWLEDGMENTSI would  like to thank Ja ime Carbonel l ,  Phil  Hayes ,  JamesAl len,  Herb  Simon, Hozumi  Tanaka,  and Ra lph Gf ish-man for their  helpful  comments  on the early vers ion ofthis paper.
+Kazuh i ro  Toyosh ima and H ideto  Kagamidahave imp lemented  the runt ime parser  and the LR tablecompi ler ,  respect ively,  in Common Lisp.
+Lor i  Lev in ,Teruko  Watanabe ,  Peggy Anderson ,  and Donna Gateshave deve loped  Japanese  and Engl ish grammars  in theLFG- l ike notat ion.
+H i roak i  Saito has imp lemented  thea lgor i thm for  speech input.
+Ron  Kaplan,  Mart in  Kay,Laur i  Kar t tunen,  and Stuart Sh ieber  prov ided usefulcomments  on the imp lementat ion  of  LFG and dag struc-ture sharing.REFERENCESAho, A.V.
+and Johnson, S.C. 1974 LR Parsing.
+Computing Survey6(2): 99-124.Aho, A.V.
+and Ullman, J.D.
+1972 The Theory of Parsing, Translation,and Compiling.
+Prentice-Hall, Englewood Cliffs, New Jersey.Aho, A.V.
+and UIlman, J.D.
+1977 Principles of Compiler Design.
+Addi-son Wesley.Bresnan, J. and Kaplan, R. 1982 LexicaI-Functional Grammar: AFormal System for Grammatical Representation.
+The Mental Repre-sentation of Grammatical Relations.
+MIT Press, Cambridge, Massa-chusetts: 173-281.Carbonell, J.G.
+and Tomita, M. 1986 Knowledge-Based MachineTranslation, the CMU Approach.
+Machine Translation: Theoreticaland Methodological Issues.
+Cambridge University Press.Church, K. and Patil, R. 1982 Coping with Syntactic Ambiguity, orHow to Put the Block in the Box on the Table.
+Technical ReportMIT/LCS/TM-216, Laboratory for Computer Science, MassachusettsInstitute of Technology, Cambridge, Massachusetts.DeRemer, F.L.
+1969 Practical Translators for LR(k) Languages.Ph.D.
+thesis, Massachusetts Institute of Technology, Cambridge,Massachusetts.DeRemer, F.L.
+1971 Simple LR(k) Grammars.
+Communications ACM14(7): 453-460.Earley, J.
+1970 An Efficient Context-Free Parsing Algorithm.Communications ACM 6(8): 94-102.Hayes, P.J.
+; Hauptmann, A.G.; Carbonell, J.G.
+; and Tomita, M. 1986Parsing Spoken Language: A Semantic Caseframe Approach.
+InProceedings of the l lth International Conference on ComputationLinguistics (COLING86).Kay, M. 1984 Functional Unification Grammar: A Formalism forMachine Translation.
+In Proceedings of the lOth InternationalConference on Computational Linguistics: 75-78.Pereira, F.C.N.
+1985 A Structure-Sharing Representation for Unifica-tion-Based Grammar Formalisms.
+In Proceedings of the 23rd AnnualMeeting of the Association for Computational Linguistics: 137-144.Shieber, S.M.
+1983 Sentence Disambiguation by a Shift-Reduce Pars-ing Technique.
+In Proceedings of the 21st Annual Meeting of theAssociation for Computational Linguistics: 113-118.Shieber, S.M.
+1984 The Design of a Computer Language for Linguis-tic Information.
+In Proceedings of the lOth International Conferenceon Computational Linguistics: 362-366.Shieber, S.M.
+1985 Using Restriction to Extend Parsing Algorithmsfor Complex-Feature-Based Grammar Formalisms.
+In Proceedingsof the 23rd Annual Meeting of the Association for ComputationalLinguistics: 145-152.Tennant, H.R.
+; Ross, K.M.
+; Saenz, R.M.
+; Thompson, C.W.
+; and Miller,J.R.
+1983 Menu-Based Natural Language Understanding.
+InProceedings of the 21st Annual Meeting of the Association for Compu-tational Linguistics: 151 -158.Tomita, M. 1984 LR Parsers for Natural Language.
+In Proceedings ofthe lOth International Conference on Computational Linguistics(COLING84).Tomita, M. 1985 Efficient Parsing for Natural Language: A Fast Algo-rithm for Practical Systems.
+Kluwer Academic Publishers, Boston,Massachusetts.Tomita, M. 1986a Sentence Disambiguation by Asking.
+Computers andTranslation 1(1): 39-51.Tomita, M. 1986b An Efficient Word Lattice Parsing Algorithm forContinuous Speech Recognition.
+In Proceedings of IEEE-IECE-AXIInternational conference on Acoustics, Speech, and Signal Processing(ICASSP86).Winograd, T. 1983 Language as a Cognitive Process.
+Addison Wesley.Woods, W.A.
+1970 Transition Network Grammars for NaturalLanguage Analysis.
+Communications of A CM 13: 591-606.NOTES1.
+This research was sponsored by the Defense Advanced ResearchProjects Agency (DOD), ARPA Order No.
+3597, monitored by theAir Force Avionics Laboratory under Contract F33615-81-K-1539.The views and conclusions contained in this document are thoseof the author and should not be interpreted as representing the offi-cial policies, either expressed or implied, of the Defense AdvancedResearch Projects Agency or the US Government.2.
+The situation is often called conflict.3.
+Although it is possibly reduced if some processes reach error entriesand die.4.
+The term node is used for forest representation, whereas the termvertex is used for graph-structured stack representation.5.
+In practice; not in theory.6.
+Although we plan to handle dag structures in the future, tree struc-tures may be adequate, as GPSGs use tree structures rather than dagstructures.46 Computational Linguistics, Volume 13, Numbers 1-2, January-June 1987

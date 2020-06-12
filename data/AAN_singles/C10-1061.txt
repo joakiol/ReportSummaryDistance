@@ -1,0 +1,542 @@
+Proceedings of the 23rd International Conference on Computational Linguistics (Coling 2010), pages 537?545,Beijing, August 2010Data-Driven Parsing with Probabilistic Linear Context-Free RewritingSystemsLaura Kallmeyer and Wolfgang MaierSFB 833, University of Tu?bingen{lk,wmaier}@sfs.uni-tuebingen.deAbstractThis paper presents a first efficient imple-mentation of a weighted deductive CYKparser for Probabilistic Linear Context-Free Rewriting Systems (PLCFRS), to-gether with context-summary estimatesfor parse items used to speed up pars-ing.
+LCFRS, an extension of CFG, can de-scribe discontinuities both in constituencyand dependency structures in a straight-forward way and is therefore a naturalcandidate to be used for data-driven pars-ing.
+We evaluate our parser with a gram-mar extracted from the German NeGratreebank.
+Our experiments show that data-driven LCFRS parsing is feasible witha reasonable speed and yields output ofcompetitive quality.1 IntroductionData-driven parsing has largely been dominatedby Probabilistic Context-Free Grammar (PCFG).The use of PCFG is tied to the annotation princi-ples of popular treebanks, such as the Penn Tree-bank (PTB) (Marcus et al, 1994), which are usedas a data source for grammar extraction.
+Their an-notation generally relies on the use of trees with-out crossing branches, augmented with a mech-anism that accounts for non-local dependencies.In the PTB, e.g., labeling conventions and tracenodes are used which establish additional implicitedges in the tree beyond the overt phrase struc-ture.
+In contrast, some other treebanks, such as theGerman NeGra and TIGER treebanks allow anno-tation with crossing branches (Skut et al, 1997).Non-local dependencies can then be expressed di-rectly by grouping all dependent elements under asingle node.However, given the expressivity restrictions ofPCFG, work on data-driven parsing has mostlyexcluded non-local dependencies.
+When us-ing treebanks with PTB-like annotation, label-ing conventions and trace nodes are often dis-carded, while in NeGra, resp.
+TIGER, tree trans-formations are applied which resolve the crossingbranches (Ku?bler, 2005; Boyd, 2007, e.g.).
+Espe-cially for these treebanks, such a transformation isquestionable, since it is non-reversible and impliesinformation loss.Some research has gone into incorporating non-local information into data-driven parsing.
+Levyand Manning (2004) distinguish three approaches:1.
+Non-local information can be incorporated di-rectly into the PCFG model (Collins, 1999), orcan be reconstructed in a post-processing step af-ter PCFG parsing (Johnson, 2002; Levy and Man-ning, 2004).
+2.
+Non-local information can beincorporated into complex labels (Hockenmaier,2003).
+3.
+A formalism can be used which accom-modates the direct encoding of non-local informa-tion (Plaehn, 2004).
+This paper pursues the thirdapproach.Our work is motivated by the following re-cent developments: Linear Context-Free Rewrit-ing Systems (LCFRS) (Vijay-Shanker et al, 1987)have been established as a candidate for mod-eling both discontinuous constituents and non-projective dependency trees as they occur in tree-banks (Kuhlmann and Satta, 2009; Maier andLichte, 2009).
+LCFRS extend CFG such thatnon-terminals can span tuples of possibly non-537CFG:A?LCFRS: ?A?
+?
+?1 ?2 ?3Figure 1: Different domains of localityadjacent strings (see Fig.
+1).
+PCFG techniques,such as Best-First Parsing (Charniak and Cara-ballo, 1998), Weighted Deductive Parsing (Neder-hof, 2003) and A?
+parsing (Klein and Manning,2003a), can be transferred to LCFRS.
+Finally,German has attracted the interest of the parsingcommunity due to the challenges arising from itsfrequent discontinuous constituents (Ku?bler andPenn, 2008).We bring together these developments by pre-senting a parser for probabilistic LCFRS.
+Whileparsers for subclasses of PLCFRS have been pre-sented before (Kato et al, 2006), to our knowl-edge, our parser is the first for the entire class ofPLCFRS.
+We have already presented an applica-tion of the parser on constituency and dependencytreebanks together with an extensive evaluation(Maier, 2010; Maier and Kallmeyer, 2010).
+Thisarticle is mainly dedicated to the presentation ofseveral methods for context summary estimationof parse items, and to an experimental evaluationof their usefulness.
+The estimates either act asfigures-of-merit in a best-first parsing context oras estimates for A?
+parsing.
+Our evaluation showsthat while our parser achieves a reasonable speedalready without estimates, the estimates lead to agreat reduction of the number of produced items,all while preserving the output quality.Sect.
+2 and 3 of the paper introduce probabilis-tic LCFRS and the parsing algorithm.
+Sect.
+4presents different context summary estimates.
+InSect.
+5, the implementation and evaluation of thework is discussed.2 Probabilistic LCFRSLCFRS are an extension of CFG where the non-terminals can span not only single strings but, in-stead, tuples of strings.
+We will notate LCFRSwith the syntax of simple Range ConcatenationGrammars (SRCG) (Boullier, 1998), a formalismthat is equivalent to LCFRS.A LCFRS (Vijay-Shanker et al, 1987) is a tu-ple ?N,T, V, P, S?
+where a) N is a finite set ofnon-terminals with a function dim: N ?
+N thatdetermines the fan-out of each A ?
+N ; b) T and Vare disjoint finite sets of terminals and variables;c) S ?
+N is the start symbol with dim(S) = 1; d)P is a finite set of rulesA(?1, .
+.
+.
+, ?dim(A)) ?
+A1(X(1)1 , .
+.
+.
+,X(1)dim(A1))?
+?
+?Am(X(m)1 , .
+.
+.
+,X(m)dim(Am))for m ?
+0 where A,A1, .
+.
+.
+, Am ?
+N , X(i)j ?V for 1 ?
+i ?
+m, 1 ?
+j ?
+dim(Ai) and?i ?
+(T ?
+V )?
+for 1 ?
+i ?
+dim(A).
+For allr ?
+P , it holds that every variable X occurring inr occurs exactly once in the left-hand side (LHS)and exactly once in the right-hand side (RHS).A rewriting rule describes how the yield ofthe LHS non-terminal can be computed fromthe yields of the RHS non-terminals.
+The rulesA(ab, cd) ?
+?
+and A(aXb, cY d) ?
+A(X,Y )for instance specify that 1.
+?ab, cd?
+is in the yieldof A and 2. one can compute a new tuple in theyield of A from an already existing one by wrap-ping a and b around the first component and c andd around the second.For every A ?
+N in a LCFRS G, we define theyield of A, yield(A) as follows:a) For every A(~?)
+?
+?, ~?
+?
+yield(A);b) For every ruleA(?1, .
+.
+.
+, ?dim(A)) ?
+A1(X(1)1 , .
+.
+.
+,X(1)dim(A1))?
+?
+?Am(X(m)1 , .
+.
+.
+,X(m)dim(Am))and all ~?i ?
+yield(Ai) for 1 ?
+i ?
+m,?f(?1), .
+.
+.
+, f(?dim(A))?
+?
+yield(A) where fis defined as follows: (i) f(t) = t for all t ?
+T ,(ii) f(X(i)j ) = ~?i(j) for all 1 ?
+i ?
+m, 1 ?j ?
+dim(Ai) and (iii) f(xy) = f(x)f(y) forall x, y ?
+(T ?V )+.
+f is the composition func-tion of the rule.c) Nothing else is in yield(A).The language is then {w | ?w?
+?
+yield(S)}.The fan-out of an LCFRS G is the maximal fan-out of all non-terminals in G. Furthermore, theRHS length of a rewriting rules r ?
+P is called therank of r and the maximal rank of all rules in Pis called the rank of G. We call a LCFRS orderedif for every r ?
+P and every RHS non-terminal Ain r and each pair X1, X2 of arguments of A in538the RHS of r, X1 precedes X2 in the RHS iff X1precedes X2 in the LHS.A probabilistic LCFRS (PLCFRS) (Kato etal., 2006) is a tuple ?N,T, V, P, S, p?
+such that?N,T, V, P, S?
+is a LCFRS and p : P ?
+[0..1] a function such that for all A ?
+N :?A(~x)?~?
+?Pp(A(~x) ?
+~?)
+= 1.3 The CYK ParserWe use a probabilistic version of the CYK parserfrom (Seki et al, 1991), applying techniques ofweighted deductive parsing (Nederhof, 2003).LCFRS can be binarized (Go?mez-Rodr?
+?guez etal., 2009) and ?-components in the LHS of rulescan be removed (Boullier, 1998).
+We can there-fore assume that all rules are of rank 2 and do notcontain ?
+components in their LHS.
+Furthermore,we assume POS tagging to be done before pars-ing.
+POS tags are non-terminals of fan-out 1.
+Therules are then either of the form A(a) ?
+?
+with Aa POS tag and a ?
+T or of the form A(~?)
+?
+B(~x)or A(~?)
+?
+B(~x)C(~y) where ~?
+?
+(V +)dim(A),i.e., only the rules for POS tags contain terminalsin their LHSs.For every w ?
+T ?, where w = w1 .
+.
+.
+wn withwi ?
+T for 1 ?
+i ?
+n, we define: Pos(w) :={0, .
+.
+.
+, n}.
+A pair ?l, r?
+?
+Pos(w) ?
+Pos(w)with l ?
+r is a range in w. Its yield ?l, r?
+(w) isthe string wl+1 .
+.
+.
+wr.
+The yield ~?
+(w) of a vec-tor of ranges ~?
+is the vector of the yields of thesingle ranges.
+For two ranges ?1 = ?l1, r1?, ?2 =?l2, r2?
+: if r1 = l2, then ?1 ?
+?2 = ?l1, r2?
+; other-wise ?1 ?
+?2 is undefined.For a given rule p : A(?1, .
+.
+.
+, ?dim(A)) ?B(X1, .
+.
+.
+,Xdim(B))C(Y1, .
+.
+.
+,Xdim(C)) wenow extend the composition function f to ranges,given an input w: for all range vectors ~?B and~?C of dimensions dim(B) and dim(C) respec-tively, fr( ~?B , ~?C) = ?g(?1), .
+.
+.
+, g(?dim(A))?is defined as follows: g(Xi) = ~?B(i) for all1 ?
+i ?
+dim(B), g(Yi) = ~?C(i) for all1 ?
+i ?
+dim(C) and g(xy) = g(x) ?
+g(y) for allx, y ?
+V +.
+p : A(fr( ~?B , ~?C)) ?
+B( ~?B)C( ~?C)is then called an instantiated rule.For a given input w, our items have theform [A, ~?]
+where A ?
+N , ~?
+?
+(Pos(w) ?Pos(w))dim(A).
+The vector ~?
+characterizes thespan of A.
+We specify the set of weighted parseScan: 0 : [A, ?
+?i, i + 1??]
+A POS tag of wi+1Unary: in : [B, ~?
+]in + |log(p)| : [A, ~?]
+p : A(~?)
+?
+B(~?)
+?
+PBinary: inB : [B, ~?B], inC : [C, ~?C ]inB + inC + log(p) : [A, ~?A]where p : A( ~?A) ?
+B( ~?B)C( ~?C) is an instantiated rule.Goal: [S, ?
+?0, n??
+]Figure 2: Weighted CYK deduction systemadd SCAN results to Awhile A 6= ?remove best item x : I from Aadd x : I to Cif I goal itemthen stop and output trueelsefor all y : I ?
+deduced from x : I and items in C:if there is no z with z : I ?
+?
+C ?
+Athen add y : I ?
+to Aelse if z : I ?
+?
+A for some zthen update weight of I ?
+in A to max (y, z)Figure 3: Weighted deductive parsingitems via the deduction rules in Fig.
+2.
+Our parserperforms a weighted deductive parsing (Nederhof,2003), based on this deduction system.
+We use achart C and an agenda A, both initially empty, andwe proceed as in Fig.
+3.4 Outside EstimatesIn order to speed up parsing, we add an estimate ofthe log of the outside probabilities of the items totheir weights in the agenda.
+All our outside esti-mates are admissible (Klein and Manning, 2003a)which means that they never underestimate the ac-tual outside probability of an item.
+However, mostof them are not monotonic.
+In other words, it canhappen that we deduce an item I2 from an item I1where the weight of I2 is greater than the weightof I1.
+The parser can therefore end up in a localmaximum that is not the global maximum we aresearching for.
+In other words, our outside weightsare only figures of merit (FOM).
+Only for the fullSX estimate, the monotonicity is guaranteed andwe can do true A?
+parsing as described in (Kleinand Manning, 2003a) that always finds the bestparse.All outside estimates are computed for a certainmaximal sentence length lenmax.539POS tags: 0 : [A, ?1?]
+A a POS tagUnary: in : [B,~l]in + log(p) : [A,~l] p : A(~?)
+?
+B(~?)
+?
+PBinary: inB : [B,~lB], inC : [C,~lC ]inB + inC + log(p) : [A,~lA]where p : A( ~?A) ?
+B( ~?B)C( ~?C) ?
+P and the follow-ing holds: we define B(i) as {1 ?
+j ?
+dim(B) | ~?B(j)occurs in ~?A(i)} and C(i) as {1 ?
+j ?
+dim(C) | ~?C(j)occurs in ~?A(i)}.
+Then for all i, 1 ?
+i ?
+dim(A):~lA(i) = ?j?B(i)~lB(j) + ?j?C(i)~lC(j).Figure 4: Inside estimate4.1 Full SX estimateThe full SX estimate, for a given sentence lengthn, is supposed to give the minimal costs (maxi-mal probability) of completing a category X witha span ?
+into an S with span ?
+?0, n?
+?.For the computation, we need an estimate ofthe inside probability of a category C with a span?, regardless of the actual terminals in our in-put.
+This inside estimate is computed as shownin Fig.
+4.
+Here, we do not need to consider thenumber of terminals outside the span of C (tothe left or right or in the gaps), they are not rel-evant for the inside probability.
+Therefore theitems have the form [A, ?l1, .
+.
+.
+, ldim(A)?
+], whereA is a non-terminal and li gives the length of itsith component.
+It holds that ?1?i?dim(A)li ?lenmax ?
+dim(A) + 1.A straight-forward extension of the CFG algo-rithm from (Klein and Manning, 2003a) for com-puting the SX estimate is given in Fig.
+5.
+For agiven range vector ?
+= ?
+?l1, r1?, .
+.
+.
+, ?lk, rk??
+anda sentence length n, we define its inside lengthvector lin(?)
+as ?r1 ?
+l1, .
+.
+.
+, rk ?
+lk?
+and itsoutside length vector lout(?)
+as ?l1, r1 ?
+l1, l2 ?r1, .
+.
+.
+, lk ?
+rk?1, rk ?
+lk, n?
+rk?.This algorithm has two major problems: Sinceit proceeds top-down, in the Binary rules, we mustcompute all splits of the antecedent X span intothe spans of A and B which is very expensive.Furthermore, for a category A with a certain num-ber of terminals in the components and the gaps,we compute the lower part of the outside estimateseveral times, namely for every combination ofnumber of terminals to the left and to the right(first and last element in the outside length vec-Axiom : 0 : [S, ?0, len, 0?]
+1 ?
+len ?
+lenmaxUnary: w : [A,~l]w + log(p) : [B,~l] p : A(~?)
+?
+B(~?)
+?
+PBinary-right:w : [X,~lX ]w + in(A,~l?A) + log(p) : [B,~lB]Binary-left:w : [X,~lX ]w + in(B,~l?B) + log(p) : [A,~lA]where, for both rules, there is an instantiated rule p :X(~?)
+?
+A( ~?A)B( ~?B) such that ~lX = lout(?
+), ~lA =lout(?A),~l?A = lin(?A), ~lB = lout(?B,~lB = lin(?B .Figure 5: Full SX estimate top-downtor).
+In order to avoid these problems, we nowabstract away from the lengths of the part to theleft and the right, modifying our items such as toallow a bottom-up strategy.The idea is to compute the weights of items rep-resenting the derivations from a certain lower Cup to some A (C is a kind of ?gap?
+in the yield ofA) while summing up the inside costs of off-spinenodes and the log of the probabilities of the corre-sponding rules.
+We use items [A,C, ?A, ?C , shift ]where A,C ?
+N and ?A, ?C are range vectors,both with a first component starting at position 0.The integer shift ?
+lenmax tells us how many po-sitions to the right the C span is shifted, comparedto the starting position of the A.
+?A and ?C repre-sent the spans of C and A while disregarding thenumber of terminals to the left the right.
+I.e., onlythe lengths of the components and of the gaps areencoded.
+This means in particular that the lengthn of the sentence does not play a role here.
+Theright boundary of the last range in the vectors islimited to lenmax.
+For any i, 0 ?
+i ?
+lenmax,and any range vector ?, we define shift(?, i) as therange vector one obtains from adding i to all rangeboundaries in ?
+and shift(?,?i) as the range vec-tor one obtains from subtracting i from all bound-aries in ?.The weight of [A,C, ?A, ?C , i] estimates thecosts for completing a C tree with yield ?C intoan A tree with yield ?A such that, if the span of Astarts at position j, the span of C starts at positioni + j.
+Fig.
+6 gives the computation.
+The value ofin(A,~l) is the inside estimate of [A,~l].The SX-estimate for some predicate C with540POS tags: 0 : [C,C, ?0, 1?, ?0, 1?, 0] C a POS tagUnary: 0 : [B,B, ?B, ?B, 0]log(p) : [A,B, ?B, ?B, 0] p : A(~?)
+?
+B(~?)
+?
+PBinary-right:0 : [A,A, ?A, ?A, 0], 0 : [B,B, ?B, ?B , 0]in(A, l(?A)) + log(p) : [X,B, ?X , ?B, i]Binary-left:0 : [A,A, ?A, ?A, 0], 0 : [B,B, ?B, ?B, 0]in(B, l(?B)) + log(p) : [X,A, ?X , ?A, 0]where i is such that for shift(?B, i) = ?
+?B p : X(?X) ?A(?A)B(?
+?B) is an instantiated rule.Starting sub-trees with larger gaps:w : [B,C, ?B, ?C , i]0 : [B,B, ?B, ?B, 0]Transitive closure of sub-tree combination:w1 : [A,B, ?A, ?B, i], w2 : [B,C, ?B, ?C , j]w1 + w2 : [A,C, ?A, ?C , i + j]Figure 6: Full SX estimate bottom-upspan ?
+where i is the left boundary of thefirst component of ?
+and with sentence lengthn is then given by the maximal weight of[S,C, ?0, n?, shift (?i, ?
+), i].
+Among our esti-mates, the full SX estimate is the only one thatis monotonic and that allows for true A?
+parsing.4.2 SX with Left, Gaps, Right, LengthA problem of the previous estimate is that witha large number of non-terminals the computationof the estimate requires too much space.
+Our ex-periments have shown that for treebank parsingwhere we have, after binarization and markoviza-tion, appr.
+12,000 non-terminals, its computationis not feasible.
+We therefore turn to simpler es-timates with only a single non-terminal per item.We now estimate the outside probability of a non-terminal A with a span of a length length (thesum of the lengths of all the components of thespan), with left terminals to the left of the firstcomponent, right terminals to the right of thelast component and gaps terminals in between thecomponents of the A span, i.e., filling the gaps.Our items have the form [X, len , left , right , gaps ]with X ?
+N , len+ left +right +gaps ?
+lenmax,len ?
+dim(X), gaps ?
+dim(X) ?
+1.Let us assume that, in the rule X(~?)
+?A( ~?A)B( ~?B), when looking at the vector ~?, wehave leftA variables for A-components precedingthe first variable of a B component, rightA vari-ables for A-components following the last vari-Axiom : 0 : [S, len, 0, 0, 0] 1 ?
+len ?
+lenmaxUnary: w : [X, len, l, r, g]w + log(p) : [A, len, l, r, g]where p : X(~?)
+?
+A(~?)
+?
+P .Binary-right:w : [X, len, l, r, g]w + in(A, len ?
+lenB) + log(p) : [B, lenB , lB, rB, gB]Binary-left:w : [X, len, l, r, g]w + in(B, len ?
+lenA) + log(p) : [A, lenA, lA, rA, gA]where, for both rules, p : X(~?)
+?
+A( ~?A)B( ~?B) ?
+P .Figure 7: SX with length, left, right, gapsPOS tags: 0 : [A, 1] A a POS tagUnary: in : [B, l]in + log(p) : [A, l] p : A(~?)
+?
+B(~?)
+?
+PBinary: inB : [B, lB], inC : [C, lC ]inB + inC + log(p) : [A, lB + lC ]where either p : A( ~?A) ?
+B( ~?B)C( ~?C) ?
+P or p :A( ~?A) ?
+C( ~?C)B( ~?B) ?
+P .Figure 8: Inside estimate with total span lengthable of a B component and rightB variables forB-components following the last variable of a Acomponent.
+(In our grammars, the first LHS argu-ment always starts with the first variable from A.
+)Furthermore, gapsA = dim(A)?leftA?rightA,gapsB = dim(B) ?
+rightB .Fig.
+7 gives the computation of the estimate.The following side conditions must hold: ForBinary-right to apply, the following constraintsmust be satisfied: a) len + l + r + g = lenB +lB+rB+gB , b) lB ?
+l+ leftA, c) if rightA > 0,then rB ?
+r+rightA, else (rightA = 0), rB = r,d) gB ?
+gapsA.
+Similarly, for Binary-left to ap-ply, the following constraints must be satisfied: a)len + l+ r+ g = lenA + lA + rA + gA, b) lA = l,c) if rightB > 0, then rA ?
+r + rightB , else(rightB = 0), rA = r d) gA ?
+gapsB.The value in(X, l) for a non-terminal X and alength l, 0 ?
+l ?
+lenmax is an estimate of theprobability of an X category with a span of lengthl.
+Its computation is specified in Fig.
+8.The SX-estimate for a sentence length n andfor some predicate C with a range characterizedby ~?
+= ?
+?l1, r1?, .
+.
+.
+, ?ldim(C), rdim(C)??
+wherelen = ?dim(C)i=1 (ri ?
+li) and r = n ?
+rdim(C)is then given by the maximal weight of the item[C, len , l1, r, n ?
+len?
+l1 ?
+r].541Axiom : 0 : [S, len, 0, 0] 1 ?
+len ?
+lenmaxUnary: w : [X, len, lr , g]w + log(p) : [A, len, lr , g]where p : X(~?)
+?
+A(~?)
+?
+P .Binary-right:w : [X, len, lr , g]w + in(A, len ?
+lenB) + log(p) : [B, lenB, lrB, gB ]Binary-left:w : [X, len, lr , g]w + in(B, len ?
+lenA) + log(p) : [A, lenA, lrA, gA]where, for both rules, p : X(~?)
+?
+A( ~?A)B( ~?B) ?
+P .Figure 9: SX estimate with length, LR, gaps4.3 SX with LR, Gaps, LengthIn order to further decrease the space complex-ity, we can simplify the previous estimate by sub-suming the two lengths left and right in a sin-gle length lr .
+I.e., the items now have the form[X, len , lr , gaps ] with X ?
+N , len + lr +gaps ?lenmax, len ?
+dim(X), gaps ?
+dim(X) ?
+1.The computation is given in Fig.
+9.
+Again, wedefine leftA, gapsA, rightA and gapsB , rightBfor a rule X(~?)
+?
+A( ~?A)B( ~?B) as above.
+Theside conditions are as follows: For Binary-right toapply, the following constraints must be satisfied:a) len + lr + g = lenB + lrB + gB , b) lr < lrB,and c) gB ?
+gapsA.
+For Binary-left to apply, thefollowing must hold: a) len + lr + g = lenA +lrA + gA, b) if rightB = 0 then lr = lrA, elselr < lrA and c) gA ?
+gapsB.The SX-estimate for a sentence length nand for some predicate C with a span ~?
+=?
+?l1, r1?, .
+.
+.
+, ?ldim(C), rdim(C)??
+where len =?dim(C)i=1 (ri ?
+li) and r = n ?
+rdim(C) is then themaximal weight of [C, len , l1+r, n?len?l1?r].5 EvaluationThe goal of our evaluation of our parser is toshow that, firstly, reasonable parser speed can beachieved and, secondly, the parser output is ofpromising quality.5.1 DataOur data source is the German NeGra treebank(Skut et al, 1997).
+In a preprocessing step,following common practice (Ku?bler and Penn,2008), we attach punctuation (not included in theNeGra annotation) as follows: In a first pass, us-ing heuristics, we attach punctuation as high aspossible while avoiding to introduce new crossingbranches.
+In a second pass, parentheses and quo-tation marks preferably attach to the same node.Grammatical function labels on the edges are dis-carded.We create data sets of different sizes in orderto see how the size of the training set relates tothe gain using context summary estimates and tothe output quality of the parser.
+The first set usesthe first 4000 sentences and the second one allsentences of NeGra.
+Due to memory limitations,in both sets, we limit ourselves to sentences of amaximal length of 25 words.
+We use the first 90%of both sets as training set and the remaining 10%as test set.
+Tab.
+1 shows the resulting sizes.NeGra-small NeGratraining test training testsize 2839 316 14858 1651Table 1: Test and training sets5.2 Treebank Grammar ExtractionSVPVPPROAV VMFIN VVPP VAINFdaru?ber mu?
+nachgedacht werdenabout it must thought be?It must be thought about it?Figure 10: A sample tree from NeGraAs already mentioned, in NeGra, discontinu-ous phrases are annotated with crossing branches(see Fig.
+10 for an example with two discontin-uous VPs).
+Such discontinuities can be straight-forwardly modelled with LCFRS.
+We use the al-gorithm from Maier and S?gaard (2008) to extractLCFRS rules from NeGra and TIGER.
+It first cre-ates rules of the form P (a) ?
+?
+for each pre-terminal P dominating some terminal a. Thenfor all other nonterminals A0 with the childrenA1 ?
+?
+?Am, a clause A0 ?
+A1 ?
+?
+?Am is cre-ated.
+The arguments of the A1 ?
+?
+?Am are sin-gle variables where the number of arguments isthe number of discontinuous parts in the yield ofa predicate.
+The arguments of A0 are concate-nations of these variables that describe how the542discontinuous parts of the yield of A0 are ob-tained from the yields of its daughters.
+Differ-ent occurrences of the same non-terminal, onlywith different fan-outs, are distinguished by corre-sponding subscripts.
+Note that this extraction al-gorithm yields only monotone LCFRS (equivalentto ordered simple RCG).
+See Maier and S?gaard(2008) for further details.
+For Fig.
+10, we obtainfor instance the rules in Fig.
+11.PROAV(Daru?ber) ?
+?
+VMFIN(mu?)
+?
+?VVPP(nachgedacht) ?
+?
+VAINF(werden) ?
+?S1(X1X2X3) ?
+VP2(X1, X3) VMFIN(X2)VP2(X1, X2X3) ?
+VP2(X1, X2) VAINF(X3)VP2(X1, X2) ?
+PROAV(X1) VVPP(X2)Figure 11: LCFRS rules for the tree in Fig.
+105.3 Binarization and MarkovizationBefore parsing, we binarize the extracted LCFRS.For this we first apply Collins-style head rules,based on the rules the Stanford parser (Klein andManning, 2003b) uses for NeGra, to mark theresp.
+head daughters of all non-terminal nodes.Then, we reorder the RHSs such that the sequence?
+of elements to the right of the head daughter isreversed and moved to the beginning of the RHS.We then perform a binarization that proceeds fromleft to right.
+The binarization works like the trans-formation into Chomsky Normal Form for CFGsin the sense that for RHSs longer than 2, we in-troduce a new non-terminal that covers the RHSwithout the first element.
+The rightmost new rule,which covers the head daughter, is binarized tounary.
+We do not use a unique new non-terminalfor every new rule.
+Instead, to the new symbolsintroduced during the binarization (VPbin in theexample), a variable number of symbols from thevertical and horizontal context of the original ruleis added in order to achieve markovization.
+Fol-lowing the literature, we call the respective quan-tities v and h. For reasons of space we restrictourselves here to the example in Fig.
+12.
+Refer toMaier and Kallmeyer (2010) for a detailed presen-tation of the binarization and markovization.The probabilities are then computed based onthe rule frequencies in the transformed treebank,using a Maximum Likelihood estimator.SVPPDS VMFIN PIS AD V VVINFdas mu?
+man jetzt machenthat must one now do?One has to do that now?Tree after binarization:SSbinVPVPbinSbin VPbinPDS VMFIN PIS ADV VVINFFigure 12: Sample binarization5.4 Evaluation of Parsing ResultsIn order to assess the quality of the output ofour parser, we choose an EVALB-style metric,i.e., we compare phrase boundaries.
+In the con-text of LCFRS, we compare sets of items [A, ~?
+]that characterize the span of a non-terminal A ina derivation tree.
+One set is obtained from theparser output, and one from the correspondingtreebank trees.
+Using these item sets, we computelabeled and unlabeled recall (LR/UR), precision(LP/UP), and the F1 measure (LF1/UF1).
+Notethat if k = 1, our metric is identical to its PCFGequivalent.We are aware of the recent discussionabout the shortcomings of EVALB.
+A discussionof this issue is presented in Maier (2010).5.5 ExperimentsIn all experiments, we provide the parser withgold part-of-speech tags.
+For the experi-ments with NeGra-small, the parser is given themarkovization settings v = 1 and h = 1.
+We com-pare the parser performance without estimates(OFF) with its performance with the estimates de-scribed in 4.2 (SIMPLE) and 4.3 (LR).
+Tab.
+2shows the results.
+Fig.
+13 shows the number ofitems produced by the parser, indicating that theestimates have the desired effect of preventing un-necessary items from being produced.
+Note that itis even the case that the parser produces less itemsfor the big set with LR than for the small set with-out estimate.We can see that the estimates lead to a slightly543OFF SIMPLE LRUP/UR 72.29/72.40 70.49/71.81 72.10/72.60UF1 72.35 71.14 72.35LP/LR 68.31/68.41 64.93/66.14 67.35/66.14LF1 68.36 65.53 65.53Parsed 313 (99.05%) 313 (99.05%) 313 (99.05%)Table 2: Experiments with NeGra-small5010015020025030035040045050016  18  20  22  24No.of items(in1000)Sentence lengthOFF (NeGra)LR (NeGra)OFF (NeGra-small)SIMPLE (NeGra-small)LR (NeGra-small)Figure 13: Items produced by the parserlower F-score.
+However, while the losses in termsof F1 are small, the gains in parsing time are sub-stantial, as Fig.
+13 shows.Tab.
+3 shows the results of experiments withNeGra, with the markovization settings v = 2and h = 1 which have proven to be successfulfor PCFG parsing of NeGra (Rafferty and Man-ning, 2008).
+Unfortunately, due to memory re-strictions, we were not able to compute SIMPLEfor the large data set.1 Resp.
+LR, the findingsare comparable to the ones for NeGra-short.
+Thespeedup is paid with a lower F1.OFF LRUP/UR 76.89/77.35 75.22/75.99UF1 77.12 75.60LP/LR 73.03/73.46 70.98/71.70LF1 73.25 71.33Parsed 1642 (99.45%) 1642 (99.45%)Table 3: Experiments with NeGraOur results are not directly comparable withPCFG parsing results, since LCFRS parsing is a1SIMPLE also proved to be infeasible to compute for thesmall set for the markovization settings v = 2 and h = 1due to the greatly increased label set with this settings.harder task.
+However, since the EVALB met-ric coincides for constituents without crossingbranches, in order to place our results in the con-text of previous work on parsing NeGra, we citesome of the results from the literature which wereobtained using PCFG parsers2: Ku?bler (2005)(Tab.
+1, plain PCFG) obtains 69.4, Dubey andKeller (2003) (Tab.
+5, sister-head PCFG model)71.12, Rafferty and Manning (2008) (Tab.
+2, Stan-ford parser with markovization v = 2 and h = 1)77.2, and Petrov and Klein (2007) (Tab.
+1, Berke-ley parser) 80.1.
+Plaehn (2004) obtains 73.16 La-beled F1 using Probabilistic Discontinuous PhraseStructure Grammar (DPSG), albeit only on sen-tences with a length of up to 15 words.
+On thosesentences, we obtain 81.27.The comparison shows that our system deliv-ers competitive results.
+Additionally, when com-paring this to PCFG parsing results, one hasto keep in mind that LCFRS parse trees con-tain non-context-free information about disconti-nuities.
+Therefore, a correct parse with our gram-mar is actually better than a correct CFG parse,evaluated with respect to a transformation of Ne-Gra into a context-free treebank where preciselythis information gets lost.6 ConclusionWe have presented the first parser for unrestrictedProbabilistic Linear Context-Free Rewriting Sys-tems (PLCFRS), implemented as a CYK parserwith weighted deductive parsing.
+To speed upparsing, we use context summary estimates forparse items.
+An evaluation on the NeGra treebank,both in terms of output quality and speed, showsthat data-driven parsing using PLCFRS is feasi-ble.
+Already in this first attempt with a straight-forward binarization, we obtain results that arecomparable to state-of-the-art PCFG results interms of F1, while yielding parse trees that arericher than context-free trees since they describediscontinuities.
+Therefore, our approach demon-strates convincingly that PLCFRS is a natural andtractable alternative for data-driven parsing whichtakes non-local dependencies into consideration.2Note that these results were obtained on sentences witha length of ?
+40 words and that those parser possibly woulddeliver better results if tested on our test set.544ReferencesBoullier, Pierre.
+1998.
+A Proposal for a Natural Lan-guage Processing Syntactic Backbone.
+TechnicalReport 3342, INRIA.Boyd, Adriane.
+2007.
+Discontinuity revisited: An im-proved conversion to context-free representations.In The Linguistic Annotation Workshop at ACL2007.Charniak, Eugene and Sharon A. Caraballo.
+1998.New figures of merit for best-first probabilistic chartparsing.
+Computational Linguistics, 24.Collins, Michael.
+1999.
+Head-driven statistical mod-els for natural language parsing.
+Ph.D. thesis, Uni-versity of Pennsylvania.Dubey, Amit and Frank Keller.
+2003.
+Probabilisticparsing for German using sisterhead dependencies.In Proceedings of ACL.Go?mez-Rodr?
+?guez, Carlos, Marco Kuhlmann, GiorgioSatta, and David Weir.
+2009.
+Optimal reduction ofrule length in linear context-free rewriting systems.In Proceedings of NAACL-HLT.Hockenmaier, Julia.
+2003.
+Data and models for Statis-tical Parsing with Combinatory Categorial Gram-mar.
+Ph.D. thesis, University of Edinburgh.Johnson, Mark.
+2002.
+A simple pattern-matching al-gorithm for recovering empty nodes and their an-tecedents.
+In Proceedings of ACL.Kato, Yuki, Hiroyuki Seki, and Tadao Kasami.
+2006.Stochastic multiple context-free grammar for rnapseudoknot modeling.
+In Proceedings of TAG+8.Klein, Dan and Christopher D. Manning.
+2003a.
+A*Parsing: Fast Exact Viterbi Parse Selection.
+In Pro-ceedings of NAACL-HLT.Klein, Dan and Christopher D. Manning.
+2003b.
+Fastexact inference with a factored model for naturallanguage parsing.
+In In Advances in Neural Infor-mation Processing Systems 15 (NIPS).Ku?bler, Sandra and Gerald Penn, editors.
+2008.
+Pro-ceedings of the Workshop on Parsing German atACL 2008.Ku?bler, Sandra.
+2005.
+How do treebank annotationschemes influence parsing results?
+Or how not tocompare apples and oranges.
+In Proceedings ofRANLP 2005.Kuhlmann, Marco and Giorgio Satta.
+2009.
+Treebankgrammar techniques for non-projective dependencyparsing.
+In Proceedings of EACL.Levy, Roger and Christopher D. Manning.
+2004.
+Deepdependencies from context-free statistical parsers:correcting the surface dependency approximation.In Proceedings of ACL.Maier, Wolfgang and Laura Kallmeyer.
+2010.
+Discon-tinuity and non-projectivity: Using mildly context-sensitive formalisms for data-driven parsing.
+InProceedings of TAG+10.Maier, Wolfgang and Timm Lichte.
+2009.
+Charac-terizing Discontinuity in Constituent Treebanks.
+InProceedings of Formal Grammar 2009.Maier, Wolfgang and Anders S?gaard.
+2008.
+Tree-banks and mild context-sensitivity.
+In Proceedingsof Formal Grammar 2008.Maier, Wolfgang.
+2010.
+Direct parsing of discontin-uous constituents in german.
+In Proceedings of theSPMRL workshop at NAACL HLT 2010.Marcus, Mitchell, Grace Kim, Mary AnnMarcinkiewicz, Robert MacIntyre, Ann Bies,Mark Ferguson, Karen Katz, and Britta Schas-berger.
+1994.
+The Penn Treebank: Annotatingpredicate argument structure.
+In Proceedings ofHLT.Nederhof, Mark-Jan. 2003.
+Weighted Deductive Pars-ing and Knuth?s Algorithm.
+Computational Lin-guistics, 29(1).Petrov, Slav and Dan Klein.
+2007.
+Improved inferencefor unlexicalized parsing.
+In Proceedings of HLT-NAACL 2007.Plaehn, Oliver.
+2004.
+Computing the most proba-ble parse for a discontinuous phrase-structure gram-mar.
+In New developments in parsing technology.Kluwer.Rafferty, Anna and Christopher D. Manning, 2008.Parsing Three German Treebanks: Lexicalized andUnlexicalized Baselines.
+In Ku?bler and Penn(2008).Seki, Hiroyuki, Takahashi Matsumura, Mamoru Fujii,and Tadao Kasami.
+1991.
+On multiple context-freegrammars.
+Theoretical Computer Science, 88(2).Skut, Wojciech, Brigitte Krenn, Thorten Brants, andHans Uszkoreit.
+1997.
+An Annotation Schemefor Free Word Order Languages.
+In Proceedings ofANLP.Vijay-Shanker, K., David J. Weir, and Aravind K.Joshi.
+1987.
+Characterizing structural descriptionsproduced by various grammatical formalisms.
+InProceedings of ACL.545

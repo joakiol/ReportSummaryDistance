@@ -1,0 +1,249 @@
+IMPLEMENTATION ASPECTS OF  LARGE VOCABULARY RECOGNIT ION BASED ONINTRAWORD AND INTERWORD PHONETIC  UNITSR.
+Pieraccini, C. H. Lee, E. Giachint , L. R. RabinerSpeech Research DepartmentAT&T Bell LaboratoriesMurray Hill, NJ 07974ABSTRACTMost large vocabulary speech recognition systemsessentially consist of a training algorithm and arecognition structure which is essentially a search for thebest path through a rather large decoding network.Although the performance of the recognizer is cruciallytied to the details of the training procedure, it isabsolutely essential that the recognition structure beefficient in terms of computation and memory, andaccurate in terms of actually determining the best paththrough the lattice, so that a wide range of training (sub-word unit creation) strategies can be efficiently evaluatedin a reasonable time period.
+We have considered anarchitecture in which we incorporate several well knownprocedures (beam search, compiled network, etc.)
+withsome new ideas (stacks of active network nodes,likelihood computation on demand, guided search, etc.
+)to implement a search procedure which maintains theaccuracy of the full search but which can decode a singlesentence in about one minute of computing time (about20 times real time) on a vectorized, concurrent processor.The ways in which we have realized this significantcomputational reduction are described in this paper.I.
+INTRODUCTIONMost large vocabulary speech recognition systems areimplemented as network searches for the best paththrough a large, but finite grid.
+The best path generallycorresponds to the most likely sequence of words asconstrained by a finite state network which implementsthe grammar or syntactic component of the system.When the number of basic speech (sub-word) units issmall (i.e., on the order of 50-200 units), the details ofimplementation f the search strategy don't have a majorimpact on the overall complexity of the recognition taskand experimental tuning and assessment of differenttraining strategies and overall performance of therecognizer is relatively straightforward.
+However, whent Now with CSELT, Torino, Italy.highly detailed (context dependent) speech units are used,including both intraword and interword contextdependent units, the complexity of the overallimplementation often increases quadratically with thenumber of basic units, and correspondingly the details ofhow the network search is implemented become of majorimportance in accessing the suitability of various networkstructures.
+We have especially found this to be the casewhen we use context dependent interword speech unitswhere the fan-out at the end of a word and the fan-in atthe beginning of the next word are both very high, andthe bookkeeping to keep track of all possible phoneticcontexts in which a word occurs can dominate thecomputation (to the extent that it can make even thelikelihood computation with mixture density HMM's benegligible compared to the bookkeeping overhead), sinceat every frame, all possible connections between everyvalid pair of words in the grammar must be examined.When this is the case, a full search implementation f thespeech recognition algorithm is totally impractical, if notimpossible.
+For a task like the DARPA resourcemanagement task, the number of grid points to beexamined is on the order of tens of millions while thenumber of connections between grid points ranges in thehundreds of millions.
+An effective solution to thisproblem consists of performing an intelligent searchthrough the grid and using reasonable but effectiveheuristics to eliminate unlikely path candidates fromconsideration.
+There are several ways for reducing thecomputational cost of a search for the most likely paththrough a finite but large grid of points, includingdifferent versions of stack decoding \[1\] \[2\], and A*algorithms\[3\] \[4\]Perhaps the most widely used search algorithm for largevocabulary speech recognition is the so called beamsearch algorithm introduced first by Bruce Lowerre inthe Harpy system Is\] .
+In its original form the algorithmcarries out the search by exploring, at every step, only afixed number, N, of best scoring paths (beam).
+The311assumption behind this heuristic is that the globallyoptimal path is very unlikely to lie outside of the N bestpaths at each stage during the search.
+Theimplementation of this form of beam search presentssome computational problems in finding the N best paths,since all explored paths must be sorted according to theirlikelihoods.
+An approximation to the original beamsearch consists in finding the current best scoring pathamong the active ones and extending only those paths forwhich the difference between their score and the bestscore is less than a given threshold (the so called beamwidth).
+In this case the number of preserved (active)paths is variable during the search and depends on thedistribution of the likelihoods among the pathsthemselves.
+Again, a sufficiently large value of thethreshold can make the probability of missing theglobally optimal path sufficiently small.
+An advantage ofthe beam search strategy, over other strategies, is thatbeing a breadth first search it can be convenientlyimplemented in a real time fashion, in the sense that theprocessing can proceed frame synchronously.
+Also, sinceall active paths at every step of the search have the santolength, the scores of all active paths can be compared onan equal basis.For the reasons described above, a beam strategy isgenerally the one used in large vocabulary continuousspeech recognition systems.
+Although the algorithm issimple and straightforward to implement in theory, inpractice there are a number of factors which stronglyaffect the overall efficiency of the implementation.
+It isthe purpose of this paper to discuss these factors andshow how proper design lead to an efficient and accurateimplementation f a large vocabulary recognition system.The resulting recognizer structure has been designed totake advantage of the capabilities of a vectofizedconcurrent processor (an Alliant FX/80) which consistsof a cluster of up to 8 computing elements (CE's) thatcan execute code in vector concurrent mode.
+Theiterations of a loop within a program can executeconcurrendy provided that there is no data dependencywithin the loop itself, i.e.
+operations in one iterationdon't use and are independent of results obtained in otheriterations.
+Moreover, since every CE works as an arrayprocessor that pipelines operations performed on datavectors, vector operations, instead of single scalaroperations, are actually distributed across processors forconcurrent execution.
+Of course, for taking advantage ofthe vector capabilities of each processor, the code mustbe structured so that the heart of the computation isperformed in such a way that it can be distributed to theconcurrent processors and can readily be performed invector mode.
+Thus the algorithms must be implementedas a sequence of simple vector operations which areiterafively applied to a set of computing elements haringthe same data structure.
+Furthermore the size of the datastructure, required by each CE for computation, must besmall enough to fit within a local CE cache so that theinherent speed of the processor is not compromised byexcessive memory faults outside the cache.Based on the above discussion it should be clear that asingle HMM state constitutes a data structure that issimple enough simple to be used as a basic element forvectofized processing.
+Since there is no difference in theprocessing of HMM states with regard to their positionwithin the model (with the exception of word initial orword final states), the operations performed on singlestates can be easily expressed in vectorized form.
+Hencea vector is the ideal structure for storing the informationrelated to the states in the decoding network.
+Dependingon the size of the task, the algorithm can be implementedwith static or dynamic state allocation.
+In the staticmemory case, when the memory needed to allocate allthe states of the decoding network is sufficiently small,each state is assigned an address within the state vectorat the beginning of the program, and the address remainsconstant.
+When the number of states of the decodingnetwork is very large, hence the amount of memoryneeded for static allocation is too big for practicalimplementation, a different solution is required to avoidmemory faults within individual processors.
+Thesolution to this problem is to allocate memory only forthose states that are active at any particular time, i.e.stack the alive nodes within a small memory stack.
+Theaddress of a state within the state vector is therefore notpredictable a priori.
+Hence a more sophisticatedaddressing scheme is needed to perform the decoding.This scheme, unfortunately, is not well suited to aparallel and vectorized implementation.
+The amount ofmemory needed in the DARPA resource managementtask, both in the no grammar case and with the word pairgrammar, permits a static state allocation.
+However formore complex tasks (e.g.
+vocabularies of the order of10,000 words) a dynamic allocation of states should beimplemented.In our implementation of the DARPA resourcemanagement task all the states are sequentially allocatedin the same order as they appear in the HMM chains thatrepresent he words.
+Given the simple HMM structureused to represent the units, the local path optimization inthe Viterbi decoding has to be performed between statesthat are stored m consecutive locations of the statevector, except for those states that are at the boundariesof word segments.
+In this way, the decoding problem issplit into two sub-problems, namely processing ofinternal word segment states and processing of wordboundary states.
+The method of path extension, duringthe Viterbi decoding, involving boundary states thatcoincide with the beginning and end of a word model, is33_2driven by the syntactic onstraints used in the recognitionsystem as well as by the phonological constraintsimposed at the word junction level.
+Since the wordmodels used in the recognition system have a number ofpossible different beginning and end segments (heads andtails) represented by individual interword contextdependent phones, and since the language may berepresented by a finite state network with word pairconstraints, the connection scheme between the boundarystates may be fairly complex.
+The check of all theconnection conditions (syntactic and phonological) forevery word beginning and word ending state is thus veryexpensive computationally.
+Hence we use a compiledform of the list of possible connections betweenboundary states.
+This gives a significantly more efficientimplementation f the recognition algorithm.A final issue in the recognizer implementation concernsthe use of a guided search algorithm which is used onlyfor evaluation and assessment of different recognitionand training strategies.
+When the uttered sentence isknown, as is the case during the phase of developmentand performance valuation of a speech recognitionsystem, the beam search threshold can be based on thebest path obtained through a forced alignment of theinput speech with the HMM representation f the truesentence.
+This allows a further reduction of the searchspace, since the beam search threshold will be greatlyreduced whenever the correct path is the same as the bestpath found by the forced alignment.
+This occurs oftenduring long content words, and rarely during shortfunction words.
+Overall it leads to a useful reduction incomputation.2.
+REVIEW OF THE RECOGNIZER STRUCTUREA more detailed description of the large vocabularycontinuous peech recognition system implemented bythe algorithms described in this paper can be found inRefs\[6\] [7\].
+Three state, continuous density, HMM's areused to represent each of the units (except silence whichis represented by a single state HMM).
+There are onlytwo transitions leaving from a state, a self loop transitionand a transition to the next state.
+Transition probabilitiesare not used during the likelihood computation, since ithas been experimentally shown that they don't affect therecognition performance.Within each state S~ of each model, the spectralobservation probability density is represented by aweighted mixture of My multivariate normal densityfunctions.
+In addition, each state has associated with it alog energy histogram El(e) representing the logarithm ofthe probability of observing a frame with log-energy ewhile in state S~.3133.
+STRUCTURE OF THE LEXICONWhen using intraword and interword units, every word inthe lexicon is represented by three distinct segments,namely a head a body and a tail.
+The head and the tailtake into account all the possible types of coarficulationwith adjacent words, according to the unit set chosen forrepresenting the vocabulary.
+Hence the head and tail of aparticular word consist of a collection of all the possibleconjuction units at the beginning and at the end of aword.
+The body of each word is a simple linear sequenceof units and is assumed to be independent of theneighboring words.
+It should be noted that wordscomposed of two phones and words composed of onephone are special cases of this kind of model.
+A twophone word does not have a body; hence all the possiblebeads merge with all the possible tails.head tail0 o ~ o  body ~ o o0 0 0 0 0 0 0 0 a) 0 0 0 00 0 (~- -~ _..____..._Q 0 Ob) 0 O ~ ~ 0 O0 0 00 0 0c) 0 0 0Figure 1.
+Examples of word models.The concept of word head and tail cannot be extended toone phone words.
+Depending on the neighboring words,a single phone word consists of a particular inter-wordunit.
+Hence a one phone word, in all its possiblecontexts, is represented by a collection of all the inter-word units whose central phone corresponds to the worditself.
+Fig.l shows an example of a word model forthree cases; namely for a word consisting of more than 2phones (a), for a 2 phone word (b), and for a singlephone word (c).
+(the self transition of HMM states hasnot been drawn in the figure).
+Silence at the beginningand at the end of a sentence is represented as a singlephone word.The connections between the tails of a word and thebeads of the following word are based on a precomputed,syntax dependent connection matrix CONN(phi,phj)whose generic element assumes the logic value true ifunit Phi may follow unit phi in the conjunction of twoconsecutive words.
+The matrix CONN(phi,phj) may beset according to phonological rules \[8\]4.
+THE GRAMMAR COMPONENTThe sequence of words defining legal sentences withinthe task grammar are expressed through a finite statenetwork (FSN) and a list of permitted word pairs.
+In theFSN used in the experiments, the entire vocabulary isdivided into four independent sets, with no overlap.These sets consist of the following: BE which includesthe words that can he spo_ken at the beginning of asentence but not at the end; BE which includes the wordsthat can he spoken at the end of a sentence but not at thebeginning; BE which includes the words that can hes_p_oken either at the beginning or end of a sentence; andBE, which includes the words that cannot be spokeneither at the beginning or at the end of a sentence.Language constraints, in the form of word occurrencestatistics uch as bigrams or word pairs, can be used inthe recognition algorithm.
+The word pair grammar,specifying the words that are allowed to follow a givenword, has a perplexity of about 60 for the resourcemanagement task.
+The language perplexity is equal to thenumber of different words (i.e.
+991) when no wordconstraints are used.5.
+STATIC INFORMATION USED IN THE DECODERThe decoding (recognition) algorithm uses a network(decoding network) that integrates acoustic, phonological,lexical, and syntactical models, in order to find thesequence of words that gives the best interpretation ofthe input sentence in terms of likelihood.
+The decodingnetwork is obtained by substituting the correspondinglexical models along every arc of the FSN that representsthe language.
+Of course, if interword units are used, theconnections between words at the FSN nodes must bemade according to the phonological rules defined forthose units.
+The use of a word pair grammar greatlyincreases the complexity of the decoding network sincenew nodes must be added to the original FSN in order toallow only the valid sequences of word pairs.
+Thus, evena simple FSN can become very large when interwordunits and word pairs are taken into account.Generally speaking, one can always trade off memory forcomputing time.
+In this particular case the network doesnot have to be completely compiled (i.e.
+a detailed listmade of all nodes and arcs) but, for instance, word pairconstraints can be taken into account by saving the runtime decoding information associated with every arc ofthe network which joins at a given node of the originalFSN at a given flame, and using this information tocheck the word pair constraints before extending newpaths out of the same node.
+This procedure, that we callinterpreted ecoding as opposed to compiled decoding,has been used in preliminary versions of the algorithm.The interpreted ecoding leads to a highly inefficientimplementation i  terms of computing time, to decode agiven string.
+This is because the basic operation fordecoding, namely checking matches for word pairconstraints, cannot generally be coded in a form that canbe efficiently parallelized and vectofized.
+Thus, as statedin the introduction of this paper, a vectofized compiledrepresentation f the decoding networks is necessary fortaking advantage of the parallel and vectofizedarchitecture of the computer used for the recognitionexperiments.
+An even better structure for the algorithmis a network which is represented by two different levelsof information, namely lexical information, encoded bythe sequence of HMM states that form word bodies,heads and tails, and the connection information that isneeded for propagating the score among bodies, headsand tails during the decoding procedure.
+The lexicalinformation is encoded into a state vector.
+Everyelement of the state vector corresponds to a particularHMM state in the word representation.
+Hence everyelement of the vector has to he identified as a state of aparticular HMM.
+The information needed for thisidentification is the unit number (UNIT(i)) and the statenumber (STATE(i)).
+An additional vector, called A (i), isused to control the transition between consecutive states.Since we do not use transition probabilities in thelikelihood computation, A(i) can be either 0 or -o0,depending on whether the transition from that state to thenext state in the vector is allowed or not.
+A(i) is solelyused to prevent he propagation of the score from the laststate of a piece of a word model (head, tail or body) tothe first state of the following part of the word model inthe vector, since the score propagation among differentsegments must he fully controlled by the connectioninformation.
+Hence the last state of every piece of wordmodel has A(i)=--~,o while all other states have A(i)=O.The location of items within the vector is stored inauxiliary (directory) arrays.
+Thus all beginning and endstates of every segment may be directly accessed.There are two different ypes of connection information,namely inner connections, i.e.
+the ones among heads,body and tails of the same word, and outer connections,between tails and heads of temporally consecutive wordhypotheses.
+Outer connection information, conveyingphonological (i.e.
+the matrix CONN(phl.phj) ) andlinguistic (i.e.
+the word pair grammar) constraints, can bestored either in an interpretable form or in a compiledform.
+It is obvious that compiled connection informationleads to a far more efficient version of the decoder thanone running on interpretable connections.
+In theinterpretable version the decoder has to check, at everyframe and for every word head, all the arcscorresponding to legal preceding words (i.e.
+according tothe word pair grammar), and for each one of them find,among all the tails, those that are connectable to thehead, each time checking the CONN(phi,phj) matrix.
+Ina compiled version all the pointers to the legal tail endsare pre-stored in an array ( connection list ) addressableby the head identifier.
+Table l shows statistics on thenumber of heads and tails, and the overall number ofstates and outer connections in two different cases,namely using 1172 and 1769 context dependent units.314The state vector has been purged from all head and tailsegments that have no outer connections (not a l lconnections among the words are possible due to theword pair constraints).
+The number of heads and tails inthe table is computed after the purge operation.5.1 Inter word silence implementationThere are two distinct sets of units that may be followedby interword silence when they are used as word tails.The first set are those units that must always be followedby silence, i.e.
+they are constrained to have silence as theright context.
+In order to avoid problems when using aword pair grammar, these units are realized by appendingthe silence model (consisting of a one state HMM) tothe specific unit model and considering the sequence ofthe two models as a single model.1 Units I States I Heads I Tails I Connections 1I I I I1769 1 47641 1 8082 1 3486 1 274863TABLE 1.
+Statistics on static information with twodifferent unit setsThe second set includes all those units that are followedby an optional silence.
+Again, for ease ofimplementation, these units are duplicated when theyappear in the tail of a word and a silence model isappended to one of the two instantiations.6.
+DYNAMIC INFORMATION IN THE DECODERThe information related to active states in the state vectormust be stored at each step of the decoding algorithm.This information includes: the current score (SCORE),the pointer to the previous lexical item (BPO) on the bestpath reaching that state at the current time, and a timemarker (BEG) indicating when the current best pathentered into the current lexical item.
+Due to theMarkovian property of the models, the decoding processneeds only the score and the pointers relative to the lastprocessed frame.
+Hence the three arrays are doubled insize, the OLD version of each array is relative to thepreviously processed frame, while the NEW version isrelative to the current frame.
+At the end of the processingfor the current frame, the pointers NEW and OLD areflipped.
+In order to be able to backtrack the best pathfrom the last frame to the beginning of the sentence anddecode the recognized sequence of words, we have tostore the back pointers and the time markers along thewhole decodmg process.
+The amount of memory neededfor keeping this information is not negligible as thisinformation must be recorded for every arc of the FSNand for every frame of the decoded sentence.
+A possiblesolution to reduce the amount of memory for thebacktracking information consists in implementing apartial backtracking strategyLg1, [lo].
+In the partialbacktracking, the backpointers are checked during thedecoding in order to find some past node that is the onlyancestor of all the currently active nodes (immortalnode).
+Hence a partial section of the global optimal pathcan be tracked back from the current immortal node to apreviously detected immortal node, and all thebacktracking information in the time segment betweenthe two immortal nodes can be deleted, making memoryavailable for new data.
+The partial backtracking strategyis advisable for a real time, continuously running,implementation of the decoding algorithm, where we donot know in advance the maximum duration of sentences.Since in the version of the system used for speechrecognizer performance evaluation we know themaximum duration of any sentence and the memoryneeded for the backtracking information is within thecapability of the computers we use, we didn't implementthe partial backtracking strategy.For a given frame and a given arc, the backtrackinginformation has to be recorded when a uniqueinterpretation of the back-pointers is available for thatarc.
+Since arcs have head segments joining at the firststate of the body segment and each head segment mayhave a different back pointer at a given stage of thedecoding, the only place where the information relativeto the previous arc is unique is along the body segment.Thus the backpointers of the first state of the bodysegment of each arc are recorded at each time frame.
+Fortwo phone words, that don't have a body segment, therecorded backpointers are those relative to the best pathamong those exiting from the last state of every headsegment.7.
+THE FINAL DECODING ALGORITHMThe diagram in Fig.2 shows the breakdown of thedecoding process for one frame of input speech intofunctional blocks.
+In the remainder of this section weanalyze the main implementation characteristics of eachblock.7.1 Internal statesThis block performs the dynamic programmingoptimization for all the active states in the state vector.The pointers to active states are kept in a list(LIST(i),  i=l,N,, , i ,  ) that is updated at the end of theprocessing of each frame.
+A state is active if its score, atthe previous frame, is better than the beam-searchpruning threshold defined for that frame.
+Since theHMM structure we use in our system has only twopossible transitions from each state, namely the self loopand the forward transition, and since we don't usetransition probabilities in the likelihood computation, thebasic dynamic programming optimization consists of thecomparison of the score of each state with the score of315the previous state.
+In order to inhibit the propagation ofthe score between consecutively stored word segments,the constant A (i) is added to the score of state i beforecomparison with state i+l.
+The backpointersBPO(i,NEW) and the time markers BEG(i,NEW) areupdated according to the result of the maximizationoperation.
+The operation performed in this block iscompletely parallelized and vectorized.I INTERNAL STATES \]VI INNER CONNECTIONS IV I otrrER CONNECTIONS tI LIST UPDATING IVI LOCAL LIKELH"IOOD IFigure 2.
+Steps in the decoding of one frame7.2 Inner connectionsInner connections are those among the heads, the bodyand the tails of the same word.
+Only words with anumber of phones greater than or equal to 2 have innerconnections.
+In order to keep efficiency of theimplementation high, arcs have been ordered accordingto the number of phones of corresponding words.
+Hence,in our implementation, the arcs whose order number goesfrom 1 to Narcsgt2 correspond to words with more thantwo phones; the arcs from Narcsg,2+l to Na,cs2 correspondto words with two phones and the arcs from Na,c,2+l toN~,~ 1 correspond to words composed of only one phone.This block performs three basic functions:1.
+For arcs 1 to Na,~g,2.
+Finds the best scoring endstate among all the possible heads of the word andpropagates the corresponding path to the first stateof the body if it has a greater score.
+This is avectofized and parallelized operation.2.
+For arCS Narcss,2+l tO Narcs 2.
+Finds the bestscoring end state among all the possible heads ofthe word and propagates the corresponding path tothe first state of each tail, if it has a greater score.This is a vectofized and parallelized operation.3.
+For arcs 1 to Na,~,g,2.
+Propagates the pathcorresponding to the last state of the body to thefirst state of each tail of the word, if it has agreater score.
+This is a parallelized operation.7.3 Outer connectionsOuter connections are those among the tails of a wordand the heads of another word.
+This operation isperformed only for active arcs.
+An arc is consideredactive when at least one tail end state is active.
+Thepointers to active arcs are kept in a listLSTC( i ) ,  i=l,N~cave c that is updated at the end of theprocessing of each frame.
+In the most efficientimplementation the connections are compiled into avector.
+The elements of this vector are the locations,within the state vector, of the states that are connected toa given word tail.7.4 List updatingThe beam search pruning of states is performed in thisblock.
+In the standard implementation, at the i-th frame,a prumng threshold O; is set as:O i = AinU'_ Awhere A m~' is the maximum likelihood among the activestates at the i -th frame and A is a fixed constant.
+Hencethe likelihood of all states that are active at the i -thframe is compared with (9,.. A state is then included inthe new list if its likelihood is greater than the thresholdO i.
+The list updating operation is computationallydemanding due to the sequential nature of the operationsto he performed.
+There are five sets of states that arepotentially active at the i -th frame.
+They are all thestates that were active at the previous frame, all thesuccessors of the states that were active at the previousframe, all body initial states, all head initial states, andall tail initial states.
+For computing the maximum statelikelihood A max', and for the subsequent state pruningand list updating, it is necessary to check all five sets ofstates.
+This produces a computational overhead for theintersection of the different sets of states (e.g.
+a state inthe first set may also he in the second set; hence thechecking operation is performed twice for that state)which leads to an inefficient implementation.
+A solutionis to keep an additional vector LIVE (i) whose genericj - th  element is set to true any time the j - th  state in thestate vector is set to a new likelihood value during thedecoding (all the elements of LIVE(i) are set to falsebefore the decoding of each frame).
+To further improvethe implementation of this block, the list updatingoperation is performed in a concurrent mode, firstgenerating partial lists of active states, and then mergingthe partial lists into the final list.
+Moreover, whenever astate is put into the active state list, the correspondingphonetic unit is marked as active setting to true thecorresponding location of a vector USE(i), i=l  .
+.
+.
+.
+.
+Nunit s.This is done in order to restrict the local likelihoodcomputation only to active units.An additional operation is performed by this block andconsists in updating the list of active arcs.
+An arc isconsidered to be active, for the purpose of propagatingits score through outer connections, if at least a tail finalstate is active.
+Again, in the parallel implementation,partial active arc lists are computed first, and thenmerged into the final active arc list.3!67.5 Local likelihoodWhile local likelihood computation in discrete densityHMM's is a simple table lookup, with mixture densityHMM's it becomes one of the major computational loadsof the entire decoding procedure.
+A particularlyoptimized version of the state local likelihoodcomputation has been implemented, enhancing thevectorized structure of the computation.
+Also, the locallikelihood is computed only for active units, i.e.
+whenthe value of USE(i) is set to true.7.6 Guided searchWe have also developed a particularly efficient version ofthe recognizer suited only for experimental ssessment ofspeech recognition accuracy.
+When assessingperformance on a test database, the correct string that hasto be recognized is known a priori for every utteredsentence.
+The forced alignment of the test speech, withthe network representing the actually uttered sentence,produces a path whose frame-by-frame score (self score)may be used to further reduce the size of the searchspace.
+The concept behind the guided search is that theoverall best path will have a final score that cannot beinferior to the final score of the forced alignmentprocedure.
+This is not true for the local score along theoverall best path and the forced alignment path.
+It mayhappen that the overall best path drops below the scoreof the forced alignment path at a certain point in thesearch, eventually attaining a better score later in thesearch.
+Moreover, if the guided search is performed in aframe synchronous fashion, i.e.
+the forced alignment iscarried out frame synchronously with the recognition, weactually don't know which is the best path in the forcedalignment.
+A non frame synchronous version that firstperforms the forced alignment, then performs abacktracking along the best path and saves all the localscore values, would require too much memory to storethe backtracking information during the alignment phase.Thus, only the score of the locally (not globally) bestpath is available during the frame synchronousalignment.
+The threshold is computed by decrementingthe score of the locally best path by a fixed amount inorder to take into account he above mentioned sourcesof error.7.7 Timing experimentsTiming experiments have been performed during thedevelopment of the algorithm to assess the efficiency ofthe entire speech recognition system.
+All the performancescores reported in this section were obtained uring therecognition of several sentences using a phone set of1172 sub-word units.
+The maximum number of mixturecomponents per state was 16, while the dimension of theobservation vector was 24.
+The guided search strategywas used in all the experiments.Table 3 shows the average time (in seconds) per sentence(TPS), and average time per decoded frame (TPF), in 3different versions of the recognizer.
+In RECI all theconnections are explored at every frame, in REC2 onlyconnections coming from active arcs are explored, andREC3 has the same features of REC2, but uses acompiled version of the connection list.RECOGNIZER TPS TPFRECI 555 1.8REC2 326 l. lREC3 65 0.2TABLE 2.
+Average time (in seconds) per sentence(TPS) and per frame (TPF) in three differentimplementations of the recognizerTable 4 shows the time breakdown for the five modulesof Fig.2 when REC3 is used.
+The numbers hown arethe percentages of time spent in each module during thedecoding of one flame.OperationInternal statesInner connectionsOuter connectionsList updatingLocal likelihoodTime %14.811.85.013.255.2TABLE 3.
+Percentage of time spem in each moduleduring the decoding of one frameThe table shows that the local likelihood computationaccounts for more than 55% of the total decoding timeand it is followed by the dynamic programmingoptimization on the active states, the list updating, andthe propagation of scores for inner connections.
+Thepropagation of score to outer connections takes only 5%of the whole computation.
+In fact, even though thenumber of potential connections i very large (240024 inthe experiment), only a small fraction of them areactually used at each frame.Finally Fig.
+3 shows the efficiency of the whole system(REC3) in terms of concurrency.
+The figure shows theaverage decoding time per frame as a function of thenumber of computing elements used to execute the code.The performance shown by the solid line is that obtainedwith the recognizer REC3, while the dotted line is the1 theoretical curve ~.
+The figure shows that the codeperformance is very close to that of fully concurrentcode.3171.6.4 - -.2 - -  " ' .
+.
+.
+.
+.
+.
+~  " ' ' ' ' .
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.I I I I1 2 3 4 5 6Number of CEsFigure 3.
+CPU time per frame (seconds) versus numberof CEs in REC3 (solid line) and in thetheoretical case (dotted line).8.
+CONCLUSIONSThis paper provided a detailed presentation of all aspectsof the implementation of a large vocabulary speakerindependent continuous speech recognizer to be used as atool for the development of recognition algorithms basedon hidden Markov models and Viterbi decoding.
+Thecomplexity of HMM recognizers i greatly increased bythe introduction of detailed context dependent units forrepresenting interword coarticulafion.
+A vectorizedrepresentation of the data structures involved in thedecoding process, along with compilation of theconnection information among temporally consecutivewords, has led to a speed up of the algorithm of aboutone order of magnitude.
+An average recognition time ofabout one minute per sentence (on the computerconfiguration used in the experiments), although far fromreal time, allows us to perform a series of trainingexperiments and to tune the recogmtion systemparameters in order to obtain high performancerecognition on complex tasks such as the DARPAresource management.9.
+ACKNOWLEDGEMENTSThe authors grateffuUy acknowledge the helpful adviceand consultation provided by Fil Alleva of CarnegieMellon University on the implementation details of theSPHINX system and Douglas B. Paul of LincolnLaboratories, MIT, for the guided search idea.REFERENCESl.
+Jelinek, F. (1969).
+A fast sequential decodingalgorithm using a stack.
+IBM J. Res.
+Develop., vol.13, pp 675-685, Nov. 19692.
+Schwartz, R. and Chow, Y. L. (1990).
+The N-bestalgorithm: an efficient and exact procedure forfinding the N most likely sentence hypotheses.
+Proc,ICASSP 90, pp.
+81-94, Albuquerque, NM, April1990.3.
+Nilsson, N. J.
+(1980).
+Principles of artificialintelligence.
+Tioga Publishing Co., Palo Alto, CA.4.
+Huang, E. F., Soong, F. K. (1990).
+A fast tree-trellissearch for finding the N-best sentence hypotheses incontinuous peech recognition.
+J. Acoust.
+Soc.
+Am.suppl.
+1, vol.
+87, S105, Spring, 1990, also in Proc.DARPA Speech and Natural Language Workshop,Somerset, PA, June 1990.5.
+Lowerre, B. and Reddy, D. R. (1980) The HARPYspeech understanding system.
+In Trends in SpeechRecognition (Lee, W.
+ed.
+), 340-346.
+Prentice-HallInc., New York.6.
+Lee, C. H., Rabiner, L. R., Pieraccini, R., Wilpon, J.G.
+(1990).
+Acoustic modeling for large vocabularyspeech recognition.
+Computer Speech and Language.4, pp.
+127-165, 19907.
+Lee, C. H., Giachin, E., Rabiner, L. R., Pieraccini,R., and Rosenberg, A. E. (1990).
+Improved acousticmodeling for continuous peech recognition.
+Proc.DARPA Speech and Natural Language Workshop,Somerset, PA, June 1990.8.
+Giachin, E. P., Rosenberg, A. E., Lee, C. H. (1990).Word juncture modeling using phonological rules forHMM-based continuous peech recognition.
+Proc,ICASSP 90, pp.
+737-740, Albuquerque, NM, April1990.9.
+Spohrer, J. C., Brown, P. F., Hochschild, P. H., andBaker, J. K. (1980).
+Partial traceback in continuousspeech recognition.
+Proc.
+IEEE Int Cong.Cybernetics and Society, Boston (MA), 1980.10.
+Cravero, M., Fissore, L., Pieraccini R., Scagliola, C.(1984).
+Syntax driven recognition of connectedwords by Markov models.
+Proc.
+of ICASSP 1984,San Diego, (CA), 1984.318

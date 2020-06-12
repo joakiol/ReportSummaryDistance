@@ -1,0 +1,520 @@
+Gappy Pattern Matching on GPUs for On-Demand Extraction ofHierarchical Translation GrammarsHua HeDept.
+of Computer ScienceUniversity of MarylandCollege Park, Marylandhuah@cs.umd.eduJimmy LinThe iSchool and UMIACSUniversity of MarylandCollege Park, Marylandjimmylin@umd.eduAdam LopezSchool of InformaticsUniversity of EdinburghEdinburgh, United Kingdomalopez@inf.ed.ac.ukAbstractGrammars for machine translation can bematerialized on demand by finding sourcephrases in an indexed parallel corpus andextracting their translations.
+This approachis limited in practical applications by thecomputational expense of online lookup andextraction.
+For phrase-based models, recentwork has shown that on-demand grammarextraction can be greatly accelerated byparallelization on general purpose graphicsprocessing units (GPUs), but these algorithmsdo not work for hierarchical models, whichrequire matching patterns that contain gaps.We address this limitation by presentinga novel GPU algorithm for on-demandhierarchical grammar extraction that is atleast an order of magnitude faster than acomparable CPU algorithm when processinglarge batches of sentences.
+In terms ofend-to-end translation, with decoding on theCPU, we increase throughput by roughlytwo thirds on a standard MT evaluationdataset.
+The GPU necessary to achieve theseimprovements increases the cost of a serverby about a third.
+We believe that GPU-basedextraction of hierarchical grammars is anattractive proposition, particularly for MTapplications that demand high throughput.1 IntroductionMost machine translation systems extract a large,fixed translation model from parallel text that isaccessed from memory or disk.
+An alternative is tostore the indexed parallel text in memory and extracttranslation units on demand only when they areneeded to decode new input.
+This architecture hasseveral advantages: It requires only a few gigabytesto represent a model that would otherwise require aterabyte (Lopez, 2008b).
+It can adapt incrementallyto new training data (Levenberg et al., 2010), mak-ing it useful for interactive translation (Gonza?lez-Rubio et al., 2012).
+It supports rule extraction that issensitive to the input sentence, enabling leave-one-out training (Simianer et al., 2012) and the use ofsentence similarity features (Philips, 2012).On-demand extraction can be slow, but forphrase-based models, massive parallelization ongeneral purpose graphics processing units (GPUs)can dramatically accelerate performance.
+He et al.
+(2013) demonstrated orders of magnitude speedupin exact pattern matching with suffix arrays, thealgorithms at the heart of on-demand extraction(Callison-Burch et al., 2005; Zhang and Vogel,2005).
+However, some popular translation modelsuse ?gappy?
+phrases (Chiang, 2007; Simard et al.,2005; Galley and Manning, 2010), and the GPUalgorithm of He et al.
+does not work for thesemodels since it is limited to contiguous phrases.Instead, we need pattern matching and phraseextraction that is able to handle variable-lengthgaps (Lopez, 2007).This paper presents a novel GPU algorithm foron-demand extraction of hierarchical translationmodels based on matching and extracting gappyphrases.
+Our experiments examine both grammarextraction and end-to-end translation, comparingquality, speed, and memory use.
+We compareagainst the GPU system for phrase-based translationby He et al.
+(2013) and cdec, a state-of-the-art87Transactions of the Association for Computational Linguistics, vol.
+3, pp.
+87?100, 2015.
+Action Editor: David Chiang.Submission batch: 6/2014; Revision batch 12/2014; Published 2/2015.
+c?2015 Association for Computational Linguistics.CPU system for hierarchical translation (Dyer etal., 2010).
+Our system outperforms the formeron translation quality by 2.3 BLEU (replicatingpreviously-known results) and outperforms the latteron speed, improving grammar extraction throughputby at least an order of magnitude on large batchesof sentences while maintaining the same level oftranslation quality.
+Our contribution is to show,complete with an open-source implementation,how GPUs can vastly increase the speed ofhierarchical grammar extraction, particularly forhigh-throughput MT applications.2 AlgorithmsGPU architectures, which are optimized for mas-sively parallel operations on relatively small streamsof data, strongly influence the design of our algo-rithms, so we first briefly review some key proper-ties.
+Our NVIDIA Tesla K20c GPU (Kepler Gen-eration) provides 2496 thread processors (CUDAcores), and computation proceeds concurrently ingroups of 32 threads called warps.
+Each thread ina warp carries out identical instructions in lockstep.When a branching instruction occurs, only threadsmeeting the branch condition execute, while therest idle?this is called warp divergence and is asource of poor performance.
+Consequently, GPUsare poor at ?irregular?
+computations that involveconditionals, pointer manipulation, and complexexecution sequences.Our pattern matching algorithm is organizedaround two general design principles: brute forcescans and fine-grained parallelism.
+Brute force arrayscans avoid warp divergence since they access datain regular patterns.
+Rather than parallelize largeralgorithms that use these scans as subroutines, weparallelize the scans themselves in a fine-grainedmanner to obtain high throughput.The relatively small size of the GPU memory alsoaffects design decisions.
+Data transfer between theGPU and the CPU has high latency, so we wantto avoid shuffling data as much as possible.
+Toaccomplish this, we must fit all our data structuresinto the 5 GB memory available on our particularGPU.
+As we will show, this requires some tradeoffsin addition to careful design of algorithms andassociated data structures.2.1 Translation by Pattern MatchingLopez (2008b) provides a recipe for ?translation bypattern matching?
+that we use as a guide for theremainder of this paper (Algorithm 1).Algorithm 1 Translation by pattern matching1: for each input sentence do2: for each phrase in the sentence do3: Find its occurrences in the source text4: for each occurrence do5: Extract any aligned target phrase6: for each extracted phrase pair do7: Compute feature values8: Decode as usual using the scored rulesWe encounter a computational bottleneck in lines2?7, since there are many query phrases, matchingoccurrences, and extracted phrase pairs to process.Below, we tackle each challenge in turn.To make our discussion concrete, we will use atoy English-Spanish translation example.
+At line 3we search for phrases in the source side of a paralleltext.
+Suppose that it contains two sentences: it makeshim and it mars him, and it sets him on and it takeshim off.
+We map each unique word to an integer id,and call the resulting array of integers that encodesthe source text under this transformation the textT .
+Let |T | denote the total number of tokens, T [i]denote its ith element, and T [i]...T [j] denote thesubstring starting with its ith element and endingwith its jth element.
+Since T encodes multiplesentences, we use special tokens to denote the end ofa sentence and the end of the corpus.
+In our examplewe use # and $, respectively, as shown in Figure 1.Now suppose we want to translate the sentence itpersuades him and it disheartens him.
+We encode itunder the same mapping as T and call the resultingarray the query Q.Our goal is to materialize all of the hierarchicalphrases that could be used to translate Q based ontraining data T .
+Our algorithm breaks this processinto a total of 14 distinct passes, each performing asingle type of computation in parallel.
+Five of thesepasses are based on the algorithm described by Heet al.
+(2013), and we review them for completeness.The nine new passes are identified as such.88i T [i]1 #2 it3 makes4 him5 and6 it7 mars8 him9 #10 it11 sets12 him13 on14 and15 it16 takes17 him18 off19 #20 $ST [i] suffix ST [i]: T [ST [i]]...T [|T |]5 and it mars him # it sets him on and it takes him off # $14 and it takes him off # $4 him and it mars him # it sets him on and it takes him off # $17 him off # $12 him on and it takes him off # $8 him # it sets him on and it takes him off # $2 it makes him and it mars him # it sets him on and it takes him off # $6 it mars him # it sets him on and it takes him off # $10 it sets him on and it takes him off # $15 it takes him off # $3 makes him and it mars him # it sets him on and it takes him off # $7 mars him # it sets him on and it takes him off # $18 off # $13 on and it takes him off # $11 sets him on and it takes him off # $16 takes him off # $1 # it makes him and it mars him # it sets him on and it takes him off # $9 # it sets him on and it takes him off # $19 # $20 $Figure 1: Example text T (showing words rather than than their integer encodings for clarity) and suffixarray ST with corresponding suffixes.2.2 Finding Every PhraseLine 3 of Algorithm 1 searches T for all occurrencesof all phrases in Q.
+We call each phrase a pattern,and our goal is to find all phrases of T that matcheach pattern, i.e., the problem of pattern matching.Our translation model permits phrases with at mosttwo gaps, soQ is a source ofO(|Q|6) patterns, sincethere are up to six possible subphrase boundaries.Passes 1-2: Finding contiguous patternsTo find contiguous phrases (patterns without gaps),we use the algorithm of He et al.
+(2013).
+It requiresa suffix array (Manber and Myers, 1990) computedfrom T .
+The ith suffix of a 1-indexed text T isthe substring T [i]...T [|T |] starting at position i andcontinuing to the end of T .
+The suffix array ST isa permutation of the integers 1, ..., |T | ordered bya lexicographic sort of the corresponding suffixes(Figure 1).
+Given ST , finding a pattern P is simplya matter of binary search for the pair of integers(`, h) such that for all i from ` to h, P is a prefixof the ST [i]th suffix of T .
+Thus, each integer ST [i]identifies a unique match of P .
+In our example, thepattern it returns (7, 10), corresponding to matchesat positions 2, 6, 10, and 15; while him and it returns(3, 3), corresponding to a match at position 4.
+Alongest common prefix (LCP) array enables us tofind h or ` inO(|Q|+log |T |) comparisons (Manberand Myers, 1990).Every substring ofQ is a contiguous pattern, but ifwe searched T for all of them, most searches wouldfail, wasting computation.
+Instead, He et al.
+(2013)use two passes.
+The first computes, concurrentlyfor every position i in 1, ..., |Q|, the endpoint j ofthe longest substring Q[i]...Q[j] that appears in T .It also computes the suffix array range of the one-word substring Q[i].
+Taking this range as input,for all k from i to j the second pass concurrentlyqueries T for pattern Q[i]...Q[k].
+This pass usestwo concurrent threads per pattern?one to find thelowest index of the suffix array range, and one tofind the highest index.Passes 3-4: Finding one-gap patterns (New)Passes 1 and 2 find contiguous phrases, but we must89also find phrases that contain gaps.
+We use thespecial symbol ?
+to denote a variable-length gap.The set of one-gap patterns in Q thus consists ofQ[i]...Q[j] ?
+Q[i?]...Q[j?]
+for all i, j, i?, and j?
+suchthat i ?
+j < i?
+?
+1 and i?
+?
+j?.
+When the positionin Q is not important we use strings u, v, and wto denote contiguous patterns; for example, u ?
+vdenotes an arbitrary one-gap pattern.
+We call thecontiguous strings u and v of u ?
+v its subpatterns,e.g., it ?
+him is a pattern with subpatterns it and him.When we search for a gappy pattern, ?
+can matchany non-empty substring of T that does not contain$ or #.
+Such a match may not be uniquely identifiedby the index of its first word, so we specify itwith a tuple of indices, one for the match of eachsubpattern.
+Pattern it ?
+him has six matches in T :(2, 4), (2, 8), (6, 8), (10, 12), (10, 17), and (15, 17).Passes 3 and 4 search T for all one-gap patternsusing the novel GPU algorithm described below.A pattern u ?
+v cannot match in T unless bothu and v match in T , so we use the output of pass1, which returns all (i, j) pairs such that Q[i]...Q[j]matches in T .
+Concurrently for every such i andj, pass 3 enumerates all i?
+and j?
+such that j <i?
+?
+1 and Q[i?]...Q[j?]
+matches in T , returning eachpattern Q[i]...Q[j] ?
+Q[i?]...Q[j?].
+Pass 3 then sortsand deduplicates the combined results of all threadsto obtain a set of unique patterns.
+These operationsare carried out on the GPU using the algorithms ofHoberock and Bell (2010).Pass 4 searches for matches of each pattern iden-tified by pass 3.
+We first illustrate with it ?
+him.Pass 2 associates it with suffix array range (7, 10).A linear scan of ST in this range reveals that itmatches at positions 2, 6, 10, and 15 in T .
+Likewise,him maps to range (3, 6) of ST and matches at 4,17, 12, and 8 in T .
+Concurrently for each matchof the less frequent subpattern, we scan T to findmatches of the other subpattern until reaching asentence boundary or the maximum phrase length,an idea we borrow from the CPU implementation ofBaltescu and Blunsom (2014).
+In our example, bothit and him occur an equal number of times, so wearbitrarily choose one?suppose we choose it.
+Weassign each of positions 2, 6, 10, and 15 to a separatethread.
+The thread assigned position 2 scans T formatches of him until the end of sentence at position9, finding matches (2, 4) and (2, 8).As a second example, consider it ?
+and.
+In thiscase, it has four matches, but and only two.
+So,we need only two threads, each scanning backwardsfrom matches of and.
+Since most patterns areinfrequent, allocating threads this way minimizeswork.
+However, very large corpora contain one-gappatterns for which both subpatterns are frequent.
+Wesimply precompute all matches for these patternsand retrieve them at runtime, as in Lopez (2007).This precomputation is performed once given T andtherefore it is a one-time cost.Materializing every match of u ?
+v would con-sume substantial memory, so we only emit those forwhich a translation of the substring matching ?
+isextractable using the check in ?2.3.
+The successof this check is a prerequisite for extracting thetranslation of u ?
+v or any pattern containing it, sopruning in this way conserves GPU memory withoutaffecting the final grammar.Passes 5-7: Finding two-gap patterns (New)We next find all patterns with two gaps of the formu ?
+v ?
+w. The search is similar to passes 3 and 4.
+Inpass 5, concurrently for every pattern u ?
+v matchedin pass 4, we enumerate the pattern u?v?w for everyw such that u?v?w is a pattern inQ and w matchedin pass 1.
+In pass 6, concurrently for every match(i, j) of u ?
+v for every u ?
+v ?w enumerated in pass5, we scan T from position j + |v| + 1 for matchesof w until we reach the end of sentence.
+As withthe one-gap patterns, we apply the extraction checkon the second ?
+of the two-gap patterns u ?
+v ?
+w toavoid needlessly materializing matches that will notyield translations.2.3 Extracting Every Target PhraseIn line 5 of Algorithm 1 we must extract the alignedtranslation of every match of every pattern found inT .
+Efficiency is crucial since some patterns mayoccur hundreds of thousands of times.We extract translations from word alignmentsusing the consistency check of Och et al.
+(1999).A pair of substrings is consistent only if no wordin either substring is aligned to any word outsidethe pair.
+For example, in Figure 2 the pair (it setshim on, los excita) is consistent.
+The pair (him onand, los excita y) is not, because excita also alignsto the words it sets.
+Only consistent pairs can be90los excitay los paralizaL R P# 9 7it 10 2 2 1sets 11 2 2 2him 12 1 1 3on 13 2 2 4and 14 3 3 5it 15 5 5 6takes 16 5 5 7him 17 4 4 8off 18 5 5 98 9 10 11 12L?
+3 1 5 8 6R?
+3 4 5 8 9Figure 2: An example alignment and the corre-sponding L, R, P , L?
+and R?
+arrays.translations of each other in our model.Given a specific source substring, our algorithmasks: is it part of a consistent pair?
+To answerthis question, we first compute the minimum targetsubstring to which all words in the substring align.We then compute the minimum substring to whichall words of this candidate translation align.
+If thissubstring matches the input, the candidate transla-tion is returned; otherwise, extraction fails.
+Forexample, it sets him on in range (10, 13) aligns to losexcita in range (8, 9), which aligns back to (10, 13).So this is a consistent pair.
+However, him on and inrange (12, 14) aligns to los excita y in range (8, 10),which aligns back to it sets him on and at (10, 14).So him on and is not part of a consistent pair and hasno extractable translation.To extract gappy translation units, we subtractconsistent pairs from other consistent pairs (Chiang,2007).
+For example, (him, los) is a consistent pair.Subtracting it from (it sets him on, los excita) yieldsthe translation unit (it sets ?
+on, ?
+excita).Our basic building block is the EXTRACT func-tion of He et al.
+(2013), which performs the abovecheck using byte arrays denoted L, R, P , L?, andR?
+(Figure 2) to identify extractable target phrasesin target text T ?.
+When T [i] is a word, L[i] and R[i]store the sentence-relative positions of the leftmostand rightmost words it aligns to in T ?, and P [i]stores T [i]?s sentence-relative position.
+When T [i] isa sentence boundary, the concatenation of bytesL[i],R[i], and P [i], denoted LRP [i], stores the positionof the corresponding sentence in T ?.
+Bytes L?[i?
+]and R?[i?]
+store the sentence-relative positions of theleftmost and rightmost words T ?[i?]
+aligns to.We first calculate the start position p of the sourcesentence containing T [i]...T [j], and the start posi-tion p?
+of the corresponding target sentence:p = i?
+P [i]p?
+= LRP [p]We then find target indices i?
+and j?
+for the candidatetranslation T ?[i?
+]...T ?[j?]:i?
+= p?
++ mink?i,...,jL[k]j?
+= p?
++ maxk?i,...,jR[k]We can similarly find the translation T [i??
+]...T [j??]
+ofT ?[i?
+]...T ?[j?]:i??
+= p+ mink??i?,...,j?L?[k?]j??
+= p+ maxk??i?,...,j?R?[k?
+]If i = i??
+and j = j?
+?, EXTRACT(i, j) returns (i?, j?
+),the position of T [i]...T [j]?s translation.
+Otherwisethe function signals that there is no extractabletranslation.
+Given this function, extraction proceedsin three passes.Pass 8: Extracting contiguous patternsEach match of pattern u is assigned to a concurrentthread.
+The thread receiving the match at position ireturns the pair consisting of u and its translationaccording to EXTRACT(i, i + |u| ?
+1), if any.
+Italso returns translations for patterns in which u isthe only contiguous subpattern: ?
+u, u ?, and ?
+u ?.We extract translations for these patterns even if uhas no translation itself.
+To see why, suppose thatwe reverse the translation direction of our example.In Figure 2, excita is not part of a consistent pair, butboth ?
+excita and ?
+excita ?
+are.Consider ?
+u.
+Since ?
+matches any substring in Twithout boundary symbols, the leftmost position of91?
+u is not fixed.
+So, we seek the smallest match withan extractable translation, returning its translationwith the following algorithm.1: k ?
+i2: while T [k ?
+1] 6= # do3: k ?
+k ?
+14: if EXTRACT(k, i+ |u| ?
+1) succeeds then5: (i?, j?)?
+EXTRACT(k, i+ |u| ?
+1)6: if EXTRACT(k, i?
+1) succeeds then7: (p?, q?)?
+EXTRACT(k, i?
+1)8: return T ?[i?
+]...T ?[p?]
+?
+T ?[q?
+]...T ?[j?
+]9: if T [k ?
+1] = # then10: return failureThe case of u ?
+is symmetric.We extend this algorithm to handle ?
+u ?.
+Theextension considers increasingly distant pairs (k, `)for which ?
+u ?
+matches T [k]...T [`], until it eitherfinds an extractable translation, or it encounters bothsentence boundaries and fails.Pass 9: Extracting one-gap patterns (New)In this pass, each match of pattern u ?
+v isassigned to a thread.
+The thread receiving match(i, j) attempts to assign i?, j?, p?
+and q?
+as follows.
+(i?, j?)
+= EXTRACT(i, j + |v| ?
+1)(p?, q?)
+= EXTRACT(i+ |u|, j ?
+1)If both calls succeed, we subtract to obtain thetranslation T ?[i?
+]...T ?[p?]
+?
+T ?[q?
+]...T ?[j?].
+We extracttranslations for ?
+u ?
+v and u ?
+v ?, using the samealgorithm as in pass 7.Pass 10: Extracting two-gap patterns (New)In this pass, we extract a translation for each matchof u ?
+v ?
+w concurrently, using a straightforwardextension of the subtraction algorithm in pass 8.Since we only need patterns with up to two gaps,we do not consider other patterns.To optimize GPU performance, for the passes above,we assign all matches of a gappy pattern to the samethread block.
+This allows threads in the same threadblock to share the same data during initialization,therefore improving memory access coherence.2.4 Computing Every FeatureIn line 7 of Algorithm 1 we compute features ofevery extracted phrase pair.
+We use ?
+and ?
+todenote arbitrary strings of words and ?
+symbols, andour input is a multiset of (?, ?)
+pairs collected bypasses 7-9, which we denote by ?.
+We compute thefollowing features for each unique (?, ?)
+pair.Log-count features.
+We need two aggregate statis-tics: The count of (?, ?)
+in ?, and the count of allpairs in ?
+for which ?
+is the source pattern.
+We thencompute the two features as log(1 + count(?, ?
+))and log(1 + count(?
+)).Translation log-probability.
+Given the aggregatecounts above, this feature is log count(?,?)count(?)
+.Singleton indicators.
+We compute two features,to indicate whether (?, ?)
+occurs only once, i.e.,count(?, ?)
+= 1, and whether ?
+occurs only once,i.e., count(?)
+= 1.Lexical weight.
+Consider word pairs a, bwith a ?
+?,b ?
+?, and neither a nor b are ?.
+Given a global wordtranslation probability table p(a|b), which is exter-nally computed from the word alignments directly,the feature is?a??
+maxb??
+log p(a|b).Since ?
+is the result of parallel computation, wemust sort it.
+We can then compute aggregate statis-tics by keeping running totals in a scan of thesorted multiset.
+With many instantiated patterns,we would quickly exhaust GPU memory, so thissort is performed on the CPU.
+We compute thelog-count features, translation log-probability, andsingleton indicators this way.
+However, the lexicalweight feature is a function only of the alignedtranslation pair itself and corresponding word-leveltranslation possibilities calculated externally fromword alignment.
+Thus, the computation of thisfeature can be parallelized on the GPU.
+So, wehave multiple feature extraction passes based on thenumber of gaps:Pass 11 (CPU): One-gap features (New).Pass 12 (CPU): Two-gap features (New).Pass 13 (CPU): Contiguous features.Pass 14 (GPU): Lexical weight feature (New).2.5 SamplingIn serial implementations of on-demand extraction,very frequent patterns are a major computationalbottleneck (Callison-Burch et al., 2005; Lopez,2008b).
+Thus, for patterns occurring morethan n times, for some fixed n (typically92between 100 and 1000), these implementationsdeterministically sample n matches, and onlyextract translations of these matches.
+To comparewith these implementations, we also implement anoptional sampling step.
+Though we use the samesampling rate, the samples themselves are not thesame, since our extraction checks in passes 4 and 6alter the set of matches that are actually enumerated,thus sampled from.
+The CPU algorithms do not usethis check.3 Experimental SetupWe tested our algorithms in an end-to-end Chinese-English translation task using data conditions simi-lar to those of Lopez (2008b) and He et al.
+(2013).Our implementation of hierarchical grammar extrac-tion on the GPU, as detailed in the previous section,is written in C, using CUDA library v5.5 and GCCv4.8, compiled with the -O3 optimization flag.
+Ourcode is open source and available for researchers todownload and try out.1Hardware.
+We used NVIDIA?s Tesla K20c GPU(Kepler Generation), which has 2496 CUDA coresand 5 GB memory, with a peak memory bandwidthof 208 GB/s.
+The server hosting the GPU has twoIntel Xeon E5-2690 CPUs, each with eight cores at2.90 GHz (a total of 16 physical cores; 32 logicalcores with hyperthreading).
+Both were released in2012 and represent comparable generation hardwaretechnology.
+All GPU and CPU experiments wereconducted on the same machine, which runs Red HatEnterprise Linux (RHEL) 6.Training Data.
+We used two training sets: The firstconsists of news articles from the Xinhua Agency,with 27 million words of Chinese (around one mil-lion sentences).
+The second adds parallel text fromthe United Nations, with 81 million words of Chi-nese (around four million sentences).Test Data.
+For performance evaluations, we rantests on sentence batches of varying sizes: 100, 500,1k, 2k, 4k, 6k, 8k, 16k and 32k.
+These sentences aredrawn from the NIST 2002?2008 MT evaluations(on average 27 words each) and then the Chineseside of the Hong Kong Parallel Text (LDC2004T08)when the NIST data are smaller than the target batch1http://hohocode.github.io/cgx/size.
+Large batch sizes are necessary to saturatethe processing power of the GPU.
+The size of thecomplete batch of 32k test sentences is 4892 KB.Baselines.
+We compared our GPU implementa-tion for on-demand extraction of hierarchical gram-mars against the corresponding CPU implementa-tion (Lopez, 2008a) found in pycdec (Chahuneauet al., 2012), an extension of cdec (Dyer et al.,2010).2 We also compared our GPU algorithmsagainst Moses (Koehn et al., 2007), representing astandard phrase-based SMT baseline.
+Phrase tablesgenerated by Moses are essentially the same as theGPU implementation of on-demand extraction forphrase-based translation by He et al.
+(2013).4 Results4.1 Translation qualityWe first verified that our GPU implementationachieves the same translation quality as thecorresponding CPU baseline.
+This is accomplishedby comparing system output against the baselinesystems, training on Xinhua, tuning on NIST03,and testing on NIST05.
+In all cases, we usedMIRA (Chiang, 2012) to tune parameters.
+We ranexperiments three times and report the average asrecommended by Clark et al.
+(2011).
+Hierarchicalgrammars were extracted with sampling at a rate of300; we also bound source patterns at a length of 5and matches at a length of 15.
+For Moses we useddefault parameters.Our BLEU scores, shown in Table 1, replicatewell-known results where hierarchical models out-perform pure phrase-based models on this task.
+Thedifference in quality is partly because the phrase-based baseline system does not use lexicalized re-ordering, which provides similar improvements tohierarchical translation (Lopez, 2008b).
+Such lex-icalized reordering models cannot be produced bythe GPU-based system of He et al.
+(2013).
+Thisestablishes a clear translation quality improvementbetween our work and that of He et al.
+(2013).2The Chahuneau et al.
+(2012) implementation is in Cython, alanguage for building Python applications with performance-critical components in C. All of the pattern matching code thatwe instrumented for these experiments is compiled to C/C++.The implementation is a port of the original code written byLopez (2008a) in Pyrex, a precursor to Cython.
+Much of thecode is unchanged.93System BLEUMoses phrase-based baseline 31.11Hierarchical with online CPU extraction 33.37Hierarchical with online GPU extraction 33.46Table 1: Comparison of translation quality.
+Thehierarchical system is cdec.
+Online CPU extractionis the baseline, part of the standard cdec package.Online GPU extraction is this work.We see that the BLEU score obtained by our GPUimplementation of hierarchical grammar extractionis nearly identical to cdec?s, evidence that our im-plementation is correct.
+The minor differences inscore are due to non-determinism in tuning and thedifference in sampling algorithms (?2.5).4.2 Extraction SpeedNext, we focus on the performance of the hierar-chical grammar extraction component, comparingthe CPU and GPU implementations.
+For bothimplementations, our timings include preparation ofqueries, pattern matching, extraction, and featurecomputation.
+For the GPU implementation, weinclude the time required to move data to and fromthe GPU.
+We do not include time for construction ofstatic data structures (suffix arrays and indexes) andinitial loading of the parallel corpus with alignmentdata, as those represent one-time costs.
+Note that theCPU implementation includes indexes for frequentpatterns in the form u ?
+v and u ?
+v ?
+w, while ourGPU implementation indexes only the former.We compared performance varying the number ofqueries, and following Lopez (2008a), we comparedsampling at a rate of 300 against runs without sam-pling.
+Our primary evaluation metric is throughput:the average number of processed words per second(i.e., batch size in words divided by total time).We first establish throughput baselines on theCPU, shown in Table 2.
+Experiments used differentnumbers of threads under different data conditions(Xinhua or Xinhua + UN), with and without sam-pling.
+Our server has a total of 16 physical cores,but supports 32 logical cores via hyperthreading.
+Weobtained the CPU sampling results by running cdecover 16k query sentences.
+For the non-samplingruns, since the throughput is so low, we measured+Sampling ?Samplingthreads X X+U X X+U1 12.7 4.8 0.32 0.0516 190.7 65.3 4.81 0.7032 248.1 76.0 6.23 0.89Table 2: CPU extraction performance (throughputin words/second) using different numbers of threadsunder different data conditions (X: Xinhua, X+U:Xinhua+UN), with and without sampling.performance over 2.6k sentences for Xinhua and 500sentences for Xinhua + UN.
+We see that throughputscaling is slightly less than linear: with sampling,using 16 threads increases throughput by 15?
+onthe Xinhua data (compared to a single thread) and13.6?
+on Xinhua + UN data.
+Going from 16to 32 threads further increase throughput by 15%-30% and saturates the processing capacity of ourserver.
+The 32 thread condition provides a fairbaseline for comparing the performance of the GPUimplementation.Table 3 shows GPU hierarchical grammarextraction performance in terms of throughput(words/second); these results are averaged overthree trials.
+We varied the number of querysentences, and in each case, also report the speedupwith respect to the CPU condition with 32 threads.GPU throughput increases with larger batch sizesbecause we are increasingly able to saturate theGPU and take full advantage of the massiveparallelism it offers.
+We do not observe this effecton the CPU since we saturate the processors early.With a batch size of 100 sentences, the GPUis slightly slower than the 32-thread CPU imple-mentation on Xinhua and faster on Xinhua + UN,both with sampling.
+Without sampling, the GPUis already an order of magnitude faster at a batchsize of 100 sentences.
+At a batch size of 500sentences, the GPU implementation is substantiallyfaster than the 32-thread CPU version across allconditions.
+With the largest batch size in our exper-iments of 32k sentences, the GPU is over an orderof magnitude faster than the fully-saturated CPUwith sampling, and over two orders of magnitudefaster without sampling.
+Although previous workdoes not show decreased translation quality due94Batch Size Number of Sentences 100 500 1k 2k 4k 6k 8k 16k 32kNumber of Tokens 2.8k 14.5k 28.8k 57.9k 117.9k 161.9k 214.2k 436.5k 893.9k+Sampling Xinhua Throughput (words/s) 236 667 914 1356 1613 1794 2001 2793 3998Speedup 1.0?
+2.7?
+3.7?
+5.5?
+6.5?
+7.2?
+8.1?
+11.3?
+16.1?Xinhua+UN Throughput (words/s) 106 223 287 400 454 514 571 709 1016Speedup 1.4?
+2.9?
+3.8?
+5.3?
+6.0?
+6.8?
+7.5?
+9.3?
+13.4?
+?Sampling Xinhua Throughput (words/s) 84 280 405 690 929 1200 1414 2135 3240Speedup 13?
+45?
+65?
+111?
+149?
+193?
+227?
+343?
+520?Xinhua+UN Throughput (words/s) 19 62 99 172 248 304 357 509 793Speedup 22?
+69?
+112?
+193?
+279?
+342?
+401?
+572?
+891?Table 3: GPU grammar extraction throughput (words/second) under different batch sizes, data conditions,with and without sampling.
+Speedup is computed with respect to the CPU baseline running on 32 threads.+Sampling ?SamplingX X+U X X+UGPU one-by-one 7.23 4.7 2.39 0.71CPU single-thread 12.7 4.8 0.32 0.05Table 4: Sentence-by-sentence GPU grammarextraction throughput (words/second) vs. a singlethread on the CPU (X: Xinhua, X+U: Xinhua + UN).to sampling (Callison-Burch et al., 2005; Lopez,2008b), these results illustrate the raw computa-tional potential of GPUs, showing that we can elim-inate heuristics that make CPU processing tractable.We believe future work can exploit these untappedprocessing cycles to improve translation quality.How does the GPU fare for translation tasks thatdemand low latency, such as sentence-by-sentencetranslation on the web?
+To find out, we conductedexperiments where the sentences are fed, one by one,to the GPU grammar extraction algorithm.
+Resultsare shown in Table 4, with a comparison to a single-threaded CPU baseline.
+To be consistent with theother results, we also measure speed in terms ofthroughput here.
+Note that we are not aware ofany freely available multi-threaded CPU algorithmto process an individual sentence in parallel, sothe single-thread CPU comparison is reasonable.3We observe that the GPU is slower only with sam-pling on the smaller Xinhua data.
+In all other3Parallel sub-sentential parsing has been known for many years(Chandwani et al., 1992) although we don?t know of animplementation in any major open-source MT systems.Queries 2k 4k 6k 8kGPU PBMT 15s 25s 29s 33sGPU Hiero 43s 73s 90s 107sSlowdown 2.8?
+2.9?
+3.1?
+3.2?Table 5: Grammar extraction time comparing thiswork (GPU Hiero) and the work of He et al.
+(2013)(GPU PBMT).cases, sentence-by-sentence processing on the GPUachieves a similar level of performance or is faster.Next, we compare the performance of hierarchicalgrammar extraction to phrase-based extraction onthe GPU with sampling.
+We replicated the test datacondition of He et al.
+(2013) so that our first 8k querysentences are the same as those used in their exper-iments.
+The results are shown in Table 5, wherewe report grammar extraction time for batches ofdifferent sizes; the bottom row shows the slowdownof the hierarchical vs. non-hierarchical grammarconditions.
+This quantifies the performance penaltyto achieve the translation quality gains reported inTable 1.
+Hierarchical grammar extraction is aboutthree times slower, primarily due to the computa-tional costs of the new passes presented in ?2.Another aspect of performance is memory foot-print.
+We report the memory use (CPU RAM) of allfour conditions in Table 6.
+The values reported forthe CPU implementation use a single thread only.At runtime, our hierarchical GPU system exhibitspeak CPU memory use of 8 GB on the host machine.Most of this memory is consumed by batching ex-95CPU GPUPBMT 1.6 GB 2.3 GBHiero 1.9 GB 8.0 GBTable 6: Memory consumption (CPU RAM) fordifferent experimental conditions.tracted phrases before scoring in passes 10 through14.
+Since the phrase-based GPU implementationprocesses far fewer phrases, the memory footprintis much smaller.
+The CPU implementations pro-cess extracted phrases in small batches grouped bysource phrase, and thus exhibit less memory usage.However, these levels of memory consumption aremodest considering modern hardware.
+In all otherrespects, memory usage is similar for all systems,since the suffix array and associated data structuresare all linear in the size of the indexed parallel text.4.3 Per-Pass SpeedTo obtain a detailed picture of where the GPUspeedups and bottlenecks are, we collected per-passtiming statistics.
+Table 7 shows results for grammarextraction on 6k queries using the Xinhua data withno sampling and default length constraints (passesin gray occur on the GPU; all others on the CPU).These numbers explain the decreased speed of hi-erarchical extraction compared to He et al.
+(2013),with the new passes (shown in italics) accountingfor more than 75% of the total computation time.However, even passes that are nominally the sameactually require more time in the hierarchical case:in extracting and scoring phrases associated with acontiguous pattern u, we must now also extract andscore patterns ?
+u, u ?, and ?
+u ?.Interestingly, the CPU portions of our algorithmaccount for around half of the total grammar ex-traction time.
+One way to interpret this observationis that the massive parallelization provided by theGPU is so effective that we are bottlenecked bythe CPU.
+In our current design, the CPU portionsare those that cannot be easily parallelized on theGPU or those that require too much memory to fiton the GPU.
+The former is a possible target foroptimization in future work, though the latter willlikely be solved by hardware advances alone: forexample, the Tesla K80 has 24 GB of memory.Pass Time %Contig.
+pattern pass 1 0.03 0.02%Contig.
+pattern pass 2 0.02 0.02%One-gap pattern generation 1.14 0.86%One-gap pattern matching 19.24 14.54%Two-gap pattern generation 0.37 0.28%Two-gap pattern matching 15.91 12.02%Gappy pattern processing 1.21 0.91%Contig.
+pattern extraction 13.94 10.53%Two-gap pattern extraction 0.52 0.39%One-gap pattern extraction 11.07 8.36%One gap translation features 23.72 17.91%Two gap translation features 30.90 23.34%Contig.
+translation features 5.00 3.77%Lexical weight feature 3.09 2.33%Data transfer and control 6.23 4.71%Total 132.39 100.0%Table 7: Detailed timings (in seconds) for 6kqueries.
+Passes in gray occur on the GPU; allothers on the CPU.
+Passes needed for hierarchicalgrammars are in italics, which are not present in Heet al.
+(2013).4.4 End-to-end SpeedWhat is the benefit of using GPUs in an end-to-end translation task?
+Since we have shown thatboth the CPU and GPU implementations achievenear-identical translation quality, the difference liesin speed.
+But speed is difficult to measure fairly:translation involves not only grammar extraction butalso decoding and associated I/O.
+We have focusedon grammar extraction on the GPU, but our researchvision involves eventually moving all componentsof the machine translation pipeline onto the GPU.The experiments we describe below capture theperformance advantages of our implementation thatare achievable today, using cdec for decoding (onthe CPU, using 32 threads).To measure end-to-end translation speed usingpycdec, per-sentence grammars are first extractedfor a batch of sentences and written to disk, thenread from disk during decoding.
+Therefore, wereport times separately for grammar extraction, diskI/O, and decoding (which includes time for readingthe grammar files from disk back into memory).Grammar extraction is either performed on the GPU96Grammar Extraction Disk I/O DecodingGPU: 30.8s 13.4s CPU: 59sCPU: 101.1sTable 8: Running times for an end-to-end translationpipeline over NIST03 test data.
+Grammar extractionis either performed on the GPU or the CPU(32 threads); other stages are the same for bothconditions (decoding uses 32 threads).or on the CPU (using 32 threads), same as theexperiments described in the previous section.Results are shown in Table 8 using the Xinhuatraining data and NIST03 test data (919 sentences,27,045 words).
+All experiment settings are ex-actly the same as in the previous section.
+Weobserve an end-to-end translation throughput of 262words/second with GPU grammar extraction and156 words/second on the CPU (32 threads), for aspeedup of 1.68?.Despite the speedup, we note that this experimentfavors the CPU for several reasons.
+First, the GPU isidle during decoding, but it could be used to processgrammars for a subsequent batch of sentences in apipelined fashion.
+Second, NIST03 is a small batchthat doesn?t fully saturate the GPU?throughputkeeps increasing by a large margin with larger batchsizes (see results in Table 3).
+Third, in comparisonto the 32-thread CPU baseline, our GPU extractiononly uses a single thread on the CPU throughout itsexecution, thus the CPU portion of the performancecan be further improved, especially in the featuregeneration passes (see ?4.3 for details).Of course, the GPU/CPU combination requires aserver equipped with a GPU, incurring additionalhardware costs.
+We estimate that in Q4 2014dollars, our base system would cost roughly $7500USD, and the GPU would cost another $2600 USD.However, the server-grade GPU used in this workis not the only choice: a typical high-end consumerGPU, such as the NVIDIA GTX Titan Black (around$1100), costs considerably less but has even highermemory bandwidth and with similarly impressivefloating point performance.
+This price differenceis due to extra functionalities (e.g., error-correctingcode memory) for specific applications (e.g., sci-entific computing), and is not directly related todifferences in raw computational power.
+This meansthat we could speed up overall translation by 68% ifwe spend an additional 35% (server-grade GPU) or15% (consumer-grade GPU) on hardware.
+From aneconomic perspective, this is an attractive proposi-tion.
+Of course, the advantages of using GPUs forhigh-throughput translation go up further with largerbatch sizes.4.5 One-time Construction CostsConstruction of static data structures for on-demandgrammar extraction is a one-time cost given a corpusT .
+However, under a streaming scenario wherewe might receive incremental changes to T as newtraining data become available, we need to updatethe data structures appropriately.Updating static data structures involves two costs:the suffix array with its LCP array and the precom-putation indexes.
+We do not consider the alignmentconstruction cost as it is external to cdec (and isa necessary step for all implementations).
+Forthe Xinhua data, building the suffix array using asingle CPU thread takes 29.2 seconds and buildingthe precomputation indexes on the GPU takes 5.7seconds.
+Compared to Table 7, these one-time costsrepresent approximately 27% of the GPU grammarextraction time.It is possible to lower the construction costs ofthese data structures given recent advances.
+Lev-enberg et al.
+(2010) describe novel algorithms thatallow efficient in-place updates of the suffix arraywhen new training data arrive.
+That work directlytackles on-demand SMT architectures in the stream-ing data scenario.
+Alternatively, the speed of suffixarray construction can be improved significantlyby the CUDA Data Parallel Primitives Library,4which provides fast sorting algorithms to efficientlyconstruct suffix arrays on the GPU.
+Minimizing datapreparation costs has not been a focus of this work,but we believe that the massive parallelism providedby the GPU represents promising future work.5 Conclusions and Future WorkThe increasing demands for translation services be-cause of globalization (Pangeanic, 2013; Sykes,2009) make high-throughput translation a realistic4http://cudpp.github.io/cudpp/2.2/97scenario, and one that our GPU implementation ishighly suited to serve.
+High-throughput translationalso enables downstream applications such as doc-ument translation in cross-language information re-trieval (Oard and Hackett, 1997), where we translatethe entire source document collection into the targetlanguage prior to indexing.The number of transistors on a chip continues toincrease exponentially, a trend that even pessimistsconcede should continue at least until the end of thedecade (Vardi, 2014).
+Computer architects widelyagree that instruction-level hardware parallelism islong past the point of diminishing returns (Olukotunand Hammond, 2005).
+This has led to a trend ofplacing greater numbers of cores on the same die.The question is how to best utilize the transistorbudget: a small number of complex cores, a largenumber of simple cores, or a mixture of both?
+Forour problem, it appears that we can take advantageof brute force scans and fine-grained parallelisminherent in the problem of on-demand extraction,which makes investments in large numbers of simplecores (as on the GPU) a win.This observation is in line with trends in other ar-eas of computing.
+Many problems in computationalbiology, like computational linguistics, boil down toefficient search on discrete sequences of symbols.DNA sequence alignment systems MummerGPU(Schatz et al., 2007) and MummerGPU 2 (Trap-nell and Schatz, 2009) use suffix trees to performDNA sequence matching on the GPU, while thestate-of-the-art system MummurGPU++ (Gharaibehand Ripeanu, 2010) uses suffix arrays, as we dohere.
+Our algorithms for matching gappy patterns inpasses 3 and 4 are closely related to seed-and-extendalgorithms for approximate matching in DNA se-quences, which have recently been implemented onGPUs (Wilton et al., 2014).It is unlikely that CPU processing will becomeobsolete, since not all problems can be cast in a data-parallel framework.
+Ultimately, we need a hybridarchitecture where parallelizable tasks are offloadedto the GPU, which works in conjunction with theCPU to handle irregular computations in a pipelinedfashion.
+In a well-balanced system, both the GPUand the CPU would be fully utilized, performingthe types of computation they excel at, unlike inour current design, where the GPU sits idle whilethe CPU finishes decoding.
+A part of our broadresearch agenda is exploring which aspects of themachine translation pipeline are amenable to GPUalgorithms.
+The performance analysis in ?4.3 showsthat even in grammar extraction there are CPUbottlenecks we need to address and opportunities forfurther optimization.Beyond grammar extraction, there is a questionabout whether decoding can be moved to the GPU.Memory is a big hurdle: since accessing data struc-tures off-GPU is costly, it would be preferable tohold all models in GPU memory.
+We?ve addressedthe problem for translation models, but the languagemodels used in machine translation are also large.It might be possible to use lossy compression (Tal-bot and Osborne, 2007) or batch request strategies(Brants et al., 2007) to solve this problem.
+If we do,we believe that translation models could be decodedusing variants of GPU algorithms for speech (Chonget al., 2009) or parsing (Yi et al., 2011; Canny et al.,2013; Hall et al., 2014), though the latter algorithmsexploit properties of latent-variable grammars thatmay not extend to translation.
+Thinking beyonddecoding, we believe that other problems in compu-tational linguistics might benefit from the massiveparallelism offered by GPUs.AcknowledgmentsThis research was supported in part by the BOLTprogram of the Defense Advanced Research ProjectsAgency, Contract No.
+HR0011-12-C-0015; NSFunder award IIS-1218043; and the Human LanguageTechnology Center of Excellence at Johns HopkinsUniversity.
+Any opinions, findings, conclusions, orrecommendations expressed in this paper are thoseof the authors and do not necessarily reflect viewsof the sponsors.
+The second author is gratefulto Esther and Kiri for their loving support anddedicates this work to Joshua and Jacob.
+We thankNikolay Bogoychev and the anonymous TACL re-viewers for helpful comments on previous drafts,Rich Cox for support and advice, and CLIP labmates(particularly Junhui Li and Wu Ke) for helpfuldiscussions.
+We also thank UMIACS for providinghardware resources via the NVIDIA CUDA Centerof Excellence, and the UMIACS IT staff, especiallyJoe Webster, for excellent support.98ReferencesPaul Baltescu and Phil Blunsom.
+2014.
+A fast and simpleonline synchronous context free grammar extractor.The Prague Bulletin of Mathematical Linguistics,102(1):17?26.Thorsten Brants, Ashok C. Popat, Peng Xu, Franz J.Och, and Jeffrey Dean.
+2007.
+Large languagemodels in machine translation.
+In Proceedings ofthe 2007 Joint Conference on Empirical Methodsin Natural Language Processing and ComputationalNatural Language Learning (EMNLP-CoNLL 2007),pages 858?867.Chris Callison-Burch, Colin Bannard, and JoshSchroeder.
+2005.
+Scaling phrase-based statisticalmachine translation to larger corpora and longerphrases.
+In Proceedings of the 43rd Annual Meetingon Association for Computational Linguistics (ACL2005), pages 255?262.John Canny, David Hall, and Dan Klein.
+2013.
+Amulti-teraflop constituency parser using GPUs.
+InProceedings of the 2013 Conference on EmpiricalMethods in Natural Language Processin (EMNLP2013), pages 1898?1907.Victor Chahuneau, Noah A. Smith, and Chris Dyer.2012.
+pycdec: A Python interface to cdec.
+InProceedings of the 7th Machine Translation Marathon(MTM 2012).M.
+Chandwani, M. Puranik, and N. S. Chaudhari.
+1992.On CKY-parsing of context-free grammars in parallel.In Proceedings of Technology Enabling Tomorrow:Computers, Communications and Automation towardsthe 21st Century, pages 141?145.David Chiang.
+2007.
+Hierarchical phrase-basedtranslation.
+Computational Linguistics, 33(2):201?228.David Chiang.
+2012.
+Hope and fear for discriminativetraining of statistical translation models.
+Journal ofMachine Learning Research, 13:1159?1187.Jike Chong, Ekaterina Gonina, Youngmin Yi, and KurtKeutzer.
+2009.
+A fully data parallel WFST-basedlarge vocabulary continuous speech recognition ona graphics processing unit.
+In Proceedings of the10th Annual Conference of the International SpeechCommunication Association (INTERSPEECH 2009),pages 1183?1186.Jonathan H. Clark, Chris Dyer, Alon Lavie, andNoah A. Smith.
+2011.
+Better hypothesis testingfor statistical machine translation: Controlling foroptimizer instability.
+In Proceedings of the 49thAnnual Meeting of the Association for ComputationalLinguistics (ACL 2011), pages 176?181.Chris Dyer, Adam Lopez, Juri Ganitkevitch, JohnathanWeese, Ferhan Ture, Phil Blunsom, Hendra Setiawan,Vladimir Eidelman, and Philip Resnik.
+2010. cdec:A decoder, alignment, and learning framework forfinite-state and context-free translation models.
+InProceedings of the ACL 2010 System Demonstrations,pages 7?12.Michel Galley and Christopher D. Manning.
+2010.Accurate non-hierarchical phrase-based translation.
+InHuman Language Technologies: The 2010 AnnualConference of the North American Chapter of the As-sociation for Computational Linguistics (HLT/NAACL2010), pages 966?974.Abdullah Gharaibeh and Matei Ripeanu.
+2010.
+Sizematters: Space/time tradeoffs to improve GPGPUapplications performance.
+In Proceedings of the2010 ACM/IEEE International Conference for HighPerformance Computing, Networking, Storage andAnalysis (SC 2010), pages 1?12.Jesu?s Gonza?lez-Rubio, Daniel Ortiz-Mart?
+?nez, andFrancisco Casacuberta.
+2012.
+Active learning forinteractive machine translation.
+In Proceedings ofthe 13th Conference of the European Chapter ofthe Association for Computational Linguistics (EACL2012), pages 245?254.David Hall, Taylor Berg-Kirkpatrick, and Dan Klein.2014.
+Sparser, better, faster GPU parsing.
+In Proceed-ings of the 52nd Annual Meeting of the Association forComputational Linguistics (ACL 2014), pages 208?217.Hua He, Jimmy Lin, and Adam Lopez.
+2013.
+Massivelyparallel suffix array queries and on-demand phraseextraction for statistical machine translation usingGPUs.
+In Proceedings of the 2013 Conferenceof the North American Chapter of the Associationfor Computational Linguistics: Human LanguageTechnologies, pages 325?334.Jared Hoberock and Nathan Bell.
+2010.
+Thrust: Aparallel template library.
+Version 1.8.0.Philipp Koehn, Hieu Hoang, Alexandra Birch, ChrisCallison-Burch, Marcello Federico, Nicola Bertoldi,Brooke Cowan, Wade Shen, Christine Moran, RichardZens, Chris Dyer, Ondr?ej Bojar, Alexandra Con-stantin, and Evan Herbst.
+2007.
+Moses: Opensource toolkit for statistical machine translation.
+InProceedings of the 45th Annual Meeting of the ACL onInteractive Poster and Demonstration Sessions, pages177?180.Abby Levenberg, Chris Callison-Burch, and MilesOsborne.
+2010.
+Stream-based translation models forstatistical machine translation.
+In Human LanguageTechnologies: The 2010 Annual Conference of theNorth American Chapter of the Association forComputational Linguistics (HLT/NAACL 2010), pages394?402.99Adam Lopez.
+2007.
+Hierarchical phrase-basedtranslation with suffix arrays.
+In Proceedings ofthe 2007 Joint Conference on Empirical Methodsin Natural Language Processing and ComputationalNatural Language Learning (EMNLP-CoNLL 2007),pages 976?985.Adam Lopez.
+2008a.
+Machine translation by patternmatching.
+Ph.D. dissertation, University of Maryland,College Park, Maryland, USA.Adam Lopez.
+2008b.
+Tera-scale translation models viapattern matching.
+In Proceedings of the 22nd In-ternational Conference on Computational Linguistics(COLING 2008), pages 505?512.Udi Manber and Gene Myers.
+1990.
+Suffix arrays: a newmethod for on-line string searches.
+In Proceedings ofthe First Annual ACM-SIAM Symposium on DiscreteAlgorithms (SODA ?90), pages 319?327.Douglas W. Oard and Paul Hackett.
+1997.
+Documenttranslation for cross-language text retrieval at theUniversity of Maryland.
+In Proceedings of the 7th TextREtrieval Conference (TREC-7).Franz Josef Och, Christoph Tillmann, and HermannNey.
+1999.
+Improved alignment models for statisticalmachine translation.
+In Proceedings of the 1999Joint SIGDAT Conference on Empirical Methods inNatural Language Processing and Very Large Corpora(EMNLP 1999), pages 20?28.Kunle Olukotun and Lance Hammond.
+2005.
+The futureof microprocessors.
+ACM Queue, 3(7):27?34.Pangeanic, 2013.
+What is The Size of the TranslationIndustry?
+http://www.pangeanic.com/knowledgecenter/size-translation-industry/.Aaron B. Philips.
+2012.
+Modeling Relevance inStatistical Machine Translation: Scoring Alignment,Context, and Annotations of Translation Instances.Ph.D.
+thesis, Carnegie Mellon University.Michael Schatz, Cole Trapnell, Arthur Delcher, andAmitabh Varshney.
+2007.
+High-throughput sequencealignment using graphics processing units.
+BMCBioinformatics, 8(1):474.Michel Simard, Nicola Cancedda, Bruno Cavestro, MarcDymetman, Eric Gaussier, Cyril Goutte, and KenjiYamada.
+2005.
+Translating with non-contiguousphrases.
+In Proceedings of Human LanguageTechnology Conference and Conference on EmpiricalMethods in Natural Language Processing (EMNLP2005), pages 755?762.Patrick Simianer, Stefan Riezler, and Chris Dyer.2012.
+Joint feature selection in distributed stochasticlearning for large-scale discriminative training inSMT.
+In Proceedings of the 50th Annual Meeting ofthe Association for Computational Linguistics (ACL2012), pages 11?21.Tanisha Sykes, 2009.
+Growth in Translation.http://www.inc.com/articles/2009/08/translation.html.David Talbot and Miles Osborne.
+2007.
+Randomisedlanguage modelling for statistical machine translation.In Proceedings of the 45th Annual Meeting ofthe Association for Computational Linguistics (ACL2007), pages 512?519.Cole Trapnell and Michael C. Schatz.
+2009.
+Optimizingdata intensive GPGPU computations for DNA se-quence alignment.
+Parallel Computing, 35(8-9):429?440.Moshe Y. Vardi.
+2014.
+Moore?s Law and the sand-heapparadox.
+Communications of the ACM, 57(5):5.Richard Wilton, Tamas Budavari, Ben Langmead, SarahWheelan, Steven L. Salzberg, and Alex Szalay.2014.
+Faster sequence alignment through GPU-accelerated restriction of the seed-and-extend searchspace.
+http://dx.doi.org/10.1101/007641.Youngmin Yi, Chao-Yue Lai, Slav Petrov, and KurtKeutzer.
+2011.
+Efficient parallel CKY parsing onGPUs.
+In Proceedings of the 12th InternationalConference on Parsing Technologies, pages 175?185.Ying Zhang and Stephan Vogel.
+2005.
+An efficientphrase-to-phrase alignment model for arbitrarily longphrase and large corpora.
+In Proceedings of the TenthConference of the European Association for MachineTranslation (EAMT-05).100

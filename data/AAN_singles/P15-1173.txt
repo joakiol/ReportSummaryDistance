@@ -1,0 +1,392 @@
+Proceedings of the 53rd Annual Meeting of the Association for Computational Linguisticsand the 7th International Joint Conference on Natural Language Processing, pages 1793?1803,Beijing, China, July 26-31, 2015.c?2015 Association for Computational LinguisticsAutoExtend: Extending Word Embeddings to Embeddings for Synsetsand LexemesSascha Rothe and Hinrich Sch?utzeCenter for Information & Language ProcessingUniversity of Munichsascha@cis.lmu.deAbstractWe present AutoExtend, a system to learnembeddings for synsets and lexemes.
+It isflexible in that it can take any word embed-dings as input and does not need an addi-tional training corpus.
+The synset/lexemeembeddings obtained live in the same vec-tor space as the word embeddings.
+Asparse tensor formalization guarantees ef-ficiency and parallelizability.
+We useWordNet as a lexical resource, but Auto-Extend can be easily applied to otherresources like Freebase.
+AutoExtendachieves state-of-the-art performance onword similarity and word sense disam-biguation tasks.1 IntroductionUnsupervised methods for word embeddings (alsocalled ?distributed word representations?)
+havebecome popular in natural language processing(NLP).
+These methods only need very large cor-pora as input to create sparse representations (e.g.,based on local collocations) and project them intoa lower dimensional dense vector space.
+Examplesfor word embeddings are SENNA (Collobert andWeston, 2008), the hierarchical log-bilinear model(Mnih and Hinton, 2009), word2vec (Mikolov etal., 2013c) and GloVe (Pennington et al, 2014).However, there are many other resources that areundoubtedly useful in NLP, including lexical re-sources like WordNet and Wiktionary and knowl-edge bases like Wikipedia and Freebase.
+We willsimply call these resources in the rest of the pa-per.
+Our goal is to enrich these valuable resourceswith embeddings for those data types that are notwords; e.g., we want to enrich WordNet with em-beddings for synsets and lexemes.
+A synset is a setof synonyms that are interchangeable in some con-text.
+A lexeme pairs a particular spelling or pro-nunciation with a particular meaning, i.e., a lex-eme is a conjunction of a word and a synset.
+Ourpremise is that many NLP applications will bene-fit if the non-word data types of resources ?
+e.g.,synsets in WordNet ?
+are also available as embed-dings.
+For example, in machine translation, en-riching and improving translation dictionaries (cf.Mikolov et al (2013b)) would benefit from theseembeddings because they would enable us to cre-ate an enriched dictionary for word senses.
+Gen-erally, our premise is that the arguments for theutility of embeddings for word forms should carryover to the utility of embeddings for other datatypes like synsets in WordNet.The insight underlying the method we proposeis that the constraints of a resource can be formal-ized as constraints on embeddings and then allowus to extend word embeddings to embeddings ofother data types like synsets.
+For example, the hy-ponymy relation in WordNet can be formalized assuch a constraint.The advantage of our approach is that it de-couples embedding learning from the extension ofembeddings to non-word data types in a resource.If somebody comes up with a better way of learn-ing embeddings, these embeddings become imme-diately usable for resources.
+And we do not rely onany specific properties of embeddings that makethem usable in some resources, but not in others.An alternative to our approach is to train embed-dings on annotated text, e.g., to train synset em-beddings on corpora annotated with synsets.
+How-ever, successful embedding learning generally re-quires very large corpora and sense labeling is tooexpensive to produce corpora of such a size.Another alternative to our approach is to add upall word embedding vectors related to a particularnode in a resource; e.g., to create the synset vectorof lawsuit in WordNet, we can add the word vec-tors of the three words that are part of the synset(lawsuit, suit, case).
+We will call this approach1793naive and use it as a baseline (Snaivein Table 3).We will focus on WordNet (Fellbaum, 1998) inthis paper, but our method ?
+based on a formaliza-tion that exploits the constraints of a resource forextending embeddings from words to other datatypes ?
+is broadly applicable to other resources in-cluding Wikipedia and Freebase.A word in WordNet can be viewed as a compo-sition of several lexemes.
+Lexemes from differentwords together can form a synset.
+When a synsetis given, it can be decomposed into its lexemes.And these lexemes then join to form words.
+Theseobservations are the basis for the formalization ofthe constraints encoded in WordNet that will bepresented in the next section: we view words asthe sum of their lexemes and, analogously, synsetsas the sum of their lexemes.Another motivation for our formalization stemsfrom the analogy calculus developed by Mikolovet al (2013a), which can be viewed as a grouptheory formalization of word relations: we havea set of elements (our vectors) and an operation(addition) satisfying the properties of a mathemat-ical group, in particular, associativity and invert-ibility.
+For example, you can take the vector ofking, subtract the vector of man and add the vec-tor of woman to get a vector near queen.
+In otherwords, you remove the properties of man and addthe properties of woman.
+We can also see the vec-tor of king as the sum of the vector of man and thevector of a gender-neutral ruler.
+The next thingto notice is that this does not only work for wordsthat combine several properties, but also for wordsthat combine several senses.
+The vector of suit canbe seen as the sum of a vector representing law-suit and a vector representing business suit.
+Auto-Extend is designed to take word vectors as inputand unravel the word vectors to the vectors of theirlexemes.
+The lexeme vectors will then give us thesynset vectors.The main contributions of this paper are: (i)We present AutoExtend, a flexible method that ex-tends word embeddings to embeddings of synsetsand lexemes.
+AutoExtend is completely general inthat it can be used for any set of embeddings andfor any resource that imposes constraints of a cer-tain type on the relationship between words andother data types.
+(ii) We show that AutoExtendachieves state-of-the-art word similarity and wordsense disambiguation (WSD) performance.
+(iii)We publish the AutoExtend code for extendingword embeddings to other data types, the lexemeand synset embeddings and the software to repli-cate our WSD evaluation.This paper is structured as follows.
+Section 2 in-troduces the model, first as a general tensor formu-lation then as a matrix formulation making addi-tional assumptions.
+In Section 3, we describe data,experiments and evaluation.
+We analyze Auto-Extend in Section 4 and give a short summary onhow to extend our method to other resources inSection 5.
+Section 6 discusses related work.2 ModelWe are looking for a model that extends standardembeddings for words to embeddings for the othertwo data types in WordNet: synsets and lexemes.We want all three data types ?
+words, lexemes,synsets ?
+to live in the same embedding space.The basic premise of our model is: (i) words aresums of their lexemes and (ii) synsets are sums oftheir lexemes.
+We refer to these two premises assynset constraints.
+For example, the embeddingof the word bloom is a sum of the embeddings ofits two lexemes bloom(organ) and bloom(period);and the embedding of the synset flower-bloom-blossom(organ) is a sum of the embeddings ofits three lexemes flower(organ), bloom(organ) andblossom(organ).The synset constraints can be argued to be thesimplest possible relationship between the threeWordNet data types.
+They can also be motivatedby the way many embeddings are learned fromcorpora ?
+for example, the counts in vector spacemodels are additive, supporting the view of wordsas the sum of their senses.
+The same assumptionis frequently made; for example, it underlies thegroup theory formalization of analogy discussedin Section 1.We denote word vectors as w(i)?
+Rn, synsetvectors as s(j)?
+Rn, and lexeme vectors as l(i,j)?Rn.
+l(i,j)is that lexeme of wordw(i)that is a mem-ber of synset s(j).
+We set lexeme vectors l(i,j)thatdo not exist to zero.
+For example, the non-existinglexeme flower(truck) is set to zero.
+We can thenformalize our premise that the two constraints (i)and (ii) hold as follows:w(i)=?jl(i,j)(1)s(j)=?il(i,j)(2)1794These two equations are underspecified.
+We there-fore introduce the matrix E(i,j)?
+Rn?n:l(i,j)= E(i,j)w(i)(3)We make the assumption that the dimensions inEq.
+3 are independent of each other, i.e., E(i,j)is a diagonal matrix.
+Our motivation for this as-sumption is: (i) This makes the computation tech-nically feasible by significantly reducing the num-ber of parameters and by supporting parallelism.
+(ii) Treating word embeddings on a per-dimensionbasis is a frequent design choice (e.g., Kalchbren-ner et al (2014)).
+Note that we allow E(i,j)< 0and in general the distribution weights for each di-mension (diagonal entries of E(i,j)) will be differ-ent.
+Our assumption can be interpreted as wordw(i)distributing its embedding activations to itslexemes on each dimension separately.
+Therefore,Eqs.
+1-2 can be written as follows:w(i)=?jE(i,j)w(i)(4)s(j)=?iE(i,j)w(i)(5)Note that from Eq.
+4 it directly follows that:?jE(i,j)= In?i (6)with Inbeing the identity matrix.Let W be a |W | ?
+n matrix where n is the di-mensionality of the embedding space, |W | is thenumber of words and each row w(i)is a word em-bedding; and let S be a |S|?nmatrix where |S| isthe number of synsets and each row s(j)is a synsetembedding.
+W and S can be interpreted as linearmaps and a mapping between them is given by therank 4 tensor E ?
+R|S|?n?|W |?n.
+We can thenwrite Eq.
+5 as a tensor product:S = E?W (7)while Eq.
+6 states, that?jEi,d1j,d2= 1 ?i, d1, d2(8)Additionally, there is no interaction between dif-ferent dimensions, so Ei,d1j,d2= 0 if d16= d2.
+Inother words, we are creating the tensor by stackingthe diagonal matrices E(i,j)over i and j. Anothersparsity arises from the fact that many lexemes donot exist: Ei,d1j,d2= 0 if l(i,j)= 0; i.e., l(i,j)6= 0only if word i has a lexeme that is a member ofsynset j.
+To summarize the sparsity:Ei,d1j,d2= 0?
+d16= d2?
+l(i,j)= 0 (9)2.1 LearningWe adopt an autoencoding framework to learn em-beddings for lexemes and synsets.
+To this end, weview the tensor equation S = E ?W as the en-coding part of the autoencoder: the synsets are theencoding of the words.
+We define a correspondingdecoding part that decodes the synsets into wordsas follows:s(j)=?il(i,j), w(i)=?jl(i,j)(10)In analogy toE(i,j), we introduce the diagonal ma-trix D(j,i):l(i,j)= D(j,i)s(j)(11)In this case, it is the synset that distributes itself toits lexemes.
+We can then rewrite Eq.
+10 to:s(j)=?iD(j,i)s(j), w(i)=?jD(j,i)s(j)(12)and we also get the equivalent of Eq.
+6 for D(j,i):?iD(j,i)= In?j (13)and in tensor notation:W = D?
+S (14)Normalization and sparseness properties for thedecoding part are analogous to the encoding part:?iDj,d2i,d1= 1 ?j, d1, d2(15)Dj,d2i,d1= 0?
+d16= d2?
+l(i,j)= 0 (16)We can state the learning objective of the autoen-coder as follows:argminE,D?D?E?W ?W?
+(17)under the conditions Eq.
+8, 9, 15 and 16.Now we have an autoencoder where input andoutput layers are the word embeddings and thehidden layer represents the synset vectors.
+A sim-plified version is shown in Figure 1.
+The tensorsE1795and D have to be learned.
+They are rank 4 tensorsof size?1015.
+However, we already discussed thatthey are very sparse, for two reasons: (i) We makethe assumption that there is no interaction betweendimensions.
+(ii) There are only few interactionsbetween words and synsets (only when a lexemeexists).
+In practice, there are only ?107elementsto learn, which is technically feasible.2.2 Matrix formalizationBased on the assumption that each dimension isfully independent from other dimensions, a sepa-rate autoencoder for each dimension can be cre-ated and trained in parallel.
+Let W ?
+R|W |?nbea matrix where each row is a word embedding andw(d)= W?,dthe d-th column of W , i.e., a vectorthat holds the d-th dimension of each word vector.In the same way, s(d)= S?,dholds the d-th di-mension of each synset vector and E(d)= E?,d?,d?R|S|?|W |.
+We can write S = E?W as:s(d)= E(d)w(d)?d (18)withE(d)i,j= 0 if l(i,j)= 0.
+The decoding equationW = D?
+S takes this form:w(d)= D(d)s(d)?d (19)where D(d)= D?,d?,d?
+R|W |?|S|and D(d)j,i= 0 ifl(i,j)= 0.
+So E and D are symmetric in termsof non-zero elements.
+The learning objective be-comes:argminE(d),D(d)?D(d)E(d)w(d)?
+w(d)?
+?d (20)2.3 Lexeme embeddingsThe hidden layer S of the autoencoder gives ussynset embeddings.
+The lexeme embeddings aredefined when transitioning from W to S, or moreexplicitly by:l(i,j)= E(i,j)w(i)(21)However, there is also a second lexeme embeddingin AutoExtend when transitioning form S to W :l(i,j)= D(j,i)s(j)(22)Aligning these two representations seems natural,so we impose the following lexeme constraints:argminE(i,j),D(j,i)???E(i,j)w(i)?D(j,i)s(j)???
+?i, j (23)noun verb adj advhypernymy 84,505 13,256 0 0antonymy 2,154 1,093 4,024 712similarity 0 0 21,434 0verb group 0 1,744 0 0Table 1: # of WN relations by part-of-speechThis can also be expressed dimension-wise.
+Thematrix formulation is given by:argminE(d),D(d)???E(d)diag(w(d))?(D(d)diag(s(d)))T???
+?d(24)with diag(x) being a square matrix having xon the main diagonal and vector s(d)defined byEq.
+18.
+While we try to align the embeddings,there are still two different lexeme embeddings.
+Inall experiments reported in Section 4 we will usethe average of both embeddings and in Section 4we will analyze the weighting in more detail.2.4 WN relationsSome WordNet synsets contain only a single word(lexeme).
+The autoencoder learns based on thesynset constraints, i.e., lexemes being shared bydifferent synsets (and also words); thus, it is dif-ficult to learn good embeddings for single-lexemesynsets.
+To remedy this problem, we impose theconstraint that synsets related by WordNet (WN)relations should have similar embeddings.
+Table 1shows relations we used.
+WN relations are enteredin a new matrixR ?
+Rr?|S|, where r is the numberof WN relation tuples.
+For each relation tuple, i.e.,row in R, we set the columns corresponding to thefirst and second synset to 1 and ?1, respectively.The values of R are not updated during training.We use a squared error function and 0 as targetvalue.
+This forces the system to find similar val-ues for related synsets.
+Formally, the WN relationconstraints are:argminE(d)?RE(d)w(d)?
+?d (25)2.5 ImplementationOur training objective is minimization of the sumof synset constraints (Eq.
+20), weighted by ?, thelexeme constraints (Eq.
+24), weighted by ?, andthe WN relation constraints (Eq.
+25), weighted by1?
+??
+?.The training objective cannot be solved analyt-ically because it is subject to constraints Eq.
+8,1796L/suit (textil) S/suit-of-clothes L/suit (textil)W/suitL/suit (law) L/suit (law)W/suitW/case L/case S/lawsuit L/case W/caseW/lawsuit L/lawsuit L/lawsuit W/lawsuitFigure 1: A small subgraph of WordNet.
+The circles are intended to show four different embedding dimensions.
+Thesedimensions are treated as independent.
+The synset constraints align the input and the output layer.
+The lexeme constraints alignthe second and fourth layers.Eq.
+9, Eq.
+15 and Eq.
+16.
+We therefore use back-propagation.
+We do not use regularization sincewe found that all learned weights are in [?2, 2].AutoExtend is implemented in MATLAB.
+Werun 1000 iterations of gradient descent.
+On an In-tel Xeon CPU E7-8857 v2 3.00GHz, one iterationon one dimension takes less than a minute becausethe gradient computation ignores zero entries inthe matrix.2.6 Column normalizationOur model is based on the premise that a word isthe sum of its lexemes (Eq.
+1).
+From the defini-tion of E(i,j), we derived that E ?
+R|S|?n?|W |?nis normalized over the first dimension (Eq.
+8).
+SoE(d)?
+R|S|?|W |is also normalized over the firstdimension.
+In other words, E(d)is a column nor-malized matrix.
+Another premise of the model isthat a synset is the sum of its lexemes.
+Therefore,D(d)is also column normalized.
+A simple wayto implement this is to start the computation withcolumn normalized matrices and normalize themagain after each iteration as long as the error func-tion still decreases.
+When the error function startsincreasing, we stop normalizing the matrices andcontinue with a normal gradient descent.
+This re-spects that while E(d)and D(d)should be columnnormalized in theory, there are a lot of practicalissues that prevent this, e.g., OOV words.3 Data, experiments and evaluationWe downloaded 300-dimensional embeddings for3,000,000 words and phrases trained on GoogleNews, a corpus of ?1011tokens, using word2vecCBOW (Mikolov et al, 2013c).
+Many wordsin the word2vec vocabulary are not in WordNet,e.g., inflected forms (cars) and proper nouns (TonyBlair).
+Conversely, many WordNet lemmas arenot in the word2vec vocabulary, e.g., 42 (digitswere converted to 0).
+This results in a number ofempty synsets (see Table 2).
+Note however thatAutoExtend can produce embeddings for emptysynsets because we use WN relation constraints inaddition to synset and lexeme constraints.We run AutoExtend on the word2vec vectors.As we do not know anything about a suitableweighting for the three different constraints, weset ?
+= ?
+= 0.33.
+Our main goal is to producecompatible embeddings for lexemes and synsets.Thus, we can compute nearest neighbors across allthree data types as shown in Figure 2.We evaluate the embeddings on WSD and onsimilarity performance.
+Our results depend di-rectly on the quality of the underlying word em-beddings, in our case word2vec embeddings.
+Wewould expect even better evaluation results asword representation learning methods improve.Using a new and improved set of underlying em-beddings is simple: it is a simple switch of theinput file that contains the word embeddings.3.1 Word Sense DisambiguationFor WSD we use the shared tasks of Senseval-2 (Kilgarriff, 2001) and Senseval-3 (Mihalcea etal., 2004) and a system named IMS (Zhong andWordNet ?
+word2vecwords 147,478 54,570synsets 117,791 73,844lexemes 207,272 106,167Table 2: # of items in WordNet and after intersection withword2vec vectors1797nearest neighbors of W/suitS/suit (businessman), L/suit (businessman),L/accomodate, S/suit (be acceptable), L/suit (be accept-able), L/lawsuit, W/lawsuit, S/suit (playing card), L/suit(playing card), S/suit (petition), S/lawsuit, W/countersuit,W/complaint, W/counterclaimnearest neighbors of W/lawsuitL/lawsuit, S/lawsuit, S/countersuit, L/countersuit,W/countersuit, W/suit, W/counterclaim, S/counterclaim(n), L/counterclaim (n), S/counterclaim (v),L/counterclaim (v), W/sue, S/sue (n), L/sue (n)nearest neighbors of S/suit-of-clothesL/suit-of-clothes, S/zoot-suit, L/zoot-suit, W/zoot-suit,S/garment, L/garment, S/dress, S/trousers, L/pinstripe,L/shirt, W/tuxedo, W/gabardine, W/tux, W/pinstripeFigure 2: Five nearest word (W/), lexeme (L/) and synset (S/)neighbors for three items, ordered by cosineNg, 2010).
+Senseval-2 contains 139, Senseval-357 different words.
+They provide 8,611, respec-tively 8,022 training instances and 4,328, respec-tively 3,944 test instances.
+For the system, weuse the same setting as in the original paper.
+Pre-processing consists of sentence splitting, tokeniza-tion, POS tagging and lemmatization; the classi-fier is a linear SVM.
+In our experiments (Table 3),we run IMS with each feature set by itself to as-sess the relative strengths of feature sets (lines 1?7) and on feature set combinations to determinewhich combination is best for WSD (lines 8, 12?15).IMS implements three standard WSD featuresets: part of speech (POS), surrounding word andlocal collocation (lines 1?3).Letw be an ambiguous word with k senses.
+Thethree feature sets on lines 5?7 are based on theAutoExtend embeddings s(j), 1 ?
+j ?
+k, of thesynsets of w and the centroid c of the sentence inwhich w occurs.
+The centroid is simply the sum ofall word2vec vectors of the words in the sentence,excluding stop words.The S-cosine feature set consists of the kcosines of centroid and synset vectors:< cos(c, s(1)), cos(c, s(2)), .
+.
+.
+, cos(c, s(k)) >The S-product feature set consists of the nkelement-wise products of centroid and synset vec-tors:< c1s(1)1, .
+.
+.
+, cns(1)n, .
+.
+.
+, c1s(k)1, .
+.
+.
+, cns(k)n>where ci(resp.
+s(j)i) is element i of c (resp.
+s(j)).The idea is that we let the SVM estimate how im-portant each dimension is for WSD instead of giv-ing all equal weight as in S-cosine.The S-raw feature set simply consists of then(k + 1) elements of centroid and synset vectors:< c1, .
+.
+.
+, cn, s(1)1, .
+.
+.
+, s(1)n, .
+.
+.
+, s(k)1, .
+.
+.
+, s(k)n>Our main goal is to determine if AutoExtendfeatures improve WSD performance when addedto standard WSD features.
+To make sure thatimprovements we get are not solely due to thepower of word2vec, we also investigate a sim-ple word2vec baseline.
+For S-product, the Auto-Extend feature set that performs best in the exper-iment (cf.
+lines 6 and 14), we test the alternativeword2vec-based Snaive-product feature set.
+It hasthe same definition as S-product except that wereplace the synset vectors s(j)with naive synsetvectors z(j), defined as the sum of the word2vecvectors of the words that are members of synset j.Lines 1?7 in Table 3 show the performance ofeach feature set by itself.
+We see that the synsetfeature sets (lines 5?7) have a comparable perfor-mance to standard feature sets.
+S-product is thestrongest of them.Lines 8?16 show the performance of differentfeature set combinations.
+MFS (line 8) is the mostfrequent sense baseline.
+Lines 9&10 are the win-ners of Senseval.
+The standard configuration ofIMS (line 11) uses the three feature sets on lines1?3 (POS, surrounding word, local collocation)and achieves an accuracy of 65.2% on the Englishlexical sample task of Senseval-2 and 72.3% onSenseval-3.1Lines 12?16 add one additional fea-ture set to the IMS system on line 11; e.g., the sys-tem on line 14 uses POS, surrounding word, localcollocation and S-product feature sets.
+The systemon line 14 outperforms all previous systems, mostof them significantly.
+While S-raw performs quitereasonably as a feature set alne, it hurts the per-formance when used as an additional feature set.As this is the feature set that contains the largestnumber of features (n(k + 1)), overfitting is thelikely reason.
+Conversely, S-cosine only adds kfeatures and therefore may suffer from underfit-ting.
+?We do a grid search (step size .1) for optimalvalues of ?
+and ?, optimizing the average score ofSenseval-2 and Senseval-3.
+The best performingfeature set combination is Soptimized-product with1Zhong and Ng (2010) report accuracies of 65.3% /72.6% for this configuration.
+?In Table 3 and Table 4, results significantly worse thanthe best (bold) result in each column are marked ?
+for ?
+=.05 and ?
+for ?
+= .10 (one-tailed Z-test).1798Senseval-2 Senseval-3IMSfeaturesets1 POS 53.6 58.0?2 surrounding word 57.6 65.3?3 local collocation 58.7 64.7?4 Snaive-product 56.5 62.2?5 S-cosine 55.5 60.5?6 S-product 58.3 64.3?7 S-raw 56.8 63.1?systemcomparison8 MFS 47.6?55.2?9 Rank 1 system 64.2?72.9?10 Rank 2 system 63.8?72.6?11 IMS 65.2?72.3?12 IMS + Snaive-prod.
+62.6?69.4?13 IMS + S-cosine 65.1?72.4?14 IMS + S-product 66.5 73.6?15 IMS + S-raw 62.1?66.8?16 IMS + Soptimized-prod.
+66.6 73.6?Table 3: WSD accuracy for different feature sets and systems.Best result (excluding line 16) in each column in bold.?
+= 0.2 and ?
+= 0.5, with only a small improve-ment (line 16).The main result of this experiment is that weachieve an improvement of more than 1% in WSDperformance when using AutoExtend.3.2 Synset and lexeme similarityWe use SCWS (Huang et al, 2012) for the similar-ity evaluation.
+SCWS provides not only isolatedwords and corresponding similarity scores, butalso a context for each word.
+SCWS is based onWordNet, but the information as to which synset aword in context came from is not available.
+How-ever, the dataset is the closest we could find forsense similarity.
+Synset and lexeme embeddingsare obtained by running AutoExtend.
+Based onthe results of the WSD task, we set ?
+= 0.2 and?
+= 0.5.
+Lexeme embeddings are the naturalchoice for this task as human subjects are providedwith two words and a context for each and thenhave to assign a similarity score.
+But for complete-ness, we also run experiments for synsets.For each word, we compute a context vectorc by adding all word vectors of the context, ex-cluding the test word itself.
+Following Reisingerand Mooney (2010), we compute the lexeme (resp.synset) vector l either as the simple average ofthe lexeme (resp.
+synset) vectors l(ij)(methodAvgSim, no dependence on c in this case) oras the average of the lexeme (resp.
+synset) vec-tors weighted by cosine similarity to c (methodAvgSimC).Table 4 shows that AutoExtend lexeme embed-dings (line 7) perform better than previous work,AvgSim AvgSimC1 Huang et al (2012) 62.8?65.7?2 Tian et al (2014) ?
+65.4?3 Neelakantan et al (2014) 67.2?69.3?4 Chen et al (2014) 66.2?68.9?5 words (word2vec) 66.6?66.6?6 synsets 62.6?63.7?7 lexemes 68.9?69.8?Table 4: Spearman correlation (??
+100) on SCWS.
+Best re-sult per column in bold.including (Huang et al, 2012) and (Tian et al,2014).
+Lexeme embeddings perform better thansynset embeddings (lines 7 vs. 6), presumably be-cause using a representation that is specific to theactual word being judged is more precise than us-ing a representation that also includes synonyms.A simple baseline is to use the underlyingword2vec embeddings directly (line 5).
+In thiscase, there is only one embedding, so there is nodifference between AvgSim and AvgSimC.
+It is in-teresting that even if we do not take the contextinto account (method AvgSim) the lexeme embed-dings outperform the original word embeddings.As AvgSim simply adds up all lexemes of a word,this is equivalent to the constraint we proposed inthe beginning of the paper (Eq.
+1).
+Thus, replacinga word?s embedding by the sum of the embeddingsof its senses could generally improve the quality ofembeddings (cf.
+Huang et al (2012) for a similarpoint).
+We will leave a deeper evaluation of thistopic for future work.4 AnalysisWe first look at the impact of the parameters ?, ?
+(Section 2.5) that control the weighting of synsetconstraints vs lexeme constraints vs WN relationconstraints.
+We investigate the impact for threedifferent tasks.
+WSD-alone: accuracy of IMS(average of Senseval-2 and Senseval-3) if only S-product is used as a feature set (line 6 in Table 3).WSD-additional: accuracy of IMS (average ofSenseval-2 and Senseval-3) if S-product is usedtogether with the feature sets POS, surroundingword and local collocation (line 14 in Table 3).SCWS: Spearman correlation on SCWS (line 7 inTable 4).For WSD-alone (Figure 3, center), the best per-forming weightings (red) all have high weightsfor WN relations and are therefore at the top oftriangle.
+Thus, WN relations are very importantfor WSD-alone and adding more weight to the1799synset and lexeme constraints does not help.
+How-ever, all three constraints are important in WSD-additional: the red area is in the middle (corre-sponding to nonzero weights for all three con-straints) in the left panel of Figure 3.
+Apparently,strongly weighted lexeme and synset constraintsenable learning of representations that in their in-teraction with standard WSD feature sets like lo-cal collocation increase WSD performance.
+ForSCWS (right panel), we should not put too muchweight on WN relations as they artificially bringrelated, but not similar lexemes together.
+So themaximum for this task is located in the lower partof the triangle.The main result of this analysis is that Auto-Extend never achieves its maximum performancewhen using only one set of constraints.
+All threeconstraints are important ?
+synset, lexeme and WNrelation constraints ?
+with different weights fordifferent applications.We also analyzed the impact of the four differ-ent WN relations (see Table 1) on performance.
+InTable 3 and Table 4, all four WN relations are usedtogether.
+We found that any combination of threerelation types performs worse than using all fourtogether.
+A comparison of different relations mustbe done carefully as they differ in the POS theyaffect and in quantity (see Table 1).
+In general, re-lation types with more relations outperformed re-lation types with fewer relations.Finally, the relative weighting of l(i,j)and l(i,j)when computing lexeme embeddings is also a pa-rameter that can be tuned.
+We use simple aver-aging (?
+= 0.5) for all experiments reported inthis paper.
+We found only small changes in per-formance for 0.2 ?
+?
+?
+0.8.5 Resources other than WordNetAutoExtend is broadly applicable to lexical andknowledge resources that have certain properties.While we only run experiments with WordNet inthis paper, we will briefly address other resources.For Freebase (Bollacker et al, 2008), we could re-place the synsets with Freebase entities.
+Each en-tity has several aliases, e.g.
+Barack Obama, Presi-dent Obama, Obama.
+The role of words in Word-Net would correspond to these aliases in Freebase.This will give us the synset constraint, as well asthe lexeme constraint of the system.
+Relations aregiven by Freebase types; e.g., we can add a con-straint that entity embeddings of the type ?Presi-dent of the US?
+should be similar.To explorer multilingual word embeddings werequire the word embeddings of different lan-guages to live in the same vector space, whichcan easily be achieved by training a transforma-tion matrix L between two languages using knowntranslations (Mikolov et al, 2013b).
+Let X be amatrix where each row is a word embedding inlanguage 1 and Y a matrix where each row is aword embedding in language 2.
+For each row thewords of X and Y are a translation of each other.We then want to minimize the following objective:argminL?LX ?
+Y ?
+(26)We can use a gradient descent to solve this but amatrix inversion will run faster.
+The matrix L isgiven by:L = (XT?X)?1(XT?
+Y ) (27)The matrix L can be used to transform unknownembeddings into the new vector space, which en-ables us to use a multilingual WordNet like Ba-belNet (Navigli and Ponzetto, 2010) to computesynset embeddings.
+We can add cross-linguisticrelationships to our model, e.g., aligning Germanand English synset embeddings of the same con-cept.6 Related WorkRumelhart et al (1988) introduced distributedword representations, usually called word embed-dings today.
+There has been a resurgence ofwork on them recently (e.g., Bengio et al (2003)Mnih and Hinton (2007), Collobert et al (2011),Mikolov et al (2013a), Pennington et al (2014)).These models produce only a single embeddingfor each word.
+All of them can be used as inputfor AutoExtend.There are several approaches to finding embed-dings for senses, variously called meaning, senseand multiple word embeddings.
+Sch?utze (1998)created sense representations by clustering contextrepresentations derived from co-occurrence.
+Therepresentation of a sense is simply the centroid ofits cluster.
+Huang et al (2012) improved this bylearning single-prototype embeddings before per-forming word sense discrimination on them.
+Bor-des et al (2011) created similarity measures forrelations in WordNet and Freebase to learn en-tity embeddings.
+An energy based model was1800WSD-additional WSD-alone SCWSWN relationslexemessynsetsFigure 3: Performance of different weightings of the three constraints (WN relations:top, lexemes:left, synsets:right) on thethree tasks WSD-additional, WSD-alone and SCWS.
+?x?
+indicates the maximum; ?o?
+indicates a local minimum.proposed by Bordes et al (2012) to create dis-ambiguated meaning embeddings and Neelakan-tan et al (2014) and Tian et al (2014) extendedthe Skip-gram model (Mikolov et al, 2013a) tolearn multiple word embeddings.
+While these em-beddings can correspond to different word senses,there is no clear mapping between them and a lexi-cal resource like WordNet.
+Chen et al (2014) alsomodified word2vec to learn sense embeddings,each corresponding to a WordNet synset.
+Theyuse glosses to initialize sense embedding, whichin turn can be used for WSD.
+The sense disam-biguated data can again be used to improve senseembeddings.This prior work needs a training step to learnembeddings.
+In contrast, we can ?AutoExtend?any set of given word embeddings ?
+without(re)training them.There is only little work on taking existingword embeddings and producing embeddings inthe same space.
+Labutov and Lipson (2013) tunedexisting word embeddings in supervised training,not to create new embeddings for senses or enti-ties, but to get better predictive performance on atask while not changing the space of embeddings.Lexical resources have also been used to im-prove word embeddings.
+In the Relation Con-strained Model, Yu and Dredze (2014) useword2vec to learn embeddings that are optimizedto predict a related word in the resource, with goodevaluation results.
+Bian et al (2014) used notonly semantic, but also morphological and syn-tactic knowledge to compute more effective wordembeddings.Another interesting approach to create sensespecific word embeddings uses bilingual resources(Guo et al, 2014).
+The downside of this approachis that parallel data is needed.We used the SCWS dataset for the word similar-ity task, as it provides a context.
+Other frequentlyused datasets are WordSim-353 (Finkelstein et al,2001) or MEN (Bruni et al, 2014).And while we use cosine to compute similar-ity between synsets, there are also a lot of simi-larity measures that only rely on a given resource,mostly WordNet.
+These measures are often func-tions that depend on the provided information likegloss or the topology like shortest-path.
+Examplesinclude (Wu and Palmer, 1994) and (Leacock andChodorow, 1998); Blanchard et al (2005) give agood overview.7 ConclusionWe presented AutoExtend, a flexible method tolearn synset and lexeme embeddings from wordembeddings.
+It is completely general and can beused for any other set of embeddings and for anyother resource that imposes constraints of a cer-tain type on the relationship between words andother data types.
+Our experimental results showthat AutoExtend achieves state-of-the-art perfor-mance on word similarity and word sense disam-biguation.
+Along with this paper, we will pub-lish AutoExtend for extending word embeddingsto other data types; the lexeme and synset em-beddings used in the experiments; and the codeneeded to replicate our WSD evaluation2.AcknowledgmentsThis work was partially funded by DeutscheForschungsgemeinschaft (DFG SCHU 2246/2-2).We are grateful to Christiane Fellbaum for discus-sions leading up to this paper and to the anony-mous reviewers for their comments.2http://cistern.cis.lmu.de/1801ReferencesYoshua Bengio, Rejean Ducharme, and Pascal Vincent.2003.
+A neural probabilistic language model.
+Jour-nal of Machine Learning Research, 3:1137?1155.Jiang Bian, Bin Gao, and Tie-Yan Liu.
+2014.Knowledge-powered deep learning for word embed-ding.
+In Proceedings of ECML PKDD.Emmanuel Blanchard, Mounira Harzallah, HenriBriand, and Pascale Kuntz.
+2005.
+A typology ofontology-based semantic measures.
+In Proceedingsof EMOI - INTEROP.Kurt Bollacker, Colin Evans, Praveen Paritosh, TimSturge, and Jamie Taylor.
+2008.
+Freebase: a collab-oratively created graph database for structuring hu-man knowledge.
+In Proceedings of ACM SIGMOD.Antoine Bordes, Jason Weston, Ronan Collobert,Yoshua Bengio, et al 2011.
+Learning structuredembeddings of knowledge bases.
+In Proceedings ofAAAI.Antoine Bordes, Xavier Glorot, Jason Weston, andYoshua Bengio.
+2012.
+Joint learning of wordsand meaning representations for open-text semanticparsing.
+In Proceedings of AISTATS.Elia Bruni, Nam Khanh Tran, and Marco Baroni.
+2014.Multimodal distributional semantics.
+Journal of Ar-tificial Intelligence Research, 49(1):1?47.Xinxiong Chen, Zhiyuan Liu, and Maosong Sun.
+2014.A unified model for word sense representation anddisambiguation.
+In Proceedings of EMNLP.Ronan Collobert and Jason Weston.
+2008.
+A unifiedarchitecture for natural language processing: Deepneural networks with multitask learning.
+In Pro-ceedings of ICML.Ronan Collobert, Jason Weston, L?eon Bottou, MichaelKarlen, Koray Kavukcuoglu, and Pavel Kuksa.2011.
+Natural language processing (almost) fromscratch.
+Journal of Machine Learning Research,12:2493?2537.Christiane Fellbaum.
+1998.
+WordNet: An ElectronicLexical Database.
+Bradford Books.Lev Finkelstein, Evgeniy Gabrilovich, Yossi Matias,Ehud Rivlin, Zach Solan, Gadi Wolfman, and Ey-tan Ruppin.
+2001.
+Placing search in context: Theconcept revisited.
+In Proceedings of WWW.Jiang Guo, Wanxiang Che, Haifeng Wang, and TingLiu.
+2014.
+Learning sense-specific word embed-dings by exploiting bilingual resources.
+In Proceed-ings of Coling, Technical Papers.Eric H Huang, Richard Socher, Christopher D Man-ning, and Andrew Y Ng.
+2012.
+Improving wordrepresentations via global context and multiple wordprototypes.
+In Proceedings of ACL.Nal Kalchbrenner, Edward Grefenstette, and Phil Blun-som.
+2014.
+A convolutional neural network formodelling sentences.
+In Proceedings of ACL.Adam Kilgarriff.
+2001.
+English lexical sample taskdescription.
+In Proceedings of SENSEVAL-2.Igor Labutov and Hod Lipson.
+2013.
+Re-embeddingwords.
+In Proceedings of ACL.Claudia Leacock and Martin Chodorow.
+1998.
+Com-bining local context and wordnet similarity for wordsense identification.
+WordNet: An electronic lexicaldatabase, 49(2):265?283.Rada Mihalcea, Timothy Chklovski, and Adam Kilgar-riff.
+2004.
+The senseval-3 english lexical sampletask.
+In Proceedings of SENSEVAL-3.Tomas Mikolov, Kai Chen, Greg Corrado, and Jef-frey Dean.
+2013a.
+Efficient estimation of wordrepresentations in vector space.
+arXiv preprintarXiv:1301.3781.Tomas Mikolov, Quoc V Le, and Ilya Sutskever.2013b.
+Exploiting similarities among lan-guages for machine translation.
+arXiv preprintarXiv:1309.4168.Tomas Mikolov, Ilya Sutskever, Kai Chen, Greg S Cor-rado, and Jeff Dean.
+2013c.
+Distributed representa-tions of words and phrases and their compositional-ity.
+In Proceedings of NIPS.George A Miller and Walter G Charles.
+1991.
+Contex-tual correlates of semantic similarity.
+Language andCognitive Processes, 6(1):1?28.Andriy Mnih and Geoffrey Hinton.
+2007.
+Three newgraphical models for statistical language modelling.In Proceedings of ICML.Andriy Mnih and Geoffrey E Hinton.
+2009.
+A scalablehierarchical distributed language model.
+In Pro-ceedings of NIPS.Roberto Navigli and Simone Paolo Ponzetto.
+2010.Babelnet: Building a very large multilingual seman-tic network.
+In Proceedings of ACL.Arvind Neelakantan, Jeevan Shankar, Alexandre Pas-sos, and Andrew McCallum.
+2014.
+Efficient non-parametric estimation of multiple embeddings perword in vector space.
+In Proceedings of EMNLP.Jeffrey Pennington, Richard Socher, and Christopher DManning.
+2014.
+Glove: Global vectors for wordrepresentation.
+In Proceedings of EMNLP.Joseph Reisinger and Raymond J Mooney.
+2010.Multi-prototype vector-space models of word mean-ing.
+In Proceedings of NAACL.Herbert Rubenstein and John B Goodenough.
+1965.Contextual correlates of synonymy.
+Communica-tions of the ACM, 8(10):627?633.1802David E Rumelhart, Geoffrey E Hinton, and Ronald JWilliams.
+1988.
+Learning representations by back-propagating errors.
+Cognitive Modeling, 5:213?220.Hinrich Sch?utze.
+1998.
+Automatic word sense dis-crimination.
+Computational Linguistics, 24(1):97?123.Fei Tian, Hanjun Dai, Jiang Bian, Bin Gao, Rui Zhang,Enhong Chen, and Tie-Yan Liu.
+2014.
+A probabilis-tic model for learning multi-prototype word embed-dings.
+In Proceedings of Coling, Technical Papers.Zhibiao Wu and Martha Palmer.
+1994.
+Verbs seman-tics and lexical selection.
+In Proceedings of ACL.Mo Yu and Mark Dredze.
+2014.
+Improving lexical em-beddings with semantic knowledge.
+In Proceedingsof ACL.Zhi Zhong and Hwee Tou Ng.
+2010.
+It makes sense:A wide-coverage word sense disambiguation systemfor free text.
+In Proceedings of ACL, System Demon-strations.1803

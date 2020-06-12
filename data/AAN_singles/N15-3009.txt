@@ -1,0 +1,143 @@
+Proceedings of NAACL-HLT 2015, pages 41?45,Denver, Colorado, May 31 ?
+June 5, 2015.c?2015 Association for Computational LinguisticsCkylark: A More Robust PCFG-LA ParserYusuke Oda Graham Neubig Sakriani Sakti Tomoki Toda Satoshi NakamuraGraduate School of Information ScienceNara Institute of Science and Technology8916-5 Takayama, Ikoma, Nara 630-0192, Japan{oda.yusuke.on9, neubig, ssakti, tomoki, s-nakamura}@is.naist.jpAbstractThis paper describes Ckylark, a PCFG-LAstyle phrase structure parser that is more ro-bust than other parsers in the genre.
+PCFG-LAparsers are known to achieve highly competi-tive performance, but sometimes the parsingprocess fails completely, and no parses can begenerated.
+Ckylark introduces three new tech-niques that prevent possible causes for parsingfailure: outputting intermediate results whencoarse-to-fine analysis fails, smoothing lexi-con probabilities, and scaling probabilities toavoid underflow.
+An experiment shows thatthis allows millions of sentences can be parsedwithout any failures, in contrast to other pub-licly available PCFG-LA parsers.
+Ckylark isimplemented in C++, and is available open-source under the LGPL license.11 IntroductionParsing accuracy is important.
+Parsing accuracy hasbeen shown to have a significant effect on down-stream applications such as textual entailment (Yuretet al, 2010) and machine translation (Neubig andDuh, 2014), and most work on parsing evaluates ac-curacy to some extent.
+However, one element that isequally, or perhaps even more, important from theview of downstream applications is parser robust-ness, or the ability to return at least some parse re-gardless of the input.
+Every failed parse is a sen-tence for which downstream applications have nochance of even performing processing in the nor-mal way, and application developers must perform1http://github.com/odashi/ckylarkspecial checks that detect these sentences and eithergive up entirely, or fall back to some alternative pro-cessing scheme.Among the various methods for phrase-structureparsing, the probabilistic context free grammar withlatent annotations (PCFG-LA, (Matsuzaki et al,2005; Petrov et al, 2006)) framework is among themost popular for several reasons.
+The first is that itboasts competitive accuracy, both in intrisinic mea-sures such as F1-score on the Penn Treebank (Mar-cus et al, 1993), and extrinsic measures (it achievedthe highest textual entailment and machine transla-tion accuracy in the papers cited above).
+The secondis the availablity of easy-to-use tools, most notablythe Berkeley Parser,2but also including Egret,3andBUBS Parser.4However, from the point of view of robustness,existing tools for PCFG-LA parsing leave somethingto be desired; to our knowledge, all existing toolsproduce a certain number of failed parses when runon large data sets.
+In this paper, we introduce Ck-ylark, a new PCFG-LA parser specifically designedfor robustness.
+Specifically, Ckylark makes the fol-lowing contributions:?
+Based on our analysis of three reasons whyconventional PCFG-LA parsing models fail(Section 2), Ckylark implements three im-provements over the conventional PCFG-LAparsing method to remedy these problems (Sec-tion 3).2https://code.google.com/p/berkeleyparser/3https://code.google.com/p/egret-parser/4https://code.google.com/p/bubs-parser/41?
+An experimental evaluation (Section 4) showsthat Ckylark achieves competitive accuracywith other PCFG-LA parsers, and can robustlyparse large datasets where other parsers fail.?
+Ckylark is implemented in C++, and releasedunder the LGPL license, allowing for free re-search or commercial use.
+It is also availablein library format, which means that it can beincorporated directly into other programs.2 Failure of PCFG-LA ParsingThe basic idea behind PCFG-LA parsing is that tra-ditional tags in the Penn Treebank are too coarse,and more accurate grammars can be achieved byautomatically splitting tags into finer latent classes.For example, the English words ?a?
+and ?the?
+areclassified as determiners (DT), but these words areused in different contexts, so can be assigned differ-ent latent classes.
+The most widely used method todiscover these classes uses the EM algorithm to esti-mate latent classes in stages (Petrov et al, 2006).This method generates hierarchical grammars in-cluding relationships between each latent class in atree structure, and the number of latent classes in-creases exponentially for each level of the grammar.The standard search method for PCFG grammars isbased on the CKY algorithm.
+However, simply ap-plying CKY directly to the ?finest?
+grammar is notrealistic, as the complexity of CKY is propotionalto the polynomial of the number of latent classes.To avoid this problem, Petrov et al (2006) startthe analysis with the ?coarse?
+grammar and applypruning to reduce the amount of computation.
+Thismethod is called coarse-to-fine analysis.
+However,this method is not guaranteed to successfully returna parse tree.
+We describe three reasons why PCFG-LA parsing fails below.Failure of pruning in coarse-to-fine analysisCoarse-to-fine analysis prunes away candidatepaths in the parse graph when their probabilityis less than a specific threshold ?.
+This pruningcan cause problems in the case that all possiblepaths are pruned and the parser cannot generateany parse tree at the next step.Inconsistency between model and target If weparse sentences with syntax that diverges fromthe training data, the parser may fail becausethe parser needs rules which are not includedin the grammar.
+For example, symbols ?
+(?and ?)?
+become a part of phrase ?PRN?
+onlyif both of them and some phrase ?X?
+existwith the order ?
+( X ).?
+One approach for thisproblem is to use smoothed grammars (Petrovet al, 2006), but this increases the size ofthe probability table needed to save such agrammar.Underflow of probabilities Parsers calculate jointprobabilities of each parse tree, and this valuedecreases exponentially according to the lengthof the input sequence.
+As a result, numericalunderflow sometimes occurs if the parser triesto parse longer sentences.
+Using calculations inlogarithmic space is one approach to avoid un-derflow.
+However, this approach requires logand exponent operations, which are more com-putationally expensive than sums or products.The failure of pruning is a unique problem forPCFG-LA, and the others are general problems ofparsing methods based on PCFG.
+In the next sec-tion, we describe three improvements over the basicPCFG-LA method that Ckylark uses to avoid theseproblems.3 Improvements of the Parsing Method3.1 Early Stopping in Coarse-to-fine AnalysisWhile coarse-to-fine analysis generally uses theparsing result of the finest grammar as output, in-termediate grammars also can generate parse trees.Thus, we can use these intermediate results insteadof the finest result when parsing fails at later stages.Algorithm 1 shows this ?stopping?
+approach.
+Thisapproach can avoid all errors due to coarse-to-finepruning, except in the case of failure during the pars-ing with the first grammar due to problems of themodel itself.3.2 Lexicon SmoothingNext, we introduce lexicon smoothing using theprobabilities of unknown words at parsing time.This approach not only reduces the size of the gram-mar, but also allows for treatment of any word as42Algorithm 1 Stopping coarse-to-fine analysisRequire: w: input sentenceRequire: G0, ?
+?
+?
+, GL: coarse-to-fine grammarsT?1?
+nilP0?
+{} ?
+pruned pathesfor l?
+0 .. L doTl, Pl+1?
+parse and prune(w;Gl, Pl)if Tl= nil then ?
+parsing failedreturn Tl?1?
+return intermediate resultend ifend forreturn TL?
+parsing succeeded?unknown?
+if the word appears in an unknown syn-tactic content.
+Equation (1) shows the smoothed lex-icon probability:P?
+(X ?
+w) ?
+(1?
+?
+)P (X ?
+w) +?P (X ?
+wunk), (1)where X is any pre-terminal (part-of-speech) sym-bol in the grammar, w is any word, and wunkisthe unknown word.
+?
+is an interpolation factor be-tween w and wunk, and should be small enough tocause no effect when the parser can generate the re-sult without interpolation.
+Our implementation uses?
+= 10?10.3.3 Probability ScalingTo solve the problem of underflow, we modifymodel probabilities as Equations (2) to (4) to avoidunderflow without other expensive operations:Q(X ?
+w) ?
+P?
+(X ?
+w)/sl(w), (2)Q(X ?
+Y ) ?
+P (X ?
+Y ), (3)Q(X ?
+Y Z) ?
+P (X ?
+Y Z)/sg, (4)where X,Y, Z are any non-terminal symbols (in-cluding pre-terminals) in the grammar, and w is anyword.
+The result of parsing using Q is guaranteed tobe the same as using original probabilities P and P?,because Q maintains the same ordering of P and P?despite the fact that Q is not a probability.
+Valuesof Q are closer to 1 than the original values, reduc-ing the risk of underflow.
+sl(w) is a scaling factorof a word w defined as the geometric mean of lexi-con probabilities that generate w, P?
+(X ?
+w), as inTable 1: Dataset Summaries.Type #sent #wordWSJ-train/dev 41.5 k 990 kWSJ-test 2.42 k 56.7 kNTCIR 3.08 M 99.0 MEquation (5):sl(w) ?
+exp?XP (X) logP?
+(X ?
+w), (5)and sgis the scaling factor of binary rules defined asthe geometric mean of all binary rules in the gram-mar P (X ?
+Y Z) as in Equation (6):sg?
+exp?XP (X)H(X), (6)H(X) ?
+?Y,ZP (X ?
+Y Z) logP (X ?
+Y Z).
+(7)Calculating P (X) is not trivial, but we can retrievethese values using the graph propagation algorithmproposed by Petrov and Klein (2007).4 ExperimentsWe evaluated parsing accuracies of our parser Ck-ylark and conventional PCFG-LA parsers: Berke-ley Parser and Egret.
+Berkeley Parser is a conven-tional PCFG-LA parser written in Java with someadditional optimization techniques.
+Egret is also aconventional PCFG-LA parser in C++ which cangenerate a parsing forest that can be used in down-stream application such forest based machine trans-lation (Mi et al, 2008).4.1 Dataset and ToolsTable 1 shows summaries of each dataset.We used GrammarTrainer in the Berkeley Parserto train a PCFG-LA grammar with the Penn Tree-bank WSJ dataset section 2 to 22 (WSJ-train/dev).Egret and Ckylark can use the same model as theBerkeley Parser so we can evaluate only the perfor-mance of the parsers using the same grammar.
+Eachparser is run on a Debian 7.1 machine with an IntelCore i7 CPU (3.40GHz, 4 cores, 8MB caches) and4GB RAM.We chose 2 datasets to evaluate the performancesof each parser.
+First, WSJ-test, the Penn Tree-bank WSJ dataset section 23, is a standard dataset43Table 2: Bracketing F1 scores of each parser.Parser F1 (all) F1 (|w| ?
+40)Berkeley Parser 89.98 90.54Egret 89.05 89.70Ckylark (10?5) 89.44 90.07Ckylark (10?7) 89.85 90.39Table 3: Tagging accuracies of each parser.Parser Acc (all) Acc (|w| ?
+40)Berkeley Parser 97.39 97.37Egret 97.33 97.28Ckylark (10?5) 97.37 97.35Ckylark (10?7) 97.39 97.38to evaluate parsing accuracy including about 2000sentences.
+Second, we use NTCIR, a large Englishcorpus including more than 3 million sentences, ex-tracted from the NTCIR-8 patent translation task(Yamamoto and Shimohata, 2010).Input sentences of each parser must be tokenizedin advance, so we used a tokenization algorithmequivalent to the Stanford Tokenizer5for tokenizingthe NTCIR dataset.4.2 ResultsTable 2 shows the bracketing F1 scores6of parsetrees for each parser on the WSJ-test dataset and Ta-ble 3 also shows the part-of-speech tagging accura-cies.
+We show 2 results for Ckylark with pruningthreshold ?
+as 10?5and 10?7.
+These tables showthat the result of Ckylark with ?
+= 10?7achievesnearly the same parsing accuracy as the BerkeleyParser.Table 4 shows calculation times of each parser onthe WSJ-test dataset.
+When the pruning threshold ?is smaller, parsing takes longer, but in all cases Ck-ylark is faster than Egret while achieving higher ac-curacy.
+Berkeley Parser is the fastest of all parsers, aresult of optimizations not included in the standardPCFG-LA parsing algorithm.
+Incorporating thesetechniques into Ckylark is future work.Table 5 shows the number of parsing failures ofeach parser.
+All parsers generate no failure in theWSJ-test dataset, however, in the NTCIR dataset,5http://nlp.stanford.edu/software/tokenizer.shtml6http://nlp.cs.nyu.edu/evalb/Table 4: Calculation times of each parser.Parser Time [s]Berkeley Parser 278Egret 3378Ckylark (10?5) 923Ckylark (10?7) 2157Table 5: Frequencies of parsing failure of each parser.FailureParser WSJ-test NTCIR(#) (%) (#) (%)Berkeley Parser 0 0 419 0.0136Egret 0 0 17287 0.561Ckylark (10?5) 0 0 0 0Table 6: Number of failures of each coarse-to-fine level.Smooth Failure level0 1 2 3 4 5 6?
+= 0 1741 135 24 11 5 57 1405?
+= 10?100 130 19 8 4 51 13890.01% and 0.5% of sentences could not be parsedwith the Berkeley Parser and Egret respectively.
+Incontrast, our parser does not fail a single time.Table 6 shows the number of failures of Ckylarkwith ?
+= 10?5and without the stopping approach; ifthe parser failed at the level l analysis then it returnsthe result of the l ?
+1 level.
+Thus, the stopping ap-proach will never generate any failure, unless failureoccurs at the initial level.
+The reason for failure atthe initial level is only due to model mismatch, asno pruning has been performed.
+These errors can beprevented by lexicon smoothing at parsing time asshown in the case of level 0 with ?
+= 10?10in thetable.5 ConclusionIn this paper, we introduce Ckylark, a parser thatmakes three improvements over standard PCFG-LAstyle parsing to prevent parsing failure.
+Experimentsshow that Ckylark can parse robustly where otherPCFG-LA style parsers (Berkeley Parser and Egret)fail.
+In the future, we plan to further speed up Ck-ylark, support forest output, and create interfaces toother programming languages.44AcknowledgementPart of this work was supported by JSPS?s ResearchFellowship for Young Scientists.ReferencesMitchell P Marcus, Mary Ann Marcinkiewicz, and Beat-rice Santorini.
+1993.
+Building a large annotated cor-pus of english: The Penn Treebank.
+Computationallinguistics, 19(2).Takuya Matsuzaki, Yusuke Miyao, and Jun?ichi Tsujii.2005.
+Probabilistic CFG with latent annotations.
+InProc.
+ACL.Haitao Mi, Liang Huang, and Qun Liu.
+2008.
+Forest-based translation.
+In Proc.
+ACL-HLT.Graham Neubig and Kevin Duh.
+2014.
+On the elementsof an accurate tree-to-string machine translation sys-tem.
+In Proc.
+ACL.Slav Petrov and Dan Klein.
+2007.
+Improved inferencefor unlexicalized parsing.
+In Proc.
+NAACL-HLT.Slav Petrov, Leon Barrett, Romain Thibaux, and DanKlein.
+2006.
+Learning accurate, compact, and inter-pretable tree annotation.
+In Proc.
+COLING-ACL.Atsushi Fujii Masao Utiyama Mikio Yamamoto and Say-ori Shimohata.
+2010.
+Overview of the patent transla-tion task at the NTCIR-8 workshop.
+In Proc.
+NTCIR-8.Deniz Yuret, Aydin Han, and Zehra Turgut.
+2010.Semeval-2010 task 12: Parser evaluation using textualentailments.
+In Proc.
+SemEval.45

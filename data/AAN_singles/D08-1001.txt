@@ -1,0 +1,353 @@
+Proceedings of the 2008 Conference on Empirical Methods in Natural Language Processing, pages 1?10,Honolulu, October 2008. c?2008 Association for Computational LinguisticsRevealing the Structure of Medical Dictationswith Conditional Random FieldsJeremy Jancsary and Johannes MatiasekAustrian Research Institute for Artificial IntelligenceA-1010 Vienna, Freyung 6/6firstname.lastname@ofai.atHarald TrostDepartment of Medical Cybernetics and Artificial Intelligenceof the Center for Brain Research, Medical University Vienna, Austriaharald.trost@meduniwien.ac.atAbstractAutomatic processing of medical dictationsposes a significant challenge.
+We approachthe problem by introducing a statistical frame-work capable of identifying types and bound-aries of sections, lists and other structuresoccurring in a dictation, thereby gaining ex-plicit knowledge about the function of suchelements.
+Training data is created semi-automatically by aligning a parallel corpusof corrected medical reports and correspond-ing transcripts generated via automatic speechrecognition.
+We highlight the properties ofour statistical framework, which is based onconditional random fields (CRFs) and im-plemented as an efficient, publicly availabletoolkit.
+Finally, we show that our approachis effective both under ideal conditions andfor real-life dictation involving speech recog-nition errors and speech-related phenomenasuch as hesitation and repetitions.1 IntroductionIt is quite common to dictate reports and leave thetyping to typists ?
+especially for the medical domain,where every consultation or treatment has to be doc-umented.
+Automatic Speech Recognition (ASR) cansupport professional typists in their work by provid-ing a transcript of what has been dictated.
+However,manual corrections are still needed.
+In particular,speech recognition errors have to be corrected.
+Fur-thermore, speaker errors, such as hesitations or rep-etitions, and instructions to the transcriptionist haveto be removed.
+Finally, and most notably, properstructuring and formatting of the report has to beperformed.
+For the medical domain, fairly clearguidelines exist with regard to what has to be dic-tated, and how it should be arranged.
+Thus, missingheadings may have to be inserted, sentences must begrouped into paragraphs in a meaningful way, enu-meration lists may have to be introduced, and so on.The goal of the work presented here was to easethe job of the typist by formatting the dictation ac-cording to its structure and the formatting guide-lines.
+The prerequisite for this task is the identifi-cation of the various structural elements in the dic-tation which will be be described in this paper.complaint dehydration weakness and diarrheafull stop Mr. Will Shawn is a 81-year-oldcold Asian gentleman who came in with feverand Persian diaper was sent to the emergencydepartment by his primary care physician duehim being dehydrated period .
+.
+.
+neck physicalexam general alert and oriented times threeknown acute distress vital signs are stable.
+.
+.
+diagnosis is one chronic diarrhea withhydration he also has hypokalemia neck numberthromboctopenia probably duty liver cirrhosis.
+.
+.
+a plan was discussed with patient indetail will transfer him to a nurse andfacility for further care .
+.
+.
+end of dictationFig.
+1: Raw output of speech recognitionFigure 1 shows a fragment of a typical report asrecognized by ASR, exemplifying some of the prob-lems we have to deal with:?
+Punctuation and enumeration markers may bedictated or not, thus sentence boundaries andnumbered items often have to be inferred;?
+the same holds for (sub)section headings;?
+finally, recognition errors complicate the task.1CHIEF COMPLAINTDehydration, weakness and diarrhea.HISTORY OF PRESENT ILLNESSMr.
+Wilson is a 81-year-old Caucasiangentleman who came in here with fever andpersistent diarrhea.
+He was sent to theemergency department by his primary carephysician due to him being dehydrated.. .
+.PHYSICAL EXAMINATIONGENERAL: He is alert and oriented timesthree, not in acute distress.VITAL SIGNS: Stable.. .
+.DIAGNOSIS1.
+Chronic diarrhea with dehydration.
+Healso has hypokalemia.2.
+Thromboctopenia, probably due to livercirrhosis.. .
+.PLAN AND DISCUSSIONThe plan was discussed with the patientin detail.
+Will transfer him to a nursingfacility for further care.. .
+.Fig.
+2: A typical medical reportWhen properly edited and formatted, the samedictation appears significantly more comprehensi-ble, as can be seen in figure 2.
+In order to arriveat this result it is necessary to identify the inherentstructure of the dictation, i.e.
+the various hierarchi-cally nested segments.
+We will recast the segmenta-tion problem as a multi-tiered tagging problem andshow that indeed a good deal of the structure of med-ical dictations can be revealed.The main contributions of our paper are as fol-lows: First, we introduce a generic approach that canbe integrated seamlessly with existing ASR solu-tions and provides structured output for medical dic-tations.
+Second, we provide a freely available toolkitfor factorial conditional random fields (CRFs) thatforms the basis of aforementioned approach and isalso applicable to numerous other problems (see sec-tion 6).2 Related WorkThe structure recognition problem dealt with hereis closely related to the field of linear text segmen-tation with the goal to partition text into coherentblocks, but on a single level.
+Thus, our task general-izes linear text segmentation to multiple levels.A meanwhile classic approach towards domain-independent linear text segmentation, C99, is pre-sented in Choi (2000).
+C99 is the baseline whichmany current algorithms are compared to.
+Choi?s al-gorithm surpasses previous work by Hearst (1997),who proposed the Texttiling algorithm.
+The best re-sults published to date are ?
+to the best of our knowl-edge ?
+those of Lamprier et al (2008).The automatic detection of (sub)section topicsplays an important role in our work, since changesof topic indicate a section boundary and appropri-ate headings can be derived from the section type.Topic detection is usually performed using methodssimilar to those of text classification (see Sebastiani(2002) for a survey).Matsuov (2003) presents a dynamic programmingalgorithm capable of segmenting medical reportsinto sections and assigning topics to them.
+Thus, theaims of his work are similar to ours.
+However, he isnot concerned with the more fine-grained elements,and also uses a different machinery.When dealing with tagging problems, statisticalframeworks such as HMMs (Rabiner, 1989) or, re-cently, CRFs (Lafferty et al, 2001) are most com-monly applied.
+Whereas HMMs are generativemodels, CRFs are discriminative models that can in-corporate rich features.
+However, other approachesto text segmentation have also been pursued.
+E.g.,McDonald et al (2005) present a model based onmultilabel classification, allowing for natural han-dling of overlapping or non-contiguous segments.Finally, the work of Ye and Viola (2004) bearssimilarities to ours.
+They apply CRFs to the pars-ing of hierarchical lists and outlines in handwrittennotes, and thus have the same goal of finding deepstructure using the same probabilistic framework.3 Problem RepresentationFor representing our segmentation problem we use atrick that is well-known from chunking and namedentity recognition, and recast the problem as a tag-ging problem in the so-called BIO1 notation.
+Sincewe want to assign a type to every segment, OUTSIDElabels are not needed.
+However, we perform seg-1BEGIN - INSIDE - OUTSIDE2...t1t2t3t4timestep... ... .....................t5t6tokens level 1 level 2 level 3 ...< < <...B-T3 B-T4B-T1I-T3 I-T4I-T1I-T3 I-T4B-T2I-T3 I-T4I-T2B-T3 I-T4B-T2I-T3 I-T4I-T2Fig.
+3: Multi-level segmentation as tagging problemmentation on multiple levels, therefore multiple la-bel chains are required.
+Furthermore, we also wantto assign types to certain segments, thus the labelsneed an encoding for the type of segment they rep-resent.
+Figure 3 illustrates this representation: B-Tidenotes the beginning of a segment of type Ti, whileI-Ti indicates that the segment of type Ti continues.By adding label chains, it is possible to group thesegments of the previous chain into coarser units.Tree-like structures of unlimited depth can be ex-pressed this way2.
+The gray lines in figure 3 denotedependencies between nodes.
+Node labels also de-pend on the input token sequence in an arbitrarilywide context window.4 Data PreparationThe raw data available to us consists of two paral-lel corpora of 2007 reports from the area of medi-cal consultations, dictated by physicians.
+The firstcorpus, CRCG, consists of the raw output of ASR(figure 1), the other one, CCOR, contains the corre-sponding corrected and formatted reports (figure 2).In order to arrive at an annotated corpus in a for-2Note, that since we omit a redundant top-level chain, thisstructure technically is a hedge rather than a tree.mat suitable for the tagging problem, we first haveto analyze the report structure and define appropri-ate labels for each segmentation level.
+Then, everytoken has to be annotated with the appropriate beginor inside labels.
+A report has 625 tokens on average,so the manual annotation of roughly 1.25 million to-kens seemed not to be feasible.
+Thus we decidedto produce the annotations programmatically and re-strict manual work to corrections.4.1 Analysis of report structureWhen inspecting reports in CCOR, a human readercan easily identify the various elements a report con-sists of, such as headings ?
+written in bold on a sepa-rate line ?
+introducing sections, subheadings ?
+writ-ten in bold followed by a colon ?
+introducing sub-sections, and enumerations starting with indentednumbers followed by a period.
+Going down further,there are paragraphs divided into sentences.
+Usingthese structuring elements, a hierarchic data struc-ture comprising all report elements can be induced.Sections and subsections are typed according totheir heading.
+There exist clear recommendationson structuring medical reports, such as E2184-02(ASTM International, 2002).
+However, actual med-ical reports still vary greatly with regard to theirstructure.
+Using the aforementioned standard, weassigned the (sub)headings that actually appeared inthe data to the closest type, introducing new typesonly when absolutely necessary.
+Finally we arrivedat a structure model with three label chains:?
+Sentence level, with 4 labels: Heading,Subheading, Sentence, Enummarker?
+Subsection level, with 45 labels: Paragraph,Enumelement, None and 42 subsection types(e.g.
+VitalSigns, Cardiovascular ...)?
+Section level, with 23 section types (e.g.ReasonForEncounter, Findings, Plan ...)4.2 Corpus annotationSince the reports in CCOR are manually edited theyare reliable to parse.
+We employed a broad-coveragedictionary (handling also multi-word terms) and adomain-specific grammar for parsing and layout in-formation.
+A regular heading grammar was used formapping (sub)headings to the defined (sub)sectionlabels (for details see Jancsary (2008)).
+The output3CCOR OP CRCG.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.B ?
+Head CHIEF delHead COMPLAINT sub complaint B ?
+HeadB ?
+Sent Dehydration sub dehydration B ?
+SentSent , delSent weakness sub weakness SentSent and sub and SentSent diarrhea sub diarrhea SentSent .
+sub fullstop SentB ?
+Sent Mr. sub Mr. B ?
+SentSent Wilson sub Will Sentins Shawn SentSent is sub is SentSent a sub a SentSent 81-year-old sub 81-year-old SentSent Caucasian sub cold SentSent ins Asian SentSent gentleman sub gentleman SentSent who sub who SentSent came sub came SentSent in delSent here sub here SentSent with sub with SentSent fever sub fever SentSent and sub and SentSent persistent sub Persian SentSent diarrhea sub diaper SentSent .
+del.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.Fig.
+4: Mapping labels via alignmentof the parser is a hedge data structure from whichthe annotation labels can be derived easily.However, our goal is to develop a model for rec-ognizing the report structure from the dictation, thuswe have to map the newly created annotation of re-ports in CCOR onto the corresponding reports inCRCG.
+The basic idea here is to align the tokensof CCOR with the tokens in CRCG and to copy theannotations (cf.
+figure 43).
+There are some peculiar-ities we have to take care of during alignment:1. non-dictated items in CCOR (e.g.
+punctuation,headings)2. dictated words that do not occur inCCOR (metainstructions, repetitions)3. non-identical but corresponding items (recog-nition errors, reformulations)Since it is particularly necessary to correctly alignitems of the third group, standard string-edit dis-tance based methods (Levenshtein, 1966) need to beaugmented.
+Therefore we use a more sophisticated3This approach can easily be generalized to multiple labelchains.cost function.
+It assigns tokens that are similar (ei-ther from a semantic or phonetic point of view) a lowcost for substitution, whereas dissimilar tokens re-ceive a prohibitively expensive score.
+Costs for dele-tion and insertion are assigned inversely.
+Seman-tic similarity is computed using Wordnet (Fellbaum,1998) and UMLS (Lindberg et al, 1993).
+For pho-netic matching, the Metaphone algorithm (Philips,1990) was used (for details see Huber et al (2006)).4.3 Feature GenerationThe annotation discussed above is the first step to-wards building a training corpus for a CRF-basedapproach.
+What remains to be done is to provide ob-servations for each time step of the observed entity,i.e.
+for each token of a report; these are expected togive hints with regard to the annotation labels thatare to be assigned to the time step.
+The observa-tions, associated with one or more annotation labels,are usually called features in the machine learningliterature.
+During CRF training, the parameters ofthese features are determined such that they indicatethe significance of the observations for a certain la-bel or label combination; this is the basis for latertagging of unseen reports.We use the following features for each time stepof the reports in CCOR and CRCG:?
+Lexical features covering the local context of?
+2 tokens (e.g., patient@0, the@-1, is@1)?
+Syntactic features indicating the possible syn-tactic categories of the tokens (e.g., NN@0,JJ@0, DT@-1 and be+VBZ+aux@1)?
+Bag-of-word (BOW) features intend to cap-ture the topic of a text segment in a widercontext of ?
+10 tokens, without encoding anyorder.
+Tokens are lemmatized and replacedby their UMLS concept IDs, if available, andweighed by TF.
+Thus, different words describ-ing the same concept are considered equal.?
+Semantic type features as above, but usingUMLS semantic types instead of concept IDsprovide a coarser level of description.?
+Relative position features: The report is di-vided into eight parts corresponding to eight bi-nary features; only the feature corresponding tothe part of the current time step is set.45 Structure Recognition with CRFsConditional random fields (Lafferty et al, 2001) areconditional models in the exponential family.
+Theycan be considered a generalization of multinomiallogistic regression to output with non-trivial internalstructure, such as sequences, trees or other graphicalmodels.
+We loosely follow the general notation ofSutton and McCallum (2007) in our presentation.Assuming an undirected graphical model G overan observed entity x and a set of discrete, inter-dependent random variables4 y, a conditional ran-dom field describes the conditional distribution:p(y|x;?)
+=1Z(x)?c?G?c(yc,x;?c) (1)The normalization term Z(x) sums over all possiblejoint outcomes of y, i.e.,Z(x) =?y?p(y?|x;?)
+(2)and ensures the probabilistic interpretation ofp(y|x).
+The graphical model G describes interde-pendencies between the variables y; we can thenmodel p(y|x) via factors ?c(?)
+that are defined overcliques c ?
+G. The factors ?c(?)
+are computed fromsufficient statistics {fck(?)}
+of the distribution (cor-responding to the features mentioned in the previoussection) and depend on possibly overlapping sets ofparameters ?c ?
+?
+which together form the param-eters ?
+of the conditional distribution:?c(yc,x;?c) = exp??|?c|?k=1?ckfck(x,yc)??
+(3)In practice, for efficiency reasons, independence as-sumptions have to be made about variables y ?
+y,so G is restricted to small cliques (say, (|c| ?
+3).Thus, the sufficient statistics only depend on a lim-ited number of variables yc ?
+y; they can, however,access the whole observed entity x.
+This is in con-trast to generative approaches which model a jointdistribution p(x,y) and therefore have to extend theindependence assumptions to elements x ?
+x.4In our case, the discrete outcomes of the random variablesy correspond to the annotation labels described in the previoussection.The factor-specific parameters ?c of a CRF aretypically tied for certain cliques, according to theproblem structure (i.e., ?c1 = ?c2 for two cliquesc1, c2 with tied parameters).
+E.g., parameters areusually tied across time if G is a sequence.
+Thefactors can then be partitioned into a set of cliquetemplates C = {C1, C2, .
+.
+.
+CP }, where each cliquetemplate Cp is a set of factors with tied parameters?p and corresponding sufficient statistics {fpk(?
+)}.The CRF can thus be rewritten as:p(y|x) =1Z(x)?Cp?C?
+?c?Cp?c(yc,x;?p) (4)Furthermore, in practice, the sufficient statistics{fpk(?)}
+are computed from a subset xc ?
+x thatis relevant to a factor ?c(?).
+In a sequence labellingtask, tokens x ?
+x that are in temporal proximity toan output variable y ?
+y are typically most useful.Nevertheless, in our notation, we will let factors de-pend on the whole observed entity x to denote thatall of x can be accessed if necessary.For our structure recognition task, the graphicalmodel G exhibits the structure shown in figure 3,i.e., there are multiple connected chains of variableswith factors defined over single-node cliques andtwo-node cliques within and between chains; the pa-rameters of factors are tied across time.
+This corre-sponds to the factorial CRF structure described inSutton and McCallum (2005).
+Structure recognitionusing conditional random fields then involves twoseparate steps: parameter estimation, or training, isconcerned with selecting the parameters of a CRFsuch that they fit the given training data.
+Prediction,or testing, determines the best label assignment forunknown examples.5.1 Parameter estimationGiven IID training dataD = {x(i),y(i)}Ni=1, param-eter estimation determines:??
+= argmax??(N?ip(y(i)|x(i);??
+))(5)i.e., those parameters that maximize the conditionalprobability of the CRF given the training data.In the following, we will not explicitly sum overNi=1; as Sutton and McCallum (2007) note, the train-ing instances x(i),y(i) can be considered discon-nected components of a single undirected model G.5We thus assume G and its factors ?c(?)
+to extendover all training instances.
+Unfortunately, (5) cannotbe solved analytically.
+Typically, one performs max-imum likelihood estimation (MLE) by maximizingthe conditional log-likelihood numerically:`(?)
+=?Cp?C??c?Cp|?p|?k=1?pkfpk(x,yc)?
+logZ(x)(6)Currently, limited-memory gradient-based methodssuch as LBFGS (Nocedal, 1980) are most com-monly employed for that purpose5.
+These requirethe partial derivatives of (6), which are given by:?`??pk=??c?Cpfpk(x,yc)?
+?y?cfpk(x,y?c)p(y?c|x)(7)and expose the intuitive form of a difference be-tween the expectation of a sufficient statistic accord-ing to the empiric distribution and the expectationaccording to the model distribution.
+The latter termrequires marginal probabilities for each clique c, de-noted by p(y?c|x).
+Inference on the graphical modelG (see sec 5.2) is needed to compute these.Depending on the structure ofG, inference can bevery expensive.
+In order to speed up parameter es-timation, which requires inference to be performedfor every training example and for every iterationof the gradient-based method, alternatives to MLEhave been proposed that do not require inference.We show here a factor-based variant of pseudolike-lihood as proposed by Sanner et al (2007):`p(?)
+=?Cp?C?
+?c?Cplog p(yc|x,MB(?c)) (8)where the factors are conditioned on the Markovblanket, denoted by MB6.
+The gradient of (8) canbe computed similar to (7), except that the marginalspc(y?c|x) are also conditioned on the Markov blan-ket, i.e., pc(y?c|x,MB(?c)).
+Due to its dependenceon the Markov blanket of factors, pseudolikelihood5Recently, stochastic gradient descent methods such as On-line LBFGS (Schraudolph et al, 2007) have been shown to per-form competitively.6Here, the Markov blanket of a factor ?c denotes the set ofvariables occurring in factors that share variables with ?c, non-inclusive of the variables of ?ccannot be applied to prediction, but only to param-eter estimation, where the ?true?
+assignment of ablanket is known.5.1.1 RegularizationWe employ a Gaussian prior for training of CRFsin order to avoid overfitting.
+Hence, if f(?)
+is theoriginal objective function (e.g., log-likelihood orlog-pseudolikelihood), we optimize a penalized ver-sion f ?(?)
+instead, such that:f ?(?)
+= f(?
+)?|?|?k=1?2k2?2and?f ???k=?f??k?
+?k?2.The tuning parameter ?2 determines the strength ofthe penalty; lower values lead to less overfitting.Gaussian priors are a common choice for parame-ter estimation of log-linear models (cf.
+Sutton andMcCallum (2007)).5.2 InferenceInference on a graphical model G is needed to ef-ficiently compute the normalization term Z(x) andmarginals pc(y?c|x) for MLE, cf.
+equation (6).Using belief propagation (Yedidia et al, 2003),more precisely its sum-product variant, we can com-pute the beliefs for all cliques c ?
+G. In a tree-shaped graphical model G, these beliefs correspondexactly to the marginal probabilities pc(y?c|x).
+How-ever, if the graph contains cycles, so-called loopybelief propagation must be performed.
+The mes-sage updates are then re-iterated according to someschedule until the messages converge.
+We use a TRPschedule as described by Wainwright et al (2002).The resulting beliefs are then only approximationsto the true marginals.
+Moreover, loopy belief propa-gation is not guaranteed to terminate in general ?
+weinvestigate this phenomenon in section 6.5.With regard to the normalization term Z(x),as equation (2) shows, naive computation requiressumming over all assignments of y.
+This is too ex-pensive to be practical.
+Fortunately, belief propaga-tion produces an alternative factorization of p(y|x);i.e., the conditional distribution defining the CRFcan be expressed in terms of the marginals gainedduring sum-product belief propagation.
+This repre-sentation does not require any additional normaliza-tion, so Z(x) need not be computed.65.3 PredictionOnce the parameters ?
+have been estimated fromtraining data, a CRF can be used to predict the la-bels of unknown examples.
+The goal is to find:y?
+= argmaxy?(p(y?|x;?
+))(9)i.e., the assignment of y that maximizes the condi-tional probability of the CRF.
+Again, naive computa-tion of (9) is intractable.
+However, the max-productvariant of loopy belief propagation can be applied toapproximately find the MAP assignment of y (max-product can be seen as a generalization of the well-known Viterbi algorithm to graphical models).For structure recognition in medical reports, weemploy a post-processing step after label predictionwith the CRFmodel.
+As in Jancsary (2008), this stepenforces the constraints of the BIO notation and ap-plies some trivial non-local heuristics that guaranteea consistent global view of the resulting structure.6 Experiments and ResultsFor evaluation, we generally performed 3-fold cross-validation for all performance measures.
+We cre-ated training data from the reports in CCOR so asto simulate a scenario under ideal conditions, i.e.,perfect speech recognition and proper dictation ofpunctuation and headings, without hesitation or rep-etitions.
+In contrast, the data from CRCG reflectsreal-life conditions, with a wide variety of speechrecognition error rates and speakers frequently hes-itating, repeating themselves and omitting punctua-tion and/or headings.Depending on the experiment, two different sub-sets of the two corpora were considered:?
+C{COR,RCG}-ALL: All 2007 reports were used,resulting in 1338 training examples and 669testing examples at each CV-iteration.?
+C{COR,RCG}-BEST : The corpus was restrictedto those 1002 reports that yielded the lowestword error rate during alignment (see section4.2).
+Each CV-iteration hence amounts to 668training examples and 334 testing examples.From the crossvalidation runs, a 95%-confidenceinterval for each measure was estimated as follows:Y?
+?
+t(?/2,N?1)s?N= Y?
+?
+t(0.025,2)s?3(10)01020304050607080901000  100  200  300  400  500  600  700  800relative loss /accuracy(%)number of iterationsLoss on training setAccuracy on validation setFig.
+5: Accuracy vs. loss function on CRCG-ALLwhere Y?
+is the sample mean, s is the sample stan-dard deviation, N is the sample size (3), ?
+is the de-sired significance level (0.05) and t(?/2,N?1) is theupper critical value of the t-distribution with N ?
+1degrees of freedom.
+The confidence intervals are in-dicated in the ?
+column of tables 1, 2 and 3.For CRF training, we minimized the penalized,negative log-pseudolikelihood using LBFGS withm = 3.
+The variance of the Gaussian prior was setto ?2 = 1000.
+All supported features were used forunivariate factors, while the bivariate factors withinchains and between chains were restricted to biasweights.
+For testing, loopy belief propagation witha TRP schedule was used in order to determine themaximum a posteriori (MAP) assignment.
+We useVieCRF, our own implementation of factorial CRFs,which is freely available at the author?s homepage7.6.1 Analysis of training progressIn order to determine the number of required train-ing iterations, an experiment was performed thatcompares the progress of the Accuracy measure ona validation set to the progress of the loss functionon a training set.
+The data was randomly split intoa training set (2/3 of the instances) and a validationset.
+Accuracy on the validation set was computedusing the intermediate CRF parameters ?t every 5iterations of LBFGS.
+The resulting plot (figure 5)demonstrates that the progress of the loss functioncorresponds well to that of the Accuracy measure,7http://www.ofai.at/?jeremy.jancsary/7Estimated AccuraciesAcc.
+?Average 97.24% 0.33Chain 0 99.64% 0.04Chain 1 95.48% 0.55Chain 2 96.61% 0.68Joint 92.51% 0.97(a) CCOR-ALLEstimated AccuraciesAcc.
+?Average 86.36% 0.80Chain 0 91.74% 0.16Chain 1 85.90% 1.25Chain 2 81.45% 2.14Joint 69.19% 1.93(b) CRCG-ALLTable 1: Accuracy on the full corpusEstimated AccuraciesAcc.
+?Average 96.48% 0.82Chain 0 99.55% 0.08Chain 1 94.64% 0.23Chain 2 95.25% 2.16Joint 90.65% 2.15(a) CCOR-BESTEstimated AccuraciesAcc.
+?Average 87.73% 2.07Chain 0 93.77% 0.68Chain 1 87.59% 1.79Chain 2 81.81% 3.79Joint 70.91% 4.50(b) CRCG-BESTTable 2: Accuracy on a high-quality subsetthus an ?early stopping?
+approach might be tempt-ing to cut down on training times.
+However, duringearlier stages of training, the CRF parameters seemto be strongly biased towards high-frequency labels,so other measures such as macro-averaged F1 mightsuffer from early stopping.
+Hence, we decided toallow up to 800 iterations of LBFGS.6.2 Accuracy of structure predictionTable 1 shows estimated accuracies for CCOR-ALLand CRCG-ALL.
+Overall, high accuracy (> 97%)can be achieved on CCOR-ALL, showing that the ap-proach works very well under ideal conditions.
+Per-formance is still fair on the noisy data (CRCG-ALL;Accuracy > 86%).
+It should be noted that the la-bels are unequally distributed, especially in chain 0(there are very few BEGIN labels).
+Thus, the base-line is substantially high for this chain, and othermeasures may be better suited for evaluating seg-mentation quality (cf.
+section 6.4).6.3 On the effect of noisy training dataMeasuring the effect of the imprecise reference an-notation of CRCG is difficult without a correspond-ing, manually created golden standard.
+However, toget a feeling for the impact of the noise inducedby speech recognition errors and sloppy dictationEstimated WDWD ?Chain 0 0.007 0.000Chain 1 0.050 0.007Chain 2 0.015 0.001(a) CCOR-ALLEstimated WDWD ?Chain 0 0.193 0.008Chain 1 0.149 0.005Chain 2 0.118 0.013(b) CRCG-ALLTable 3: Per-chain WindowDiff on the full corpuson the quality of the semi-automatically generatedannotation, we conducted an experiment with sub-sets CCOR-BEST and CRCG-BEST .
+The results areshown in table 2.
+Comparing these results to ta-ble 1, one can see that overall accuracy decreasedfor CCOR-BEST , whereas we see an increase forCRCG-BEST .
+This effect can be attributed to twodifferent phenomena:?
+In CCOR-BEST , no quality gains in the anno-tation could be expected.
+The smaller numberof training examples therefore results in loweraccuracy.?
+Fewer speech recognition errors and more con-sistent dictation in CRCG-BEST allow for bet-ter alignment and thus a better reference anno-tation.
+This increases the actual prediction per-formance and, furthermore, reduces the num-ber of label predictions that are erroneouslycounted as a misprediction.Thus, it is to be expected that manual correction ofthe automatically created annotation results in sig-nificant performance gains.
+Preliminary annotationexperiments have shown that this is indeed the case.6.4 Segmentation qualityAccuracy is not the best measure to assess segmen-tation quality, therefore we also conducted experi-ments using the WindowDiff measure as proposedby Pevzner and Hearst (2002).
+WindowDiff re-turns 0 in case of a perfect segmentation; 1 is theworst possible score.
+However, it only takes intoaccount segment boundaries and disregards segmenttypes.
+Table 3 shows the WindowDiff scores forCCOR-ALL and CRCG-ALL.
+Overall, the scores arequite good and are consistently below 0.2.
+Further-more, CRCG-ALL scores do not suffer as badly frominaccurate reference annotation, since ?near misses?are penalized less strongly.8Converged (%) Iterations (?
+)CCOR-ALL 0.999 15.4CRCG-ALL 0.911 66.5CCOR-BEST 0.999 14.2CRCG-BEST 0.971 37.5Table 4: Convergence behaviour of loopy BP6.5 Convergence of loopy belief propagationIn section 5.2, we mentioned that loopy BP is notguaranteed to converge in a finite number of itera-tions.
+Since we optimize pseudolikelihood for pa-rameter estimation, we are not affected by this limi-tation in the training phase.
+However, we use loopyBP with a TRP schedule during testing, so we mustexpect to encounter non-convergence for some ex-amples.
+Theoretical results on this topic are dis-cussed by Heskes (2004).
+We give here an empir-ical observation of convergence behaviour of loopyBP in our setting; the maximum number of itera-tions of the TRP schedule was restricted to 1,000.Table 4 shows the percentage of examples converg-ing within this limit and the average number of iter-ations required by the converging examples, brokendown by the different corpora.
+From these results,we conclude that there is a connection between thequality of the annotation and the convergence be-haviour of loopy BP.
+In practice, even though loopyBP didn?t converge for some examples, the solutionsafter 1,000 iterations where satisfactory.7 Conclusion and OutlookWe have presented a framework which allows foridentification of structure in report dictations, suchas sentence boundaries, paragraphs, enumerations,(sub)sections, and various other structural elements;even if no explicit clues are dictated.
+Furthermore,meaningful types are automatically assigned to sub-sections and sections, allowing ?
+for instance ?
+toautomatically assign headings, if none were dic-tated.For the preparation of training data a mechanismhas been presented that exploits the potential of par-allel corpora for automatic annotation of data.
+Us-ing manually edited formatted reports and the cor-responding raw output of ASR, reference annotationcan be generated that is suitable for learning to iden-tify structure in ASR output.For the structure recognition task, a CRF frame-work has been employed and multiple experimentshave been performed, confirming the practicabilityof the approach presented here.One result deserving further investigation is theeffect of noisy annotation.
+We have shown thatsegmentation results improve when fewer errors arepresent in the automatically generated annotation.Thus, manual correction of the reference annotationwill yield further improvements.Finally, the framework presented in this paperopens up exciting possibilities for future work.In particular, we aim at automatically transform-ing report dictations into properly formatted andrephrased reports that conform to the requirementsof the relevant domain.
+Such tasks are greatly facili-tated by the explicit knowledge gained during struc-ture recognition.AcknowledgmentsThe work presented here has been carried out inthe context of the Austrian KNet competence net-work COAST.
+We gratefully acknowledge fundingby the Austrian Federal Ministry of Economics andLabour, and ZIT Zentrum fuer Innovation und Tech-nologie, Vienna.
+The Austrian Research Institutefor Artificial Intelligence is supported by the Aus-trian Federal Ministry for Transport, Innovation, andTechnology and by the Austrian Federal Ministry forScience and Research.Furthermore, we would like to thank our anony-mous reviewers for many insightful comments thathelped us improve this paper.ReferencesASTM International.
+2002.
+ASTM E2184-02: Standardspecification for healthcare document formats.Freddy Choi.
+2000.
+Advances in domain independentlinear text segmentation.
+In Proceedings of the firstconference on North American chapter of the Associa-tion for Computation Linguistics, pages 26?33.C.
+Fellbaum.
+1998.
+WordNet: an electronic lexicaldatabase.
+MIT Press, Cambridge, MA.Marti A. Hearst.
+1997.
+Texttiling: Segmenting text intomulti-paragraph subtopic passages.
+ComputationalLinguistics, 23(1):36?47.9Tom Heskes.
+2004.
+On the uniqueness of loopybelief propagation fixed points.
+Neural Comput.,16(11):2379?2413.Martin Huber, Jeremy Jancsary, Alexandra Klein, Jo-hannes Matiasek, and Harald Trost.
+2006.
+Mismatchinterpretation by semantics-driven alignment.
+In Pro-ceedings of KONVENS ?06.Jeremy M. Jancsary.
+2008.
+Recognizing structure in re-port transcripts.
+Master?s thesis, Vienna University ofTechnology.John Lafferty, Andrew McCallum, and Fernando Pereira.2001.
+Conditional Random Fields: Probabilistic mod-els for segmenting and labeling sequence data.
+In Pro-ceedings of the Eighteenth International Conferenceon Machine Learning (ICML).S.
+Lamprier, T. Amghar, B. Levrat, and F. Saubion.2008.
+Toward a more global and coherent segmen-tation of texts.
+Applied Artificial Intelligence, 23:208?234, March.Vladimir I. Levenshtein.
+1966.
+Binary codes capable ofcorrecting deletions, insertions and reversals.
+SovietPhysics Doklady, 10(8):707?710.D.
+A.
+B. Lindberg, B. L. Humphreys, and A. T. McCray.1993.
+The Unified Medical Language System.
+Meth-ods of Information in Medicine, 32:281?291.Evgeny Matsuov.
+2003.
+Statistical methods for textsegmentation and topic detection.
+Master?s the-sis, Rheinisch-Westfa?lische Technische HochschuleAachen.Ryan McDonald, Koby Crammer, and Fernando Pereira.2005.
+Flexible text segmentation with structuredmultilabel classification.
+In Proceedings of HumanLanguage Technology Conference and Conference onEmpirical Methods in Natural Language Processing(HLT/EMNLP), pages 987?994.Jorge Nocedal.
+1980.
+Updating Quasi-Newton matri-ces with limited storage.
+Mathematics of Computa-tion, 35:773?782.Lev Pevzner and Marti Hearst.
+2002.
+A critique andimprovement of an evaluation metric for text segmen-tation.
+Computational Linguistics, 28(1), March.Lawrence Philips.
+1990.
+Hanging on the metaphone.Computer Language, 7(12).L.
+R. Rabiner.
+1989.
+A tutorial on hidden Markov mod-els and selected applications in speech recognition.Proceedings of the IEEE, 77:257?286, February.Scott Sanner, Thore Graepel, Ralf Herbrich, and TomMinka.
+2007.
+Learning CRFs with hierarchical fea-tures: An application to go.
+International Conferenceon Machine Learning (ICML) workshop.Nicol N. Schraudolph, Jin Yu, and Simon Gu?nter.
+2007.A stochastic Quasi-Newton Method for online convexoptimization.
+In Proceedings of 11th InternationalConference on Artificial Intelligence and Statistics.Fabrizio Sebastiani.
+2002.
+Machine learning in auto-mated text categorization.
+ACM Computing Surveys,34(1):1?47.Charles Sutton and Andrew McCallum.
+2005.
+Composi-tion of Conditional Random Fields for transfer learn-ing.
+In Proceedings of Human Language Technologies/ Empirical Methods in Natural Language Processing(HLT/EMNLP).Charles Sutton and Andrew McCallum.
+2007.
+An intro-duction to Conditional Random Fields for relationallearning.
+In Lise Getoor and Ben Taskar, editors,Introduction to Statistical Relational Learning.
+MITPress.Martin Wainwright, Tommi Jaakkola, and Alan S. Will-sky.
+2002.
+Tree-based reparameterization frameworkfor analysis of sum-product and related algorithms.IEEE Transactions on Information Theory, 49(5).Ming Ye and Paul Viola.
+2004.
+Learning to parse hi-erarchical lists and outlines using Conditional Ran-dom Fields.
+In Proceedings of the Ninth InternationalWorkshop on Frontiers in Handwriting Recognition(IWFHR?04), pages 154?159.
+IEEE Computer Soci-ety.Jonathan S. Yedidia, William T. Freeman, and YairWeiss,2003.
+Understanding Belief Propagation and its Gen-eralizations, Exploring Artificial Intelligence in theNew Millennium, chapter 8, pages 236?239.
+Science& Technology Books, January.10

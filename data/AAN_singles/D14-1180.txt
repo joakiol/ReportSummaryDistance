@@ -1,0 +1,310 @@
+Proceedings of the 2014 Conference on Empirical Methods in Natural Language Processing (EMNLP), pages 1735?1745,October 25-29, 2014, Doha, Qatar.c?2014 Association for Computational LinguisticsType-based MCMC for Sampling Tree Fragments from ForestsXiaochang Peng and Daniel GildeaDepartment of Computer ScienceUniversity of RochesterRochester, NY 14627AbstractThis paper applies type-based MarkovChain Monte Carlo (MCMC) algorithmsto the problem of learning SynchronousContext-Free Grammar (SCFG) rulesfrom a forest that represents all possiblerules consistent with a fixed word align-ment.
+While type-based MCMC has beenshown to be effective in a number of NLPapplications, our setting, where the treestructure of the sentence is itself a hid-den variable, presents a number of chal-lenges to type-based inference.
+We de-scribe methods for defining variable typesand efficiently indexing variables in or-der to overcome these challenges.
+Thesemethods lead to improvements in both loglikelihood and BLEU score in our experi-ments.1 IntroductionIn previous work, sampling methods have beenused to learn Tree Substitution Grammar (TSG)rules from derivation trees (Post and Gildea, 2009;Cohn et al., 2009) for TSG learning.
+Here, at eachnode in the derivation tree, there is a binary vari-able indicating whether the node is internal to aTSG rule or is a split point, which we refer to asa cut, between two rules.
+The problem of extract-ing machine translation rules from word-alignedbitext is a similar problem in that we wish to au-tomatically learn the best granularity for the ruleswith which to analyze each sentence.
+The prob-lem of rule extraction is more complex, however,because the tree structure of the sentence is alsounknown.In machine translation applications, most pre-vious work on joint alignment and rule extrac-tion models uses heuristic methods to extract rulesfrom learned word alignment or bracketing struc-tures (Zhang et al., 2008; Blunsom et al., 2009;DeNero et al., 2008; Levenberg et al., 2012).Chung et al.
+(2014) present a MCMC algorithmschedule to learn Hiero-style SCFG rules (Chiang,2007) by sampling tree fragments from phrase de-composition forests, which represent all possiblerules that are consistent with a set of fixed wordalignments.
+Assuming fixed word alignments re-duces the complexity of the sampling problem,and has generally been effective in most state-of-the-art machine translation systems.
+The al-gorithm for sampling rules from a forest is asfollows: from the root of the phrase decomposi-tion forest, one samples a cut variable, denotingwhether the current node is a cut, and an edge vari-able, denoting which incoming hyperedge is cho-sen, at each node of the current tree in a top-downmanner.
+This sampling schedule is efficient in thatit only samples the current tree and will not wastetime on updating variables that are unlikely to beused in any tree.As with many other token-based Gibbs Sam-pling applications, sampling one node at a timecan result in slow mixing due to the strong cou-pling between variables.
+One general remedy isto sample blocks of coupled variables.
+Cohn andBlunsom (2010) and Yamangil and Shieber (2013)used blocked sampling algorithms that sample thewhole tree structure associated with one sentenceat a time for TSG and TAG learning.
+However, thiskind of blocking does not deal with the coupling ofvariables correlated with the same type of struc-ture across sentences.
+Liang et al.
+(2010) intro-duced a type-based sampling schedule which up-dates a block of variables of the same type jointly.The type of a variable is defined as the combina-tion of new structural choices added when assign-ing different values to the variable.
+Type-basedMCMC tackles the coupling issue by assigning thesame type to variables that are strongly coupled.In this paper, we follow the phrase decompo-sition forest construction procedures of Chung et1735al.
+(2014) and present a type-based MCMC algo-rithm for sampling tree fragments from phrase de-composition forests which samples the variablesof the same type jointly.
+We define the type of thecut variable for each node in our sampling sched-ule.
+While type-based MCMC has been provento be effective in a number of NLP applications,our sample-edge, sample-cut setting is more com-plicated as our tree structure is unknown.
+Weneed additional steps to maintain the cut type in-formation when the tree structure is changed aswe sample the edge variable.
+Like other type-based MCMC applications, we need bookkeep-ing of node sites to be sampled in order to loopthrough sites of the same type efficiently.
+As notedby Liang et al.
+(2010), indexing by the completetype information is too expensive in some appli-cations like TSG learning.
+Our setting is differentfrom TSG learning in that the internal structure ofeach SCFG rule is abstracted away when derivingthe rule type from the tree fragment sampled.We make the following contributions:1.
+We apply type-based MCMC to the setting ofSCFG learning and have achieved better loglikelihood and BLEU score result.2.
+We present an innovative way of storing thetype information by indexing on partial typeinformation and then filtering the retrievednodes according to the full type information,which enables efficient updates to maintainthe type information while the amount ofbookkeeping is reduced significantly.3.
+We replace the two-stage sampling scheduleof Liang et al.
+(2010) with a simpler andfaster one-stage method.4.
+We use parallel programming to do inexacttype-based MCMC, which leads to a speedup of four times in comparison with non-parallel type-based MCMC, while the like-lihood result of the Markov Chain does notchange.
+This strategy should also work withother type-based MCMC applications.2 MCMC for Sampling Tree Fragmentsfrom Forests2.1 Phrase Decomposition ForestThe phrase decomposition forest provides a com-pact representation of all machine translation rules?I??have?a?date?with?
+?hertoday1Figure 1: Example word alignment, with boxesshowing valid phrase pairs.
+In this example, allindividual alignment points are also valid phrasepairs.that are consistent with our fixed input word align-ment (Chung et al., 2014), and our sampling algo-rithm selects trees from this forest.As in Hiero, our grammars will make use of asingle nonterminal X , and will contain rules witha mixture of nonterminals and terminals on therighthand side (r.h.s.
+), with at most two nontermi-nal occurrences on the r.h.s.
+Under this restric-tion, the maximum number of rules that can beextracted from an input sentence pair is O(n12)with respect to the length of the sentence pair,as the left and right boundaries of the lefthandside (l.h.s.)
+nonterminal and each of the two r.h.s.nonterminals can take O(n) positions in each ofthe two languages.
+This complexity leads us toexplore sampling algorithms instead of using dy-namic programming.A span [i, j] is a set of contiguous word in-dices {i, i + 1, .
+.
+.
+, j ?
+1}.
+Given an alignedChinese-English sentence pair, a phrase n is a pairof spans n = ([i1, j1], [i2, j2]) such that Chinesewords in positions [i1, j1] are aligned only to En-glish words in positions [i2, j2], and vice versa.
+Aphrase forest H = ?V,E?
+is a hypergraph madeof a set of hypernodes V and a set of hyperedgesE.
+Each node n = ([i1, j1], [i2, j2]) ?
+V is atight phrase as defined by Koehn et al.
+(2003),i.e., a phrase containing no unaligned words at itsboundaries.
+A phrase n = ([i1, j1], [i2, j2]) coversn?= ([i?1, j?1], [i?2, j?2]) ifi1?
+i?1?
+j?1?
+j1?
+i2?
+i?2?
+j?2?
+j2Each edge in E, written as T ?
+n, is made of a1736([0 1], [0 1])X , I([4 5], [1 2])X  , have([5 6], [3 4])X  , date([2 3], [4 5])X  , with([3 4], [5 6])X , her([2 4], [4 6])X XX, XX([4 6], [1 4])X XX, Xa X([1 4], [4 7])X XX, XX([2 6], [1 6])X XX, XX([1 6], [1 7])X XX, XX X XX, XX([0 6], [0 7])X XX, XX([1 2], [6 7])X , todayFigure 2: A phrase decomposition forest extractedfrom the sentence pair ????????
+?, Ihave a date with her today?.
+Each edge is a min-imal SCFG rule, and the rules at the bottom levelare phrase pairs.
+Unaligned word ?a?
+shows upin the rule X ?
+X1X2, X1aX2after unalignedwords are put back into the alignment matrix.
+Thehighlighted portion of the forest shows an SCFGrule built by composing minimal rules.set of non-intersecting tail nodes T ?
+V , and asingle head node n ?
+V that covers each tail node.We say an edge T ?
+n is minimal if there doesnot exist another edge T??
+n such that T?coversT .
+A minimal edge is an SCFG rule that cannotbe decomposed by factoring out some part of itsr.h.s.
+as a separate rule.
+We define a phrase de-composition forest to be made of all phrases froma sentence pair, connected by all minimal SCFGrules.
+A phrase decomposition forest compactlyrepresents all possible SCFG rules that are consis-tent with word alignments.
+For the example wordalignment shown in Figure 1, the phrase decom-position forest is shown in Figure 2.
+Each boxedphrase in Figure 1 corresponds to a node in theforest of Figure 2, while hyperedges in Figure 2represent ways of building phrases out of shorterphrases.A phrase decomposition forest has the impor-tant property that any SCFG rule consistent withthe word alignment corresponds to a contiguousfragment of some complete tree found in the for-est.
+For example, the highlighted tree fragmentof the forest in Figure 2 corresponds to the SCFGrule:X ?
+?
+X2?
+X1, have a X1with X2Thus any valid SCFG rule can be formed by se-lecting a set of adjacent hyperedges from the for-est and composing the minimal SCFG rules speci-fied by each hyperedge.
+Therefore, the problem ofSCFG rules extraction can be solved by samplingtree fragments from the phrase decomposition for-est.
+We use a bottom-up algorithm to construct thephrase decomposition forest from the word align-ments.2.2 Sampling Tree Fragments From ForestWe formulate the rule sampling procedure intotwo phases: first we select a tree from a forest,then we select the cuts in the tree to denote the splitpoints between fragments, with each fragment cor-responding to a SCFG rule.
+A tree can be speci-fied by attaching a variable ento each node n inthe forest, indicating which hyperedge is turnedon at the current node.
+Thus each assignment willspecify a unique tree by tracing the edge variablesfrom the root down to the leaves.
+We also attacha cut variable znto each node, indicating whetherthe node is a split point between two adjacent frag-ments.Let all the edge variables form the random vec-tor Y and all the cut variables form the randomvector Z.
+Given an assignment y to the edge vari-ables and assignment z to the cut variables, our de-sired distribution is proportional to the product ofweights of the rules specified by the assignment:Pt(Y = y, Z = z) ??r??
+(y,z)w(r) (1)where ?
+(y, z) is the set of rules identified by theassignment.
+We use a generative model based ona Dirichlet Process (DP) defined over composedrules.
+We draw a distribution G over rules from aDP, and then rules from G.G | ?, P0?Dir(?, P0)r | G ?GFor the base distribution P0, we use a uniformdistribution where all rules of the same size haveequal probability:P0(r) = V?|rf|fV?|re|e(2)1737where Vfand Veare the vocabulary sizes of thesource language and the target language, and |rf|and |re| are the lengths of the source side and tar-get side of rule r. By marginalizing outGwe get asimple posterior distribution over rules which canbe described using the Chinese Restaurant Process(CRP).
+For this analogy, we imagine a restauranthas infinite number of tables that represent ruletypes and customers that represent translation ruleinstances.
+Each customer enters the restaurant andchooses a table to sit at.
+Let zibe the table chosenby the i-th customer, then the customer chooses atable k either having been seated or a new tablewith probability:P (zi= k|z?i) ={nki?1+?1 ?
+k ?
+K?i?1+?k = K + 1(3)where z?iis the current seating arrangement, nkisthe number of customers at the table k,K is the to-tal number of occupied tables.
+If the customer sitsat a new table, the new table will be assigned a rulelabel r with probability P0(r).
+We can see fromEquation 3 that the only history related to the cur-rent table assignment is the counts in z?i.
+There-fore, we define a table of counts N = {NC}C?Iwhich memorizes different categories of counts inz?i.
+I is an index set for different categories ofcounts.
+EachNCis a vector of counts for categoryC.
+We have P (ri= r|z?i) = P (ri= r|N).
+Ifwe marginalize over tables labeled with the samerule, we get the following probability over rule rgiven the previous count table N :P (ri= r|N) =NR(r) + ?P0(r)n+ ?
+(4)here in the case of DP, I = {R}, where R is theindex for the category of rule counts.
+NR(r) is thenumber of times that rule r has been observed inz?i, n =?rNR(r) is the total number of rulesobserved.We also define a Pitman-Yor Process (PYP)(Pitman and Yor, 1997) over rules of each length l.We draw the rule distribution G from a PYP, andthen rules of length l are drawn from G.G|?, d, P0?
+PY (?, d, P0)r|G ?
+GThe first two parameters, a concentration parame-ter ?
+and a discount parameter d, control the shapeof distribution G by controlling the size and theAlgorithm 1 Top-down Sampling Algorithm1: queue.push(root)2: while queue is not empty do3: n = queue.pop()4: SAMPLEEDGE(n)5: SAMPLECUT(n)6: for each child c of node n do7: queue.push(c)8: end for9: end whilenumber of clusters.
+Integrating over G, we havethe following PYP posterior probability:P (ri= r|N) =NR(r)?
+Trd+ (Tld+ ?
+)P0(r)NL(l) + ?
+(5)here for the case of PYP, I = {R,L}.
+We have anadditional index L for the category of rule lengthcounts, and NL(l) is the total number of rules oflength l observed in z?i.
+Tris the number of ta-bles labeled with r in z?i.
+The length of the rule isdrawn from a Poisson distribution, so a rule lengthprobability P (l;?)
+=?le?
+?l!is multiplied by thisprobability to calculate the real posterior probabil-ity for each rule.
+In order to simplify the tediousbook-keeping, we estimate the number of tablesusing the following equations (Huang and Renals,2010):Tr= NR(r)d(6)Tl=?r:|r|=lNR(r)d(7)We use the top-down sampling algorithm ofChung et al.
+(2014) (see Algorithm 1).
+Startingfrom the root of the forest, we sample a value forthe edge variable denoting which incoming hyper-edge of the node is turned on in the current tree,and then we sample a cut value for the node de-noting whether the node is a split point betweentwo fragments in the tree.
+For each node n, we de-note the composed rule type that we get when weset the cut of node n to 0 as r1and the two splitrule types that we get when we set the cut to 1 asr2, r3.
+We sample the cut value ziof the currentnode according to the posterior probability:P (zi= z|N) ={P (r1|N)P (r1|N)+P (r2|N)P (r3|N?
+)if z = 0P (r2|N)P (r3|N?
+)P (r1|N)+P (r2|N)P (r3|N?
+)otherwise(8)where the posterior probability P (ri|N) is accord-ing to either a DP or a PYP, andN,N?are tables ofcounts.
+In the case of DP, N,N?differ only in therule counts of r2, where N?R(r2) = NR(r2) + 1.In the case of PYP, there is an extra difference that1738([0 1], [0 1])X , I([4 5], [1 2])X  , have([5 6], [3 4])X , date([2 3], [4 5])X , with([3 4], [5 6])X , her([2 4], [4 6])X XX, XX([4 6], [1 4])X XX, Xa X([1 4], [4 7])X XX, XX([2 6], [1 6])X XX, XX([1 6], [1 7])X XX, XX X XX, XX([0 6], [0 7])X XX, XX([1 2], [6 7])X , todayFigure 3: An example of cut type: Considerthe two nodes marked in bold, ([2 6], [1 6]),([1 4], [4 7]).
+These two non-split nodes areinternal to the same composed rule: X ?X1X2X3, X3X2X1.
+We keep these two sites withthe same index.
+However, when we set the cutvalue of these two nodes to 1, as the rules imme-diately above and immediately below are differentfor these two sites, they are not of the same type.N?L(l) = NL(l) + 1, where l is the rule length ofr2.As for edge variables ei, we refer to the set ofcomposed rules turned on below n including thecomposed rule fragments having n as an internalor root node as {r1, .
+.
+.
+, rm}.
+We have the follow-ing posterior probability over the edge variable ei:P (ei= e|N) ?m?i=1P (ri|Ni?1)?v??
+(e)?in(n)deg(v) (9)where deg(v) is the number of incoming edges fornode v, in(n) is the set of nodes in all subtreesunder n, and ?
+(e) is the tree specified when weset ei= e. N0to Nmare tables of counts whereN0= N , NiR(ri) = Ni?1R(ri) + 1 in the case ofDP and additionally NiL(li) = Ni?1L(li) + 1 in thecase of PYP, where liis the rule length of ri.3 Type-based MCMC SamplingOur goal in this paper is to organize blocks of vari-ables that are strongly coupled into types and sam-ple variables of each type jointly.
+One major prop-erty of type-based MCMC is that the joint proba-bility of variables of the same type should be ex-changeable so that the order of the variables doesnot matter.
+Also, the choices of the variables tobe sampled jointly should not interfere with eachother, which we define as a conflict.
+In this section,we define the type of cut variables in our samplingschedule and explain that with the two priors weintroduced before, the joint probability of the vari-ables will satisfy the exchangeability property.
+Wewill also discuss how to check conflict sites in ourapplication.In type-based MCMC, we need bookkeeping ofsites as we need to loop through them to search forsites having the same type efficiently.
+In our two-stage sample-edge, sample-cut schedule, updatingthe edge variable would change the tree structureand trigger updates for the cut variable types inboth the old and the new subtree.
+We come up withan efficient bookkeeping strategy to index on par-tial type information which significantly reducesthe bookkeeping size, while updates are quite effi-cient when the tree structure is changed.
+The detailwill become clear below.3.1 Type-based MCMCWe refer to each node site to be sampled as a pair(t, n), indicating node n of forest t. For each site(t, n) and the corresponding composed rule typesr1obtained when we set n?s cut value to 0 andr2, r3obtained when we set the cut value to 1, thecut variable type of site (t, n) is:type(t, n)def= (r1, r2, r3)We say that the cut variables of two sites are ofthe same type if the composed rule types r1, r2andr3are exactly the same.
+For example, in Figure 3,assume that all the nodes in the hypergraph arecurrently set to be split points except for the twonodes marked in bold, ([2 6], [1 6]), ([1 4], [4 7]).Considering these two non-split nodes, the com-posed rule types they are internal to (r1) are ex-actly the same.
+However, the situation changes ifwe set the cut variables of these two nodes to be 1,i.e., all of the nodes in the hypergraph are now splitpoints.
+As the rule type immediately above andthe rule type immediately below the two nodes (r2and r3) are now different, they are not of the sametype.We sample the cut value ziaccording to Equa-tion 8.
+As each rule is sampled according toa DP or PYP posterior and the joint probabili-ties according to both posteriors are exchangeable,we can see from Equation 8 that the joint prob-1739ability of a sequence of cut variables is also ex-changeable.
+Consider a set of sites S containingn cut variables zS= (z1, ..., zn) of the same type.This exchangeability property leads to the fact thatany sequence containing same number of cuts (cutvalue of 1) would have same probability.
+We havethe following probability distribution:P (zS|N) ?n?m?i=1P (r1|Ni?1)m?i=1P (r2|?Ni?1)P (r3|?Ni?1)def= g(m) (10)where N is the count table for all the other vari-ables except for S. m =?ni=1ziis the number ofcut sites.
+The variablesN,?N , and?N keep track ofthe counts as the derivation proceeds step by step:N0= NNiR(r1) = Ni?1R(r1) + 1?N0= Nn?m?Ni?1R(r2) =?Ni?1R(r2) + 1?NiR(r3) =?Ni?1R(r3) + 1For PYP, we add extra count indices for rule lengthcounts similarly.Given the exchangeability property of the cutvariables, we can calculate the posterior probabil-ity of m =?ni=1ziby summing over all(nm)combinations of the cut sites:p(m|N) ?
+?zS:m=?izip(zS|N) =(nm)g(m) (11)3.2 Sampling Cut-typesGiven Equation 11 and the exchangeability prop-erty, our sampling strategy falls out naturally: firstwe sample m according to Equation 11, then con-ditioned on m, we pick m sites of zSas cut sitesout of the(nm)combinations with uniform proba-bility.Now we proceed to define conflict sites.
+In ad-dition to exchangeability, another important prop-erty of type-based MCMC is that the type of eachsite to be sampled should be independent of theassignment of the other sites sampled at the sametime.
+That is, in our case, setting the cut value ofeach site should not change the (r1, r2, r3) tripleof another site.
+We can see that the cut value ofthe current site would have effect on and only onAlgorithm 2 Type-based MCMC Algorithm forSampling One Site1: sample one type of sites, currently sample site(node, parent)2: if parent is None or node is sampled then3: return4: end if5: old = node.cut6: node.cut = 07: r1= composed rule(parent)8: node.cut = 19: r2= composed rule(parent)10: r3= composed rule(node)11: node.cut = old12: sites =13: for sites s ?
+index[r1] do14: for sites s?in rule rooted at s do15: if s?of type (r1, r2, r3) and no conflictthen16: add s?to sites17: end if18: end for19: end for20: for sites s ?
+index[r3] do21: if s of type (r1, r2, r3) and no conflict then22: add s to sites23: end if24: end for25: sample m according to Equation 1126: remove sites from index27: uniformly choose m in sites to be cut sites.28: add new cut sites to index29: mark all nodes in sites as sampledthe nodes in the r1fragment.
+We denote nodes(r)as the node set for all nodes within fragment r.Then for ?z, z??
+S, z is not in conflict with z?ifand only if nodes(r1) ?
+nodes(r?1) = ?, where r1and r?1are the corresponding composed rule typeswhen we set z, z?to 0.Another crucial issue in type-based sampling isthe bookkeeping of sampling sites, as we need toloop through all sites having the same type withthe current node.
+We only maintain the type in-formation of nodes that are currently turned on inthe chosen tree of the forest, as we only samplethese nodes.
+It is common practice to directly usethe type value of each variable as an index andmaintain a set of sites for each type.
+However,maintaining a (r1, r2, r3) triple for each node inthe chosen tree is too memory heavy in our appli-1740cation.In our two-stage sample-edge, sample-cutschedule, there is an additional issue that we mustdeal with efficiently: when we have chosen a newincoming edge for the current node, we also haveto update the bookkeeping index as the current treestructure is changed.
+Cut variable types in the oldsubtree will be turned off and a new subtree ofvariable types will be turned on.
+In the extremecase, when we have chosen a new incoming edgeat the root node, we have chosen a new tree in theforest.
+So, we need to remove appearances of cutvariable types in the old tree and add all cut vari-able types in the newly chosen tree.Our strategy to deal with these two issues is tobuild a small, simple index, at the cost of someadditional computation when retrieving nodes of aspecified type.
+To be precise, we build an indexfrom (single) rule types r to all occurrences of r inthe data, where each occurrence is represented asa pointer to the root of r in the forest.
+Our strategyhas two important differences from the standardstrategy of building an index having the completetype (r1, r2, r3) as the key and having every nodeas an entry.
+Specifically:1.
+We index only the roots of the current rules,rather than every node, and2.
+We key on a single rule type, rather than atriple of rule types.Differences (1) and (2) both serve to keep the in-dex small, and the dramatic savings in memory isessential to making our algorithm practical.
+Fur-thermore, difference (1) reduces the amount ofwork that needs to be done when an edge variableis resampled.
+While we must still re-index the en-tire subtree under the changed edge variable, weneed only to re-index the roots of the current treefragments, rather than all nodes in the subtree.Given this indexing strategy, we now proceedto describe the process for retrieving nodes of aspecified type (r1, r2, r3).
+These nodes fall intoone of two cases:1.
+Internal nodes, i.e., nodes whose cut variableis currently set to 0.
+These nodes must becontained in a fragment of rule type r1, andmust furthermore have r2above them, and r3below them.
+We retrieve these nodes by look-ing up r1in the index, iterating over all nodesin each fragment retrieved, and retaining onlythose with r2above and r3below.
+(Lines 13?19 in Algorithm 2.)2.
+Boundary nodes, i.e., nodes whose cut vari-able is currently set to 1.
+These nodes mustform the root of a fragment r3, and have afragment r2above them.
+We retrieve thesenodes by looking up r3in the index, and thenchecking each node retrieved to retain onlythose nodes with r2above them in the currenttree.
+(Lines 20?24 in Algorithm 2.
+)This process of winnowing down the nodes re-trieved by the index adds some computationaloverhead to our algorithm, but we find that it isminimal in practice.We still use the top-down sampling schedule ofAlgorithm 1, except that in the sample-edge step,when we choose a new incoming edge, we addadditional steps to update the bookkeeping index.Furthermore, in the sample-cut step, we sampleall non-conflict sites having the same type with njointly.
+Our full algorithm for sampling one cut-type is shown in Algorithm 2.
+When samplingeach site, we record a parent node of the near-est cut ancestor of the current node so that wecan build r1and r2more quickly, as they are bothrooted at parent.
+We first identify the type of thecurrent site.
+Then we search the bookkeeping in-dex to find possible candidate sites of the sametype, as described above.
+As for conflict check-ing, we keep a set of nodes that includes all nodesin the r1fragment of previous non-conflict sites.
+Ifthe r1fragment of the current site has any node incommon with this node set, we arrive at a conflictsite.4 Methods of Further Optimization4.1 One-stage Sampling ScheduleInstead of calculating the posterior of each m ac-cording to Equation 11 and then sampling m, wecan build our real m more greedily.P (zS|N) =n?i=1P (zi|Ni?1) (12)where N,N0, .
+.
+.
+, Nnare count tables, and N0=N .
+Niis the new count table after we updateNi?1according to the assignment of zi.
+This equationgives us a hint to sample each ziaccording toP (zi|Ni?1) and then update the count table Ni?1according to the assignment of zi.
+This greedy1741sampling saves us the effort to calculate each mby multiplying over each posterior of cut variablesbut directly samples the real m. In our exper-iment, this one-stage sampling strategy gives usa 1.5 times overall speed up in comparison withthe two-stage sampling schedule of Liang et al.
+(2010).4.2 Parallel ImplementationAs our type-based sampler involves tedious book-keeping and frequent conflict checking and mis-match of cut types, one iteration of the type-basedsampler is slower than an iteration of the token-based sampler when run on a single processor.In order to speed up our sampling procedure, weused a parallel sampling strategy similar to that ofBlunsom et al.
+(2009) and Feng and Cohn (2013),who use multiple processors to perform inexactGibbs Sampling, and find equivalent performancein comparison with an exact Gibbs Sampler withsignificant speed up.
+In our application, we splitthe data into several subsets and assign each sub-set to a processor.
+Each processor performs type-based sampling on its subset using local countsand local bookkeeping, and communicates the up-date of the local counts after each iteration.
+Allthe updates are then aggregated to generate globalcounts and then we refresh the local counts ofeach processor.
+We do not communicate the up-date on the bookkeeping of each processor.
+In thisimplementation, we have a slightly ?out-of-date?counts at each processor and a smaller bookkeep-ing of sites of the same type, but we can performtype-based sampling independently on each pro-cessor.
+Our experiments show that, with properdivision of the dataset, the final performance doesnot change, while the speed up is significant.5 ExperimentsWe used the same LDC Chinese-English parallelcorpus as Chung et al.
+(2014),1which is composedof newswire text.
+The corpus consists of 41K sen-tence pairs, which has 1M words on the Englishside.
+The corpus has a 392-sentence developmentset with four references for parameter tuning, and1The data are randomly sampled from various differ-ent sources (LDC2006E86, LDC2006E93, LDC2002E18,LDC2002L27, LDC2003E07, LDC2003E14, LDC2004T08,LDC2005T06, LDC2005T10, LDC2005T34, LDC2006E26,LDC2005E83, LDC2006E34, LDC2006E85, LDC2006E92,LDC2006E24, LDC2006E92, LDC2006E24) The languagemodel is trained on the English side of entire data (1.65Msentences, which is 39.3M words.
+)a 428-sentence test set with four references fortesting.2The development set and the test set havesentences with less than 30 words.
+A trigram lan-guage model was used for all experiments.
+Weplotted the log likelihood graph to compare theconvergence property of each sampling scheduleand calculated BLEU (Papineni et al., 2002) forevaluation.5.1 Experiment SettingsWe use the top-down token-based sampling al-gorithm of Chung et al.
+(2014) as our baseline.We use the same SCFG decoder for translationwith both the baseline and the grammars sam-pled using our type-based MCMC sampler.
+Thefeatures included in our experiments are differ-ently normalized rule counts and lexical weight-ings (Koehn et al., 2003) of each rule.
+Weights aretuned using Pairwise Ranking Optimization (Hop-kins and May, 2011) using a grammar extracted bythe standard heuristic method (Chiang, 2007) andthe development set.
+The same weights are usedthroughout our experiments.First we want to compare the DP likelihoodof the baseline with our type-based MCMC sam-pler to see if type-based sampling would convergeto a better sampling result.
+In order to verify iftype-based MCMC really converges to a good op-timum point, we use simulated annealing (Kirk-patrick et al., 1983) to search possible better opti-mum points.
+We sample from the real distributionmodified by an annealing parameter ?
+:z ?
+P (z)?We increase our ?
+from 0.1 to 1.3, and then de-crease from 1.3 to 1.0, changing by 0.1 every 3iterations.
+We also run an inexact parallel ap-proximation of type-based MCMC in comparisonwith the non-parallel sampling to find out if par-allel programming is feasible to speed up type-based MCMC sampling without affecting the per-formance greatly.
+We do not compare the PYPlikelihood because the approximation renders itimpossible to calculate the real PYP likelihood.We also calculate the BLEU score to compare thegrammars extracted using each sampling sched-ule.
+We just report the BLEU result of grammarssampled using PYP as for all our schedules, sincePYP always performs better than DP.2They are from newswire portion of NIST MT evaluationdata from 2004, 2005, and 2006.1742As for parameter settings, we used d = 0.5 forthe Pitman-Yor discount parameter.
+Though wehave a separate PYP for each rule length, we usedsame ?
+= 5 for all rule sizes in all experiments,including experiments using DP.
+For rule lengthprobability, a Poisson distribution where ?
+= 2was used for all experiments.3For each sentence sample, we initialize all thenodes in the forest to be cut sites and choose anincoming edge for each node uniformly.
+For eachexperiment, we run for 160 iterations.
+For eachDP experiment, we draw the log likelihood graphfor each sampling schedule before it finally con-verges.
+For each PYP experiment, we tried aver-aging the grammars from every 10th iteration toconstruct a single grammar and use this grammarfor decoding.
+We tune the number of grammarsincluded for averaging by comparing the BLEUscore on the dev set and report the BLEU scoreresult on the test with the same averaging of gram-mars.As each tree fragment sampled from the for-est represents a unique translation rule, we do notneed to explicitly extract the rules; we merelyneed to collect them and count them.
+However,the fragments sampled include purely non-lexicalrules that do not conform to the rule constraintsof Hiero, and rules that are not useful for trans-lation.
+In order to get rid of this type of rule,we prune every rule that has scope (Hopkins andLangmead, 2010) greater than two.
+Whereas Hi-ero does not allow two adjacent nonterminals inthe source side, our pruning criterion allows somerules of scope two that are not allowed by Hiero.For example, the following rule (only source sideshown) has scope two but is not allowed by Hiero:X ?
+w1X1X2w2X35.2 Experiment ResultsFigure 4 shows the log likelihood result of ourtype-based MCMC sampling schedule and thebaseline top-down sampling.
+We can see that type-based sampling converges to a much better re-sult than non-type-based top-down sampling.
+Thisshows that type-based MCMC escapes some localoptima that are hard for token-based methods toescape.
+This further strengthens the idea that sam-pling a block of strongly coupled variables jointly3The priors are the same as the work of Chung et al.(2014).
+The priors are set to be the same because other priorsturn out not to affect much of the final performance and addadditional difficulty for tuning.0 10 20 30 40 50 60Iteration #?6.0?5.5?5.0?4.5?4.0?3.5loglikelihood(*10^6)Log likelihood: type-based vs non-type-base vs simulated annealingtype-based + simulated annealingtype-basednon-type-basedFigure 4: Log likelihood result of type-basedMCMC sampling against non-type-based MCMCsampling, simulated annealing is used to verify iftype-based MCMC converges to a good likelihood0 10 20 30 40 50 60Iteration #?6.5?6.0?5.5?5.0?4.5?4.0?3.5loglikelihood(*10^6)Log likelihood: parallel type-based vs non-parallel type-basedparallel type-basednon-parallel type-basedFigure 5: parallelization result for type-basedMCMChelps solve the slow mixing problem of token-based sampling methods.
+Another interesting ob-servation is that, even though theoretically thesetwo sampling methods should finally converge tothe same point, in practice a worse sampling al-gorithm is prone to get trapped at local optima,and it will be hard for its Markov chain to es-cape it.
+We can also see from Figure 4 that thelog likelihood result only improves slightly usingsimulated annealing.
+One possible explanation isthat the Markov chain has already converged toa very good optimum point with type-based sam-pling and it is hard to search for a better optimum.Figure 5 shows the parallelization result of type-based MCMC sampling when we run the programon five processors.
+We can see from the graph thatwhen running on five processors, the likelihood fi-1743Sampling Schedule iteration dev testNon-type-based averaged (0-90) 25.62 24.98Type-based averaged (0-100) 25.88 25.20Parallel Type-based averaged (0-90) 25.75 25.04Table 1: Comparisons of BLEU score resultsnally converges to the same likelihood result asnon-parallel type-based MCMC sampling.
+How-ever, when we use more processors, the likelihoodeventually becomes lower than with non-parallelsampling.
+This is because when we increase thenumber of processors, we split the dataset intovery small subsets.
+As we maintain the bookkeep-ing for each subset separately and do not com-municate the updates to each subset, the power oftype-based sampling is weakened with bookkeep-ing for very few sites of each type.
+In the extremecase, when we use too many processors in parallel,the bookkeeping would have a singleton site foreach type.
+In this case, the approximation woulddegrade to the scenario of approximating token-based sampling.
+By choosing a proper size of divi-sion of the dataset and by maintaining local book-keeping for each subset, the parallel approxima-tion can converge to almost the same point as non-parallel sampling.
+As shown in our experimentalresults, the speed up is very significant with therunning time decreasing from thirty minutes periteration to just seven minutes when running onfive processors.
+Part of the speed up comes fromthe smaller bookkeeping since with fewer sites foreach index, there is less mismatch or conflict ofsites.Table 1 shows the BLEU score results for type-based MCMC and the baseline.
+For non-type-based top-down sampling, the best BLEU score re-sult on dev is achieved when averaging the gram-mars of every 10th iteration from the 0th to the90th iteration, while our type-based method getsthe best result by averaging over every 10th itera-tion from the 0th to the 100th iteration.
+We can seethat the BLEU score on dev for type-based MCMCand the corresponding BLEU score on test areboth better than the result for the non-type-basedmethod, though not significantly.
+This shows thatthe better likelihood of our Markov Chain usingtype-based MCMC does result in better transla-tion.We have also done experiments calculating theBLEU score result of the inexact parallel imple-mentation.
+We can see from Table 1 that, while thelikelihood of the approximation does not changein comparison with the exact type-based MCMC,there is a gap between the BLEU score results.
+Wethink this difference might come from the incon-sistency of the grammars sampled by each proces-sor within each iteration, as they do not communi-cate the update within each iteration.6 ConclusionWe presented a novel type-based MCMC algo-rithm for sampling tree fragments from phrase de-composition forests.
+While the hidden tree struc-ture in our settings makes it difficult to maintainthe constantly changing type information, we havecome up with a compact way to store the type in-formation of variables and proposed efficient waysto update the bookkeeping index.
+Under the addi-tional hidden structure limitation, we have shownthat type-based MCMC sampling still works andresults in both better likelihood and BLEU score.We also came with techniques to speed up thetype-based MCMC sampling schedule while notaffecting the final sampling likelihood result.
+A re-maining issue with parallelization is the inconsis-tency of the grammar within an iteration betweenprocessors.
+One possible solution would be usingbetter averaging methods instead of simply aver-aging over every few iterations.
+Another interest-ing extension for our methods would be to also de-fine types for the edge variables, and then sampleboth cut and edge types jointly.AcknowledgmentsWe gratefully acknowledge the assistance ofLicheng Fang and Tagyoung Chung.
+This workwas partially funded by NSF grant IIS-0910611.ReferencesPhil Blunsom, Trevor Cohn, Chris Dyer, and Miles Os-borne.
+2009.
+A Gibbs sampler for phrasal syn-chronous grammar induction.
+In Proceedings of theJoint Conference of the 47th Annual Meeting of theACL and the 4th International Joint Conference onNatural Language Processing of the AFNLP: Vol-ume 2, pages 782?790, Singapore.David Chiang.
+2007.
+Hierarchical phrase-based trans-lation.
+Computational Linguistics, 33(2):201?228.Tagyoung Chung, Licheng Fang, Daniel Gildea, andDaniel?Stefankovi?c.
+2014.
+Sampling tree fragmentsfrom forests.
+Computational Linguistics, 40:203?229.1744Trevor Cohn and Phil Blunsom.
+2010.
+Blocked in-ference in Bayesian tree substitution grammars.
+InProceedings of the 48th Annual Meeting of the As-sociation for Computational Linguistics (ACL-10),pages 225?230, Uppsala, Sweden.Trevor Cohn, Sharon Goldwater, and Phil Blun-som.
+2009.
+Inducing compact but accurate tree-substitution grammars.
+In Proceedings of HumanLanguage Technologies: The 2009 Annual Confer-ence of the North American Chapter of the Associa-tion for Computational Linguistics, pages 548?556,Boulder, Colorado, June.
+Association for Computa-tional Linguistics.John DeNero, Alexandre Bouchard-Cote, and DanKlein.
+2008.
+Sampling alignment structure undera Bayesian translation model.
+In Proceedings ofEMNLP, pages 314?323, Honolulu, HI.Yang Feng and Trevor Cohn.
+2013.
+A markovmodel of machine translation using non-parametricbayesian inference.
+In Proceedings of the 51st An-nual Meeting of the Association for ComputationalLinguistics (Volume 1: Long Papers), pages 333?342, Sofia, Bulgaria, August.
+Association for Com-putational Linguistics.Mark Hopkins and Greg Langmead.
+2010.
+SCFG de-coding without binarization.
+In Proceedings of the2010 Conference on Empirical Methods in NaturalLanguage Processing, pages 646?655, Cambridge,MA, October.Mark Hopkins and Jonathan May.
+2011.
+Tuning asranking.
+In Proceedings of the 2011 Conference onEmpirical Methods in Natural Language Process-ing, pages 1352?1362, Edinburgh, Scotland, UK.,July.Songfang Huang and Steve Renals.
+2010.
+Power lawdiscounting for n-gram language models.
+In Proc.IEEE International Conference on Acoustic, Speech,and Signal Processing (ICASSP?10), pages 5178?5181, Dallas, Texas, USA.Scott Kirkpatrick, C. D. Gelatt, Jr., and Mario P. Vec-chi.
+1983.
+Optimization by Simulated Annealing.Science, 220(4598):671?680.Philipp Koehn, Franz Josef Och, and Daniel Marcu.2003.
+Statistical phrase-based translation.
+In Pro-ceedings of NAACL-03, pages 48?54, Edmonton,Alberta.Abby Levenberg, Chris Dyer, and Phil Blunsom.
+2012.A Bayesian model for learning SCFGs with discon-tiguous rules.
+In Proceedings of the 2012 Joint Con-ference on Empirical Methods in Natural LanguageProcessing and Computational Natural LanguageLearning, pages 223?232, Jeju Island, Korea.Percy Liang, Michael I Jordan, and Dan Klein.
+2010.Type-based mcmc.
+In Human Language Technolo-gies: The 2010 Annual Conference of the NorthAmerican Chapter of the Association for Computa-tional Linguistics, pages 573?581.
+Association forComputational Linguistics.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2002.
+BLEU: A method for automaticevaluation of machine translation.
+In Proceedingsof ACL-02, pages 311?318, Philadelphia, PA.Jim Pitman and Marc Yor.
+1997.
+The two-parameterPoisson-Dirichlet distribution derived from a stablesubordinator.
+Annals of Probability, 25(2):855?900.Matt Post and Daniel Gildea.
+2009.
+Bayesian learningof a tree substitution grammar.
+In Proc.
+Associationfor Computational Linguistics (short paper), pages45?48, Singapore.Elif Yamangil and Stuart M Shieber.
+2013.
+Non-parametric bayesian inference and efficient parsingfor tree-adjoining grammars.
+In Proceedings of the51st Annual Meeting of the Association for Compu-tational Linguistics.
+Association of ComputationalLinguistics.Hao Zhang, Daniel Gildea, and David Chiang.
+2008.Extracting synchronous grammar rules from word-level alignments in linear time.
+In COLING-08,pages 1081?1088, Manchester, UK.1745

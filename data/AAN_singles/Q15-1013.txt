@@ -1,0 +1,363 @@
+Modelling and Optimizing on Syntactic N-Gramsfor Statistical Machine TranslationRico SennrichSchool of InformaticsUniversity of Edinburgh10 Crichton StreetEdinburgh EH8 9ABScotland, UKAbstractThe role of language models in SMT is topromote fluent translation output, but tradi-tional n-gram language models are unable tocapture fluency phenomena between distantwords, such as some morphological agree-ment phenomena, subcategorisation, and syn-tactic collocations with string-level gaps.
+Syn-tactic language models have the potential tofill this modelling gap.
+We propose a lan-guage model for dependency structures that isrelational rather than configurational and thusparticularly suited for languages with a (rel-atively) free word order.
+It is trainable withNeural Networks, and not only improves overstandard n-gram language models, but alsooutperforms related syntactic language mod-els.
+We empirically demonstrate its effective-ness in terms of perplexity and as a featurefunction in string-to-tree SMT from Englishto German and Russian.
+We also show thatusing a syntactic evaluation metric to tune thelog-linear parameters of an SMT system fur-ther increases translation quality when cou-pled with a syntactic language model.1 IntroductionMany languages exhibit fluency phenomena that arediscontinuous in the surface string, and are thus notmodelled well by traditional n-gram language mod-els.
+Examples include morphological agreement,e.g.
+subject-verb agreement in languages that do not(exclusively) follow SVO word order, subcategori-sation, and collocations involving distant, but syn-tactically linked words.Syntactic language models try to overcome thelimitation to a local n-gram context by using syn-tactically related words (and non-terminals) as con-text information.
+Despite their theoretical attractive-ness, it has proven difficult to improve SMT withparsers as language models (Och et al., 2004; Postand Gildea, 2008).This paper describes an effective method tomodel, train, decode with, and weight a syntacticlanguage model for SMT.
+While all these aspects areimportant for successfully applying a syntactic lan-guage model, our primary contributions are a noveldependency language model which improves overprior work by making relational modelling assump-tions, which we argue are better suited for languageswith a (relatively) free word order, and the use of asyntactic evaluation metric for optimizing the log-linear parameters of the SMT model.While language models that operate on wordslinked through a dependency chain ?
+called syntacticn-grams (Sidorov et al., 2013) ?
+can improve trans-lation, some of the improvement is invisible to ann-gram metric such as BLEU.
+As a result, tuningto BLEU does not show the full value of a syntacticlanguage model.
+What does show its value is an op-timization metric that operates on the same syntacticn-grams that are modelled by the dependency LM.The paper is structured as follows.
+Section 2 de-scribes our relational dependency language model;section 3 describes our neural network training pro-cedure, and the integration of the model into an SMTdecoder.
+We describe the syntactic evaluation metricwe use for tuning in Section 4.
+The language mod-els are evaluated on the basis of perplexity and SMT169Transactions of the Association for Computational Linguistics, vol.
+3, pp.
+169?182, 2015.
+Action Editor: Philipp Koehn.Submission batch: 11/2014; Revision batch 2/2015; Published 3/2015.c?2015 Association for Computational Linguistics.
+Distributed under a CC-BY-NC-SA 4.0 license.performance in section 5.
+We discuss related workin section 6, and finish with concluding remarks insection 7.2 A Relational Dependency LanguageModelAs motivation, and working example for the modeldescription, consider the dependency tree in Figure1, which is taken from the output of our baselinestring-to-tree SMT system.1 The output containstwo errors:?
+a morphological agreement error between thesubject Ergebnisse (plural) and the finite verbwird (singular).?
+a subcategorisation error: ?berraschen is tran-sitive, but the translation has a prepositionalphrase instead of an object.While these errors might not have occurred if thewords involved were adjacent to one another hereand throughout the training set, non-adjacency iscommon, especially where the distance betweensubject and finite verb, or between a full verb andits arguments can be arbitrarily long.Prior work on syntactic language modelling hastypically focused on English, and we argue thatsome modelling decisions do not transfer well toother languages.
+The dependency models proposedby Shen et al.
+(2010) and Zhang (2009) rely heav-ily on structural information such as the directionand distance of the dependent from the parent.
+Ina language where the order of syntactic dependentsis more flexible than in English, such as German2,grammatical function (and thus the inflection) ishard to predict from the dependent order.
+Instead,we make dependency labels, which encode gram-matical relations, a core element of our model.31The tree is converted into constituency format for compati-bility with SCFG decoding algorithms, with dependency edgesrepresented as non-terminal nodes.2German has a strict word order within noun phrases and forthe placement of verbs, but has different word order for mainclauses and subordinated clauses, and some flexibility in theorder of dependents of a verb.3Tsarfaty (2010) classifies parsing approaches into config-urational approaches that rely on structural information, andrelational ones that take grammatical relations as primitives.While she uses dependency syntax as a prototypical example ofShen et al.
+(2010) propose a model that estimatesprobability of each token given its parent and/or pre-ceding siblings.
+We start with a variant of theirmodel that does not hard-code configurational mod-elling assumptions, and then extend it by includingdependency labels.2.1 Unlabelled ModelLet S be a sequence of terminal symbolsw1, w2, ..., wn with a dependency topology T , andlet hs(i) and ha(i) be lists of heads of precedingsiblings and ancestors of wi according to T , fromclosest to furthest.
+In our example in Figure 1:?
+w4 = j?ngsten?
+hs(4) = (der)?
+ha(4) = (Umfrage,Ergebnisse,wird, )Note that ha and its subsequences are instancesof syntactic n-grams.
+For this model, we follow re-lated work and assume that T is available (Popel andMarecek, 2010), approximating P (S) as P (S|T ).We make the Markov assumption that the probabil-ity of each word only depends on its preceding sib-lings4 and ancestors, and decompose the probabilityof a sentence like this:P (S) = P (w1, w2, ..., wn)?n?i=1P (wi|hs(i), ha(i))(1)We further make the Markov assumption that only afixed window of the closest q siblings, and the clos-est r ancestors, affect the probability of a word.P (S) ?n?i=1P (wi|hs(i)q1, ha(i)r1) (2)Equation 2 represents our basic, unlabelled model.
+Itdiffers from that of Shen et al.
+(2010) in two ways.relational approaches, the dependency LM by Shen et al.
+(2010)would fall into the configurational category, while ours is rela-tional.4Shen et al.
+(2010) use the siblings that are between the wordand its parent, i.e.
+the following siblings if the word comes be-fore its parent.
+We believe both preceding and following sib-lings are potentially useful, but leave expansion of the contextto future work.170die Ergebnisse der j?ngsten Umfrage wird f?r viele ?berraschen .root rootdetsubjdetattrgmodpppnaux.manytosurpriseaascomewillpollrecenttheofconclusionsthesentpunct$..vrootauxVVINF?berraschenpppnPISvieleAPPRf?rVAFINwirdsubjgmodNNUmfrageattrADJAj?ngstendetARTderNNErgebnissedetARTdieFigure 1: Translation output of baseline English?German string-to-tree SMT system with original dependency rep-resentation and conversion into constituency representation.First, it uses separate context windows for siblingsand ancestors.
+In contrast, Shen et al.
+(2010) treatthe ancestor as the first symbol in a context windowthat is shared between the ancestor and siblings.
+Ourformulation encodes our belief that the model shouldalways assume dependence on the r nearest ancestornodes, regardless of the number of siblings.
+Sec-ondly, Shen et al.
+(2010) separate dependents to theleft and to the right of the parent.
+While the fixedSVO verb order in English is compatible with sucha separation, allowing PL to model subjects, PR tomodel objects, most arguments can occur before orafter the head verb in German main clauses.
+We thusargue that left and right dependents should be mod-elled by a single model to allow for sharing of sta-tistical strength.52.2 Labelled ModelThe motivation for the inclusion of dependency la-bels is twofold.
+Firstly, having dependency labelsin the context serves as a strong signal for the pre-diction of the correct inflectional form.
+Secondly,dependency labels are the appropriate level of ab-5Similar arguments have been made for parsing of (rela-tively) free word-order languages, e.g.
+by Tsarfaty et al.
+(2009).straction to model subcategorisation frames.Let D be a sequence of dependency labelsl1, l2, ..., ln, with each label li being the label of theincoming arc at position i in T , and ls(i) and la(i)the list of dependency labels of the siblings and an-cestors of wi, respectively.
+Continuing the examplefor w4, these are:?
+l4 = attr?
+ls(4) = (det)?
+la(4) = (gmod, subj, vroot, sent)We predict both the terminal symbols S and de-pendency labels D. The latter lets us model sub-categorisation by penalizing unlikely relations, e.g.objects whose parent is an intransitive verb.
+We de-compose P (S,D) into P (D)?
+P (S|D) to obtain:P (S,D) = P (D)?
+P (S|D)?n?i=1Pl(i)?
+Pw(i)Pl(i) =P (li|hs(i)q1, ls(i)q1, ha(i)r1, la(i)r1)Pw(i) =P (wi|hs(i)q1, ls(i)q1, ha(i)r1, la(i)r1, li)(3)1712.3 Head and Label ExtractionWe here discuss some details for the extraction ofthe context hs and ha.
+Dependency structures re-quire no language-specific head extraction rules,even in a converted constituency representation.
+Inthe constituency representation shown in Figure 1,each non-terminal node in the tree that is not a pre-terminal has exactly one pre-terminal child.
+Thehead of a non-terminal node can thus be extractedby identifying the pre-terminal child, and taking itsterminal symbol as head.
+An exception is the virtualnode sent, which is added to the root of the tree tocombine subtrees that are not connected in the orig-inal grammar, e.g.
+the main tree and the punctuationsymbol.
+If a node has no pre-terminal child, we usea special token  as its head.If the sibling of a node is a pre-terminal node, werepresent this through a special token in hs and ls.We also use special out-of-bound tokens (separatefor hs, ha, ls and la) to fill up the context windowif the window is larger than the number of siblingsand/or ancestors.The context extraction rules are language-independent and can be applied to any dependencystructure.
+Language-specific or grammar-specificrules are possible in principle.
+For instance, for ver-bal heads in German, one could consider separableverb prefixes part of the head, and thus model differ-ences in subcategorisation between schlagen (Engl.beat) and schlagen ... vor (Engl.
+suggest).2.4 Predicting the Tree TopologyThe model in equation 3 still assumes the topologyof the dependency tree to be given, and we remedythis by also predicting pre-terminal nodes, and a vir-tual STOP node as the last child of each node.
+Thismodels the position of the head in a subtree (throughthe prediction of pre-terminal nodes), and the prob-ability that a word has no more dependents (by as-signing probability mass to the STOP node).Instead of generating all n terminal symbols asin equation 3, we generate all m nodes in the de-pendency tree in top-down, depth-first order, with libeing PT for pre-terminals, and the node label oth-erwise, and wi being either the head of the node, or if the node has no pre-terminal child.
+Our finalmodel is given in equation 4.N 3 4 5D det attr gmodS der j?ngsten UmfrageT 5 5 2N 8 9 10 11 12 13 14 15 16D gmod det PT STOP attr PT STOP PT STOPS Umfrage der   j?ngsten    T 3 8 9 9 8 12 12 8 8Figure 2: Snippet of prediction steps when generating ter-minals (top) or all nodes in tree (bottom) for dependencytree in Figure 1.P (S,D, T ) ?m?i=1{Pl(i)?
+Pw(i), if wi 6= Pl(i), otherwise(4)Figure 2 illustrates the prediction of a subtree ofthe dependency tree in Figure 1.
+Note that T isencoded implicitly, and can be retrieved from Dthrough a stack to which all nodes (except for pre-terminal and STOP nodes) are pushed after predic-tion, and from which the last node is popped whenpredicting a STOP node.3 Neural Network Training and SMTDecodingWe extract all training instances from automaticallyparsed training text, and perform training with astandard feed-forward neural network (Bengio etal., 2003), using the NPLM toolkit (Vaswani et al.,2013).
+Back-off smoothing schemes are unsatisfac-tory because it is unclear which part of the contextshould be forgotten first, and neural networks ele-gantly solve this problem.
+We use two separate net-works, one for Pw and one for Pl.
+Both networksshare the same input vocabulary, but are trainedand applied independently.
+The model input is a(2q+ 2r)-word context vector (+1 for Pw to encodeli), each word being mapped to a shared embeddinglayer.
+We use a single hidden layer with rectified-linear activation function, and noise-contrastive es-timation (NCE).We integrate our dependency language modelsinto a string-to-tree SMT system as additional fea-ture functions that score each translation hypothe-sis.
+The model in equation 4 predicts P (S,D, T ).172model input input entropy rate5-gram 5-gram A B C D E 5.25bigram bigram D E 5.965-gram bigram 1 2 3 D E 6.13Table 1: Handling unavailable input words by replacingthem with null words.Obtaining the probability of the translation hypoth-esis P (S) would require the (costly) marginaliza-tion over all sequences of dependency labels D andtopologies T , but like the SMT decoder itself, weapproximate the search for the best translation bysearching for the highest-scoring derivation, mean-ing that we directly integrate Pw and Pl as two fea-tures into the log-linear SMT model.
+We use self-normalized neural networks with precomputation ofthe hidden layer, which makes the integration intodecoding reasonably fast.The decoder builds the translation bottom-up, andthe full context is not available for all symbols in thehypothesis.
+Vaswani et al.
+(2013) propose to use aspecial null word for unavailable context, their em-bedding being the weighted average of the input em-beddings of all other words.
+We adopt this strategy,with the difference that we use separate null wordsfor each position in the context window in order toreflect distributional differences between the differ-ent positions, e.g.
+between ancestor labels and sib-ling labels.
+Symbols are re-scored as more contextbecomes available in decoding, but poor approxima-tions could affect pruning and thus lead to searcherrors.
+In Table 1, we illustrate the use of null wordswith a 5-gram and a bigram NNLM model.
+We ob-serve a small increase in entropy when querying the5-gram model with bigrams, compared to queryinga bigram model directly.Some hierarchical SMT systems allow glue ruleswhich concatenate two subtrees.
+Since the resultingglue structures do not occur in the training data, wedo not estimate their probability in our model.
+Whenencountering the root of a glue rule in our languagemodel, we recursively evaluate its children, but ig-nore the glue node itself.
+This could introduce abias towards using more glue rules during transla-tion.
+To counter this, and encourage the productionof linguistically plausible trees, we assign a fixed,high cost to glue rules.
+Glue rules thus play a smallrole in our systems, with about 100 glue rule appli-cations per 3000 sentences, and could be abandonedentirely.64 Optimizing Syntactic N-gramsN-gram based metrics such as BLEU (Papineni etal., 2002) are still predominantly used to optimizethe log-linear parameters of SMT systems, and (toa lesser extent) to evaluate the final translation sys-tems.
+However, n-gram metrics are not well suitedto measure fluency phenomena with string-levelgaps, and there is a danger that BLEU underesti-mates the modelling power of dependency languagemodels, resulting in a suboptimal assignment of log-linear weights.
+As an alternative metric that operateson the level of syntactic n-grams, we use a variantof the head-word chain metric (HWCM) (Liu andGildea, 2005).HWCM is a precision metric similar to BLEU,but instead of counting n-gram matches betweenthe translation output and the reference, it compareshead-word chains, or syntactic n-grams.
+HWCMis not only suitable for our task because it operateson the same structures as the dependency languagemodels, but also because our string-to-tree SMT ar-chitecture produces trees that can be evaluated di-rectly, without requiring a separate parse of thetranslation output, a task for which few parsers areoptimized.
+For extracting syntactic n-grams fromthe reference translations of the respective develop-ment and test sets, we automatically parse them, us-ing the same preprocessing as for training.We count syntactic n-grams of sizes 1 to 4, mirror-ing the typical usage of BLEU.
+Banerjee and Lavie(2005) have demonstrated the importance of recall inMT evaluation, and we compute the harmonic meanof precision and recall, which we denote HWCMf ,instead of the original, precision-based metric.5 EvaluationWe perform three evaluations of our dependencylanguage models.
+Our perplexity evaluation mea-sures model perplexity on the 1-best output of a6For efficiency reasons, our experimental systems only per-form SCFG parsing for spans of up to 50 words, and use gluerules to concatenate partial derivations in longer sentences.
+Bet-ter decoding algorithms have reduced the need for this limit(Sennrich, 2014).173baseline SMT system and a human reference trans-lation.
+Our SMT evaluation integrates the model as afeature function in a string-to-tree SMT system andevaluates its impact on translation quality.
+Finally,we quantify the effect of different language mod-els on grammaticality by measuring the number ofagreement errors of our SMT systems.We refer to the unlabelled variant of our model(equation 2) as DLM, and to the labelled variant(equation 4) as RDLM, emphasizing that the latteris a relational dependency LM.5.1 Data and MethodsWe perform our experiments on English?Germandata from the WMT 2014 shared translation task(Bojar et al., 2014), consisting of about 4.5 millionsentence pairs of parallel data and 120 million sen-tences of monolingual German data.
+We train alllanguage models on the German side of the par-allel text and the monolingual data.
+We also per-form some experiments on the English?Russiandata from the same translation task, with 2 millionsentence pairs of parallel data and 34 million sen-tences of monolingual Russian data.For a 5-gram Neural Network LM baseline(NNLM), and the dependency language models, wetrain feed-forward Neural Network language modelswith the NPLM toolkit.
+We use 150 dimensions forthe input embeddings, and a single hidden layer with750 dimensions.
+We use a vocabulary of 500 000words (70 for the output vocabulary of Pl), fromwhich we draw 100 noise samples for NCE (50 forPl).
+We train for two epochs, each epoch being a fulltraversal of the training text.
+For unknown words,we back-off to a special unk token for the sequencemodels and Pl, and to the pre-terminal symbol forthe other dependency models.
+We report perplex-ity values with softmax normalization, but disablenormalization during decoding, relying on the self-normalization of NCE for efficiency.
+For the transla-tion experiments with DLM and RDLM, we set thesibling window size q to 1, and the ancestor windowsize r to 2.7We train baseline language models with interpo-lated modified Kneser-Ney smoothing with SRILM7On our test set, a node has an average of 4.6 ancestors (?
+=2.5), and 1.2 left siblings (?
+= 1.3).
+(Stolcke, 2002).
+The model in the SMT baselineuses the full vocabulary and a linear interpolation ofcomponent models for domain adaptation.
+For theperplexity evaluation, we use the same vocabularyand training data as for the Neural Network models.For the English?German SMT evaluation, ourbaseline system is a string-to-tree SMT system withMoses (Koehn et al., 2007), with dependency pars-ing of the German texts (Sennrich et al., 2013).It is described in more detail in (Williams et al.,2014).
+This setup was ranked 1?2 (out of 18) inthe WMT 2014 shared translation task and is state-of-the art.
+Our biggest deviation from this setupis that we do not enforce the morphological agree-ment constraints that are provided by a unificationgrammar (Williams and Koehn, 2011), but use themfor analysis instead.
+For English?Russian, wecopy the language-independent settings from the theEnglish?German set-up, and perform dependencyparsing with a Russian model for the Maltparser(Nivre et al., 2006; Sharoff and Nivre, 2011), ap-plying projectivization after parsing.We tune our system on a development set of 2000sentences with k-best batch MIRA (Cherry and Fos-ter, 2012) on BLEU and a linear interpolation ofBLEU and HWCMf , and report both scores for eval-uation.
+We also report METEOR (Denkowski andLavie, 2011) for German and TER (Snover et al.,2006).
+We control for optimizer instability by run-ning the optimization three times per system andperforming significance testing with Multeval (Clarket al., 2011), which we enhanced to also perform sig-nificance testing for HWCMf .5.2 Implementation notes on model by Shen etal.
+(2010)We reimplement the model by Shen et al.
+(2010) forour evaluation.
+The authors did not specify trainingand smoothing of their model, so we only adopt theirdefinition of the context window, and use the sameneural network architecture as for our other models.Specifically, we use two neural networks: one forleft dependents, and one for right dependents.
+Weuse maximum-likelihood estimation for the head ofroot nodes, ignoring unseen events.
+To distinguishbetween parents and siblings in the context window,we double the input vocabulary and mark parentswith a suffix.
+Like Shen et al.
+(2010), we ignore the174language model perplexity entropyref.
+1-best difference5-gram (KN) 232.9 183.3 -4.4%5-gram NNLM 207.3 207.5 0.0%Shen et al.
+(2010) 345.1 383.0 1.8%DLM (q=1; r=1) 213.7 259.9 3.6%DLM (q=1; r=2) 136.9 188.3 6.5%RDLM (q=1; r=2) 349.2 734.6 12.7%RDLM, Pw 58.1 85.1 9.4%RDLM, Pl 6.0 8.6 20.1%Table 2: Perplexity of different Neural Network languagemodels (and baseline with Kneser-Ney smoothing) onGerman reference translation (newstest2013) and base-line English?German translation output.
+Our goal is alanguage model that prefers the reference over the trans-lation hypothesis, indicated by a lower perplexity and apositive entropy difference.prediction of STOP labels, meaning that our imple-mentation assumes the dependency topology to begiven.
+We use a trigram model like the original au-thors.
+Peter et al.
+(2012) experiment with higher or-ders variants, but do not consider grandparent nodes.We consider scalability to a larger ancestor contexta real concern, since another duplication of the vo-cabulary may be necessary for each ancestor level.5.3 PerplexityThere are a number of factors that make a directcomparison of the reference set perplexity unfair.Mainly, the unlabelled dependency model DLM andthe one by Shen et al.
+(2010) assume that the de-pendency topology is given; Pw even assumes thisfor the dependency labels D. Conversely, the fullRDLM predicts the terminal sequence, the depen-dency labels, and the dependency topology, and wethus expect it to have a higher perplexity.8 Also notethat we compare 5-gram n-gram models to 3- and 4-gram dependency models.
+A more minor differenceis that n-gram models also predict end-of-sentencetokens, which the dependency models do not.Rather than directly comparing perplexity be-tween different models, our focus lies on a perplex-ity comparison between a human reference transla-tion and the 1-best SMT output of a baseline transla-8For better comparability, we measure perplexity per surfaceword, not per prediction.tion system.
+Our basic assumption is that the differ-ence in perplexity (or cross-entropy) tells us whethera model contains information that is not already partof the baseline model, and if incorporating it into ourSMT system can nudge the system towards produc-ing a translation that is more similar to the reference.Results for English?German are shown in ta-ble 2.
+The baseline 5-gram language model withKneser-Ney smoothing prefers the SMT output overthe reference translation, which is natural given thatthis language model is part of the system producingthe SMT output.
+The 5-gram NNLM improves overthe Kneser-Ney models, and happens to assign al-most the same perplexity score to both texts.
+Thisstill means that it is less biased towards the SMToutput than the baseline model, and can be a valu-able addition to the model.The dependency language models all show a pref-erence for the reference translation, with DLM hav-ing a stronger preference than the model by Shen etal.
+(2010), and RDLM having the strongest prefer-ence.
+The direct comparison of DLM and Pw, whichis the component of RDLM that predicts the termi-nal symbols, shows that dependency labels serve asa strong signal for predicting the terminals, confirm-ing our initial hypothesis.
+The prediction of the de-pendency topology and labels through Pl means thatthe full RDLM has the highest perplexity of all mod-els.
+However, it also strongly prefers the human ref-erence text over the baseline SMT output.5.4 Translation QualityTranslation results for English?German with dif-ferent language models added to our baseline areshown in Table 3.
+Considering the systems tunedon BLEU, we observe that the 5-gram NNLM andRDLM are best in terms of BLEU and TER, but thatRDLM is the only winner9 according to HWCMfand METEOR.
+In particular, we observe a sizablegap of 0.6 HWCMf points between the NNLM andthe RDLM systems, despite similar BLEU scores.The unlabelled DLM and the dependency LM byShen et al.
+(2010), which are generally weaker thanRDLM, also tend to improve HWCMf more thanBLEU.
+This reflects the fact that the dependency9We denote a system a winner if no other system [in thegroup of systems under consideration] is significantly better ac-cording to significance testing with Multeval.175MIRA system dev newstest2013 newstest2014objective BLEU HWCMf METEOR TER BLEU HWCMf METEOR TER BLEU HWCMf METEOR TERBLEUbaseline 34.4 32.6 52.5 47.4 19.8 22.8 39.7* 62.4 20.3 23.2 42.0* 62.75-gram NNLM 35.3 33.1 53.2* 46.4 20.4 23.2 40.2 61.7 21.0 23.5 42.5* 62.2Shen et al.
+(2010) 34.4* 33.2 52.7* 46.9 20.0 23.2 40.0* 62.3 20.4 23.5 42.3* 62.9DLM 34.9* 33.8 53.1* 46.8 20.3 23.6 40.1* 61.7 20.8 23.9 42.3* 62.2RDLM 35.0 33.9 53.1* 46.7 20.5 23.8 40.4* 61.7 21.0 24.1 42.7* 62.25-gram + RDLM 35.5 34.0 53.4* 46.3 20.7 23.7 40.6* 61.5 21.4 24.1 42.9* 61.7BLEU+HWCMfbaseline 34.4 33.0* 52.4 46.9* 20.0* 23.0* 39.6 61.9* 20.5* 23.3* 41.8 62.2*5-gram NNLM 35.2 33.5* 53.0 46.0* 20.6* 23.4* 40.1 60.9* 21.1* 23.6 42.3 61.5*Shen et al.
+(2010) 34.2 33.8* 52.4 46.4* 20.2* 23.5* 39.8 61.8* 20.7* 23.7* 42.1 62.2*DLM 34.8 34.3* 52.7 45.9* 20.4 23.8* 39.8 60.7* 21.4* 24.2* 42.0 60.9*RDLM 34.9 34.5* 53.0 45.8* 20.9* 24.2* 40.3 60.7* 21.6* 24.5* 42.5 60.8*5-gram + RDLM 35.4 34.6* 53.2 45.4* 21.0* 24.1* 40.4 60.5* 21.8* 24.4* 42.7 60.6*Table 3: Translation quality of English?German string-to-tree SMT system with different language models, with k-best batch MIRA optimization on BLEU and BLEU+HWCMf .
+Average of 3 optimization runs.
+bold: no other systemin same block is significantly better (p < 0.05); *: significantly better than same model with other MIRA objective(p < 0.05).
+Higher scores are better for BLEU, HWCMf and METEOR; lower scores are better for TER.LMs improve fluency along the syntactic n-gramsthat HWCM measures, whereas NNLM only im-proves local fluency, to which BLEU is most sen-sitive.
+The fact that the models cover different phe-nomena is also reflected in the fact that we see fur-ther gains from combining the 5-gram NNLM withthe strongest dependency LM, RDLM, for a total im-provement of 0.9?1.1 BLEU over the baseline.If we use BLEU+HWCMf as our tuning objec-tive, the difference between the models increases.Compared to the 5-gram NNLM, the RDLM systemgains 0.8?0.9 points in HWCMf and 0.3?0.5 pointsin BLEU.
+Compared to the original baseline, tunedonly on BLEU, the system with RDLM that is tunedon BLEU+HWCMf yields an improvement of 1.1?1.3 BLEU and 1.3?1.4 HWCMf .If we compare the same system being trainedon both tuning objectives, we observe that tuningon BLEU+HWCMf , unsurprisingly, yields higherHWCMf scores than tuning on BLEU only.
+Whatis more surprising is that adding HWCMf as a tun-ing objective also yields significantly higher BLEUon the test sets for 9 out of 10 data points.
+The gapis larger for the two systems with RDLM (0.3?0.6BLEU) than for the baseline or the NNLM system(0.1?0.2 BLEU).
+We hypothesize that the inclusionof HWCMf as a tuning metric reduces overfittingand encourages the production of more grammat-ically well-formed constructions, which we expectto be a robust objective across different texts, espe-cially when coupled with a strong dependency lan-guage model such as RDLM.Some example translations are shown in table 4.They illustrate three error types in the baseline sys-tem:1. an error in subject-verb agreement.2.
+a subcategorisation error: gelten is a validtranslation of the intransitive meaning of apply,but cannot be used for transitive constructions,where anwenden is correct.3.
+a collocation error: two separate collocationsare conflated in the baseline translation:?
+reach a decision on [...]eine Entscheidung ?ber [...] treffen?
+reach an agreement on [...]eine Einigung ?ber [...] erzielenAll errors are due to inter-dependencies in the sen-tence that have string-level gaps, but which can bemodelled through syntactic n-grams, and are cor-rected by the system with RDLM and tuning onBLEU+HWCMf .We evaluate a subset of the systems on anEnglish?Russian task to test whether the im-provements from adding RDLM and tuning onBLEU+HWCMf apply to other language pairs.
+Re-sults are shown in Table 5.
+The system with RDLM1761source also the user manages his identity and can therefore be anonymous.baseline auch der Benutzer verwaltet seine Identit?t und k?nnen daher anonym sein.best auch der Benutzer verwaltet seine Identit?t und kann daher anonym sein.reference dar?ber hinaus verwaltet der Inhaber seine Identit?t und kann somit anonym bleiben.2source how do you apply this definition to their daily life and social networks?baseline wie kann man diese Definition f?r ihr t?gliches Leben und soziale Netzwerke gelten?best wie kann man diese Definition auf ihren Alltag und sozialen Netzwerken anwenden?reference wie wird diese Definition auf seinen Alltag und die sozialen Netzwerke angewendet?3source the City Council must reach a decision on this in December.baseline Der Stadtrat muss im Dezember eine Entscheidung dar?ber erzielen.best Im Dezember muss der Stadtrat eine Entscheidung dar?ber treffen.reference Im Dezember muss dann noch die Stadtverordnetenversammlung entscheiden.Table 4: SMT output of baseline system and best system (RDLM tuned on BLEU+HWCMf ).MIRA system dev newstest2013 newstest2014objective BLEU HWCMf TER BLEU HWCMf TER BLEU HWCMf TERBLEUbaseline 22.5 21.6 56.7 17.1 18.8 64.7 25.9 23.9 54.5DLM 23.3* 23.5 56.0 17.5 20.2 64.0 26.4 26.1 53.8RDLM 23.1 23.7 56.0 17.6 20.4 63.8 26.6 26.5 53.7BLEU+HWCMfbaseline 22.5 22.9* 56.1* 17.2 19.7* 63.9* 25.8 25.1* 54.1*DLM 23.0 24.1* 55.6* 17.6 20.8* 63.2* 26.4 26.9* 53.3*RDLM 23.1 24.4* 55.4* 17.6 20.9* 63.1* 26.8* 27.3* 53.0*Table 5: Translation quality of English?Russian string-to-tree SMT system with DLM and RDLM, with k-best batchMIRA optimization on BLEU and BLEU+HWCMf .
+Average of 3 optimization runs.
+bold: no other system in sameblock is significantly better (p < 0.05); *: significantly better than same model with other MIRA objective (p < 0.05).Higher scores are better for BLEU and HWCMf ; lower scores are better for TER.is the consistent winner, and significantly outper-forms the baseline for all metrics and test sets.
+Tun-ing on BLEU+HWCMf results in further improve-ments in HWCMf and TER.
+Looking at the com-bined effect of adding RDLM and changing the tun-ing objective, we observe gains in BLEU by 0.5?0.9points, and gains in HWCMf by 2.1?3.4 points.5.5 Morphological AgreementWe argue that the dependency language models andHWCMf as a tuning metric improve grammatical-ity, and we are able to quantify one aspect thereof,morphological agreement, for English?German.Williams and Koehn (2011) introduce a unificationgrammar with hand-crafted agreement constraints toidentify and suppress selected morphological agree-ment violations in German, namely in regards tonoun phrase agreement, prepositional phrase agree-ment, and subject-verb agreement.
+We can use theirgrammar to analyse the effect of different models onmorphological agreement by counting the number oftranslations that violate at least one agreement con-straint.
+We assume that the number of false posi-system MIRA objectiveBLEU BLEU+HWCMfbaseline 1028 10185-gram NNLM 845 825Shen et al.
+(2010) 884 844DLM 680 599RDLM 550 4685-gram + RDLM 576 484Table 6: Number of English?German translation hy-potheses with at least one agreement error accordingto unification grammar (Williams and Koehn, 2011) onnewstest2013 (3000 sentences).
+Average of three MIRAruns.tives (i.e.
+correct analyses that trigger an agreementviolation) remains roughly constant throughout allsystems, so that a reduction in the number of agree-ment violations is an indicator of better grammaticalagreement.Table 6 shows the results.
+While the 5-gramNNLM reduces the number of agreement errorssomewhat compared to the baseline (-18%), thereduction is greater for DLM (-34%) and RDLM(-46%).
+Neither the baseline nor the 5-gram NNLM177profits strongly from tuning on HWCMf , while thenumber of agreement errors is further reduced forthe system with DLM (-41%) and RDLM (-54%).Adding the 5-gram NNLM to the RDLM systemyields no further reduction on the number of agree-ment errors.Enforcing the agreement constraints on the base-line system (tuned on BLEU+HWCMf ) provides uswith a gain of 0.3 in both BLEU and HWCMf ; onthe RDLM system, only 0.03.
+The fact that the ben-efit of enforcing the agreement constraints drops offmore sharply than the number of constraint viola-tions indicates that the remaining violations tend tobe harder for the model to correct, e.g.
+because thetranslation model has not learned to produce the re-quired inflection of a word, or because some of theremaining violations are false positives.
+While thedependency language models?
+effect of improvingmorphological agreement is not (fully) cumulativewith the benefit from enforcing the unification con-straints formulated by Williams and Koehn (2011),our model has the advantage of being language-independent, learning from the data itself rather thanrelying on manually developed, grammar-specificconstraints, and covering a wider range of phenom-ena such as subcategorisation and syntactic colloca-tions.The results confirm that the RDLM is more ef-fective at reducing morphological agreement errorsthan a similarly trained n-gram NNLM and the unla-belled DLM, and that adding HWCMf to the train-ing objective is beneficial.
+On a a meta-evaluationlevel, we compare the rank correlation between theautomatic metrics and the numer of agreement er-rors with Kendall?s ?
+correlation, and observe that henumber of agreement errors is more strongly (nega-tively) correlated with HWCMf (?
+= ?0.92) thanwith BLEU (?
+= ?0.77), METEOR (?
+= ?0.54)or TER (?
+= 0.69).
+This supports our theoreticalexpectation that HWCMf is more sensitive to mor-phological agreement, which is enforced along syn-tactic n-grams, than n-gram metrics such as BLEU,or the unigram metric METEOR.6 Related WorkWhile there has been a wide range of dependencylanguage models proposed (e.g.
+(Chelba et al., 1997;Quirk et al., 2004; Shen et al., 2010; Zhang, 2009;Popel and Marecek, 2010)), there are vast differ-ences in modelling assumptions.
+Our work is mostsimilar to the dependency language model describedin Shen et al.
+(2010), or the h-gram model proposedby Zhang (2009), both of which have been usedfor SMT.
+We make different modelling assumptions,relying less on configurational information, but in-cluding the prediction of dependency labels in themodel.
+We argue that our relational modelling as-sumptions are more suitable for languages with arelatively free word order such as German.To a lesser extent, our work is similar to otherparsing models that have been used for languagemodelling, such as lexicalized PCFGs (Charniak,2001; Collins, 2003; Charniak et al., 2003), or struc-tured language models (Chelba and Jelinek, 2000);previous efforts to include them in the translationprocess failed to improve translation performance(Och et al., 2004; Post and Gildea, 2008).
+Differ-ences in our work that could explain why we see im-provements include the use of Neural Networks fortraining the model on the automatically parsed train-ing text, instead of re-using existing parser mod-els, which could be seen as a form of self-training(McClosky et al., 2006), and the integration of thelanguage model into the decoder instead of n-bestreranking.
+Also, there are major differences in theparsing models themselves.
+For instance, note thatthe structured LM by Chelba and Jelinek (2000) usesa binary branching structure, and that complex labelsets would be required to encode subcategorisationframes in binary trees (Hockenmaier and Steedman,2002).Our neural network is a standard feed-forwardneural network as introduced by Bengio et al.(2003).
+Recently, recursive neural networks havebeen proposed for syntactic parsing (Socher et al.,2010; Le and Zuidema, 2014).
+The recursive na-ture of such models allows for the encoding of morecontext; for an efficient integration into the dynamicprogramming search of SMT decoding, we deemour model, which makes stronger Markov assump-tions, more suitable.While BLEU has been the standard objective func-tion for tuning the log-linear parameters in SMT sys-tems, recent work has investigated alternative objec-tive functions.
+Some authors concluded that none of178the tested alternatives could consistently outperformBLEU (Cer et al., 2010; Callison-Burch et al., 2011).Liu et al.
+(2011) report that tuning on the TESLAmetric gives better results than tuning on BLEU; Loet al.
+(2013) do the same for MEANT.There is related work on improving morpholog-ical agreement and subcategorisation through post-editing (Rosa et al., 2012) or independent modelsfor inflection generation (Toutanova et al., 2008;Weller et al., 2013).
+The latter models initially pro-duce a stemmed translation, then predict the inflec-tion through feature-rich sequence models.
+Sucha pipeline of prediction steps is less powerful thanour joint prediction of stems and inflection.
+For in-stance, in example 2 in Table 4, our model chooses adifferent stem to match the subcategorisation frameof the translation; it is not possible to fix the baselinetranslation with inflection changes alone.7 ConclusionThe main contribution of this paper is the descriptionof a relational dependency language model.10 Weshow that it is a valuable asset to a state-of-the-artSMT system by comparing perplexity values withother types of languages models, and by its integra-tion into decoding, which results in improvementsaccording to automatic MT metrics and reduces thenumber of agreement errors.
+We show that the dis-fluencies that our model captures are qualitativelydifferent from an n-gram Neural Network languagemodel, with our model being more effective at mod-elling fluency phenomena along syntactic n-grams.A second important contribution is the optimiza-tion of the log-linear parameters of an SMT sys-tem based on syntactic n-grams.
+We are to ourknowledge the first to tune an SMT system on anon-shallow syntactic similarity metric.
+Apart fromshowing improvements by tuning on HWCMf , ourresults also shed light on the interaction betweenmodels and tuning metrics.
+With n-gram languagemodels, the choice of tuning metric only had a smalleffect on the English?German translation results.Only with dependency language models, which areable to model the syntactic n-grams that HWCMscores, did we see large improvements from adding10We have released an implementation of RDLM and tuningon HWCMf as part of the Moses decoder.HWCMf to the objective function.
+On the one hand,this has implications when evaluating new modelcomponents: using an objective function that can-not capture the impact of a model component canresult in false negatives because the model compo-nent will not receive an appropriate weight, and themodel may thus seem to be of little use, even in ahuman evaluation.
+On the other hand, it is an im-portant finding for the evaluation of objective func-tions: the performance of an objective function istied to the power of the underlying model.
+Withouta model that is able to model syntactic n-grams, wemight have concluded that HWCM is of little helpas an objective function.
+Now, we hypothesize thatHWCM is well-suited to optimize dependency lan-guage models because both operate on syntactic n-grams, just like BLEU and n-gram models are natu-ral counterparts.The approach we present is language-independent, and we evaluated it on SMT intoGerman and Russian.
+While we have no empiricaldata on the model?s effectiveness for other targetlanguages, we suspect that syntactic n-grams areespecially suited for modelling and evaluatingtranslations into languages with inter-dependenciesbetween distant words and relatively free wordorder, such as German, Czech, or Russian.In this work, we relied on parse hypotheses beingprovided by a string-to-tree SMT decoder, but othersettings are conceivable for future work, such as per-forming n-best string reranking by coupling the rela-tional dependency LM with a monolingual parse al-gorithm.
+Another obvious extension of the relationaldependency LM is the inclusion of more context, forinstance through larger windows for siblings and an-cestors, or source-context as in (Devlin et al., 2014).Also, we believe that the model can benefit fromfurther advances in neural network modelling, forinstance recent findings that ensembles of networksoutperform a single network (Mikolov et al., 2011;Devlin et al., 2014)AcknowledgementsI thank Bonnie Webber and the anonymous review-ers for their helpful suggestions and feedback.
+Thisresearch was funded by the Swiss National ScienceFoundation under grant P2ZHP1_148717.179ReferencesSatanjeev Banerjee and Alon Lavie.
+2005.
+METEOR:An Automatic Metric for MT Evaluation with Im-proved Correlation with Human Judgments.
+In Pro-ceedings of the ACL Workshop on Intrinsic and Ex-trinsic Evaluation Measures for Machine Transla-tion and/or Summarization, pages 65?72, Ann Arbor,Michigan.
+Association for Computational Linguistics.Yoshua Bengio, R?jean Ducharme, Pascal Vincent, andChristian Janvin.
+2003.
+A Neural Probabilistic Lan-guage Model.
+J. Mach.
+Learn.
+Res., 3:1137?1155,March.Ondrej Bojar, Christian Buck, Christian Federmann,Barry Haddow, Philipp Koehn, Johannes Leveling,Christof Monz, Pavel Pecina, Matt Post, Herve Saint-Amand, Radu Soricut, Lucia Specia, and Ale?
+Tam-chyna.
+2014.
+Findings of the 2014 Workshop on Sta-tistical Machine Translation.
+In Proceedings of theNinth Workshop on Statistical Machine Translation,pages 12?58, Baltimore, Maryland, USA.
+Associationfor Computational Linguistics.Chris Callison-Burch, Philipp Koehn, Christof Monz,and Omar Zaidan.
+2011.
+Findings of the 2011 Work-shop on Statistical Machine Translation.
+In Proceed-ings of the Sixth Workshop on Statistical MachineTranslation, pages 22?64, Edinburgh, Scotland.
+Asso-ciation for Computational Linguistics.Daniel Cer, Christopher D. Manning, and Daniel Juraf-sky.
+2010.
+The Best Lexical Metric for Phrase-basedStatistical MT System Optimization.
+In Human Lan-guage Technologies: The 2010 Annual Conference ofthe North American Chapter of the Association forComputational Linguistics, HLT ?10, pages 555?563,Los Angeles, California.
+Association for Computa-tional Linguistics.Eugene Charniak, Kevin Knight, and Kenji Yamada.2003.
+Syntax-based language models for statisticalmachine translation.
+In MT Summit IX, New Orleans,USA.Eugene Charniak.
+2001.
+Immediate-head Parsing forLanguage Models.
+In Proceedings of the 39th AnnualMeeting on Association for Computational Linguis-tics, ACL ?01, pages 124?131.
+Association for Com-putational Linguistics.Ciprian Chelba and Frederick Jelinek.
+2000.
+Structuredlanguage modeling.
+Computer Speech & Language,14(4):283?332.Ciprian Chelba, David Engle, Frederick Jelinek, Vic-tor Jimenez, Sanjeev Khudanpur, Lidia Mangu, HarryPrintz, Eric Ristad, Ronald Rosenfeld, Andreas Stol-cke, and Dekai Wu.
+1997.
+Structure And PerformanceOf A Dependency Language Model.
+In Proceedings ofEurospeech, pages 2775?2778.Colin Cherry and George Foster.
+2012.
+Batch TuningStrategies for Statistical Machine Translation.
+In Pro-ceedings of the 2012 Conference of the North Amer-ican Chapter of the Association for ComputationalLinguistics: Human Language Technologies, NAACLHLT ?12, pages 427?436, Montreal, Canada.
+Associa-tion for Computational Linguistics.Jonathan H. Clark, Chris Dyer, Alon Lavie, and Noah A.Smith.
+2011.
+Better Hypothesis Testing for StatisticalMachine Translation: Controlling for Optimizer Insta-bility.
+In Proceedings of the 49th Annual Meeting ofthe Association for Computational Linguistics, pages176?181, Portland, Oregon.
+Association for Computa-tional Linguistics.Michael Collins.
+2003.
+Head-Driven Statistical Mod-els for Natural Language Parsing.
+Computational Lin-guistics, 29:589 ?
+637.Michael Denkowski and Alon Lavie.
+2011.
+Meteor1.3: Automatic Metric for Reliable Optimization andEvaluation of Machine Translation Systems.
+In Pro-ceedings of the Sixth Workshop on Statistical MachineTranslation, pages 85?91, Edinburgh, Scotland.
+Asso-ciation for Computational Linguistics.Jacob Devlin, Rabih Zbib, Zhongqiang Huang, ThomasLamar, Richard Schwartz, and John Makhoul.
+2014.Fast and Robust Neural Network Joint Models for Sta-tistical Machine Translation.
+In Proceedings of the52nd Annual Meeting of the Association for Compu-tational Linguistics (Volume 1: Long Papers), pages1370?1380, Baltimore, Maryland.
+Association forComputational Linguistics.Julia Hockenmaier and Mark Steedman.
+2002.
+Gen-erative Models for Statistical Parsing with Combina-tory Categorial Grammar.
+In Proceedings of the 40thAnnual Meeting of the Association for ComputationalLinguistics, pages 335?342, Philadelphia, PA, USA.Philipp Koehn, Hieu Hoang, Alexandra Birch, ChrisCallison-Burch, Marcello Federico, Nicola Bertoldi,Brooke Cowan, Wade Shen, Christine Moran, RichardZens, Chris Dyer, Ondr?ej Bojar, Alexandra Con-stantin, and Evan Herbst.
+2007.
+Moses: Open SourceToolkit for Statistical Machine Translation.
+In Pro-ceedings of the ACL-2007 Demo and Poster Sessions,pages 177?180, Prague, Czech Republic.
+Associationfor Computational Linguistics.Phong Le and Willem Zuidema.
+2014.
+The Inside-Outside Recursive Neural Network model for Depen-dency Parsing.
+In Proceedings of the 2014 Conferenceon Empirical Methods in Natural Language Process-ing (EMNLP), pages 729?739, Doha, Qatar.
+Associa-tion for Computational Linguistics.Ding Liu and Daniel Gildea.
+2005.
+Syntactic Featuresfor Evaluation of Machine Translation.
+In Proceed-ings of the ACL Workshop on Intrinsic and Extrinsic180Evaluation Measures for Machine Translation and/orSummarization, pages 25?32, Ann Arbor, Michigan.Chang Liu, Daniel Dahlmeier, and Hwee Tou Ng.
+2011.Better Evaluation Metrics Lead to Better MachineTranslation.
+In Proceedings of the 2011 Conferenceon Empirical Methods in Natural Language Process-ing, pages 375?384, Edinburgh, UK.Chi-kiu Lo, Meriem Beloucif, and Dekai Wu.
+2013.
+Im-proving machine translation into Chinese by tuningagainst Chinese MEANT.
+In 10th International Work-shop on Spoken Language Translation (IWSLT 2013),Heidelberg, Germany.David McClosky, Eugene Charniak, and Mark Johnson.2006.
+Effective Self-training for Parsing.
+In Pro-ceedings of the Main Conference on Human LanguageTechnology Conference of the North American Chap-ter of the Association of Computational Linguistics,HLT-NAACL ?06, pages 152?159, New York.
+Asso-ciation for Computational Linguistics.Tomas Mikolov, Stefan Kombrink, Lukas Burget, JanCernock?, and Sanjeev Khudanpur.
+2011.
+Exten-sions of recurrent neural network language model.
+InProceedings of the IEEE International Conference onAcoustics, Speech, and Signal Processing, ICASSP2011, pages 5528?5531, Prague, Czech Republic.Joakim Nivre, Johan Hall, and Jens Nilsson.
+2006.
+Malt-Parser: A Data-Driven Parser-Generator for Depen-dency Parsing.
+In Proceedings of the 5th InternationalConference on Language Resources and Evaluation(LREC 2006), pages 2216 ?2219, Genoa, Italy.Franz Josef Och, Daniel Gildea, Sanjeev Khudanpur,Anoop Sarkar, Kenji Yamada, Alex Fraser, ShankarKumar, Libin Shen, David Smith, Katherine Eng,Viren Jain, Zhen Jin, and Dragomir Radev.
+2004.A Smorgasbord of Features for Statistical MachineTranslation.
+In Proceedings of the Main Conferenceon Human Language Technology Conference of theNorth American Chapter of the Association of Com-putational Linguistics, pages 161?168, Boston, Mas-sachusetts, USA.
+Association for Computational Lin-guistics.Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu.
+2002.
+BLEU: A Method for AutomaticEvaluation of Machine Translation.
+In Proceedings ofthe 40th Annual Meeting on Association for Compu-tational Linguistics, pages 311?318, Philadelphia, PA.Association for Computational Linguistics.Jan-Thorsten Peter, Matthias Huck, Hermann Ney, andDaniel Stein.
+2012.
+Soft String-to-DependencyHierarchical Machine Translation.
+In Informatik-tage der Gesellschaft f?r Informatik, Lecture Notesin Informatics (LNI), pages 59?62, Bonn, Germany.Gesellschaft f?r Informatik.Martin Popel and David Marecek.
+2010.
+Perplexity ofn-Gram and Dependency Language Models.
+In PetrSojka, Ales Hor?k, Ivan Kopecek, and Karel Pala, edi-tors, TSD, volume 6231 of Lecture Notes in ComputerScience, pages 173?180.
+Springer.Matt Post and Daniel Gildea.
+2008.
+Parsers as languagemodels for statistical machine translation.
+In Proceed-ings of the Eighth Conference of the Association forMachine Translation in the Americas.Chris Quirk, Arul Menezes, and Colin Cherry.
+2004.Dependency Tree Translation: Syntactically InformedPhrasal SMT.
+Technical Report MSR-TR-2004-113,Microsoft Research.Rudolf Rosa, David Marec?ek, and Ondr?ej Du?ek.
+2012.DEPFIX: A System for Automatic Correction ofCzech MT Outputs.
+In Proceedings of the SeventhWorkshop on Statistical Machine Translation, WMT?12, pages 362?368, Montreal, Canada.
+Associationfor Computational Linguistics.Rico Sennrich, Martin Volk, and Gerold Schneider.
+2013.Exploiting Synergies Between Open Resources forGerman Dependency Parsing, POS-tagging, and Mor-phological Analysis.
+In Proceedings of the Interna-tional Conference Recent Advances in Natural Lan-guage Processing 2013, pages 601?609, Hissar, Bul-garia.Rico Sennrich.
+2014.
+A CYK+ Variant for SCFG Decod-ing Without a Dot Chart.
+In Proceedings of SSST-8,Eighth Workshop on Syntax, Semantics and Structurein Statistical Translation, pages 94?102, Doha, Qatar,October.
+Association for Computational Linguistics.Serge Sharoff and Joakim Nivre.
+2011.
+The proper placeof men and machines in language technology.
+Process-ing Russian without any linguistic knowledge.
+In Pro-ceedings of the International Conference on Compu-tational Linguistics and Artificial Intelligence Dialog2011.Libin Shen, Jinxi Xu, and Ralph Weischedel.
+2010.String-to-dependency Statistical Machine Translation.Comput.
+Linguist., 36(4):649?671.Grigori Sidorov, Francisco Velasquez, Efstathios Sta-matatos, Alexander Gelbukh, and Liliana Chanona-Hern?ndez.
+2013.
+Syntactic Dependency-based N-grams As Classification Features.
+In Proceedings ofthe 11th Mexican International Conference on Ad-vances in Computational Intelligence - Volume Part II,MICAI?12, pages 1?11, Berlin, Heidelberg.
+Springer-Verlag.Matthew Snover, Bonnie Dorr, Richard Schwartz, Lin-nea Micciulla, and John Makhoul.
+2006.
+A study oftranslation edit rate with targeted human annotation.In Proceedings of Association for Machine Translationin the Americas, pages 223?231.181Richard Socher, Christopher D. Manning, and Andrew Y.Ng.
+2010.
+Learning Continuous Phrase Represen-tations and Syntactic Parsing with Recursive NeuralNetworks.
+Proceedings of the Deep Learning and Un-supervised Feature Learning Workshop of NIPS 2010,pages 1?9.Andreas Stolcke.
+2002.
+SRILM ?
+An Extensible Lan-guage Modeling Toolkit.
+In Seventh InternationalConference on Spoken Language Processing, pages901?904, Denver, Colorado, USA.Kristina Toutanova, Hisami Suzuki, and Achim Ruopp.2008.
+Applying Morphology Generation Models toMachine Translation.
+In Proceedings of the 45th An-nual Meeting of the Association for ComputationalLinguistics.Reut Tsarfaty, Khalil Sima?an, and Remko Scha.
+2009.An Alternative to Head-Driven Approaches for Pars-ing a (Relatively) Free Word-Order Language.
+In Pro-ceedings of the 2009 Conference on Empirical Meth-ods in Natural Language Processing, pages 842?851,Singapore.Reut Tsarfaty.
+2010.
+Relational-Realizational Parsing.Ph.D.
+thesis, University of Amsterdam.Ashish Vaswani, Yinggong Zhao, Victoria Fossum, andDavid Chiang.
+2013.
+Decoding with Large-ScaleNeural Language Models Improves Translation.
+InProceedings of the 2013 Conference on EmpiricalMethods in Natural Language Processing, EMNLP2013, pages 1387?1392, Seattle, Washington, USA.Marion Weller, Alexander Fraser, and Sabine Schulte imWalde.
+2013.
+Using subcategorization knowledge toimprove case prediction for translation to German.
+InProceedings of the 51st Annual Meeting of the Associ-ation for Computational Linguistics, pages 593?603,Sofia, Bulgaria.
+Association for Computational Lin-guistics.Philip Williams and Philipp Koehn.
+2011.
+AgreementConstraints for Statistical Machine Translation intoGerman.
+In Proceedings of the Sixth Workshop onStatistical Machine Translation, pages 217?226, Ed-inburgh, UK.
+Association for Computational Linguis-tics.Philip Williams, Rico Sennrich, Maria Nadejde, MatthiasHuck, Eva Hasler, and Philipp Koehn.
+2014.
+Ed-inburgh?s Syntax-Based Systems at WMT 2014.
+InProceedings of the Ninth Workshop on Statistical Ma-chine Translation, pages 207?214, Baltimore, Mary-land, USA.
+Association for Computational Linguis-tics.Joy Ying Zhang.
+2009.
+Structured Language Models forStatistical Machine Translation.
+Ph.D. thesis, JohnsHopkins University.182

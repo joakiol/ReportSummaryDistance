@@ -1,0 +1,265 @@
+Proceedings of the 52nd Annual Meeting of the Association for Computational Linguistics, pages 208?217,Baltimore, Maryland, USA, June 23-25 2014.c?2014 Association for Computational LinguisticsSparser, Better, Faster GPU ParsingDavid Hall Taylor Berg-Kirkpatrick John Canny Dan KleinComputer Science DivisionUniversity of California, Berkeley{dlwh,tberg,jfc,klein}@cs.berkeley.eduAbstractDue to their origin in computer graph-ics, graphics processing units (GPUs)are highly optimized for dense problems,where the exact same operation is appliedrepeatedly to all data points.
+Natural lan-guage processing algorithms, on the otherhand, are traditionally constructed in waysthat exploit structural sparsity.
+Recently,Canny et al (2013) presented an approachto GPU parsing that sacrifices traditionalsparsity in exchange for raw computa-tional power, obtaining a system that cancompute Viterbi parses for a high-qualitygrammar at about 164 sentences per sec-ond on a mid-range GPU.
+In this work,we reintroduce sparsity to GPU parsingby adapting a coarse-to-fine pruning ap-proach to the constraints of a GPU.
+Theresulting system is capable of computingover 404 Viterbi parses per second?morethan a 2x speedup?on the same hard-ware.
+Moreover, our approach allows usto efficiently implement less GPU-friendlyminimum Bayes risk inference, improv-ing throughput for this more accurate algo-rithm from only 32 sentences per secondunpruned to over 190 sentences per secondusing pruning?nearly a 6x speedup.1 IntroductionBecause NLP models typically treat sentences in-dependently, NLP problems have long been seenas ?embarrassingly parallel?
+?
+large corpora canbe processed arbitrarily fast by simply sending dif-ferent sentences to different machines.
+However,recent trends in computer architecture, particularlythe development of powerful ?general purpose?GPUs, have changed the landscape even for prob-lems that parallelize at the sentence level.
+First,classic single-core processors and main memoryarchitectures are no longer getting substantiallyfaster over time, so speed gains must now comefrom parallelism within a single machine.
+Second,compared to CPUs, GPUs devote a much largerfraction of their computational power to actualarithmetic.
+Since tasks like parsing boil down torepeated read-multiply-write loops, GPUs shouldbe many times more efficient in time, power, orcost.
+The challenge is that GPUs are not a goodfit for the kinds of sparse computations that mostcurrent CPU-based NLP algorithms rely on.Recently, Canny et al (2013) proposed a GPUimplementation of a constituency parser that sac-rifices all sparsity in exchange for the sheer horse-power that GPUs can provide.
+Their system uses agrammar based on the Berkeley parser (Petrov andKlein, 2007) (which is particularly amenable toGPU processing), ?compiling?
+the grammar into asequence of GPU kernels that are applied denselyto every item in the parse chart.
+Together thesekernels implement the Viterbi inside algorithm.On a mid-range GPU, their system can computeViterbi derivations at 164 sentences per second onsentences of length 40 or less (see timing detailsbelow).In this paper, we develop algorithms that canexploit sparsity on a GPU by adapting coarse-to-fine pruning to a GPU setting.
+On a CPU, pruningmethods can give speedups of up to 100x.
+Suchextreme speedups over a dense GPU baseline cur-rently seem unlikely because fine-grained sparsityappears to be directly at odds with dense paral-lelism.
+However, in this paper, we present a sys-tem that finds a middle ground, where some levelof sparsity can be maintained without losing theparallelism of the GPU.
+We use a coarse-to-fineapproach as in Petrov and Klein (2007), but withonly one coarse pass.
+Figure 1 shows an overviewof the approach: we first parse densely with acoarse grammar and then parse sparsely with the208fine grammar, skipping symbols that the coarsepass deemed sufficiently unlikely.
+Using this ap-proach, we see a gain of more than 2x over thedense GPU implementation, resulting in overallspeeds of up to 404 sentences per second.
+Forcomparison, the publicly available CPU imple-mentation of Petrov and Klein (2007) parses ap-proximately 7 sentences per second per core on amodern CPU.A further drawback of the dense approach inCanny et al (2013) is that it only computesViterbi parses.
+As with other grammars witha parse/derivation distinction, the grammars ofPetrov and Klein (2007) only achieve their fullaccuracy using minimum-Bayes-risk parsing, withimprovements of over 1.5 F1 over best-derivationViterbi parsing on the Penn Treebank (Marcus etal., 1993).
+To that end, we extend our coarse-to-fine GPU approach to computing marginals, alongthe way proposing a new way to exploit the coarsepass to avoid expensive log-domain computationsin the fine pass.
+We then implement minimum-Bayes-risk parsing via the max recall algorithm ofGoodman (1996).
+Without the coarse pass, thedense marginal computation is not efficient on aGPU, processing only 32 sentences per second.However, our approach allows us to process over190 sentences per second, almost a 6x speedup.2 A Note on ExperimentsWe build up our approach incrementally, with ex-periments interspersed throughout the paper, andsummarized in Tables 1 and 2.
+In this paper, wefocus our attention on current-generation NVIDIAGPUs.
+Many of the ideas described here apply toother GPUs (such as those from AMD), but somespecifics will differ.
+All experiments are run withan NVIDIA GeForce GTX 680, a mid-range GPUthat costs around $500 at time of writing.
+Unlessotherwise noted, all experiments are conducted onsentences of length ?
+40 words, and we estimatetimes based on batches of 20K sentences.1Weshould note that our experimental condition dif-fers from that of Canny et al (2013): they evaluateon sentences of length ?
+30.
+Furthermore, they1The implementation of Canny et al (2013) cannot han-dle batches so large, and so we tested it on batches of 1200sentences.
+Our reimplementation is approximately the samespeed for the same batch sizes.
+For batches of 20K sentences,we used sentences from the training set.
+We verified that therewas no significant difference in speed for sentences from thetraining set and from the test set.use two NVIDIA GeForce GTX 690s?each ofwhich is essentially a repackaging of two 680s?meaning that our system and experiments wouldrun approximately four times faster on their hard-ware.
+(This expected 4x factor is empirically con-sistent with the result of running their system onour hardware.
+)3 Sparsity and CPUsOne successful approach for speeding up con-stituency parsers has been to use coarse-to-fineinference (Charniak et al, 2006).
+In coarse-to-fine inference, we have a sequence of increasinglycomplex grammars G`.
+Typically, each succes-sive grammar G`is a refinement of the precedinggrammar G`?1.
+That is, for each symbol Axinthe fine grammar, there is some symbol A in thecoarse grammar.
+For instance, in a latent variableparser, the coarse grammar would have symbolslike NP , V P , etc., and the fine pass would haverefined symbols NP0, NP1, V P4, and so on.In coarse-to-fine inference, one applies thegrammars in sequence, computing inside and out-side scores.
+Next, one computes (max) marginalsfor every labeled span (A, i, j) in a sentence.These max marginals are used to compute a prun-ing mask for every span (i, j).
+This mask is the setof symbols allowed for that span.
+Then, in the nextpass, one only processes rules that are licensed bythe pruning mask computed at the previous level.This approach works because a low qualitycoarse grammar can still reliably be used to prunemany symbols from the fine chart without loss ofaccuracy.
+Petrov and Klein (2007) found that over98% of symbols can be pruned from typical chartsusing a simple X-bar grammar without any lossof accuracy.
+Thus, the vast majority of rules canbe skipped, and therefore most computation canbe avoided.
+It is worth pointing out that although98% of labeled spans can be skipped due to X-barpruning, we found that only about 79% of binaryrule applications can be skipped, because the un-pruned symbols tend to be the ones with a largergrammar footprint.4 GPU ArchitecturesUnfortunately, the standard coarse-to-fine ap-proach does not na?
+?vely translate to GPU archi-tectures.
+GPUs work by executing thousands ofthreads at once, but impose the constraint thatlarge blocks of threads must be executing the same209RAMCPUGPURAMInstruction CacheParse ChartsWork ArrayGrammarQueueSentencesQueueMasksMasksQueueTreesFigure 1: Overview of the architecture of our system, which is an extension of Canny et al (2013)?ssystem.
+The GPU and CPU communicate via a work queue, which ferries parse items from the CPU tothe GPU.
+Our system uses a coarse-to-fine approach, where the coarse pass computes a pruning maskthat is used by the CPU when deciding which items to queue during the fine pass.
+The original systemof Canny et al (2013) only used the fine pass, with no pruning.instructions in lockstep, differing only in their in-put data.
+Thus sparsely skipping rules and sym-bols will not save any work.
+Indeed, it may ac-tually slow the system down.
+In this section, weprovide an overview of GPU architectures, focus-ing on the details that are relevant to building anefficient parser.The large number of threads that a GPU exe-cutes are packaged into blocks of 32 threads calledwarps.
+All threads in a warp must execute thesame instruction at every clock cycle: if one threadtakes a branch the others do not, then all threads inthe warp must follow both code paths.
+This situa-tion is called warp divergence.
+Because all threadsexecute all code paths that any thread takes, timecan only be saved if an entire warp agrees to skipany particular branch.NVIDIA GPUs have 8-15 processors calledstreaming multi-processors or SMs.2Each SMcan process up to 48 different warps at a time:it interleaves the execution of each warp, so thatwhen one warp is stalled another warp can exe-cute.
+Unlike threads within a single warp, the 48warps do not have to execute the same instruc-tions.
+However, the memory architecture is suchthat they will be faster if they access related mem-ory locations.2Older hardware (600 series or older) has 8 SMs.
+Newerhardware has more.A further consideration is that the number ofregisters available to a thread in a warp is ratherlimited compared to a CPU.
+On the 600 series,maximum occupancy can only be achieved if eachthread uses at most 63 registers (Nvidia, 2008).3Registers are many times faster than variables lo-cated in thread-local memory, which is actuallythe same speed as global memory.5 Anatomy of a Dense GPU ParserThis architecture environment puts very differentconstraints on parsing algorithms from a CPU en-vironment.
+Canny et al (2013) proposed an imple-mentation of a PCFG parser that sacrifices stan-dard sparse methods like coarse-to-fine pruning,focusing instead on maximizing the instructionand memory throughput of the parser.
+They as-sume that they are parsing many sentences at once,with throughput being more important than la-tency.
+In this section, we describe their dense algo-rithm, which we take as the baseline for our work;we present it in a way that sets up the changes tofollow.At the top level, the CPU and GPU communi-cate via a work queue of parse items of the form(s, i, k, j), where s is an identifier of a sentence,i is the start of a span, k is the split point, and j3A thread can use more registers than this, but the fullcomplement of 48 warps cannot execute if too many are used.210Clustering Pruning Sent/Sec SpeedupCanny et al ?
+164.0 ?Reimpl ?
+192.9 1.0xReimpl Empty, Coarse 185.5 0.96xReimpl Labeled, Coarse 187.5 0.97xParent ?
+158.6 0.82xParent Labeled, Coarse 278.9 1.4xParent Labeled, 1-split 404.7 2.1xParent Labeled, 2-split 343.6 1.8xTable 1: Performance numbers for computingViterbi inside charts on 20,000 sentences of length?40 from the Penn Treebank.
+All times aremeasured on an NVIDIA GeForce GTX 680.?Reimpl?
+is our reimplementation of their ap-proach.
+Speedups are measured in reference to thisreimplementation.
+See Section 7 for discussion ofthe clustering algorithms and Section 6 for a de-scription of the pruning methods.
+The Canny et al(2013) system is benchmarked on a batch size of1200 sentences, the others on 20,000.is the end point.
+The GPU takes large numbers ofparse items and applies the entire grammar to themin parallel.
+These parse items are enqueued in or-der of increasing span size, blocking until all itemsof a given length are complete.
+This approach isdiagrammed in Figure 2.Because all rules are applied to all parse items,all threads are executing the same sequence of in-structions.
+Thus, there is no concern of warp di-vergence.5.1 Grammar CompilationOne important feature of Canny et al (2013)?s sys-tem is grammar compilation.
+Because registersare so much faster than thread-local memory, itis critical to keep as many variables in registersas possible.
+One way to accomplish this is to un-roll loops at compilation time.
+Therefore, they in-lined the iteration over the grammar directly intothe GPU kernels (i.e.
+the code itself), which al-lows the compiler to more effectively use all of itsregisters.However, register space is limited on GPUs.Because the Berkeley grammar is so large, thecompiler is not able to efficiently schedule all ofthe operations in the grammar, resulting in regis-ter spills.
+Canny et al (2013) found they had topartition the grammar into multiple different ker-nels.
+We discuss this partitioning in more detail inSection 7.
+However, in short, the entire grammarG is broken into multiple clusters Giwhere eachrule belongs to exactly one cluster.NPDT NNVBVPNPNPPPINNPSVP(0, 1, 3)(0, 2, 3)(1, 2, 4)(1, 3, 4)(2, 3, 5)(2, 4, 5)GrammarQueue(i, k, j)Figure 2: Schematic representation of the workqueue used in Canny et al (2013).
+The Viterbiinside loop for the grammar is inlined into a ker-nel.
+The kernel is applied to all items in the queuein a blockwise manner.NPDT NNNPDT NNNPDT NNNPNPPPINNPPPINNPPPINPPVBVPNPVBVPNPVBVPNPVP(0, 1, 3)(1, 2, 4)(3, 5, 6)(1, 3, 4)(1, 2, 4)(0, 2, 3)(2, 4, 5)(3, 4, 6)Queues(i, k, j)Grammar ClustersFigure 3: Schematic representation of the workqueue and grammar clusters used in the fine passof our work.
+Here, the rules of the grammar areclustered by their coarse parent symbol.
+We thenhave multiple work queues, with parse items onlybeing enqueued if the span (i, j) allows that sym-bol in its pruning mask.All in all, Canny et al (2013)?s system is ableto compute Viterbi charts at 164 sentences per sec-ond, for sentences up to length 40.
+On larger batchsizes, our reimplementation of their approach isable to achieve 193 sentences per second on thesame hardware.
+(See Table 1.
+)6 Pruning on a GPUNow we turn to the algorithmic and architecturalchanges in our approach.
+First, consider trying to211directly apply the coarse-to-fine method sketchedin Section 3 to the dense baseline described above.The natural implementation would be for eachthread to check if each rule is licensed beforeapplying it.
+However, we would only avoid thework of applying the rule if all threads in the warpagreed to skip it.
+Since each thread in the warp isprocessing a different span (perhaps even from adifferent sentence), consensus from all 32 threadson any skip would be unlikely.Another approach would be to skip enqueu-ing any parse item (s, i, k, j) where the pruningmask for any of (i, j), (i, k), or (k, j) is entirelyempty (i.e.
+all symbols are pruned in this cell bythe coarse grammar).
+However, our experimentsshowed that only 40% of parse items are pruned inthis manner.
+Because of the overhead associatedwith creating pruning masks and the further over-head of GPU communication, we found that thismethod did not actually produce any time savingsat all.
+The result is a parsing speed of 185.5 sen-tences per second, as shown in Table 1 on the rowlabeled ?Reimpl?
+with ?Empty, Coarse?
+pruning.Instead, we take advantage of the partitionedstructure of the grammar and organize our com-putation around the coarse symbol set.
+Recall thatthe baseline already partitions the grammar G intorule clusters Gito improve register sharing.
+(SeeSection 7 for more on the baseline clustering.)
+Wecreate a separate work queue for each partition.We call each such queue a labeled work queue, andeach one only queues items to which some rule inthe corresponding partition applies.
+We call the setof coarse symbols for a partition (and therefore thecorresponding labeled work queue) a signature.During parsing, we only enqueue items(s, i, k, j) to a labeled queue if two conditions aremet.
+First, the span (i, j)?s pruning mask musthave a non-empty intersection with the signatureof the queue.
+Second, the pruning mask for thechildren (i, k) and (k, j) must be non-empty.Once on the GPU, parse items are processed us-ing the same style of compiled kernel as in Cannyet al (2013).
+Because the entire partition (thoughnot necessarily the entire grammar) is applied toeach item in the queue, we still do not need toworry about warp divergence.At the top level, our system first computes prun-ing masks with a coarse grammar.
+Then it pro-cesses the same sentences with the fine gram-mar.
+However, to the extent that the signaturesare small, items can be selectively queued only tocertain queues.
+This approach is diagrammed inFigure 3.We tested our new pruning approach using anX-bar grammar as the coarse pass.
+The result-ing speed is 187.5 sentences per second, labeledin Table 1 as row labeled ?Reimpl?
+with ?Labeled,Coarse?
+pruning.
+Unfortunately, this approachagain does not produce a speedup relative to ourreimplemented baseline.
+To improve upon this re-sult, we need to consider how the grammar clus-tering interacts with the coarse pruning phase.7 Grammar ClusteringRecall that the rules in the grammar are partitionedinto a set of clusters, and that these clusters arefurther divided into subclusters.
+How can we bestcluster and subcluster the grammar so as to maxi-mize performance?
+A good clustering will grouprules together that use the same symbols, sincethis means fewer memory accesses to read andwrite scores for symbols.
+Moreover, we wouldlike the time spent processing each of the subclus-ters within a cluster to be about the same.
+We can-not move on to the next cluster until all threadsfrom a cluster are finished, which means that thetime a cluster takes is the amount of time takenby the longest-running subcluster.
+Finally, whenpruning, it is best if symbols that have the samecoarse projection are clustered together.
+That way,we are more likely to be able to skip a subcluster,since fewer distinct symbols need to be ?off?
+for aparse item to be skipped in a given subcluster.Canny et al (2013) clustered symbols of thegrammar using a sophisticated spectral clusteringalgorithm to obtain a permutation of the symbols.Then the rules of the grammar were laid out ina (sparse) three-dimensional tensor, with one di-mension representing the parent of the rule, onerepresenting the left child, and one representingthe right child.
+They then split the cube into 6x2x2contiguous ?major cubes,?
+giving a partition of therules into 24 clusters.
+They then further subdi-vided these cubes into 2x2x2 minor cubes, giv-ing 8 subclusters that executed in parallel.
+Notethat the clusters induced by these major and minorcubes need not be of similar sizes; indeed, they of-ten are not.
+Clustering using this method is labeled?Reimplementation?
+in Table 1.The addition of pruning introduces further con-siderations.
+First, we have a coarse grammar, with212many fewer rules and symbols.
+Second, we areable to skip a parse item for an entire cluster if thatitem?s pruning mask does not intersect the clus-ter?s signature.
+Spreading symbols across clustersmay be inefficient: if a parse item licenses a givensymbol, we will have to enqueue that item to anyqueue that has the symbol in its signature, no mat-ter how many other symbols are in that cluster.Thus, it makes sense to choose a clustering al-gorithm that exploits the structure introduced bythe pruning masks.
+We use a very simple method:we cluster the rules in the grammar by coarse par-ent symbol.
+When coarse symbols are extremelyunlikely (and therefore have few correspondingrules), we merge their clusters to avoid the over-head of beginning work on clusters where littlework has to be done.4In order to subcluster, wedivide up rules among subclusters so that eachsubcluster has the same number of active parentsymbols.
+We found this approach to subclusteringworked well in practice.Clustering using this method is labeled ?Parent?in Table 1.
+Now, when we use a coarse pruningpass, we are able to parse nearly 280 sentencesper second, a 70% increase in parsing performancerelative to Canny et al (2013)?s system, and nearly50% over our reimplemented baseline.It turns out that this simple clustering algorithmproduces relatively efficient kernels even in the un-pruned case.
+The unpruned Viterbi computationsin a fine grammar using the clustering method ofCanny et al (2013) yields a speed of 193 sen-tences per second, whereas the same computationusing coarse parent clustering has a speed of 159sentences per second.
+(See Table 1.)
+This is notas efficient as Canny et al (2013)?s highly tunedmethod, but it is still fairly fast, and much simplerto implement.8 Pruning with Finer GrammarsThe coarse to fine pruning approach of Petrov andKlein (2007) employs an X-bar grammar as itsfirst pruning phase, but there is no reason whywe cannot begin with a more complex grammarfor our initial pass.
+As Petrov and Klein (2007)have shown, intermediate-sized Berkeley gram-mars prune many more symbols than the X-barsystem.
+However, they are slower to parse with4Specifically, after clustering based on the coarse parentsymbol, we merge all clusters with less than 300 rules in theminto one large cluster.in a CPU context, and so they begin with an X-bargrammar.Because of the overhead associated with trans-ferring work items to GPU, using a very smallgrammar may not be an efficient use of the GPU?scomputational resources.
+To that end, we triedcomputing pruning masks with one-split and two-split Berkeley grammars.
+The X-bar grammar cancompute pruning masks at just over 1000 sen-tences per second, the 1-split grammar parses 858sentences per second, and the 2-split grammarparses 526 sentences per second.Because parsing with these grammars is stillquite fast, we tried using them as the coarse passinstead.
+As shown in Table 1, using a 1-split gram-mar as a coarse pass allows us to produce over 400sentences per second, a full 2x improvement overour original system.
+Conducting a coarse passwith a 2-split grammar is somewhat slower, at a?mere?
+343 sentences per second.9 Minimum Bayes risk parsingThe Viterbi algorithm is a reasonably effectivemethod for parsing.
+However, many authorshave noted that parsers benefit substantially fromminimum Bayes risk decoding (Goodman, 1996;Simaan, 2003; Matsuzaki et al, 2005; Titov andHenderson, 2006; Petrov and Klein, 2007).
+MBRalgorithms for parsing do not compute the bestderivation, as in Viterbi parsing, but instead theparse tree that maximizes the expected count ofsome figure of merit.
+For instance, one might wantto maximize the expected number of correct con-stituents (Goodman, 1996), or the expected rulecounts (Simaan, 2003; Petrov and Klein, 2007).MBR parsing has proven especially useful in la-tent variable grammars.
+Petrov and Klein (2007)showed that MBR trees substantially improvedperformance over Viterbi parses for latent variablegrammars, earning up to 1.5F1.Here, we implement the Max Recall algorithmof Goodman (1996).
+This algorithm maximizesthe expected number of correct coarse symbols(A, i, j) with respect to the posterior distributionover parses for a sentence.This particular MBR algorithm has the advan-tage that it is relatively straightforward to imple-ment.
+In essence, we must compute the marginalprobability of each fine-labeled span ?
+(Ax, i, j),and then marginalize to obtain ?
+(A, i, j).
+Then,for each span (i, j), we find the best possible split213point k that maximizes C(i, j) = ?
+(A, i, j) +maxk(C(i, k) + C(k, j)).
+Parse extraction isthen just a matter of following back pointers fromthe root, as in the Viterbi algorithm.9.1 Computing marginal probabilitiesThe easiest way to compute marginal probabilitiesis to use the log space semiring rather than theViterbi semiring, and then to run the inside andoutside algorithms as before.
+We should expectthis algorithm to be at least a factor of two slower:the outside pass performs at least as much work asthe inside pass.
+Moreover, it typically has worsememory access patterns, leading to slower perfor-mance.Without pruning, our approach does not han-dle these log domain computations well at all:we are only able to compute marginals for 32.1sentences/second, more than a factor of 5 slowerthan our coarse pass.
+To begin, log space additionrequires significantly more operations than max,which is a primitive operation on GPUs.
+Beyondthe obvious consequence that executing more op-erations means more time taken, the sheer numberof operations becomes too much for the compilerto handle.
+Because the grammars are compiledinto code, the additional operations are all inlinedinto the kernels, producing much larger kernels.Indeed, in practice the compiler will often hang ifwe use the same size grammar clusters as we didfor Viterbi.
+In practice, we found there is an effec-tive maximum of 2000 rules per kernel using logsums, while we can use more than 10,000 rulesrules in a single kernel with Viterbi.With coarse pruning, however, we can avoidmuch of the increased cost associated with logdomain computations.
+Because so many labeledspans are pruned, we are able to skip many of thegrammar clusters and thus avoid many of the ex-pensive operations.
+Using coarse pruning and logdomain calculations, our system produces MBRtrees at a rate of 130.4 sentences per second, afour-fold increase.9.2 Scaling with the Coarse PassOne way to avoid the expense of log domain com-putations is to use scaled probabilities rather thanlog probabilities.
+Scaling is one of the folk tech-niques that are commonly used in the NLP com-munity, but not generally written about.
+Recallthat floating point numbers are composed of amantissa m and an exponent e, giving a numberSystem Sent/Sec SpeedupUnpruned Log Sum MBR 32.1 ?Pruned Log Sum MBR 130.4 4.1xPruned Scaling MBR 190.6 5.9xPruned Viterbi 404.7 12.6xTable 2: Performance numbers for computing maxconstituent (Goodman, 1996) trees on 20,000 sen-tences of length 40 or less from the Penn Tree-bank.
+For convenience, we have copied our prunedViterbi system?s result.f = m ?
+2e.
+When a float underflows, the ex-ponent becomes too low to represent the availablenumber of bits.
+In scaling, floating point numbersare paired with an additional number that extendsthe exponent.
+That is, the number is representedas f?= f ?
+exp(s).
+Whenever f becomes eithertoo big or too small, the number is rescaled backto a less ?dangerous?
+range by shifting mass fromthe exponent e to the scaling factor s.In practice, one scale s is used for an entire span(i, j), and all scores for that span are rescaled inconcert.
+In our GPU system, multiple scores inany given span are being updated at the same time,which makes this dynamic rescaling tricky and ex-pensive, especially since inter-warp communica-tion is fairly limited.We propose a much simpler static solution thatexploits the coarse pass.
+In the coarse pass, wecompute Viterbi inside and outside scores for ev-ery span.
+Because the grammar used in the coarsepass is a projection of the grammar used in thefine pass, these coarse scores correlate reasonablyclosely with the probabilities computed in the finepass: If a span has a very high or very low scorein the coarse pass, it typically has a similar scorein the fine pass.
+Thus, we can use the coarsepass?s inside and outside scores as the scaling val-ues for the fine pass?s scores.
+That is, in additionto computing a pruning mask, in the coarse passwe store the maximum inside and outside score ineach span, giving two arrays of scores sIi,jand sOi,j.Then, when applying rules in the fine pass, eachfine inside score over a split span (i, k, j) is scaledto the appropriate sIi,jby multiplying the score byexp(sIi,k+ sIk,j?
+sIi,j), where sIi,k, sIk,j, sIi,jarethe scaling factors for the left child, right child,and parent, respectively.
+The outside scores arescaled analogously.By itself, this approach works on nearly ev-ery sentence.
+However, scores for approximately2140.5% of sentences overflow (sic).
+Because we aresumming instead of maxing scores in the fine pass,the scaling factors computed using max scores arenot quite large enough, and so the rescaled insideprobabilities grow too large when multiplied to-gether.
+Most of this difference arises at the leaves,where the lexicon typically has more uncertaintythan higher up in the tree.
+Therefore, in the finepass, we normalize the inside scores at the leavesto sum to 1.0.5Using this slight modification, nosentences from the Treebank under- or overflow.We know of no reason why this same trick can-not be employed in more traditional parsers, butit is especially useful here: with this static scal-ing, we can avoid the costly log sums without in-troducing any additional inter-thread communica-tion, making the kernels much smaller and muchfaster.
+Using scaling, we are able to push ourparser to 190.6 sentences/second for MBR extrac-tion, just under half the speed of the Viterbi sys-tem.9.3 Parsing AccuraciesIt is of course important verify the correctness ofour system; one easy way to do so is to exam-ine parsing accuracy, as compared to the originalBerkeley parser.
+We measured parsing accuracyon sentences of length?
+40 from section 22 of thePenn Treebank.
+Our Viterbi parser achieves 89.7F1, while our MBR parser scores 91.0.
+These re-sults are nearly identical to the Berkeley parsersmost comparable numbers: 89.8 for Viterbi, and90.9 for their ?Max-Rule-Sum?
+MBR algorithm.These slight differences arise from the usual mi-nor variation in implementation details.
+In partic-ular, we use one coarse pass instead of several, anda different MBR algorithm.
+In addition, there aresome differences in unary processing.10 Analyzing System PerformanceIn this section we attempt to break down how ex-actly our system is spending its time.
+We do this inan effort to give a sense of how time is spent dur-ing computation on GPUs.
+These timing numbersare computed using the built-in profiling capabil-ities of the programming environment.
+As usual,profiles exhibit an observer effect, where the act ofmeasuring the system changes the execution.
+Nev-5One can instead interpret this approach as changing thescaling factors to sI?i,j= sIi,j?
+?i?k<j?Ainside(A, k, k +1), where inside is the array of scores for the fine pass.System Coarse Pass Fine PassUnpruned Viterbi ?
+6.4Pruned Viterbi 1.2 1.5Unpruned Logsum MBR ?
+28.6Pruned Scaling MBR 1.2 4.3Table 3: Time spent in the passes of our differ-ent systems, in seconds per 1000 sentences.
+Prun-ing refers to using a 1-split grammar for the coarsepass.ertheless, the general trends should more or less bepreserved as compared to the unprofiled code.To begin, we can compute the number of sec-onds needed to parse 1000 sentences.
+(We use sec-onds per sentence rather than sentences per secondbecause the former measure is additive.)
+The re-sults are in Table 3.
+In the case of pruned Viterbi,pruning reduces the amount of time spent in thefine pass by more than 4x, though half of thosegains are lost to computing the pruning masks.In Table 4, we break down the time taken byour system into individual components.
+As ex-pected, binary rules account for the vast majorityof the time in the unpruned Viterbi case, but muchless time in the pruned case, with the total timetaken for binary rules in the coarse and fine passestaking about 1/5 of the time taken by binaries inthe unpruned version.
+Queueing, which involvescopying memory around within the GPU to pro-cess the individual parse items, takes a fairly con-sistent amount of time in all systems.
+Overhead,which includes transport time between the CPUand GPU and other processing on the CPU, is rela-tively small for most system configurations.
+Thereis greater overhead in the scaling system, becausescaling factors are copied to the CPU between thecoarse and fine passes.A final question is: how many sentences persecond do we need to process to saturate theGPU?s processing power?
+We computed Viterbiparses of successive powers of 10, from 1 to100,000 sentences.6In Figure 4, we then plottedthe throughput, in terms of number of sentencesper second.
+Throughput increases through parsing10,000 sentences, and then levels off by the time itreaches 100,000 sentences.6We replicated the Treebank for the 100,000 sentencespass.215System Coarse Pass Fine PassBinary Unary Queueing Masks Overhead Binary Unary Queueing OverheadUnpruned Viterbi ?
+?
+?
+?
+?
+5.42 0.14 0.33 0.40Pruned Viterbi 0.59 0.02 0.19 0.04 0.22 0.56 0.10 0.34 0.22Pruned Scaling 0.59 0.02 0.19 0.04 0.20 1.74 0.24 0.46 0.84Table 4: Breakdown of time spent in our different systems, in seconds per 1000 sentences.
+Binary andUnary refer to spent processing binary rules.
+Queueing refers to the amount of time used to move memoryaround within the GPU for processing.
+Overhead includes all other time, which includes communicationbetween the GPU and the CPU.Sentences/Second0100200300400Number of Sentences1 10 100 1K 10K 100KFigure 4: Plot of speeds (sentences / second) forvarious sizes of input corpora.
+The full power ofthe GPU parser is only reached when run on largenumbers of sentences.11 Related WorkApart from the model of Canny et al (2013), therehave been a few attempts at using GPUs in NLPcontexts before.
+Johnson (2011) and Yi et al(2011) both had early attempts at porting pars-ing algorithms to the GPU.
+However, they didnot demonstrate significantly increased speed overa CPU implementation.
+In machine translation,He et al (2013) adapted algorithms designed forGPUs in the computational biology literature tospeed up on-demand phrase table extraction.12 ConclusionGPUs represent a challenging opportunity for nat-ural language processing.
+By carefully design-ing within the constraints imposed by the architec-ture, we have created a parser that can exploit thesame kinds of sparsity that have been developedfor more traditional architectures.One of the key remaining challenges goingforward is confronting the kind of lexicalizedsparsity common in other NLP models.
+TheBerkeley parser?s grammars?by virtue of beingunlexicalized?can be applied uniformly to allparse items.
+The bilexical features needed bydependency models and lexicalized constituencymodels are not directly amenable to accelerationusing the techniques we described here.
+Deter-mining how to efficiently implement these kindsof models is a promising area for new research.Our system is available as open-source athttps://www.github.com/dlwh/puck.AcknowledgmentsThis work was partially supported by BBN un-der DARPA contract HR0011-12-C-0014, by aGoogle PhD fellowship to the first author, andan NSF fellowship to the second.
+We furthergratefully acknowledge a hardware donation byNVIDIA Corporation.ReferencesJohn Canny, David Hall, and Dan Klein.
+2013.
+Amulti-teraflop constituency parser using GPUs.
+InProceedings of EMNLP, pages 1898?1907, October.Eugene Charniak, Mark Johnson, Micha Elsner, JosephAusterweil, David Ellis, Isaac Haxton, CatherineHill, R Shrivaths, Jeremy Moore, Michael Pozar,et al 2006.
+Multilevel coarse-to-fine pcfg pars-ing.
+In Proceedings of the main conference on Hu-man Language Technology Conference of the NorthAmerican Chapter of the Association of Computa-tional Linguistics, pages 168?175.
+Association forComputational Linguistics.Joshua Goodman.
+1996.
+Parsing algorithms and met-rics.
+In ACL, pages 177?183.Hua He, Jimmy Lin, and Adam Lopez.
+2013.
+Mas-sively parallel suffix array queries and on-demandphrase extraction for statistical machine translationusing gpus.
+In Proceedings of the 2013 Confer-ence of the North American Chapter of the Associ-ation for Computational Linguistics: Human Lan-guage Technologies, pages 325?334, Atlanta, Geor-gia, June.
+Association for Computational Linguis-tics.Mark Johnson.
+2011.
+Parsing in parallel on multiplecores and gpus.
+In Proceedings of the AustralasianLanguage Technology Association Workshop.216Mitchell P. Marcus, Beatrice Santorini, and Mary AnnMarcinkiewicz.
+1993.
+Building a large annotatedcorpus of English: The Penn Treebank.
+Computa-tional Linguistics, 19(2):313?330.Takuya Matsuzaki, Yusuke Miyao, and Jun?ichi Tsujii.2005.
+Probabilistic CFG with latent annotations.
+InACL, pages 75?82, Morristown, NJ, USA.CUDA Nvidia.
+2008.
+Programming guide.Slav Petrov and Dan Klein.
+2007.
+Improved inferencefor unlexicalized parsing.
+In NAACL-HLT.Khalil Simaan.
+2003.
+On maximizing metrics for syn-tactic disambiguation.
+In Proceedings of IWPT.Ivan Titov and James Henderson.
+2006.
+Loss min-imization in parse reranking.
+In Proceedings ofEMNLP, pages 560?567.
+Association for Computa-tional Linguistics.Youngmin Yi, Chao-Yue Lai, Slav Petrov, and KurtKeutzer.
+2011.
+Efficient parallel cky parsing ongpus.
+In Proceedings of the 2011 Conference onParsing Technologies, Dublin, Ireland, October.217

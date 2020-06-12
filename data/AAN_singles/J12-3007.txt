@@ -1,0 +1,859 @@
+A Scalable Distributed Syntactic, Semantic,and Lexical Language ModelMing Tan?Wright State UniversityWenli Zhou?
+?Wright State UniversityLei Zheng?Wright State UniversityShaojun Wang?Wright State UniversityThis paper presents an attempt at building a large scale distributed composite language modelthat is formed by seamlessly integrating an n-gram model, a structured language model, andprobabilistic latent semantic analysis under a directed Markov random field paradigm to simul-taneously account for local word lexical information, mid-range sentence syntactic structure,and long-span document semantic content.
+The composite language model has been trained byperforming a convergent N-best list approximate EM algorithm and a follow-up EM algorithmto improve word prediction power on corpora with up to a billion tokens and stored on asupercomputer.
+The large scale distributed composite language model gives drastic perplexityreduction over n-grams and achieves significantly better translation quality measured by theBleu score and ?readability?
+of translations when applied to the task of re-ranking the N-best listfrom a state-of-the-art parsing-based machine translation system.No rights reserved.
+This work was authored as part of the Contributor?s official duties as an Employee ofthe United States Government and is therefore a work of the United States Government In accordance with1.
+IntroductionThe Markov chain (n-gram) source models, which predict each word on the basis of theprevious n?
+1 words, have been the workhorses of state-of-the-art speech recognizersand machine translators that help to resolve acoustic or foreign language ambiguities byplacing higher probability on more likely original underlying word strings.
+Althoughthe Markov chains are efficient at encoding local word interactions, the n-gram model?
+Kno.e.sis Center and Department of Computer Science and Engineering, Wright State University, DaytonOH 45435.
+E-mail: tan.6@wright.edu.??
+Kno.e.sis Center and Department of Computer Science and Engineering, Wright State University, DaytonOH 45435.
+E-mail: zhou.23@wright.edu.?
+Kno.e.sis Center, Wright State University, Dayton OH 45435.
+E-mail: lei.zheng@wright.edu.?
+Kno.e.sis Center and Department of Computer Science and Engineering, Wright State University, DaytonOH 45435.
+E-mail: shaojun.wang@wright.edu.Submission received: 10 October 2010; revised submission received: 17 October 2011; accepted for publication:16 November 2011.17 U.S.C.
+105, no copyright protection is available for such works under U.S. law.Computational Linguistics Volume 38, Number 3clearly ignores the rich syntactic and semantic structures that constrain natural lan-guages.
+Attempting to increase the order of an n-gram to capture longer range depen-dencies in natural language immediately runs into the curse of dimensionality (Bengioet al 2003).
+The performance of conventional n-gram technology has essentially reacheda plateau (Rosenfeld 2000b; Zhang 2008), and it has proven remarkably difficult toimprove on n-grams (Jelinek 1991; Jelinek and Chelba 1999).
+Research groups (Och 2005;Zhang, Hildebrand, and Vogel 2006; Brants et al 2007; Emami, Papineni, and Sorensen2007) have shown that using an immense distributed computing paradigm, up to6-grams, can be trained on up to billions and trillions of tokens, yielding consistent sys-tem improvements because of excellent n-gram hit ratios on unseen test data, but Zhang(2008) did not observe much improvement beyond 6-grams.
+As the machine translation(MT) working groups stated in their final report (Lavie et al 2006, page 3), ?Theseapproaches have resulted in small improvements in MT quality, but have not funda-mentally solved the problem.
+There is a dire need for developing novel approaches tolanguage modeling.
+?Over the past two decades, more sophisticated models have been developed thatoutperform n-grams; these are mainly the syntactic language models (Della Pietra et al1994; Chelba 2000; Chelba and Jelinek 2000; Charniak 2001; Roark 2001; Wang andHarper 2002; Jelinek 2004; Bened??
+and Sa?nchez 2005; Van Uytsel and Compernolle 2005)that effectively exploit sentence-level syntactic structure of natural language, and thetopic language models (Saul and Pereira 1997; Gildea and Hofmann 1999; Bellegarda2000; Wallach 2006) that exploit document-level semantic content.
+Unfortunately, eachof these language models only targets some specific, distinct linguistic phenomena(Pereira 2000; Rosenfeld 2000a, 2000b); thus, each captures and exploits different aspectsof natural language regularity.
+A natural question we should ask is whether/howwe can construct more complex and powerful but computationally tractable languagemodels by integrating many existing/emerging language model components, with eachcomponent focusing on specific linguistic phenomena like syntactic structure, semantictopic, morphology, and pragmatics in complementary, supplementary, and coherentways (Bellegarda 2001, 2003).Several techniques for combining language models have been investigated.
+Themost commonly used method is linear interpolation (Chen and Goodman 1999; Jelinekand Mercer 1980; Goodman 2001), where each individual model is trained separatelyand then combined by a weighted linear combination.
+All of the syntactic structure-based models have used linear interpolation to combine trigrams to achieve furtherimprovement over using their own models alone (Charniak 2001; Chelba and Jelinek2000; Chelba 2000; Roark 2001).
+The weights in this case are trained using held-outdata.
+Even though this technique is simple and easy to implement, it does not generallyyield very effective combinations (Rosenfeld 1996) because the linear additive formis a strong assumption in capturing subtleties in each of the component models (seemore explanation and analysis in Section 6.2 and Appendix A).
+The second methodis based on maximum entropy philosophy, which became very popular in machinelearning and natural language processing communities due to the work in Berger,Della Pietra, and Della Pietra (1996), Della Pietra, Della Pietra, and Lafferty (1997),Lau et al (1993) and Rosenfeld (1996).
+In fact, for a complete data case, maximumentropy is nothing but maximum likelihood estimation for undirected Markov randomfields (MRFs) (Berger, Della Pietra, and Della Pietra 1996; Della Pietra, Della Pietra,and Lafferty 1997).
+As stated in Wang et al (2005b), however, there are two weaknesseswith maximum entropy approach.
+The first weakness is that this approach can onlymodel distributions over explicitly observed features, but we know there is hidden632Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language Modelinformation in natural language, such as syntactic structure and semantic topic.
+Thesecond weakness is that if the statistical model is too complex it becomes intractable toestimate model parameters; computationally very expensive Markov chain Monte Carlosampling methods (Mark, Miller, and Grenander 1996; Rosenfeld 2000b; Rosenfeld,Chen, and Zhu 2001) would have to be used.
+One way to overcome the first hurdleis to use a preprocessing tool to extract hidden features (e.g., Rosenfeld [1996] usedmutual information clustering method to find word pair triggers) then combine thesetriggers with trigrams through a maximum conditional entropy approach to allow thediscourse topic to influence word prediction; Khudanpur and Wu (2000) used Chelbaand Jelinek?s structured language model and a word clustering model to extract relevantgrammatical and semantic features, then to again combine these features with trigramsthrough a maximum conditional entropy approach to form a syntactic, semantic, andlexical language model.
+Wang and colleagues (Wang et al 2005a; Wang, Schuurmans,and Zhao 2012) have proposed the latent maximum entropy (LME) principle, whichextends standard maximum entropy estimation by incorporating hidden dependencystructure, but still the LME wouldn?t overcome the second hurdle.
+The third method isdirected Markov random field (Wang et al 2005b) that overcomes both weaknesses inthe maximum entropy approach.
+Wang et al used this approach to combine trigram,probabilistic context-free grammar (PCFG), and probabilistic latent semantic analysis(PLSA) models; a generalized inside?outside algorithm is derived that alters the well-known inside?outside algorithm for PCFG (Baker 1979; Lari and Young 1990) withmodular modification to take into account the effect of n-gram and PLSA while remain-ing at the same cubic time complexity.
+When applying this to the Wall Street Journalcorpus with 40 million tokens, they achieved moderate perplexity reduction.
+Becausethe probabilistic dependency structure in a structured language model (SLM) (Chelba2000; Chelba and Jelinek 2000) is more complex and powerful than that in a PCFG,Wang et al (2006) studied the stochastic properties for the composite language modelthat integrates n-gram, SLM, and PLSA under the directed MRF framework (Wang et al2005b) and derived another generalized inside?outside algorithm to train a composite n-gram, SLM, and PLSA language model from a general expectation maximization (EM)(Dempster, Laird, and Rubin 1977) algorithm by following Jelinek?s ingenious definitionof the inside and outside probabilities for SLM (Jelinek 2004).
+Again, the generalizedinside?outside algorithm alters Jelinek?s inside?outside algorithm with modular modi-fication and has the same sixth order of sentence-length time complexity.
+Unfortunately,there are no experimental results reported.In this article, we study the same composite n-gram, SLM, and PLSA model un-der the directed MRF framework as in Wang et al (2006).
+The composite n-gram/SLM/PLSA language model under the directed MRF paradigm is first introduced inSection 2.
+In Section 3, instead of using the sixth order generalized inside?outsidealgorithm proposed in Wang et al (2006), we show how to train this composite modelvia an N-best list approximate EM algorithm that has linear time complexity and afollow-up EM algorithm to improve word prediction power.
+We prove the convergenceof the N-best list approximate EM algorithm.
+To resolve the data sparseness problem,we generalize Jelinek and Mercer?s recursive mixing scheme for Markov source (Jelinekand Mercer 1980) to a mixture of Markov chains.
+To handle large-scale corpora up to abillion tokens, we demonstrate how to implement these algorithms under a distributedcomputing environment and how to store this language model on a supercomputer.
+InSection 4, we describe how to use the model for testing.
+Related works are then summa-rized and compared in Section 5.
+Because language modeling is a data-rich and feature-rich density estimation problem, there is always a trade-off between approximate error633Computational Linguistics Volume 38, Number 3and estimation error, thus in Section 6 we conduct comprehensive experiments oncorpora with 44 million tokens, 230 million tokens, and 1.3 billion tokens, and compareperplexity results with n-grams (n = 3, 4, 5 respectively) on these three corpora undervarious situations; drastic perplexity reductions are obtained.
+We explain why the com-posite language models lead to better predictive capacity than linear interpolation.
+Theproposed composite language models are applied to the task of re-ranking the N-bestlist from Hiero (Chiang 2005, 2007), a state-of-the-art parsing-based machine translationsystem; we achieve significantly better translation quality measured by the Bleu scoreand ?readability?
+of translations.
+Finally, we draw our conclusions and propose futurework in Section 7.The main theme of our approach is ?to exploit information, be it syntactic structureor semantic fabric, which involves a fairly high degree of cognition.
+This is preciselythe kind of knowledge that humans naturally and inherently use to process naturallanguage, so it can be reasonably conjectured to represent a key ingredient for success?
+(Bellegarda 2003, p. 105).
+In that light, the directed MRF framework, ?whose ultimategoal is to integrate all available knowledge sources, appears most likely to harbor apotential breakthrough.
+It is hoped that the on-going effort conducted in this work toleverage such latent synergies will lead, in the not-too-distant future, to more polyva-lent, multi-faceted, effective and tractable solutions for language modeling ?
+this is onlybeginning to scratch the surface in developing systems capable of deep understandingof natural language?
+(Bellegarda 2003, p. 105).2.
+The Composite n-gram/SLM/PLSA Language ModelLet X denote a set of random variables (X?)???
+taking values in a (discrete) probabilityspace (X?)??
+?, where ?
+is a finite set of states.
+We define a (discrete) directed Markovrandom field to be a probability distribution P , which admits a recursive factorizationif there exist non-negative functions, ??
+(?, ?
+), ?
+?
+?
+defined on X?
+?Xpa(?
+), such that?x???
+(x?, xpa(?)
+) = 1 and P has densityp(x) =??????
+(x?, xpa(?)
+) (1)Here pa(?)
+denotes the set of parent states of ?.
+If the recursive factorization refers to agraph, then we have a Bayesian network (Lauritzen 1996).
+Broadly speaking, however,the recursive factorization can refer to a representation more complicated than a graphwith a fixed set of nodes and edges?for example, PCFG and SLM are examples ofdirected MRFs whose parse tree structure is a random object that can?t be describedas a Bayesian network (McAllester, Collins, and Pereira 2004).
+A key difference be-tween directed MRFs and undirected MRFs is that a directed MRF requires manylocal normalization constraints whereas an undirected MRF has a global normalizationfactor.The n-gram (Jelinek 1998; Jurafsky and Martin 2008) language model is essentially aWORD-PREDICTOR, that is, given its entire document history, it predicts the next wordwk+1 ?
+V based on the last n?1 words with probability p(wk+1|wkk?n+2) where wkk?n+2 =wk?n+2, ?
+?
+?
+,wk and V denotes the vocabulary.The SLM proposed in Chelba and Jelinek (1998, 2000) and Chelba (2000) uses syntac-tic information beyond the regular n-gram models to capture sentence-level long-range634Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language Modeldependencies.
+The SLM is based on statistical parsing techniques that allow syntacticanalysis of sentences; it assigns a probability p(W,T) to every sentence W and everypossible binary parse T. The terminals of T are the words of W with part of speech(POS) tags, and the nodes of T are annotated with phrase headwords and non-terminallabels.
+Let W be a sentence of length n words to which we have prepended the sentencebeginning marker ?s?
+and appended the sentence end marker ?/s?
+so that w0 =?s?
+andwn+1 =?/s?.
+Let Wk = w0, ?
+?
+?
+,wk be the word k-prefix of the sentence (the words fromthe beginning of the sentence up to the current position k) and WkTk be the word-parsek-prefix.
+A word-parse k-prefix has a set of exposed heads h?m, ?
+?
+?
+, h?1 ?
+H, with eachhead being a pair (headword, non-terminal label), H = V ?ONT where ONT denotesthe set of non-terminal label (NTlabel), or in the case of a root-only tree (word, POS tag)H = V ?O where O denotes the set of POS tags.
+The exposed heads at a given positionk in the input sentence are a function of the word-parse k-prefix.The SLM operates left-to-right, building up the parse structure in a bottom?upmanner.
+At any given stage of the word generation by the SLM, the exposed headwordsare those headwords of the current partial parse which are not yet part of a higherphrase with a head of its own.
+An mth order SLM (m-SLM) has three operators togenerate a sentence: The WORD-PREDICTOR predicts the next word wk+1 ?
+V based on the mmost recently exposed headwords h?1?m = h?m, ?
+?
+?
+, h?1 in the word-parsek-prefix with probability p(wk+1|h?1?m), and then passes control to theTAGGER. The TAGGER predicts the POS tag tk+1 ?
+O to the next word wk+1 basedon the next word wk+1 and the POS tags of the m most recently exposedheadwords h?1?m (denoted as h?1?m.tag = h?m.tag, ?
+?
+?
+, h?1.tag) in theword-parse k-prefix with probability p(tk+1|wk+1, h?1?m.tag). The CONSTRUCTOR builds the partial parse Tk+1 from Tk, wk+1, and tk+1in a series of moves ending with NULL, where a parse move a is madewith probability p(a|h?1?m); a ?
+A={(unary, NTlabel), (adjoin-left, NTlabel),(adjoin-right, NTlabel), NULL}.
+Depending on an action a = adjoin-rightor adjoin-left, the headword h?1 or h?2 is percolated up by one tree level,the indices of the current exposed headwords h?3, h?4, ?
+?
+?
+are increasedby 1, and these headwords together with h?1 or h?2 become the newexposed headwords.
+Once the CONSTRUCTOR hits NULL, theheadword indexing and current parse structure remain as they are,and the CONSTRUCTOR passes control to the WORD-PREDICTOR.SLM is thus essentially a generalization of a shift-reduce parser (Aho and Ullman1972) with adjoin corresponding to reduce and predict to shift.
+(See a detailed descriptionabout SLM in Chelba and Jelinek [1998, 2000]; Chelba [2000]; Jelinek [2004]).
+As anexample taken from Jelinek (2004), Figure 1 shows a complete parse where SB/SE is adistinguished POS tag for ?s?/?/s?
+respectively, (?s?,TOP) is the only allowed head, and(?/s?,TOP?)
+is the head of any constituent that dominates ?/s?
+but not ?s?.
+In Figure 1,at the time just after the word as is generated, the exposed headwords are ??s?
+SB,show np, has vbz.?
+The subsequent model actions are: ?POStag as, null, predict its,POStag its, null, predict host, POStag host, adjoin-right-np, adjoin-left-pp, adjoin-left-pp, null, predict a, ?
+?
+?
+.
+?635Computational Linguistics Volume 38, Number 3Figure 1A complete parse tree by the structured language model.A PLSA model (Hofmann 2001) is a generative probabilistic model of word-document co-occurrences using the bag-of-words assumption described as follows: Choose a document d with probability p(d). SEMANTIZER selects a semantic class g ?
+G with probability p(g|d) whereG denotes the set of topics. WORD-PREDICTOR picks a word w ?
+V with probability p(w|g).Because only one pair of (d,w) is being observed, the joint probability model is a mixtureof log-linear models with the expression p(d,w) = p(d)?g p(w|g)p(g|d).
+Typically, thenumber of documents and the vocabulary size are much larger than the size of latentsemantic class variables.
+Latent semantic class variables therefore function as bottleneckvariables to constrain word occurrences in documents.When combining n-gram, m-SLM, and PLSA together to build a compositegenerative language model under the directed MRF paradigm (Wang et al 2005b,2006), the composite language model is simply a complicated generative model that hasfour operators: WORD-PREDICTOR, TAGGER, CONSTRUCTOR, and SEMANTIZER.The TAGGER and CONSTRUCTOR in SLM and the SEMANTIZER in PLSA remainunchanged; the WORD-PREDICTORs in n-gram, m-SLM, and PLSA, however, arecombined to form a stronger WORD-PREDICTOR that generates the next word, wk+1,not only depending on the m most recently exposed headwords h?1?m in the word-parsek-prefix but also its n-gram history wkk?n+2 and its semantic content gk+1.
+The parameterfor WORD-PREDICTOR in the composite n-gram/m-SLM/PLSA language modelbecomes p(w|w?1?n+1h?1?mg).
+The resulting composite language model has an even morecomplex dependency structure but with more expressive power than the originalSLM.
+Figure 2 illustrates the structure of a composite n-gram/m-SLM/PLSA languagemodel.The composite n-gram/m-SLM/PLSA language model can be formulated as arather complex chain-tree-table directed MRF model (Wang et al 2006) with local636Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language ModelFigure 2A composite n-gram/m-SLM/PLSA language model where the hidden information is the parsetree T and semantic content g. The n-gram encodes local word interactions, the m-SLM modelsthe sentence?s syntactic structure, and the PLSA captures the document?s semantic content;all interact together to constrain the generation of natural language.
+The WORD-PREDICTORgenerates the next word wk+1 with probability p(wk+1|wkk?n+2h?1?mgk+1) instead of p(wk+1|wkk?n+2),p(wk+1|h?1?m), and p(wk+1|gk+1), respectively.normalization constraints for the parameters of each model component, WORD-PREDICTOR, TAGGER, CONSTRUCTOR, and SEMANTIZER.
+That is,?w?Vp(w|w?1?n+1h?1?mg) = 1 (2)?t?Op(t|wh?1?m.tag) = 1 (3)?a?Ap(a|h?1?m) = 1 (4)?g?Gp(g|d) = 1 (5)If we look at the example in Figure 1, for the composite n-gram/m-SLM/PLSAlanguage model there exists a SEMANTIZER?s action to choose a topic g beforeany WORD-PREDICTOR?s action.
+Moreover, for m-SLM, its WORD-PREDICTORpredicts the next word, such as a, based on m most recently exposed headwords?
+?s?-SB, show-np, has-vp,?
+but for the composite model, the WORD-PREDICTORpredicts the next word a based on m most recently exposed headwords ?
+?s?-SB,show-np, has-vp,?
+n-grams ?as its host,?
+and a topic g. These are the only differencesbetween SLM and our proposed composite language model.3.
+Training AlgorithmFor the composite n-gram/m-SLM/PLSA language model under the directed MRFparadigm, the likelihood of a training corpus D, a collection of documents, can bewritten asL?
+(D, p) =?d?D?????l???Gl???TlPp(Wl,Tl,Gl|d)??????
+p(d)??
+(6)637Computational Linguistics Volume 38, Number 3where (Wl,Tl,Gl|d) denotes the joint sequence of the lth sentence Wl with its parse struc-ture Tl and semantic annotation string Gl in document d. This sequence is produced bya unique sequence of model actions: WORD-PREDICTOR, TAGGER, CONSTRUCTOR,SEMANTIZER moves; its probability is obtained by chaining the probabilities of thesemovesPp(Wl,Tl,Gl|d) =?g?G??p(g|d)#(g,Wl,Gl,d)?h?1,???
+,h?m?H(7)???w,w?1,???
+,w?n+1?Vp(w|w?1?n+1h?1?mg)#(w?1?n+1wh?1?mg,Wl,Tl,Gl,d)?t?Op(t|wh?1?m.tag)#(t,wh?1?m.tag,Wl,Tl,d)?a?Ap(a|h?1?m)#(a,h?1?m,Wl,Tl,d)))where #(g,Wl,Gl, d) is the count of semantic content g in semantic annotation string Gl ofthe lth sentence Wl in document d; #(w?1?n+1wh?1?mg,Wl,Tl,Gl, d) is the count of n-grams,its m most recently exposed headwords, and semantic content g in parse Tl and semanticannotation string Gl of the lth sentence Wl in document d; #(twh?1?m.tag,Wl,Tl, d) is thecount of tag t predicted by word w and the tags of m most recently exposed headwordsin parse tree Tl of the lth sentence Wl in document d; and finally #(ah?1?m,Wl,Tl, d) is thecount of constructor move a conditioning on m exposed headwords h?1?m in parse tree Tlof the lth sentence Wl in document d.LetL(D, p) =?d?D???l???Gl???TlPp(Wl,Tl,Gl|d)??????
+(8)thenL?
+(D, p) = L(D, p)?d?D(p(d))(9)Clearly, when maximizing L?
+(D, p) in Equation (6), p(d) is an ancillary term that isindependent of all other data-generating parameters, it is not critical to anything thatfollows; moreover, when a language model is used to find the most likely word se-quence in machine translation and speech recognition, this term is useless.
+Thus, similarto an n-gram language model, we will generally ignore this term and concentrate onoptimizing Equation (8) in the subsequent development.The objective of maximum likelihood estimation is to maximize the likelihoodL(D, p) with respect to model parameters.
+For a given sentence, its parse tree and638Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language Modelsemantic content are hidden and the number of parse trees grows faster than expo-nentially with sentence length; Wang et al (2006) have derived a generalized inside?outside algorithm by applying the standard EM algorithm and considering the auxiliaryfunctionQ(p?, p) =?d?D?l?Gl?TlPp(Tl,Gl|Wl, d) logPp?
+(Wl,Tl,Gl|d) (10)The complexity of this algorithm is sixth order (sentence length), however; thus it iscomputationally too expensive to be practical for a large corpus even with the use ofpruning on charts (Jelinek and Chelba 1999; Jelinek 2004).3.1 N-best List Approximate EMSimilar to SLM (Chelba and Jelinek 1998, 2000; Chelba 2000), we adopt an N-best listapproximate EM re-estimation with modular modifications to seamlessly incorporatethe effect of n-gram and PLSA components.
+Instead of maximizing the likelihoodL(D, p), we maximize the N-best list likelihood,maxT ?NL(D, p, T ?N ) =?d?D???l??
+maxT ?
+lN?T ?N???Gl??
+?Tl?T ?
+lN ,||T ?lN||=NPp(Wl,Tl,Gl|d)????????
+(11)where T ?lN is a set of N parse trees for sentence Wl in document d, || ?
+|| denotes thecardinality, and T ?N is a collection of T ?lN for sentences over entire corpus D.The N-best list approximate EM involves two steps:1.
+N-best list search: For each sentence W in document d, find N-bestparse trees,T lN = arg maxT ?
+lN{?Gl?Tl?T ?
+lNPp(Wl,Tl,Gl|d), ||T ?lN|| = N}and denote TN as the collection of N-best list parse trees for sentencesover entire corpus D under model parameter p.2.
+EM update: Perform one iteration (or several iterations) of the EMalgorithm to estimate model parameters that maximize N-best listlikelihood of the training corpus D,L?
+(D, p, TN ) =?d?D???l???Gl??
+?Tl?T lN?TNPp(Wl,Tl,Gl|d)?????
+?639Computational Linguistics Volume 38, Number 3That is,(a) E-step: Compute the auxiliary function of the N-best list likelihoodQ?
+(p?, p, TN ) =?d?D?l?Gl?Tl?T lN?TNPp(Tl,Gl|Wl, d) logPp?
+(Wl,Tl,Gl|d)(b) M-step: Maximize Q?
+(p?, p, TN ) with respect to p?
+to get the newupdate for p.Iterate steps (1) and (2) until the convergence of the N-best list likelihood.We use Zangwill?s global convergence theorem (Zangwill 1969) to analyze thebehavior of convergence of the N-best list approximate EM.First, we define two concepts needed for Zangwill?s global convergence theorem.A map M is from points of ?
+to subsets of ?
+is called a point-to-set map on ?.
+Itis said to be closed at ?
+if ?i ?
+?,?i ?
+?
+and ?i ?
+?, ?i ?
+M(?i) implies ?
+?
+M(?
+).For a point-to-point map, continuity implies closedness.
+Then the global convergencetheorem (Zangwill 1969) states the following.TheoremLet M be a point-to-set map (an algorithm) that, given a point ?0 ?
+?, generates asequence {?
+?i=0} through the iteration ?i+1 =M(?i).
+Let ?
+?
+?
+be the set of fixed pointsof M. Suppose (i) M is closed over the complement of ?
+; (ii) there is a continuousfunction ?
+on ?
+such that (a) if ?
+/?
+?, ?(?)
+> ?(?)
+for all ?
+?
+M(?
+), and (b) if ?
+?
+?,?(?)
+?
+?(?)
+for all ?
+?
+M(?
+).Then all the limit points of {?i} are in ?
+and ?
+(?i) converges monotonically to ?(?
+)for some ?
+?
+?.ProofThis theorem has been used by Wu (1983) to prove the convergence of a standard EMalgorithm (Dempster, Laird, and Rubin 1977).
+We now use this theorem to show thatthe N-best list approximate EM algorithm globally converges to the stationary pointsof the N-best list likelihood.
+We encounter one difficulty at this point, however, due tothe maximization operator in Equation (11); after each iteration the N-best list may havebeen changed, therefore the set of data presented for the estimation of model parametersmay be different from the previous one.
+Nevertheless, we prove the convergence of theN-best list approximate EM algorithm by checking whether it satisfies two conditionsin Zangwill?s global convergence theorem.
+Because the composite model is essentiallya mixture model of a curved exponential family through a complex hierarchy, thereis a closed form solution for the Q?
+(p?, p, TN ) function irrespective of the N-best listparse trees, so the N-best list approximate EM algorithm is a one-to-one map.
+BecauseQ?
+(p?, p, TN ) is continuous in both p?
+and p, the map is closed, thus condition (i) issatisfied.To check condition (ii), we need to verify that the N-best list likelihood as a functionof p satisfies the properties of ?(?)
+in condition (ii).
+Let T?N and T?N be the two collections640Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language Modelof N-best list parse trees for sentences over entire corpus D under two model parametersp?
+and p?, respectively:T?N = arg maxT ?NL(D, p?, T ?N ) (12)T?N = arg maxT ?NL(D, p?, T ?N ) (13)and let p?
+be the closed form solution of maximizing Q?
+(p?, p?, T?N ) with respect to p?, that is,p?
+= arg maxp?Q?
+(p?, p?, T?N ) (14)ThenmaxT ?NL(D, p?, T ?N ) ?
+L?
+(D, p?, T?N ) (15)?
+L?
+(D, p?, T?N ) (16)?
+maxT ?NL(D, p?, T ?N ) (17)The inequality in Equation (15) is strict unless T?N = T?N, which results in p?
+?
+M(p?
+).Using results proven by Wu (1983), we know that when p?
+is not a stationary point of theN-best list likelihood or p?
+/?
+M(p?
+), ?L?
+(D,p?,TN )?p?
+=?Q?
+(p?,p?,T?N )?p?
+= 0, Q?
+(p?, p?, T?N ) > Q?
+(p?, p?, T?N ),thus the inequality in Equation (16) is strict.
+Finally, the inequality in Equation (17) isstrict unless p?
+?
+M(p?).
+Thus condition (ii) is satisfied.This completes the proof that the N-best list approximate EM algorithm mono-tonically increases the N-best list likelihood and converges in the sense of Zangwill?sglobal convergence.In the following, we formally derive the N-best list approximate EM algorithm withlinear sentence length time complexity.
+3.1.1 N-best List Search Strategy.
+For each sentence W in document d, instead of scanningall the hidden events (both allowed parse trees and semantic annotation strings) werestrict the algorithm to operate with N-best hidden events.
+We find that, for eachdocument, a large number of topics should be pruned and only a small set of allowedtopics should be kept due to the considerations of both computational time and resourcedemand, otherwise we have to use many more machines to store WORD-PREDICTOR?sparameters.We can either find both the N-best parses for each sentence and N-best topics foreach document simultaneously or separately.
+The latter is much preferred, because thefirst case is much more computationally expensive.To extract the N-best topics, we run an EM algorithm for a PLSA model on trainingcorpus D, then keep the N most likely topics (denoted as Gd) according to the values ofp(g|d); the rest of the topics are purged.To extract the N-best parse trees, we adopt a synchronous, multi-stack searchstrategy that is similar to the one in Chelba and Jelinek (1998, 2000) and Chelba(2000), which involves a set of stacks storing partial parses of the most likely onesfor a given prefix Wk and the less probable parses are purged.
+Each stack contains641Computational Linguistics Volume 38, Number 3hypotheses (partial parses) that have been constructed by the same number of WORD-PREDICTOR and the same number of CONSTRUCTOR operations.
+The hypotheses ineach stack are ranked according to the log(Pp(Wk,Tk|d)) score with the highest on top,where Pp(Wk,Tk|d) =?GkPp(Wk,Tk,Gk|d) and the Wk,Tk,Gk denote the joint sequenceof prefix Wk = w0,w1 ?
+?
+?
+,wk with its parse structure Tk and semantic annotation stringGk = g1, ?
+?
+?
+, gk, gi ?
+Gd, i = 1, ?
+?
+?
+, k in document d. This sequence is produced by aunique sequence of model actions: WORD-PREDICTOR, TAGGER, CONSTRUCTOR,and SEMANTIZER moves.
+Its probability is obtained by chaining the probabilities ofthese moves.
+The value of Pp(Wk,Tk|d) is computed recursively from Pp(Wk?1,Tk?1|d)by the following formula:Pp(Wk,Tk|d) = Pp(Wk?1,Tk?1|d)???gk?Gdp(wk|wk?1k?n+1h?1?mgk)p(gk|d)?gi?Gdp(gi|d)??
+(18)p(tk|wk, h?1?m.tag)p(Tk?1,k|Wk?1Tk?1,wk, tk)where Wk?1Tk?1 is the word-parse (k?
+1)-prefix; wk is the kth word predicted byWORD-PREDICTOR; tk is the tag assigned to wk by the TAGGER; Tk?1,k is the incre-mental parse structure that generates Tk = Tk?1||Tk?1,k when attached to Tk?1, (thisis the parse structure built on top of Tk?1 and the newly predicted word wk); the ||notation stands for concatenation.
+Finally, p(Tk?1,k|Wk?1Tk?1,wk, tk) is the product ofthe probabilities of a series of CONSTRUCTOR moves in Tk?1,k to form Tk.
+Because thetopics are pruned to Gd, the probability of the SEMANTIZER is normalized to ensure aproper probability distribution.
+A stack vector consists of the ordered set of stacks con-taining partial parses with the same number of WORD-PREDICTOR operations but adifferent number of CONSTRUCTOR operations.
+In WORD-PREDICTOR and TAGGERoperations, some hypotheses are discarded due to the maximum number of hypothesesthat the stack can contain at any given time.
+In the CONSTRUCTOR operation, theresulting hypotheses are discarded due to either finite stack size or the log-probabilitythreshold (the maximum tolerable difference between the log-probability score of thetop-most hypothesis and the bottom-most hypothesis at any given state of the stack).The synchronous, multi-stack search strategy is a greedy best-first search algorithm,one of the local heuristic search procedures that does not use future cost estimatesto guide the search and thus does not guarantee that the N-best list parse trees are aglobal optimal solution (Russell and Norvig 2010).
+In practice, however, we find thatthe N-best list approximate EM algorithm does converge within several iterations.3.1.2 EM Update.
+Once we have both the N-best parse trees for each sentence in docu-ment d and the N-best topics for document d, we derive the EM algorithm to estimatemodel parameters.Maximizing Q?
+(p?, p, TN ) with respect to p?
+leads to re-estimated parameters of thecomposite model, which are nothing but the following normalized conditional expectedcounts:p?
+(w|w?1?n+1h?1?mg) ?
+?d?D?l?Gl?Tl?T lN?TNPp(Tl,Gl|Wl, d)#(w?1?n+1wh?1?mg,Wl,Tl,Gl, d) (19)642Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language Modelp?
+(t|wh?1?m.tag) ?
+?d?D?l?Tl?T lN?TNPp(Tl|Wl, d)#(twh?1?m.tag,Wl,Tl, d) (20)p?
+(a|h?1?m)) ?
+?d?D?l?Tl?T lN?TNPp(Tl|Wl, d)#(ah?1?m,Wl,Tl, d) (21)p?
+(g|d) ?
+?d?D?l?Gl?Tl?T lN?TNPp(Tl,Gl|Wl, d)#(g,Wl,Gl, d) (22)In the E-step, we use Equations (19)?
+(22) to compute the expected count of eachmodel parameter over sentence Wl in document d in the training corpus D. In the fullcase where the number of parse trees grows faster than exponentially with sentencelength, we use Jelinek-style recursive formulas in the generalized inside?outside algo-rithm (Jelinek 2004) to handle the tree structure and describe the weighted forest ofpossible derivations (Wang et al 2006).
+In the N-best list case considered in this paper,however, we just enumerate each parse tree in the N-best list and compute the expectedposterior count for each parse tree.
+For the WORD-PREDICTOR and the SEMANTIZER,we use Equations (19) and (22) and note that there is a sum over semantic annotation se-quence Gl where the number of possible semantic annotation sequences is exponential.We use forward?backward recursive formulas reminiscent of those in hidden Markovmodels to compute the expected counts.
+To be more specific, for each parse Tl ?
+T lN, wedefine the forward vector ?l(g|d) to be?lk+1(g|d) =?GlkPp(Wlk,Tlk,wkk?n+2wk+1h?1?mg,Glk|d) (23)= Pp(Wlk,Tlk,wkk?n+2wk+1h?1?mg|d)= Pp(Wlk,Tlk|d)p(wk+1|wkk?n+2h?1?mg, d)p(gk+1|d)?gi?Gdp(gi|d)where Wlk is the word k-prefix for sentence Wl, and Tlk is the parse for k-prefix.
+It is easyto see that the forward vector ?l(g|d) can be recursively computed in a forward mannerusing Equation (18) as?lk+1(g|d) =???gk?Gd?lk(gk|d)??
+p(tk|wk, h?1?m.tag)p(Tlk?1,k|Wlk?1Tlk?1,wk, tk) (24)p(wk+1|wkk?n+2h?1?mg, d)p(gk+1, d)?gi?Gdp(gi|d)We define the backward vector ?l(g|d) to be?lk+1(g|d) =?Glk+1,?Pp(Wlk+1,?,Tlk+1,?,Glk+1,?|wkk?n+2wk+1h?1?mg, d) (25)where Wlk+1,?
+= wlk+2, ?
+?
+?
+, ?/s?
+is the subsequence after word wlk+1 in sentence Wl, Tlk+1,?is the incremental parse structure after the parse structure Tlk+1 of word (k+ 1)-prefix643Computational Linguistics Volume 38, Number 3Wlk+1 that generates parse tree Tl, Tl = Tlk+1||Tlk+1,?, and Glk+1,?
+= gk+2, ?
+?
+?
+, is the seman-tic subsequence in Gl relevant to Wlk+1,?.
+Again it is easy to see that the backward vector?l(g|d) can be recursively computed in a backward manner as?lk+1(g|d) = p(tk+1|wk+1, h?1?m.tag)p(Tlk,k+1|WlkTlk,wk+1, tk+1) (26)?gk+2?Gdp(wk+2|wkk?n+3h?1?mgk+2, d)p(gk+2|d)?gi?Gdp(gi|d)?Glk+2,?Pp(Wlk+2,?,Tlk+2,?,Glk+2,?|wk+1k?n+3wk+2h?1?mgk+2, d)= p(tk+1|wk+1, h?1?m.tag)p(Tlk,k+1|WlkTlk,wk+1, tk+1)?gk+2?Gdp(wk+2|wkk?n+3h?1?mgk+2, d)p(gk+2|d)?gi?Gdp(gi|d)?lk+2(gk+2|d)Then, the expected count of w?1?n+1wh?1?mg for the WORD-PREDICTOR on sentence Wlin document d is?Gl?Tl?T lN?TNPp(Tl,Gl|Wl, d)#(w?1?n+1wh?1?mg,Wl,Tl,Gl, d) (27)=?Gl?Tl?T lN?TNPp(Tl,Gl,Wl|d)#(w?1?n+1wh?1?mg,Wl,Tl,Gl, d)/Pp(Wl|d)=?l?k?lk+1(g|d)?lk+1(g|d)?
+(wkk?n+2wk+1h?1?mgk+1 = w?1?n+1wh?1?mg)/Pp(Wl|d)where Pp(Wl|d) =?Gl?Tl?T lN?TNPp(Tl,Gl,Wl|d) =?Tl?T lN?TNPp(Tl,Wl|d), Pp(Tl,Wl|d)is recursively computed by Equation (18) through traversing the lth parse tree Tl ?
+T lNof sentence Wl from left to right, and ?(?)
+is an indicator function.
+The expected countof g for the SEMANTIZER on sentence Wl in document d is?Gl?Tl?T lN?TNPp(Tl,Gl|Wl, d)#(g,Wl,Gl, d) (28)=?l?k?lk+1(g|d)?lk+1(g|d)p(wk+1|wkk?n+2h?1?mg)/Pp(Wl|d)For the TAGGER and the CONSTRUCTOR, we use Equations (20) and (21), and theexpected count of each event of twh?1?m.tag and ah?1?m over parse Tl of sentence Wl indocument d is the real count appearing in parse tree Tl of sentence Wl in document dtimes the conditional distribution Pp(Tl|Wl, d) = Pp(Tl,Wl|d)/?Tl?T l Pp(Tl,Wl|d)?thatis, Pp(Tl|Wl, d)#(twh?1?m.tag,Wl,Tl, d) and Pp(Tl|Wl, d)#(ah?1?m,Wl,Tl, d), respectively.When only SLM is considered, the expected count for each model component,WORD-PREDICTOR, TAGGER, and CONSTRUCTOR, over parse Tl of sentence Wl indocument d is the real count that appeared in parse Tl of sentence Wl in document d644Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language Modeltimes the posterior probability Pp(Tl|Wl, d), as is done in Chelba and Jelinek (1998, 2000)and Chelba (2000).In the M-step, the recursive linear interpolation scheme (Jelinek and Mercer 1980)is used to obtain a smooth probability estimate for each model component (WORD-PREDICTOR, TAGGER, and CONSTRUCTOR).
+The TAGGER and CONSTRUCTOR areconditional probabilistic models of the type p(u|z1, ?
+?
+?
+, zn) where u, z1, ?
+?
+?
+, zn belong toa mixed set of words, POS tags, NTtags, and CONSTRUCTOR actions (u only); andz1, ?
+?
+?
+, zn form a linear Markov chain.
+The recursive mixing scheme is the standard oneamong relative frequency estimates of different orders k = 0, ?
+?
+?
+,n and has been ex-plained in Chelba and Jelinek (1998, 2000) and Chelba (2000).
+The WORD-PREDICTORis, however, a conditional probabilistic model p(w|w?1?n+1h?1?mg) where there are threekinds of context, w?1?n+1, h?1?m, and g?each forms a linear Markov chain.
+The modelhas a combinatorial number of relative frequency estimates of different orders amongthree linear Markov chains.
+We generalize Jelinek and Mercer?s (1980) original recur-sive mixing scheme to handle the situation where the context is a mixture of Markovchains.
+The factored language (FL) model (Bilmes and Kirchhoff 2003) is close to thesmoothing technique we propose here, the major difference is that FL considers allpossible combination of the context of conditional probability that can be conciselyrepresented by a factor graph, whereas our approach strictly respects the order ofMarkov chains for word sequence and headword sequence because we believe naturallanguage tightly follows these orders; moreover, where FL uses a backoff technique,we use linear interpolation.Consider a composite trigram/2-SLM/PLSA language model.
+Figure 3 illustratesa lattice formed of all possible conditional probabilistic models and relative frequencyFigure 3Recursive linear interpolation lattice to estimate WORD-PREDICTOR p(w|w?2w?1h?2h?1g) ofthe composite trigram/2-SLM/PLSA language model, where U is the vocabulary in which thepredicted random variable w takes values and p(U ) denotes uniform distribution of U .
+Thelattice is formed by three linear Markov chains, w?2w?1, h?2h?1, and g. Starting from p(U ),each vertex is visited in a bottom?up, back to front, and right to left order.645Computational Linguistics Volume 38, Number 3estimates of different orders along each of the three linear Markov chains.
+Each vertexin the lattice represents a conditional probabilistic model that is a linear interpolation ofvertices having directed arcs pointing to this vertex and its relative frequency estimate;the linear interpolation coefficients are the weights of directed arcs.
+For example, theWORD-PREDICTOR p(w|w?2w?1h?2h?1g) is a linear interpolation of three conditionalprobabilistic models, p(w|w?1h?2h?1g), p(w|w?2w?1h?1g), p(w|w?2w?1h?2h?1), andtheir relative frequency estimate f (w|w?2w?1h?2h?1g),p(w|w?2w?1h?2h?1g) = ?w(w?2w?1h?2h?1g) ?
+p(w|w?1h?2h?1g) (29)+?h(w?2w?1h?2h?1g) ?
+p(w|w?2w?1h?1g)+?g(w?2w?1h?2h?1g) ?
+p(w|w?2w?1h?2h?1)+(1 ?
+?w(w?2w?1h?2h?1g) ?
+?h(w?2w?1h?2h?1g)?
+?g(w?2w?1h?2h?1g)) ?
+f (w|w?2w?1h?2h?1g)where ?w(w?2w?1h?2h?1g), ?h(w?2w?1h?2h?1g), and ?g(w?2w?1h?2h?1g) are non-negative context-dependent interpolation coefficients with a sum of less than 1;f (w|w?2w?1h?2h?1g) =C(w?2w?1wh?2h?1g)C(w?2w?1h?2h?1g); and C(w?2w?1wh?2h?1g) is the expectedcount of the event w?2w?1wh?2h?1g that is extracted from the training cor-pus by the E-step of the N-best approximate EM algorithm, C(w?2w?1h?2h?1g) =?w?U C(w?2w?2wh?2h?1g).
+The linear interpolation coefficients are grouped intoequivalence classes (tied) based on the range into which the count falls; the count rangesfor each equivalence class, ?buckets,?
+are set such that a statistically sufficient numberof events fall within that range.
+In our experiments, we set the count ranges to be theintervals of 2i, i = 0, 1, ?
+?
+?
+, 10 (i.e., 0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, and ?
+).These ?tied?
+interpolation weights are determined by the maximum likelihood estimatefrom cross-validation data through the EM algorithm (Dempster, Laird, and Rubin 1977)where we use a public available parser in the openNLP software1 to parse sentences incross-validation data, and we run LSA to extract N most likely topics for each documentin cross-validation data, then we gather joint counts for each model component, WORD-PREDICTOR, TAGGER, CONSTRUCTOR used to determine interpolation weights.In the M-step, assuming that the count ranges and the corresponding interpolationvalues for each order are kept fixed to their initial values, the only parameters to bere-estimated using the EM algorithm are the maximal order counts for each modelcomponent.
+The interpolation scheme outlined here is then used to obtain a smoothprobability estimate for each model component.3.2 Follow-up EMAs explained in Chelba and Jelinek (2000) and Chelba (2000), for the SLM componenta large fraction of the partial parse trees that can be used for assigning probability tothe next word do not survive in the synchronous, multi-stack search strategy, thus theyare not used in the N-best approximate EM algorithm for the estimation of WORD-PREDICTOR to improve its predictive power.
+To remedy this weakness, we estimate a1 http://www.codeproject.com/KB/recipes/englishparsing.aspx.646Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language Modelseparate WORD-PREDICTOR (and SEMANTIZER) model using the partial parse treesexploited by the synchronous, multi-stack search strategy.First, we look at how to compute the language model probability assignment for theword at position k+1 in the input sentence of document d when the word-parse k-prefixWkTk is available.
+From the causal relationship among the parameters of the compositen-gram/m-SLM/PLSA, we havePp(wk+1|Wk, d) =?Tk?Zk,gk+1?GdPp(wk+1,Tk, gk+1|Wk, d) (30)=?Tk?Zk,gk+1?GdPp(wk+1|Wk,Tk, gk+1, d)Pp(Tk|Wk, d)p(gk+1|d)?gi?Gdp(gi|d)=?h?1?m?Tk;Tk?Zk,gk+1?Gdp(wk+1|wkk?n+2h?1?mgk+1)Pp(Tk|Wk, d)p(gk+1|d)?gi?Gdp(gi|d)where Pp(Tk|Wk, d) =?GkPp(Wk,Tk,Gk|d)?Tk?Zk?GkPp(Wk,Tk,Gk|d)to ensure a proper probability normaliza-tion over word strings Wk; Zk is the set of all parses present in the stacks at the currentstage k during the synchronous multi-stack pruning strategy and it is a function ofthe word k-prefix Wk = w0, ?
+?
+?
+,wk; Gk = g1, ?
+?
+?
+, gk, gi ?
+Gd, i = 1, ?
+?
+?
+, k is the semanticstring up to k; and Pp(Wk,Tk,Gk|d) is the joint probability of word-parse k-prefix WkTkand its semantic string Gk in a document d.The likelihood of a training corpus D under this language model probability as-signment that uses partial parse trees generated during the process of the synchronous,multi-stack search strategy can be written asL?
+(D, p) =?d?D?l(Pp(Wl|d))(31)where Pp(Wl|d) =?k Pp(w(l)k+1|Wlk, d) and Wl is the lth sentence in document d. Again,similar to Equation (8), we ignore the ancillary term p(d) in Equation (31).We use a second stage of parameter re-estimation for p(wk+1|wkk?n+2h?1?mgk+1)and p(gk+1|d) by maximizing Equation (31) to improve WORD-PREDICTOR?spredictive power.
+In this case, the estimation of the WORD-PREDICTOR is forthe emission probability of a hidden Markov model with fixed transition probabil-ities (although dependent on the position k in the input sentence) specified by thePp(Tk|Wk, d)p(gk+1|d)?gi?Gdp(gi|d)values.
+We use EM again.
+The E-step is to gather expectedjoint counts C(wkk?n+2wk+1h?1?mgk+1, d) and C(gk+1, d) of the WORD-PREDICTORmodel by accumulating each count at position k weighted by a posterior probabilityPp(Tk, gk+1|wk+1,Wk, d), namely,Pp(Tk, gk+1|wk+1,Wk, d) =p(wk+1|wkk?n+2h?1?mgk+1)p(gk+1|d)Pp(Tk|Wk, d)?h?1?m?Tk?Zk,g?Gdp(wk+1|wkk?n+2h?1?mg)p(g|d)Pp(Tk|Wk, d)The M-step uses the same count smoothing technique as that described in the N-bestlist approximate EM.647Computational Linguistics Volume 38, Number 33.3 Distributed ArchitectureWhen using very large corpora to train our composite language model, the data and theparameters cannot be stored together on a single machine, so we have to resort to dis-tributed computing.
+The topic of large-scale distributed language models is relativelynew, and existing work is restricted to n-grams only (Zhang, Hildebrand, and Vogel2006; Brants et al 2007; Emami, Papineni, and Sorensen 2007).
+Although all existingresearch use distributed architectures that follow the client?server paradigm, the realimplementations are in fact different.
+Zhang et al (2006) and Emami et al (2007) storetraining corpora in suffix arrays such that one sub-corpus per server serves raw counts,and test sentences are loaded in a client.
+This implies that when computing the languagemodel probability of a sentence in a client, all servers need to be contacted for eachn-gram request.
+The approach by Brants et al (2007) follows a standard MapReduceparadigm (Dean and Ghemawat 2004): The corpus is first divided and loaded into anumber of clients, and n-gram counts are collected at each client, then the n-gram countsare mapped via hashing and are stored in a number of servers, resulting in exactly oneserver being contacted per n-gram when computing the language model probabilityof a sentence.
+We adopt a similar approach to Brants et al (2007) and make it suitableto perform iterations of the N-best list approximate EM algorithm (see Figure 4).
+Thecorpus is divided and loaded into a number of clients.
+We use a publicly availableparser to parse the sentences in each client to get the initial counts for w?1?n+1wh?1?mg(WORD-PREDICTOR), twh?1?m.tag (TAGGER), and ah?1?m (CONSTRUCTOR), we finishthe Map part, and then the counts for a particular w?1?n+1wh?1?mg at different clients aresummed up and stored in one of the servers by hashing through word w?1, headwordh?1, and its topic g. The counts for all twh?1?m.tag and ah?1?m at different clients aresummed up and stored in one of the servers, then we complete the Reduce part.
+Thisis the initialization of the N-best list approximate EM step.
+Each client then calls theservers for parameters to perform a synchronous multi-stack search for each sentenceto get the N-best list parse trees.
+Again, the expected count for a particular parameter ofw?1?n+1wh?1?mg, twh?1?m.tag, and ah?1?m at the clients are computed, thus we finish the Mappart.
+The expected count of w?1?n+1wh?1?mg are then summed up and stored in one of theservers by hashing through word w?1, headword h?1, and its topic g, and the countsfor all twh?1?m.tag and ah?1?m at different clients are summed up and stored in one ofthe servers; thus we finish the Reduce part.
+The SEMANTIZER has document-specificFigure 4Distributed architecture is essentially a MapReduce paradigm: Clients store partitioned data andperform the E-step: compute expected counts; this is ?Map.?
+Servers store parameters (counts)for the M-step where counts of w?1?n+1wh?1?mg are hashed by word w?1, headword h?1, and itstopic g to evenly distribute these model parameters into servers as much as possible and countsof twh?1?m.tag and ah?1?m are stored into one server; this is ?Reduce.
+?648Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language Modelparameters, thus the EM iterative updates are performed at each of local clients.
+Werepeat this procedure until convergence.Similarly, we use a distributed architecture as in Figure 4 to perform the follow-upEM algorithm to re-estimate WORD-PREDICTOR.4.
+Using the Model for TestingWhen a language model is used in one-pass decoders of speech recognition andphrased-based MT systems to guide the search, the search space is organized as a prefixtree and operates left to right, thus we need to know the language model probability atthe word level given by Equation (30) one word at a time.
+Because a document of thetest data is not contained in the original training corpus, to compute the language modelprobability assignment for word wk+1 we use a ?fold-in?
+heuristic approach similarto the one used in Hofmann (2001): The parameters corresponding to SEMANTIZER,p(g|d), are re-estimated by maximizing the probability of word subsequence seen sofar?that is, a pseudo-document d?k = (Wk,S), where S is the set of previous sentences ofa document in test data?while holding the other parameters fixed.
+Wang et al (2005b)use on-line gradient ascent to re-estimate these parameters.
+We use three methods, one-step on-line EM, on-line EM with fixed learning rate, and batch EM, to re-estimate theseparameters.
+Both one-step on-line EM and on-line EM with fixed learning rate useEquation (32) with ?
+set to 1|d?k|+1and a constant 0.2, respectively.p(g|d?k) = ?
+?h?1?m?Tk?1;Tk?1?Zk?1p(wk|wk?1k?n+1h?1?mg)p(g|d?k?1)Pp(Tk?1|Wk?1, d?k?1)?g?Gd?h?1?m?Tk?1;Tk?1?Zk?1p(wk|wk?1k?n+1h?1?mg)p(g|d?k?1)Pp(Tk?1|Wk?1, d?k?1)+(1 ?
+?
+)p(g|d?k?1) (32)The batch EM is the standard EM algorithm where we repeat the iterative procedureuntil convergence.
+The initial values are set to?d?D #(d)p(g|d)?gi?Gdp(gi|d)|D| , where for the topicsthat are purged we just plug in 0 for p(g|d).
+#(d) is the number of words in documentd, d ?
+D, and |D| =?d #(d) denotes the size of training corpus (which is the totalnumber of words in the entire training corpus).When we use Equation (30) to compute perplexity, the system only uses informationcoming from previous words to generate a topic distribution, which then is used topredict the next word, so the sum over all next words is 1.We find that the perplexity results are sensitive to these three methods and the initialvalues.
+For example, for batch EM, if we set initial values to be those obtained by usingthe pseudo-document up to the previous word d?k?1 = (Wk?1,S) and trained by batchEM, we obtain worse perplexity results.
+Table 8 in Section 6.2 gives perplexity resultsthat use these three methods to re-estimate the parameters of the SEMANTIZER, wherethe on-line EM with fixed learning rate not only has the cheapest computational costbut also leads to the highest perplexity reductions.5.
+Related WorkBesides the work by Wang et al (2005b, 2006) that was discussed in the Introduction,the closest work to ours is that by Khudanpur and Wu (2000) where the authors used649Computational Linguistics Volume 38, Number 3SLM and a word clustering model to extract relevant grammatical and semantic fea-tures, then integrated these features with n-grams by a maximum conditional entropyapproach.
+Our composite language model is a generative model, all features play impor-tant roles in the EM iterations to allow maximal order events for WORD-PREDICTOR toappear; in Khudanpur and Wu (2000), however, the counts for all events are fixed afterfeature extraction from SLM and word clustering and no new maximal order eventsfor WORD-PREDICTOR are possibly extracted, this potentially hinders the predictivepower of WORD-PREDICTOR.
+Moreover, the training algorithm in Khudanpur and Wuis computationally expensive.
+Both methods use the first-stage N-best list approximateEM to extract headwords, thus the complexity is at the same order at this stage; atsecond stage, however, where we use the follow-up EM, they use the maximum en-tropy approach.
+The maximum entropy approach is more expensive, mainly in featureexpectation and normalization as well as optimization (such as iterative scaling or thequasi Newton method); ours is quite simple, which is expected relative to frequencyestimates with proper smoothing.The highest reported perplexity reductions are those by Goodman (2001), where theauthor examines the techniques of caching, clustering, higher-order n-grams, skippingmodels, and sentence-mixture models in various combinations (mainly linear interpola-tion).
+The author compares to the baseline of a Katz smoothed trigram with no count cutoffs.On a small training corpus with 100k tokens, a 50% perplexity reduction (1 bit improve-ment) is obtained.
+On a larger corpus with 284 million tokens without punctuation,the improvement declines to 38%; we assume that this improvement shrinks to 30%when compared with 4-gram as the baseline.6.
+Experimental ResultsIn this section, we first explain the experimental set-up for our experiments, we thenshow comprehensive perplexity results in various situations, and we end by reportingthe results when we apply the composite language model to the task of re-ranking theN-best list from a state-of-the-art parsing-based machine translation system.6.1 Experimental Set-upIn previous work (Gildea and Hofmann 1999; Bellegarda 2000; Chelba 2000; Chelbaand Jelinek 2000; Charniak 2001; Roark 2001), all complex language models have beentrained on relatively small data sets.
+There is the impression that complex languagemodels only lead to better results than n-grams on small training corpora.
+For example,Jurafsky and Martin (2008, page 482), state, ?We said earlier that statistical parsers cantake advantage of longer-distance information than n-grams, which suggests that theymight do a better job at language modeling/word prediction.
+It turns out that if wehave a very large amount of training data, a 4-gram or 5-gram is nonetheless still thebest way to do language modeling.?
+To verify whether this is true, we have trained ourlanguage models using three different training sets: one has 44 million tokens, anotherhas 230 million tokens, and the third has 1.3 billion tokens.
+An independent test setwith 354k tokens is chosen.
+The independent check data set used to determine thelinear interpolation coefficients has 1.7 million tokens for the 44 million token trainingcorpus, and 13.7 million tokens for both the 230 million and 1.3 billion token trainingcorpora.
+All these data sets are taken from the LDC English Gigaword corpus with non-verbalized punctuation and we remove all punctuation.
+Table 1 provides the detailed in-formation on how these data sets were chosen from the LDC English Gigaword corpus.650Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language ModelTable 1The corpora used in our experiments.1.3 BILLION TOKEN TRAINING CORPUSAFP 19940512.0003 ?
+19961015.0568AFW 19941111.0001 ?
+19960414.0652NYT 19940701.0001 ?
+19950131.0483NYT 19950401.0001 ?
+20040909.0063XIN 19970901.0001 ?
+20041125.0119230 MILLION TOKEN TRAINING CORPUSAFP 19940622.0336 ?
+19961031.0797APW 19941111.0001 ?
+19960419.0765NYT 19940701.0001 ?
+19941130.040544 MILLION TOKEN TRAINING CORPUSAFP 19940601.0001 ?
+19950721.013713.7 MILLION TOKEN CHECK CORPUSNYT 19950201.0001 ?
+19950331.04941.7 MILLION TOKEN CHECK CORPUSAFP 19940512.0003 ?
+19940531.0197354K TOKEN TEST CORPUSCNA 20041101.0006 ?
+20041217.0009These are selected from the LDC English Gigaword corpus.
+AFP = Agence France-Presse;AFW = Associated Press Worldstream; NYT = New York Times; XIN = Xinhua News Agency;and CNA = Central News Agency of Taiwan denote the sections of the LDC English Gigawordcorpus.The vocabulary sizes in all three cases are: word (also WORD-PREDICTOR operation) vocabulary: 60k, open?all words outside the vocabulary are mapped to the ?unk?
+token, these60k words are chosen from the most frequently occurring words in the44 million token corpus; POS tag (also TAGGER operation) vocabulary: 69, closed; non-terminal tag vocabulary: 54, closed; CONSTRUCTOR operation vocabulary: 157, closed.The out-of-vocabulary (OOV) rate on the 44 million, 230 million, 1.3 billion tokentraining corpora is 0.6%, 0.9%, and 1.2%, respectively.
+The OOV rate on the 1.7 millionand 13.7 million token check corpora is 0.6% and 1.3%, respectively.
+The OOV rate on651Computational Linguistics Volume 38, Number 3Table 2Statistics about the number of types of n-grams (n = 3, 4, 5) on the 44 million, 230 million, and1.3 billion token corpora.n=3 n=4 n=544 M 14,302,355 23,833,023 29,068,173230 M 51,115,539 94,617,433 120,978,2811.3 B 224,767,319 481,645,099 660,599,586the 354k token test corpus is 2.0%.
+Table 2 lists the statistics about the number of typesof n-grams on these three corpora.Similar to SLM (Chelba 2000; Chelba and Jelinek 2000), after the parse under-goes headword percolation and binarization, each model component of WORD-PREDICTOR, TAGGER, and CONSTRUCTOR is initialized from a set of parsedsentences.
+We use the openNLP software2 to parse a large number of sentences in theLDC English Gigaword corpus to generate an automatic treebank, which has a slightlydifferent word-tokenization than that of the manual treebank such as the Penn Treebankused in Chelba and Jelinek (2000) and Chelba (2000).
+For the 44 and 230 million tokencorpora, all sentences are automatically parsed and used to initialize model parameters,whereas for the 1.3 billion token corpus, we parse the sentences from a portion of thecorpus that contains 230 million tokens, then use them to initialize model parameters.The parser at openNLP is trained on the Penn Treebank, which has only one milliontokens, and there is a mismatch between the Penn Treebank and the LDC EnglishGigaword corpus.
+Nevertheless, experimental results show that this approach is effec-tive to provide initial values of model parameters.6.2 Perplexity ResultsTable 3 gives the perplexity results (Bahl et al 1977) of n-grams (n = 3, 4, and 5) usinglinear interpolation and Kneser-Ney (1995) smoothing when the training corpus has44 million, 230 million, and 1.3 billion tokens, respectively.
+We have implemented adistributed n-gram with linear interpolation smoothing, but we don?t have distributedn-grams with Kneser-Ney smoothing implemented by us.
+Instead, we use the SRILanguage Modeling Toolkit to obtain perplexity results of n-grams with Kneser-Neysmoothing for the 44 million and 230 million token corpora using a single machine thathas 20G memory at the Ohio Supercomputer center.
+We are not able to compute per-plexity results of n-grams with Kneser-Ney smoothing on the 1.3 billion token corpus,thus we leave these results blank in Table 3.
+From the results in Table 3, we decided touse a linearly smoothed trigram as the baseline model for the 44 million token corpus,a linearly smoothed 4-gram as the baseline model for the 230 million token corpus, anda linearly smoothed 5-gram as the baseline model for the 1.3 billion token corpus.As we mentioned in Section 3.1.1, we can keep only a small set of topics due tothe considerations of computational time and resource demand.
+Table 4 shows theperplexity results and computation time of composite n-gram/PLSA language modelsthat are trained on the three corpora when the pre-defined number of total topics is 200,but different numbers of most-likely topics are kept for each document in PLSA; the2 http://www.codeproject.com/KB/recipes/englishparsing.aspx.652Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language ModelTable 3Perplexity results of n-grams (n = 3, 4, and 5) using linear interpolation and Kneser-Neysmoothing when training set is a 44 million, 230 million, or 1.3 billion token corpus, respectively.44 M LINEAR KNESER-NEYn=3 262 244n=4 258 235n=5 260 235230 M LINEAR KNESER-NEYn=3 217 195n=4 200 183n=5 201 1831.3 B LINEAR KNESER-NEYn=3 161 ?n=4 141 ?n=5 138 ?Table 4Perplexity (ppl) results and time consumed of the composite n-gram/PLSA language modeltrained on three corpora when different numbers of most-likely topics are kept for eachdocument in PLSA.CORPUS n # OF PPL TIME # OF # OF # OF TYPESTOPICS (HOURS) SERVERS CLIENTS OF ww?1?n+1g44M 3 5 196 0.5 40 100 120.1M3 10 194 1.0 40 100 218.6M3 20 190 2.7 80 100 537.8M3 50 189 6.3 80 100 1.123B3 100 189 11.2 80 100 1.616B3 200 188 19.3 80 100 2.280B230M 4 5 146 25.6 280 100 0.681B1.3B 5 2 111 26.5 400 100 1.790B5 5 102 75.0 400 100 4.391Brest are pruned.
+For the composite 5-gram/PLSA model trained on the 1.3 billion tokencorpus, 400 cores have to be used to keep the top five most likely topics.
+For thecomposite trigram/PLSA model trained on the 44M token corpus, the computationtime increases drastically, with less than 5% percent perplexity improvement.
+In thefollowing experiments, therefore, we keep the top five topics for each document froma total of 200 topics?all other 195 topics are pruned.All composite language models are first trained by performing the N-best listapproximate EM algorithm until convergence, then the EM algorithm for a secondstage of parameter re-estimation for WORD-PREDICTOR and SEMANTIZER untilconvergence.
+We fix the size of topics in the PLSA to be 200 and then prune to 5 inthe experiments, where the unpruned 5 topics in general account for 70% probabilityin p(g|d).
+Table 5 shows comprehensive perplexity results for a variety of different653ComputationalLinguisticsVolume38,Number3Table 5Perplexity results for various language models on test corpora, where + denotes linear combination, / denotes composite model; n denotes the orderof the n-gram, and m denotes the order of the SLM; the topic nodes are pruned from 200 to 5.LANGUAGE MODEL 44M 230M 1.3Bn=3,m=2 REDUCTION n=4,m=3 REDUCTION n=5,m=4 REDUCTIONBASELINE n-GRAM (LINEAR) 262 200 138n-GRAM (KNESER-NEY) 244 6.9% 183 8.5% ?
+?m-SLM 279 ?6.5% 190 5.0% 137 0.0%PLSA 825 ?214.9% 812 ?306.0% 773 ?460.0%n-GRAM+m-SLM 247 5.7% 184 8.0% 129 6.5%n-GRAM+PLSA 235 10.3% 179 10.5% 128 7.2%n-GRAM+m-SLM+PLSA 222 15.3% 175 12.5% 123 10.9%n-GRAM/m-SLM 243 7.3% 171 14.5% (125) 9.4%n-GRAM/PLSA 196 25.2% 146 27.0% 102 26.1%m-SLM/PLSA 198 24.4% 140 30.0% (103) 25.4%n-GRAM/PLSA+m-SLM/PLSA 183 30.2% 140 30.0% (93) 32.6%n-GRAM/m-SLM+m-SLM/PLSA 183 30.2% 139 30.5% (94) 31.9%n-GRAM/m-SLM+n-GRAM/PLSA 184 29.8% 137 31.5% (91) 34.1%n-GRAM/m-SLM+n-GRAM/PLSA+m-SLM/PLSA 180 31.3% 130 35.0% ?
+?n-GRAM/m-SLM/PLSA 176 32.8% ?
+?
+?
+?654Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language Modelmodels such as composite n-gram/m-SLM, n-gram/PLSA, m-SLM/PLSA, their linearcombinations, and so on, where we use on-line EM with a fixed learning rate to re-estimate the parameters of the SEMANTIZER of test document.
+The m-SLM performscompetitively with its counterpart n-gram (n = m+1) on large scale corpus.
+Table 6lists the statistics about the number of types in the predictor of the m-SLMs on thesethree corpora, where for the 230 million token and 1.3 billion token corpora we cutoff the fractional expected counts that are less than a predefined threshold of 0.005, tosignificantly reduce the number of the predictor?s types by 70%.In Table 5, for the composite n-gram/m-SLM model (n = 3,m = 2 and n = 4,m = 3)trained on 44 million tokens and 230 million tokens, we cut off its fractional expectedcounts that are less than a threshold 0.005; this significantly reduces the number of thepredictor?s types by 85%.
+When we train the composite language on the 1.3 billion tokencorpus, we have to both aggressively prune the parameters of WORD-PREDICTOR andshrink the order of n-gram and m-SLM in order to store them in a supercomputer having1,000 cores.
+In particular, for the composite 5-gram/4-SLM model, its size is too bigto store, thus we use its approximation, a linear combination of 5-gram/2-SLM and2-gram/4-SLM.
+For the 5-gram/2-SLM or 2-gram/4-SLM, again we cut off its fractionalexpected counts that are less than a threshold 0.005, which significantly reduces thenumber of the predictor?s types by 85%.
+For the composite 4-SLM/PLSA model, we cutoff its fractional expected counts that are less than a threshold 0.002, again this signifi-cantly reduces the number of predictor?s types by 85%.
+For the composite 4-SLM/PLSAmodel or its linear combination with models, we ignore all the tags and use only thewords in the four headwords.
+We have checked that the conditional language model(Equation [30]) sums to 1 for large randomly selected conditional events.
+The compos-ite n-gram/m-SLM/PLSA model gives significant perplexity reductions over baselinen-grams (n = 3, 4, 5) and m-SLMs (m = 2, 3, 4).
+The majority of gains comes from thePLSA component, but when adding the SLM component into the n-gram/PLSA, thereis a further 10% relative perplexity reduction.Table 7 shows how large the composite 5-gram/PLSA, 5-gram/2-SLM (or2-gram/4-SLM), and 4-SLM/PLSA models are when trained by the 1.3 billion tokencorpus after aggressive pruning.
+The total minimum number of servers used to storethe parameters of the predictor for the composite 5-gram/PLSA, 5-gram/2-SLM (or2-gram/4-SLM), and 4-SLM/PLSA models is, respectively, 400, 240, 400, and the num-ber of clients to store the partitioned data of the 1.3 billion token corpus is 100 for thesethree composite language models.
+There is no way to store the parameters of the linearcombination of the composite 5-gram/PLSA, 5-gram/2-SLM (or 2-gram/4-SLM), and4-SLM/PLSA models in our currently available supercomputer resources.Table 6Statistics about the number of types in the predictor of the m-SLMs (m = 2, 3, 4) on the44 million, 230 million, and 1.3 billion token corpora.
+For the 230 million and 1.3 billion tokencorpora, fractional expected counts that are less than a threshold are pruned to significantlyreduce the number of m-SLM (m=3, 4) predictor?s types by 70%.m=2 m=3 m=444 M 189,002,525 269,685,833 318,174,025230 M 267,507,672 1,154,020,346 1,417,977,1841.3 B 946,683,807 1,342,323,444 1,849,882,215655Computational Linguistics Volume 38, Number 3Table 7Counts of the types in the predictor of the 5-gram/PLSA, 5-gram/2-SLM (or 2-gram/4-SLM),and 4-SLM/PLSA models when trained on the 1.3B corpus.
+Fractional expected counts that areless than a threshold are pruned; this significantly reduces the number of predictor?s typesby 85%.COMPOSITE TYPES # OF # OF # OFMODEL OF TYPES SERVERS CLIENTS5-GRAM/PLSA w?1?4wg 4.39 B 400 1005-GRAM/2-SLM w?1?4wh?1?2 2.01B 240 1002-GRAM/4-SLM w?1wh?1?44-SLM/PLSA wh?1?4g 4.88 B 400 100Appendix A shows an example of sentence probability that is provided by 5-gram,5-gram/PLSA, and 5-gram/4-SLM+5-gram/PLSA models, respectively; these languagemodels are trained using the 1.3 billion tokens corpus.
+The example demonstrates thatour composite model is able to extract topic information and grammatical structure toimprove word prediction for natural language.Table 8 shows the perplexity results for composite n-gram/PLSA and n-gram/m-SLM/PLSA language models when three methods are used to re-estimate the pa-rameters of the SEMANTIZER of test document; we use superscript 1, 2, and 3 todenote that during testing we used one step on-line EM, on-line EM with fixed learningrate, and batch EM, respectively.
+The on-line EM with fixed learning rate gives thebest perplexity results as well as the least computation time.
+Again, when we trainthe composite language on the 1.3 billion token corpus, we have to shrink the orderof the n-gram and m-SLM in order to store them in a supercomputer having 1,000 cores.For the composite 4-SLM/PLSA model or its linear combination with models, we ignoreall the tags and use only the words in the four headwords.
+For the composite 5-gram/4-SLM model or its linear combination with models, we in fact use its approximation,a linear combination of the 5-gram/2-SLM and 2-gram/4-SLM models.To better explain and analyze our model, we mark the perplexity results for the40 million token corpus in Table 5 on the vertices in Figure 3 to reveal many insights.The baseline trigram result is given by the vertex p(w|w?2w?1), the 2-SLM result isgiven by the vertex p(w|h?2h?1), the PLSA result is given by the vertex p(w|g), thetrigram/2-SLM result is given by the vertex p(w|w?2w?1h?2h?1), the trigram/PLSAresult is given by the vertex p(w|w?2w?1g), and the trigram/2-SLM/PLSA is given bythe vertex p(w|w?2w?1h?2h?1g).
+The trigram+2-SLM result is given by a linear combi-nation of vertices p(w|w?2w?1) and p(w|h?2h?1); the trigram+PLSA result is given by alinear combination of vertices p(w|w?2w?1) and p(w|g); and the trigram+2-SLM+PLSAresult is given by a linear combination of vertices p(w|w?2w?1), p(w|h?2h?1), andp(w|g).
+The trigram/PLSA+2-SLM/PLSA result is given by a linear combination ofvertices p(w|w?2w?1g) and p(w|h?2h?1g), and so on.
+The trigram/PLSA+trigram/2-SLM+2-SLM/PLSA result is given by a linear combination of vertices p(w|w?2w?1g),p(w|w?2w?1h?2h?1g), and p(w|h?2h?1g).
+The composite trigram/2-SLM/PLSA lan-guage model is more powerful and expressive than the linear combination of tri-gram, 2-SLM, and PLSA for two reasons.
+First, valuable relative frequency estimatessuch as f (w|w?2w?1h?2h?1g), f (w|w?2w?1h?2h?1), and so forth, are encoded into thecomposite language model, as seen from Figure 3.
+As long as there are events suchas w?2w?1wh?2h?1g, and so on, that occur explicitly or implicitly in the training656Tanetal.AScalableDistributedSyntactic,Semantic,andLexicalLanguageModelTable 8Perplexity results for the composite n-gram/PLSA and n-gram/m-SLM/PLSA language models on the test corpus, where + denotes linearcombination, / denotes composite model; n is the order of the n-gram and m is the order of the SLM, and superscripts 1, 2, 3 denote using one-stepon-line EM, on-line EM with fixed learning rate, and batch EM during testing, respectively.LANGUAGE MODEL 44M 230M 1.3Bn=3,m=2 REDUCTION n=4,m=3 REDUCTION n=5,m=4 REDUCTIONn-GRAM (LINEAR) 262 200 138n-GRAM/PLSA1 202 22.9% 150 25.0% 107 22.5%n-GRAM/m-SLM+n-GRAM/PLSA1 192 26.7% 142 29.0% (97) 29.1%n-GRAM/PLSA2 196 25.2% 146 27.0% 102 26.1%n-GRAM/m-SLM+n-GRAM/PLSA2 184 29.8% 137 31.5% (91) 34.1%n-GRAM/PLSA3 201 23.3% 148 26.0% 104 24.6%n-GRAM/m-SLM+n-GRAM/PLSA3 189 27.9% 140 30.0% (92) 33.3%657Computational Linguistics Volume 38, Number 3corpus, the composite trigram/2-SLM/PLSA will take them into account to improvethe prediction power for test data, whereas a linear combination of trigram, 2-SLM,and PLSA just neglects a large amount of this valuable information.
+The second rea-son is that the weights used in a simple linear combination are context-independent,thus more restricted.
+Similarly, the composite trigram/2-SLM/PLSA language modelis more powerful and expressive than a linear combination of pairwise compositelanguage models (e.g., trigram/2-SLM, trigram/PLSA, and 2-SLM/PLSA), since thecomposite trigram/2-SLM/PLSA can take advantage of the relative frequency estimatef (w|w?2w?1h?2h?1g), f (w|w?2w?1h?1g), and f (w|w?1h?2h?1g).
+The improvement inthis case shrinks, however, because pairwise composite language models use some valu-able lower order relative frequency estimates such as f (w|w?2w?1g), and so forth.
+Statedanother way, each vertex of the lattice in Figure 3 is an expert of WORD-PREDICTORthat is proficient in making a prediction based on the context represented at the vertex; itpredicts words based on the information provided by a committee consisting of expertsfrom parent vertices as well as the relative frequency estimate it extracts.
+These expertsare hierarchically organized, with the WORD-PREDICTOR of the composite trigram/2-SLM/PLSA (i.e., p(w|w?2w?1h?2h?1g)) overseeing all available information to makethe most powerful prediction.Finally, we conducted experiments where we fixed the size of the training dataand increased the complexity of our language models.
+Because available resources arelimited, preventing us from considering complex language models that are trained onthe 1.3 billion token corpus, we considered complex language models trained on the44 million token corpus instead.
+Table 9 shows the perplexity results.
+We can see that aswe increase the order for n-gram and m-SLM from n = 3 and m = 2 to n = 4 and m = 3,the composite language models become better and have up to 5% perplexity reductions;when we increase the order for n-gram and m-SLM to n = 5 and m = 4, however, thecomposite language models become worse and slightly overfit the data even if we uselinear interpolation smoothing, and there are no further perplexity reductions.To summarize, as a sub-problem for MT and speech recognition under the source-channel paradigm (Jelinek 2009), language modeling is a data-rich and feature-richdensity estimation problem with Kullback-Leibler divergence as a cost function, andthere is always a trade-off between approximation error and estimation error (Barronand Sheu 1991), reminiscent of the ?bias-variance?
+trade-off for a regression problemwith a quadratic cost function (Hastie, Tibshirani, and Friedman 2009).
+Figure 5 explainsthe perplexity results in Tables 3 and 5 from a model selection point of view.Let p?
+denote the true (but unknown) distribution of natural language, its infor-mation projection to n-grams is the minimum Kullback-Leibler divergence from p?
+ton-grams (Amari and Nagaoka 2000; Wang, Greiner, and Wang 2009) and is denoted asp?n,n = 3, 4, 5, 6.
+Let p?
+denote the empirical distribution of natural language?in partic-ular, p?M denotes the empirical distribution for a million token corpus, p?B denotes theempirical distribution for a billion token corpus, and p?T denotes the empirical distri-bution for a trillion token corpus.
+The information projection of p?M to trigram is p3M, to4-gram is p4M, and to 5-gram is p5M.
+The distance between p?
+and p?n(n = 3, 4, 5, 6), D(p?, p?n),is the approximation error when using n-gram to represent p?, that is, the best the n-gramcan do when abundant data are available.
+The distance between p?nM and p?n,n = 3, 4, 5,D(p?nM, p?n), is the estimation error when only the million token corpus is available.
+ThePythagorean theorem states that the distance between p?
+and p?M, D(p?, p?M), is the sumof the approximation error and the estimation error (Barron and Sheu 1991; Amari andNagaoka 2000; Wang, Greiner, and Wang 2009).
+In language modeling research, becausep?
+is unknown, the distance between p?
+and pnM,n = 3, 4 is approximately computed658Tanetal.AScalableDistributedSyntactic,Semantic,andLexicalLanguageModelTable 9Perplexity results for various language models on test corpora, where + denotes linear combination, / denotes composite model; n denotes the orderof the n-gram, and m denotes the order of the SLM; the topic nodes are pruned from 200 to 5.LANGUAGE MODEL 44M 44M 44Mn=3,m=2 REDUCTION n=4,m=3 REDUCTION n=5,m=4 REDUCTIONBASELINE n-GRAM (LINEAR) 262 258 260n-GRAM (KNESER-NEY) 244 6.9% 235 8.9% 235 9.6%m-SLM 279 ?6.5% 254 1.6% 254 2.3%n-GRAM+m-SLM 247 5.7% 233 9.7% 234 10.0%n-GRAM+PLSA 235 10.3% 230 10.9% 231 11.2%n-GRAM+m-SLM+PLSA 222 15.3% 220 14.7% 221 15.0%n-GRAM/m-SLM 243 7.3% 232 10.1% 235 9.6%n-GRAM/PLSA 196 25.2% 189 26.7% 193 25.8%m-SLM/PLSA 198 24.4% 190 26.4% 192 26.2%n-GRAM/PLSA+m-SLM/PLSA 183 30.2% 179 30.6% 178 31.5%n-GRAM/m-SLM+m-SLM/PLSA 183 30.2% 178 31.0% 180 30.8%n-GRAM/m-SLM+n-GRAM/PLSA 184 29.8% 176 31.8% 178 31.5%n-GRAM/m-SLM+n-GRAM/PLSA+m-SLM/PLSA 180 31.3% 173 33.0% 173 33.5%n-GRAM/m-SLM/PLSA 176 32.8% 169 34.5% 171 34.2%659Computational Linguistics Volume 38, Number 3Figure 5Language modeling is a data-rich and feature-rich density estimation problem.
+The informationprojection from true distribution and empirical distribution to n-grams is unique, and theinformation projection from true distribution and empirical distribution to composite languagemodels might be local optimal.
+There is a trade-off between approximation error and estimationerror for composite language models.by the perplexity result using test data.
+By the Glivenko-Cantelli theorem (Vapnik1998), we know that the empirical distribution p?
+converges to the true distribution p?
+;similarly, the information projection of empirical distribution on an n-gram convergesto the information projection on an n-gram of true distribution (i.e., the estimation errorshrinks to 0).
+In the same vein, we can define the information projection of p?
+or p?
+to thecomposite language models and the corresponding approximate error and estimationerror, and so forth.
+In this case, the Pythagorean theorem breaks down due to the non-convexity of the set of composite language models.
+As noted by Dr. Ciprian Chelbain our private communication on March 20th, 2010, ?When playing with large data,the model capacity is an important factor to language model performance: The supplyof more data needs to be matched by demand on the model side.
+A simple way toachieve this in n-grams is to increase the order n as much as the data will allow.
+Thisof course implies that the computational aspects of storing and serving such modelsare solved and that it is not a constraint?
+(see also Chelba et al 2010).
+This is alsotrue for our composite language models as justified from the results in Tables 5 and9: The composite n-gram/m-SLM/PLSA language model has rich features, thus hassmaller approximation error than the n-gram, m-SLM, PLSA, or any composite modelof two, or their linear combinations.
+Table 5 shows that the information projection ofthe empirical distribution for the million and billion token corpora, p?M and p?B on thecomposite n-gram/m-SLM/PLSA language model, is closer to the true distribution p?.This is reflected approximately by the perplexity results on test data.6.3 Re-ranking Machine Translation ResultsWe have applied our composite 5-gram/2-SLM+2-gram/4-SLM+5-gram/PLSA1 lan-guage model that is trained by a 1.3 billion word corpus for the task of re-ranking theN-best list in statistical MT.
+We used the same two 1,000-best lists that were used660Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language ModelTable 1010-fold cross-validation Bleu score results for the task of re-ranking the 1,000-best list generatedon 919 sentences of 100 documents from the MT03 Chinese?English evaluation set.SYSTEM MODEL MEAN (%) 95% CI (%)BASELINE 31.75 0.225-GRAM 32.53 0.245-GRAM/2-SLM+2-GRAM/4-SLM 32.87 0.245-GRAM/PLSA1 33.01 0.245-GRAM/2-SLM+2-GRAM/4-SLM+5-GRAM/PLSA1 33.32 0.25by Zhang and colleagues (Zhang, Hildebrand, and Vogel 2006; Zhang 2008; Zhanget al 2011).
+The first list was generated on 919 sentences of 100 documents fromthe MT03 Chinese?English evaluation set, and the second was generated on 191 sen-tences of 20 documents from the MT04 Chinese?English evaluation set, both by Hiero(Chiang 2007), a state-of-the-art parsing-based translation model.
+Its decoder uses atrigram language model trained with modified Kneser-Ney smoothing (Jurafsky andMartin 2008) on a 200 million token corpus.
+Each translation has 11 features andlanguage model is one of them.
+We substitute our language model and use MERT(Och 2003) to optimize the Bleu score (Papineni et al 2002).
+We conduct two ex-periments on these two data sets.
+In the first experiment, we partition the first dataset that consists of 100 documents into ten pieces; each piece consists of 10 docu-ments, nine pieces are used as training data to optimize the Bleu score (Papineniet al 2002) by MERT (Och 2003), and the remaining single piece is used to re-rankthe 1,000-best list and obtain the Bleu score.
+The cross-validation process is thenrepeated 10 times (the folds), with each of the 10 pieces used exactly once as thevalidation data.
+The 10 results from the folds then can be averaged (or otherwisecombined) to produce a single estimation for Bleu score.
+The mean and variance ofthe Bleu score are calculated with each different LM.
+We assume that the score followsStudent?s t-distribution and we compute the 95% confidence interval according tomean and variance.
+Table 10 shows the Bleu scores through 10-fold cross-validation.The composite 5-gram/2-SLM+2-gram/4-SLM+5-gram/PLSA1 language model gives1.57 percentage point Bleu score improvement over the baseline and 0.79 percentagepoint Bleu score improvement over the 5-gram.
+We are not able to further improveBleu score when we use either the 5-gram/2-SLM+2-gram/4-SLM+5-gram/PLSA2or 5-gram/2-SLM+2-gram/4-SLM+5-gram/PLSA3.
+This is because there is not muchdiversity on the 1,000-best list, and essentially only 20 ?
+30 distinct sentences are in the1,000-best list.In the second experiment, we used the first data set as training data to optimize theBleu score by MERT, then the second data set is used to re-rank the 1,000-best list andobtain the Bleu score.
+To obtain the confidence interval of the Bleu score, we resort tothe bootstrap resampling described by Koehn (2004).
+We randomly select 10 re-rankeddocuments from the 20 re-ranked documents in the second data set with replacement.We draw the translation results of the 10 documents and compute the Bleu score.
+Werepeat this procedure 1,000 times.
+When we compute the 95% confidence interval, wedrop the top 25 and bottom 25 Bleu scores, and only consider the range of 26th to 975thBleu scores.
+Table 11 shows the Bleu scores.
+These statistics are computed with differentlanguage models, but on the same chosen test sets.
+The 5-gram gives 0.51 percent-age point Bleu score improvement over the baseline.
+The composite 5-gram/2-SLM+661Computational Linguistics Volume 38, Number 3Table 11Bleu score results for the task of re-ranking the 1,000-best list generated on 191 sentences of 20documents from the MT04 Chinese?English evaluation set.SYSTEM MODEL MEAN (%) 95% CI (%)BASELINE 27.59 0.315-GRAM 28.10 0.325-GRAM/2-SLM+2-GRAM/4-SLM 28.34 0.325-GRAM/PLSA1 28.53 0.315-GRAM/2-SLM+2-GRAM/4-SLM+5-GRAM/PLSA1 28.78 0.312-gram/4-SLM+5-gram/PLSA1 language model gives 1.19 percentage point Bleu scoreimprovement over the baseline and 0.68 percentage point Bleu score improvement overthe 5-gram.Chiang (2007) studied the performance of machine translation on Hiero, the Bleuscore is 33.31% when n-gram is used to re-rank the N-best list; the Bleu score becomessignificantly higher (37.09%) when the n-gram is embedded directly into Hiero?s onepass decoder, however.
+This is because there is not much diversity in the N-best list.
+Itis expected that putting our composite language into a one-pass decoder should resultin much improved Bleu scores.Besides reporting the Bleu scores, we look at the ?readability?
+of translations,similar to the study conducted by Charniak, Knight, and Yamada (2003).
+The trans-lations are sorted into four groups: good/bad syntax crossed with good/bad mean-ing by human judges (see Table 12).
+We find that many more sentences are perfect,many more are grammatically correct, and many more are semantically correct.
+Thesyntactic language model (Charniak et al 2003) only improves translations to havegood grammar, but does not improve translations to preserve meaning.
+The composite5-gram/2-SLM+2-gram/4-SLM+5-gram/PLSA1 language model improves both signif-icantly.
+Bear in mind that Charniak et al (2003) integrated Charniak?s language modelwith the syntax-based translation model proposed by Yamada and Knight (2001) torescore a tree-to-string translation forest, whereas we use only our language modelfor N-best list re-ranking.
+Also, the same study (Charniak et al 2003) found that theoutputs produced using the n-grams received higher scores from Bleu; ours did not.
+Thedifference between human judgments and Bleu scores indicates that closer agreementmay be possible by incorporating syntactic structure and semantic information into theBleu score evaluation.
+For example, semantically similar words like insure and ensure asin Bleu paper (Papineni et al 2002) should be substituted in the formula, and there is aweight to measure the goodness of syntactic structure.
+This modification will lead to abetter metric and such information can be provided by our composite language models.Table 12Results of ?readability?
+evaluation on 919 translated sentences of 100 documents.
+P = perfect;S = only semantically correct; G = only grammatically correct; W = wrong.SYSTEM MODEL P S G WBASELINE 95 398 20 4065-GRAM 122 406 24 3675-GRAM/2-SLM+2-GRAM/4-SLM+5-GRAM/PLSA1 151 425 33 310662Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language ModelIn Appendix B, we give examples of ?perfect?
+sentences, ?only semanticallycorrect?
+sentences, and ?only grammatically correct?
+sentences.7.
+Conclusion and Future WorkWe have built a powerful large-scale distributed composite language model which inte-grates well-known n-gram, SLM, and PLSA models under the directed MRF paradigm.The composite language model has been trained by performing a convergent N-best listapproximate EM algorithm and a follow-up EM algorithm to improve word predictionpower on corpora up to a billion tokens, and stored on a supercomputer.
+We haveachieved drastic perplexity reductions and obtained significantly better translationquality measured by the Bleu score and ?readability?
+of translations in the task ofre-ranking the N-best list from a state-of-the-art parsing-based MT system.
+As far aswe know, this is the first work building a complex large-scale distributed languagemodel with a principled approach that simultaneously exploits syntactic, semantic,and lexical regularities and is still more powerful than n-grams trained on a verylarge corpus with up to a billion tokens.
+It is reasonable to conjecture that compos-ite language models can achieve drastic perplexity reduction and significantly bettertranslation quality than n-gram when trained on Web-scale corpora that have trillionsof tokens.As stated in Wang et al (2010, p. 45), ?Since Banko and Brill?s pioneering workalmost a decade ago (Banko and Brill 2001), it has been widely observed that the effec-tiveness of statistical natural language processing (NLP) techniques is highly suscepti-ble to the data size used to develop them.
+As empirical studies have repeatedly shownthat simple algorithms can often outperform their more complicated counterparts inwide varieties of NLP applications with large data sets, many have come to believe thatit is the size of data, not the sophistication of the algorithms, that ultimately play the cen-tral role in modern NLP (Norvig 2008).?
+It is true that ?the more the data, the better theresult,?
+a dictum recently reiterated in a somewhat stronger form in Halevy, Norvig, andPereira (2009), but care needs to be taken here.
+As we explained in the last paragraph ofSection 6.2, after we increase the size of data, we should also increase the complexityof the model in order to achieve best results.
+For language modeling in particular,because the expressive power of simple n-grams is rather limited, it is worthwhileto exploit latent semantic information and syntactic structure that constrain the gen-eration of natural language; this usually involves designing sophisticated algorithms.Of course, this implies that it takes a huge amount of resources to perform the com-putation.
+As cloud computing becomes the dominant platform for data managementand information processing as utility computing, this will become feasible, affordable,and cheap.The development of the large-scale distributed composite language model is inits infancy; we are planning to deepen our research and push this research in its limit.Specifically, we plan to integrate more advanced topic language models such as LDA(Blei, Ng, and Jordan 2003) and resort to a hierarchical non-parametric Bayesian model(Teh 2006; Teh and Jordan 2010) for smoothing fractional counts due to latent variablesto handle the sparse data problem in Kneser-Ney?s sense in a principled manner,thus constructing a family of large-scale distributed composite lexical, syntactic, andsemantic language models.
+Finally we will put this family of composite languagemodels into a phrased-based machine translation decoder (Koehn, Och, and Marcu2003) that produces a lattice of alternative translations/transcriptions or a syntax-based663Computational Linguistics Volume 38, Number 3decoder (Chiang 2005, 2007) that produces a forest of alternatives (such integrationwould, in the exact case, reside in an extremely difficult complexity class, probablyPSPACE-complete) to significantly improve the performance of the state-of-the-artmachine translation systems.Appendix A: An Example of Sentence ProbabilityWe chose a document from the LDC English Gigaword corpus to show howsentence probability varies when computed by 5-gram, 5-gram/PLSA, and 5-gram/PLSA+4-SLM/PLSA.
+The document tag is ?XIN ENG 20041126 0168.story?.
+Thisdocument?s perplexity computed by 5-gram, 5-gram+PLSA, 5-gram+4-SLM+PLSA,5-gram/PLSA, and 5-gram/PLSA+4-SLM/PLSA that are trained using 1.3 billiontokens corpus is 97, 93, 83, 71, and 64, respectively.
+We show the first four sentencesbelow.?s?
+cpc initiates education campaign to strengthen members ?
+wavering convictions ?/s??s?
+by zhao lei ?/s?
+?s?
+beijing nov. ?nmbr xinhua the communist party of china cpc has decidedto launch a mass internal educational campaign from january next year to prevent its membersfrom wavering in their convictions ?/s?
+?s?
+the decision aiming to keep the nature of the partymembers intact was made at the meeting of the political bureau of the cpc central committee onthis oct. ?nmbr the cpc ?s top power organ ?/s?
+?
+?
+?
+?
+?
+?We then list the word conditional probabilities given its document history for thefourth sentence.
+The first line is the fourth sentence; the second line (a) denotes thenatural log value of the conditional word probabilities given its document historycomputed by 5-gram; the third line (b) denotes the natural log value of the conditionalword probabilities given its document history computed by 5-gram+PLSA; the fourthline (c) denotes the natural log value of the conditional word probabilities given itsdocument history computed by 5-gram+PLSA+4-SLM; the fifth line (d) denotes thenatural log value of the conditional word probabilities given its document historycomputed by 5-gram/PLSA; and the sixth line (e) denotes the natural log value of theconditional word probabilities given its document history computed by 5-gram/PLSA+4-SLM/PLSA.the decision aiming to keep the nature of thea.
+?2.00317 ?5.99654 ?14.9793 ?0.852055 ?4.68269 ?1.49193 ?9.84554 ?0.526566 ?0.671103b.
+?2.05502 ?6.08843 ?13.2655 ?0.950885 ?4.78594 ?1.56474 ?9.81423 ?0.6258 ?0.761926c.
+?2.05416 ?6.07556 ?13.3486 ?0.871798 ?4.69523 ?1.57311 ?9.99731 ?0.897362 ?0.829652d.
+?1.72696 ?5.65359 ?14.2013 ?0.99068 ?5.43248 ?1.65002 ?7.6 ?0.612751 ?0.731037e.
+?1.80167 ?5.73861 ?14.5548 ?0.893825 ?5.05692 ?1.60568 ?7.92909 ?0.751419 ?0.755122party members intact was made at the meeting ofa.
+?6.52337 ?5.93013 ?14.992 ?5.5802 ?5.91863 ?3.47798 ?1.0155 ?3.77026 ?3.11882b.
+?6.48382 ?6.00924 ?13.8132 ?5.57218 ?5.98123 ?3.56856 ?1.1003 ?3.87003 ?3.14354c.
+?6.48696 ?5.81026 ?8.11845 ?3.04638 ?2.21191 ?2.80501 ?1.12155 ?3.85156 ?2.3551d.
+?3.46383 ?5.03999 ?15.242 ?5.27819 ?4.73655 ?3.03394 ?0.69443 ?3.23709 ?3.40986e.
+?3.80075 ?5.16911 ?8.52597 ?3.38567 ?2.54778 ?2.74127 ?0.790644 ?3.36195 ?2.64652the political bureau of the cpc central committeea.
+?0.619712 ?5.91994 ?1.36559 ?0.17816 ?0.217888 ?1.55966 ?0.282506 ?0.110539b.
+?0.710967 ?5.96757 ?1.47083 ?0.278998 ?0.313708 ?1.66454 ?0.387673 ?0.215632c.
+?0.636643 ?6.0839 ?1.43513 ?0.6519 ?0.634246 ?2.10113 ?0.504145 ?0.216812d.
+?0.475928 ?4.13345 ?0.527685 ?0.226433 ?0.204276 ?1.55903 ?0.379722 ?0.147238e.
+?0.475442 ?4.43649 ?0.702968 ?0.427385 ?0.388118 ?1.79781 ?0.42272 ?0.136813664Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language Modelon this oct. ?nmbr the cpc ?s top powera.
+?4.33953 ?7.02792 ?10.7495 ?0.0380615 ?3.87067 ?9.93617 ?3.54366 ?4.19702 ?7.6261b.
+?4.37441 ?6.88172 ?10.6397 ?0.141938 ?3.65821 ?8.81816 ?3.60823 ?4.29886 ?7.64586c.
+?3.57338 ?6.86285 ?10.9656 ?0.131813 ?3.8662 ?8.85551 ?3.42688 ?4.28615 ?7.82392d.
+?4.61674 ?6.49064 ?13.0595 ?0.255452 ?3.73302 ?5.55244 ?3.60481 ?3.97708 ?7.85289e.
+?3.85647 ?6.61406 ?12.5666 ?0.178075 ?3.92356 ?5.90511 ?3.46416 ?4.03158 ?7.91198organ ?/s?a.
+?5.97561 ?2.62716b.
+?6.08022 ?2.67444c.
+?6.01553 ?2.65078d.
+?4.84265 ?2.76932e.
+?5.05393 ?2.70787The conditional probability of the word(s) party or political bureau given documenthistory computed by 5-gram/PLSA or 5-gram/PLSA+4-SLM/PLSA is significantlyboosted due to the appearance of semantic related words such as cpc and communistparty in the previous sentences, this clearly shows that the composite language mod-els (5-gram/PLSA and 5-gram/PLSA+4-SLM/PLSA) trigger long-span document-leveldiscourse topics to influence word prediction.
+In contrast, there is no effect when usinglinear combination models (i.e., 5-gram+PLSA and 5-gram+4-SLM+PLSA).
+Similarly,the conditional probability of the words was made (or the word intact) given docu-ment history computed by 5-gram/PLSA+4-SLM/PLSA is significantly boosted duethe appearance of the grammatical headword decision (or keep) in the same sentence,this clearly shows that the composite language model (5-gram/PLSA+4-SLM/PLSA)exploits sentence level syntactic structure to influence word prediction.
+In this case, then-gram has to increase its order to 11 or 8.
+The linear combination model 5-gram+4-SLM+PLSA is quite effective, although it has negative impact for the prediction offunction words such as of the after the word(s) natural or political bureau.Table 13 shows the statistics when n-grams are the same as the SLM?s WORD-PREDICTOR in the most likely parse structure of each sentence in training corpora.Whenever the n-grams are not the same as SLM?s WORD-PREDICTOR, the SLM com-ponent will be effective to furnish sentence-level long-range grammatical information.This example and Table 13 clearly demonstrate that an n-gram alone is not able toachieve a similar effect to.
+SLM and PLSA even using Web-scale data, and the directedMRF paradigm effectively synergizes n-gram, m-SLM, and PLSA in a complementary,supplementary, and coherent way to form a powerful language model for word predic-tion of natural language.Table 13Statistics when n-grams are the same as SLM?s WORD-PREDICTOR in the most likely parsestructure of each sentence in training corpora.CORPUS w?1?2 = h?1?2 w?1?3 = h?1?3 w?1?4 = h?1?444 M 57% 46% 38%230 M 59% 46% 38%1.3 B 55% 48% 43%665Computational Linguistics Volume 38, Number 3Appendix B: Examples of Translation ResultsIn the following, we give examples of ?perfect?
+sentences, ?only semantically cor-rect?
+sentences, and ?only grammatically correct?
+sentences, where the digit numbersare the sentence number in the N-best list from Hiero (a) denotes the reference sentence,(b) denotes the result provided by the composite language model, and (c) denotes theresult provided by 5-gram.A few examples of ?perfect?
+sentences provided by the composite language model:?512?a.
+Sri Lanka?s Prime Minister Calls on the People to Work together for Permanent Peaceb.
+Sri Lanka prime minister called on national common efforts to achieve lasting peacec.
+Sri Lanka prime minister called on the national common achieve lasting peace?54?a.
+Wilner said the maximum penalty for securities fraud is 10 years imprisonment.
+However,the sentence is expected to be ?significantly shorter?
+under the plea deal.b.
+wiener, said securities fraud charges could be sentenced to 10 years?
+imprisonment, accordingto pleaded guilty mitigation, the sentence is ?shorten?.c.
+wiener, sentenced to 10 years?
+imprisonment maximum securities fraud charges, according topleaded guilty mitigation, the sentence is ?shorten?.?206?a.
+He said at a press conference in Doha, capital of Qarta, that if the United States ?attacks Iraq,it may trigger a global disaster.?b.
+his press conference in doha, capital of qatar, said ?if the united states attacks iraq, it willtrigger a world disaster?.c.
+his press conference in doha, capital of qatar, said that the united states attacks iraq, ?if it willtrigger a world disaster?.?249?a.
+Some Areas in Northwest Australia Face floodsb.
+floods in some areas in the northwest australiac.
+australia northwest part of floodsA few examples of ?only grammatically correct?
+sentences provided by the com-posite language model:?458?a.
+Sutiyoso said that gardens and flower beds would reduce the impression that the US embassyis a fort.b.
+szudy about woven said that garden landscape could reduce the us embassy to a fortress.c.
+szudy over so that garden landscape can reduce the u.s. embassy to a fortress.666Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language Model?676?a.
+He said that during last Christmas and the New Year, mainland tourists?
+spending accountedfor 30b.
+during christmas last year, he said, the mainland visitors spending will account for a three tofour percent of the kaneyuki business and become the major consumer of the industry.c.
+last year, he said, mainland visitors during the christmas spending for the kaneyuki 3 to4 percent of the business, has become the major consumption.A few examples of ?only semantically correct?
+sentences provided by the compositelanguage model:?507?a.
+The famous historic city of Cologne also narrowly escaped the disaster in the heavy rains.b.
+cologne, a famous historical city also escaped unscathed in the heavy rain.c.
+cologne, a famous historical city in heavy rain, escaped unscathed.?416?a.
+However, he insisted on the timetable laid down by Bush.
+That is UN only has ?weeks but notmonths?
+to try to disarm Iraq peacefully and it would be military action thereafter.b.
+however, he insists the bush timetable, the united nations is ?weeks rather than months?
+tourge iraq to the peace disarm, then we will take military action.c.
+however, he insists that the bush timetable, the only ?weeks rather than months?
+to urge iraqto the peace disarm, she went on to take military action.?787?a.
+France circulated its proposals in the form of ?a non-paper.?b.
+france is to distribute their proposals in the form of ?non - paper.?c.
+france is the form of ?non - paper?
+distribute their proposals.?313?a.
+In China, three-quarters of the 1.3 billion population were reported to have celebrated the NewYear by watching television.b.
+1.3 billion population in china, according to reports, 3 / 4 is to watch tv celebrate lunarnew year.c.
+1.3 billion population in china, according to reports, 3 / 4 is to celebrate televisions.667Computational Linguistics Volume 38, Number 3AcknowledgmentsWe would like to dedicate this work to thememory of Fred Jelinek, who passed awaywhile we were finalizing this manuscript.Fred Jelinek laid the foundation for modernspeech recognition and text translationtechnology.
+His work has greatly influencedus.
+This research is supported by theNational Science Foundation under grant IISRI-small 0812483, a Google research award,and Air Force Office of Scientific Researchunder grant FA9550-10-1-0335.
+We wouldlike to thank the Ohio Supercomputer Centerfor an allocation of computing time to makethis research possible; Ciprian Chelba forproviding the SLM code, answering manyquestions regarding SLM, and consulting onvarious aspects of the work; Ying Zhang andPhilip Resnik for providing the 1,000-best listfrom Hiero for re-ranking in machinetranslation; Peng Xu for suggesting to look atthe conditional probability of a word givenits document history to make the perplexityresult much more convincing.
+Finally wewould also like to thank the reviewers, whomade a number of invaluable suggestionsabout the writing of the paper and pointedout many weaknesses in our originalmanuscript.ReferencesAho, A. and J. Ullman.
+1972.
+The Theoryof Parsing, Translation, and Compiling,Volume 1: Parsing.
+Prentice-Hall,Upper Saddle River, NJ.Amari, S. and H. Nagaoka.
+2000.
+Methodsof Information Geometry.
+Translationsof Mathematical Monographs; v. 191,American Mathematical Society,Providence, RI.Bahl, L., J. Baker, F. Jelinek, and R. Mercer.1977.
+Perplexity: A measure of difficultyof speech recognition tasks.
+94th Meetingof the Acoustical Society of America, 62:S63,Supplement 1, Miami, FL.Baker, J.
+1979.
+Trainable grammars forspeech recognition.
+The 97th Meeting ofthe Acoustical Society of America, 547?550,Cambridge, MA.Banko, M. and E. Brill.
+2001.
+Mitigatingthe paucity-of-data problem: Exploringthe effect of training corpus size onclassifier performance for naturallanguage processing.
+Proceedings of the1st International Conference on HumanLanguage Technology Research (HLT), 1?5,Strodsburg, PA.Barron, A. and C. Sheu.
+1991.
+Approximationof density functions by sequences ofexponential families.
+Annals of Statistics,19:1347?1369.Bellegarda, J.
+2000.
+Exploiting latentsemantic information in statisticallanguage modeling.
+Proceedings of IEEE,88(8):1279?1296.Bellegarda, J.
+2001.
+Robustness instatistical language modeling: Reviewand perspectives.
+In J. Junqua andG.
+van Noods, editors, Robustness inLanguage and Speech Technology, pages101?121.
+Kluwer Academic Publishers,Dordrecht.Bellegarda, J.
+2003.
+Statistical languagemodel adaptation: Review andperspectives.
+Speech Communication,42:93?108.Bened?
+?, J. and J. Sa?nchez.
+2005.
+Estimation ofstochastic context-free grammars and theiruse as language models.
+Computer Speechand Language, 19(3):249?274.Bengio, Y., R. Ducharme, P. Vincent, andC.
+Jauvin.
+2003.
+A neural probabilisticlanguage model.
+Journal of MachineLearning Research, 3:1137?1155.Berger, A., S. Della Pietra, and V. Della Pietra.1996.
+A maximum entropy approachto natural language processing.Computational Linguistics, 22(1):39?71.Bilmes, J. and K. Kirchhoff.
+2003.
+Factoredlanguage models and generalized parallelbackoff.
+Proceedings of the North AmericanChapter of the Association for ComputationalLinguistics - Human Language Technologies(NAACL-HLT), 4?6, Edmonton, Alberta,Canada.Blei, D., A. Ng, and M. Jordan.
+2003.
+LatentDirichlet alocation.
+Journal of MachineLearning Research, 3:993?1022.Brants, T., A. Popat, P. Xu, F. Och, andJ.
+Dean.
+2007.
+Large language models inmachine translation.
+The 2007 Conferenceon Empirical Methods in Natural LanguageProcessing (EMNLP), 858?867, Prague,Czech Republic.Charniak, E. 2001.
+Immediate-headparsing for language models.
+The39th Annual Conference on Associationof Computational Linguistics (ACL),124?131, Toulouse, France.Charniak, E., K. Knight, and K. Yamada.2003.
+Syntax-based language models forstatistical machine translation.
+MT SummitIX, International Association for MachineTranslation, 40?46, New Orleans, LA.Chelba, C. 2000.
+Exploiting SyntacticStructure for Natural Language Modeling.668Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language ModelPh.D.
+dissertation, The Johns HopkinsUniversity, Baltimore, MD.Chelba, C. and F. Jelinek.
+1998.
+Exploitingsyntactic structure for language modeling.The 36th Annual Conference on Association ofComputational Linguistics (ACL), 225?231,Montreal, Quebec, Canada.Chelba, C. and F. Jelinek.
+2000.
+Structuredlanguage modeling.
+Computer Speech andLanguage, 14(4):283?332.Chelba, C., J. Schalkwyk, T. Brants, V. Ha,B.
+Harb, W. Neveitt, C. Parada, andP.
+Xu.
+2010.
+Query language modeling forvoice search.
+Proceedings of the 2010 IEEEWorkshop on Spoken Language Technology(SLT), 127?132, Berkeley, CA.Chen, S. and J. Goodman.
+1999.
+Anempirical study of smoothing techniquesfor language modeling.
+Computer Speechand Language, 13(4): 319?358.Chiang, D. 2005.
+A hierarchical phrase-basedmodel for statistical machine translation.The 43th Annual Conference on Association ofComputational Linguistics (ACL), 263?270,Ann Arbor, MI.Chiang, D. 2007.
+Hierarchical phrase-basedtranslation.
+Computational Linguistics,33(2):201?228.Dean, J. and S. Ghemawat.
+2004.
+MapReduce:Simplified data processing on largeclusters.
+The Sixth Symposium on OperatingSystems Design and Implementation (OSDI),137?150, San Francisco, CA.Della Pietra, S., V. Della Pietra, J. Gillett,J.
+Lafferty, H. Printz, and L. Ures.
+1994.Inference and estimation of a long-rangetrigram model.
+Second InternationalColloquium on Grammatical Inferenceand Applications (ICGI), pages 78?92,Springer-Verlag, Alicante, Spain.Della Pietra, S., V. Della Pietra and J. Lafferty.1997.
+Inducing features of random fields.IEEE Transactions on Pattern Analysis andMachine Intelligence, 19(4):380?393.Dempster, A., N. Laird, and D. Rubin.
+1977.Maximum likelihood estimation fromincomplete data via the EM algorithm.Journal of Royal Statistical Society, 39:1?38.Emami, A., K. Papineni, and J. Sorensen.2007.
+Large-scale distributed languagemodeling.
+The 32nd IEEE InternationalConference on Acoustics, Speech, andSignal Processing (ICASSP), pages 37?40,Honolulu, HI.Gildea, D. and T. Hofmann.
+1999.Topic-based language models usingEM.
+The 6th European Conference onSpeech Communication and Technology(EUROSPEECH), pages 2167?2170.Goodman, J.
+2001.
+A bit of progress inlanguage modeling.
+Computer Speechand Language, 15(4):403?434.Halevy, A., P. Norvig, and F. Pereira.
+2009.The unreasonable effectiveness of data.IEEE Intelligent Systems, 24(2):8?12.Hastie, T., R. Tibshirani and J. Friedman.2009.
+The Elements of Statistical Learning:Data Mining, Inference, and Prediction,2nd edition.
+Springer, Berlin.Hofmann, T. 2001.
+Unsupervised learningby probabilistic latent semantic analysis.Machine Learning, 42(1):177?196.Jelinek, F. 1991.
+Up from trigrams!The struggle for improved languagemodels.
+Second European Conference onSpeech Communication and Technology(EUROSPEECH), pages 1037?1040,Genove, Italy.Jelinek, F. 1998.
+Statistical Methods for SpeechRecognition.
+MIT Press, Cambridge, MA.Jelinek, F. 2004.
+Stochastic analysis ofstructured language modeling.
+In M.Johnson, S. Khudanpur, M. Ostendorf,and R. Rosenfeld, editors, MathematicalFoundations of Speech and LanguageProcessing, pages 37?72, Springer-Verlag,Berlin.Jelinek, F. 2009.
+The dawn of statisticalASR and MT.
+Computational Linguistics,35(4):483?494.Jelinek, F. and C. Chelba.
+1999.
+Puttinglanguage into language modeling.Sixth European Conference on SpeechCommunication and Technology(EUROSPEECH), Keynote Paper 1,Budapest, Hungary.Jelinek, F. and R. Mercer.
+1980.
+Interpolatedestimation of Markov source parametersfrom sparse data.
+In E. Gelsema andL.
+Kanal, editors, Pattern Recognition inPractice, pages 381?397.
+North HollandPublishers, Amsterdam.Jurafsky, D. and J. Martin.
+2008.
+Speechand Language Processing, 2nd edition.Prentice Hall, Upper Saddle River, NJ.Khudanpur, S. and J. Wu.
+2000.
+Maximumentropy techniques for exploitingsyntactic, semantic and collocationaldependencies in language modeling.Computer Speech and Language,14(4):355?372.Kneser, R. and H. Ney.
+1995.
+Improvedbacking-off for m-gram languagemodeling.
+The 20th IEEE InternationalConference on Acoustics, Speech, and SignalProcessing (ICASSP), 181?184, Detroit, MI.Koehn, P. 2004.
+Statistical significance testsfor machine translation evaluation.
+The669Computational Linguistics Volume 38, Number 32004 Conference on Empirical Methods inNatural Language Processing (EMNLP),pages 388?395, Barcelona, Spain.Koehn, P., F. Och, and D. Marcu.
+2003.Statistical phrase-based translation.The Human Language TechnologyConference (HLT), pages 48?54,Edmonton, Alberta, Canada.Lari, K. and S. Young.
+1990.
+The estimationof stochastic context-free grammars usingthe inside-outside algorithm.
+ComputerSpeech and Language, 4:35?56.Lau, R., R. Rosenfeld, and S. Roukos.1993.
+Trigger-based language models:A maximum entropy approach.
+The 18thIEEE International Conference on Acoustics,Speech, and Signal Processing (ICASSP),II:45?48, Minneapolis, MN.Lauritzen, S. 1996.
+Graphical Models.
+OxfordUniversity Press.Lavie, A., D. Yarowsky, K. Knight,C.
+Callison-Burch, N. Habash, andT.
+Mitamura.
+2006.
+MINDS WorkshopsMachine Translation WorkingGroup Final Report.
+Available athttp://www-nlpir.nist.gov/MINDS/FINAL/MT.web.pdf.Lin, J. and C. Dyer.
+2010.
+Data-Intensive TextProcessing with MapReduce.
+Morgan andClaypool Publishers.Mark, K., M. Miller, and U. Grenander.1996.
+Constrained stochastic languagemodels, In S. Levinson and L. Shepp,editors, Image Models and Their SpeechModel Cousins, pages 131?137,Springer-Verlag, Berlin.McAllester, D., M. Collins, and F. Pereira.2004.
+Case-factor diagrams for structuredprobabilistic modeling.
+Proceedings of the20th Conference on Uncertainty in ArtificialIntelligence (UAI), pages 382?391, Banff,Canada.Norvig, P. 2008.
+Statistical learning as theultimate agile development tool.
+ACM17th Conference on Information andKnowledge Management (CIKM)Industry Event, Napa Valley, CA.Och, F. 2003.
+Minimum error rate trainingin statistical machine translation.
+The41th Annual Meeting of the Associationfor Computational Linguistics (ACL),pages 160?167, Sapporo, Japan.Och, F. 2005.
+Statistical machinetranslation: Foundations and recentadvances.
+Presentation at MT-Summit.http://www.mt-archive.info/MTS-2005-och.pdfPapineni, K., S. Roukos, T. Ward, andW.
+Zhu.
+2002.
+BLEU: a method forautomatic evaluation of machinetranslation.
+The 40th Annual Meeting of theAssociation for Computational Linguistics(ACL), pages 311?318, Philadelphia, PA.Pereira, F. 2000.
+Formal grammar andinformation theory: Together again?Philosophical Transactions of the RoyalSociety: Mathematical, Physical andEngineering Sciences, 358(1769):1239?1253.Roark, B.
+2001.
+Probabilistic top?downparsing and language modeling.Computational Linguistics, 27(2):249?276.Rosenfeld, R. 1996.
+A maximum entropyapproach to adaptive statistical languagemodeling.
+Computer Speech and Language,10(2):187?228.Rosenfeld, R. 2000a.
+Two decades ofstatistical language modeling: Wheredo we go from here?
+Proceedings of IEEE,88(8):1270?1278.Rosenfeld, R. 2000b.
+Incorporatinglinguistic structure into statisticallanguage models.
+PhilosophicalTransactions of the Royal Society:Mathematical, Physical and EngineeringSciences, 358(1769):1311?1324.Rosenfeld, R., S. Chen, and X. Zhu.
+2001.Whole-sentence exponential languagemodels: A vehicle for linguistic-statisticalintegration.
+Computer Speech and Language,15(1): 55?73.Russell, S. and P. Norvig.
+2010.
+ArtificialIntelligence: A Modern Approach,3rd edition.
+Prentice Hall, UpperSaddle River, NJ.Saul, L. and F. Pereira.
+1997.
+Aggregateand mixed-order Markov models forstatistical language processing.
+TheSecond Conference on Empirical Methodsin Natural Language Processing (EMNLP),81?89, Providence, RI.Teh, Y.
+2006.
+A hierarchical Bayesianlanguage model based on Pitman-Yorprocesses.
+The 44th Annual Conference ofthe Association of Computational Linguistics(ACL), 985?992, Sydney, Australia.Teh, Y. and M. Jordan.
+2010.
+HierarchicalBayesian nonparametric models withapplications.
+In N. Hjort, C. Holmes,P.
+Mueller, and S. Walker, editors,Bayesian Nonparametrics: Principlesand Practice, pages 158?207,Cambridge University Press.Van Uytsel, D. and D. Compernolle.
+2005.Language modeling with probabilisticleft corner parsing.
+Computer Speech andLanguage, 19(2):171?204.Vapnik, V. 1998.
+Statistical Learning Theory.Springer, Berlin.670Tan et al A Scalable Distributed Syntactic, Semantic, and Lexical Language ModelWallach, H. 2006.
+Topic modeling: Beyondbag-of-words.
+The 23rd InternationalConference on Machine Learning (ICML),977?984, Pittsburgh, PA.Wang, S., R. Greiner, and S. Wang.
+2009.Consistency and generalization boundsfor maximum entropy density estimation.Manuscript.Wang, W. and M. Harper.
+2002.
+TheSuperARV language model: Investigatingthe effectiveness of tightly integratingmultiple knowledge sources.
+The 2002Conference on Empirical Methods inNatural Language Processing (EMNLP),pages 238?247, Philadelphia, PA.Wang, S., D. Schuurmans, F. Peng, andY.
+Zhao.
+2005a.
+Combining statisticallanguage models via the latent maximumentropy principle.
+Machine LearningJournal: Special Issue on Learning in Speechand Language Technologies, 60:229?250.Wang, S., D. Schuurmans, and Y. Zhao.2012.
+The latent maximum entropyprinciple.
+ACM Transactions on KnowledgeDiscovery from Data (TKDD) to appear.In Press.Wang, K., C. Thrasher, E. Viegas, X. Li,and P. Hsu.
+2010.
+An overview ofMicrosoft web N-gram corpus andapplications.
+Proceedings of the NorthAmerican Chapter of the Association forComputational Linguistics - HumanLanguage Technologies (NAACL-HLT):Demonstration Session, pages 45?48,Los Angeles, CA.Wang, S., S. Wang, L. Cheng, R. Greiner,and D. Schuurmans.
+2006.
+Stochasticanalysis of lexical and semanticenhanced structural language model.The 8th International Colloquium onGrammatical Inference (ICGI), pages 97?111,Tokyo, Japan.Wang, S., S. Wang, R. Greiner, D.Schuurmans, and L. Cheng.
+2005b.Exploiting syntactic, semantic andlexical regularities in language modelingvia directed Markov random fields.The 22nd International Conference onMachine Learning (ICML), 953?960,Bonn, Germany.Wu, C. 1983.
+On the convergence propertiesof the EM algorithm.
+Annals of Statistics,11:95?103.Yamada, K. and K. Knight.
+2001.A syntax-based statistical translationmodel.
+Proceedings of the 39th AnnualConference of the Association ofComputational Linguistics (ACL),1067?1074, Toulouse, France.Zangwill, W. 1969.
+Nonlinear Programming:A Unified Approach.
+Prentice-Hall,Upper Saddle River, NJ.Zhang, Y.
+2008.
+Structured LanguageModels for Statistical Machine Translation.Ph.D.
+dissertation, Carnegie MellonUniversity, Pittsburgh, PA.Zhang, Y., A. Hildebrand, and S. Vogel.2006.
+Distributed language modeling forN-best list re-ranking.
+The 2006 Conferenceon Empirical Methods in Natural LanguageProcessing (EMNLP), 216?223, Sydney,Australia.Zhang, Y., S. Vogel, A. Emami, K. Papineni,J.
+Sorensen, and J. Quinn.
+2011.
+Distributedlanguage modeling.
+In Joseph Olive,Caitlin Christianson, and John McCary,editors, Handbook of Natural LanguageProcessing and Machine Translation: DARPAGlobal Autonomous Language Exploitation,Chapter 2.5.1, 252?270, Springer.671

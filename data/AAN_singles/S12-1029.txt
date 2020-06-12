@@ -1,0 +1,485 @@
+First Joint Conference on Lexical and Computational Semantics (*SEM), pages 209?217,Montre?al, Canada, June 7-8, 2012. c?2012 Association for Computational LinguisticsAn Exact Dual Decomposition Algorithmfor Shallow Semantic Parsing with ConstraintsDipanjan Das?
+Andre?
+F. T.
+Martins??
+Noah A.
+Smith?
+?Language Technologies Institute, Carnegie Mellon University, Pittsburgh, PA 15213, USA?Instituto de Telecomunicac?o?es, Instituto Superior Te?cnico, Lisboa, Portugal{dipanjan,afm,nasmith}@cs.cmu.eduAbstractWe present a novel technique for jointly predict-ing semantic arguments for lexical predicates.
+Thetask is to find the best matching between seman-tic roles and sentential spans, subject to struc-tural constraints that come from expert linguisticknowledge (e.g., in the FrameNet lexicon).
+Weformulate this task as an integer linear program(ILP); instead of using an off-the-shelf tool tosolve the ILP, we employ a dual decompositionalgorithm, which we adapt for exact decoding viaa branch-and-bound technique.
+Compared to abaseline that makes local predictions, we achievebetter argument identification scores and avoid allstructural violations.
+Runtime is nine times fasterthan a proprietary ILP solver.1 IntroductionSemantic knowledge is often represented declara-tively in resources created by linguistic experts.
+Inthis work, we strive to exploit such knowledge ina principled, unified, and intuitive way.
+An ex-ample resource where a wide variety of knowledgehas been encoded over a long period of time is theFrameNet lexicon (Fillmore et al, 2003),1 whichsuggests an analysis based on frame semantics (Fill-more, 1982).
+This resource defines hundreds ofsemantic frames.
+Each frame represents a gestaltevent or scenario, and is associated with several se-mantic roles, which serve as participants in the eventthat the frame signifies (see Figure 1 for an exam-ple).
+Along with storing the above data, FrameNetalso provides a hierarchy of relationships betweenframes, and semantic relationships between pairs ofroles.
+In prior NLP research using FrameNet, theseinteractions have been largely ignored, though they1http://framenet.icsi.berkeley.eduhave the potential to improve the quality and consis-tency of semantic analysis.In this paper, we present an algorithm that findsthe full collection of arguments of a predicate givenits semantic frame.
+Although we work within theconventions of FrameNet, our approach is general-izable to other semantic role labeling (SRL) frame-works.
+We model this argument identification taskas constrained optimization, where the constraintscome from expert knowledge encoded in a lexi-con.
+Following prior work on PropBank-style SRL(Kingsbury and Palmer, 2002) that dealt with simi-lar constrained problems (Punyakanok et al, 2004;Punyakanok et al, 2008, inter alia), we incorporatethis declarative knowledge in an integer linear pro-gram (ILP).Because general-purpose ILP solvers are propri-etary and do not fully exploit the structure of theproblem, we turn to a class of optimization tech-niques called dual decomposition (Komodakis etal., 2007; Rush et al, 2010; Martins et al, 2011a).We derive a modular, extensible, parallelizable ap-proach in which semantic constraints map not justto declarative components of the algorithm, but alsoto procedural ones, in the form of ?workers.?
+Whiledual decomposition algorithms only solve a relax-ation of the original problem, we make a novel con-tribution by wrapping the algorithm in a branch-and-bound search procedure, resulting in exact solutions.We experimentally find that our algorithmachieves accuracy comparable to a state-of-the-artsystem, while respecting all imposed linguistic con-straints.
+In comparison to inexact beam search thatviolates many of these constraints, our exact decoderhas less than twice the runtime; furthermore, it de-codes nine times faster than CPLEX, a state-of-the-art, proprietary, general-purpose exact ILP solver.209Austria , once expected to waltz smoothly into the European Union , is elbowing its partners ,treading on toes and pogo-dancing in a most un-Viennese manner .SELF_MOTION COLLABORATIONCONDUCTGoalManner Partner_1 Partner_2MannerAgentSelf_moverFigure 1: An example sentence from the annotations released as part of FrameNet 1.5 with three predicates marked inbold.
+Each predicate has its evoked semantic frame marked above it, in a distinct color.
+For each frame, its semanticroles are shown in the same color, and the spans fulfilling the roles are underlined.
+For example, manner evokes theCONDUCT frame, and has the Agent and Manner roles fulfilled by Austria and most un-Viennese respectively.2 Collective Argument IdentificationHere, we take a declarative approach to modelingargument identification using an ILP and relate ourformulation to prior work in shallow semantic pars-ing.
+We show how knowledge specified in a lin-guistic resource can be used to derive the constraintsused in our ILP.
+Finally, we draw connections of ourspecification to graphical models, a popular formal-ism in AI, and describe how the constraints can betreated as factors in a factor graph.2.1 Declarative SpecificationLet us denote a predicate by t and the semanticframe it evokes within a sentence x by f .
+In thiswork, we assume that the semantic frame f is given,which is traditionally the case in controlled exper-iments used to evaluate SRL systems (Ma`rquez etal., 2008).
+Given the semantic frame of a predicate,the semantic roles that might be filled are assumedto be given by the lexicon (as in PropBank andFrameNet).
+Let the set of roles associated with theframe f be Rf .
+In sentence x, the set of candidatespans of words that might fill each role is enumer-ated, usually following an overgenerating heuristic;2let this set of spans be St. We include the null span ?in St; connecting it to a role r ?
+Rf denotes that therole is not overt.
+Our approach assumes a scoringfunction that gives a strength of association betweenroles and candidate spans.
+For each role r ?
+Rf andspan s ?
+St, this score is parameterized as:c(r, s) = ?
+?
+h(t, f,x, r, s), (1)where ?
+are model weights and h is a feature func-tion that looks at the predicate t, the evoked framef , sentence x, and its syntactic analysis, along with2Here, as in most SRL literature, role fillers are assumed to beexpressed as contiguous spans, though such an assumption iseasy to relax in our framework.r and s. The SRL literature provides many featurefunctions of this form and many ways to use ma-chine learning to acquire ?.
+Our presented methoddoes not make any assumptions about the score ex-cept that it has the form in Eq.
+1.We define a vector z of binary variables zr,s ?
+{0, 1} for every role and span pair.
+We have that:z ?
+{0, 1}d, where d = |Rf | ?
+|St|.
+zr,s = 1 meansthat role r is filled by span s. Given the binary z vec-tor, it is straightforward to recover the collection ofarguments by checking which components zr,s havean assignment of 1; we use this strategy to find argu-ments, as described in ?4.2 (strategies 4 and 6).
+Thejoint argument identification task can be representedas a constrained optimization problem:maximize?r?Rf?s?St c(r, s)?
+zr,swith respect to z ?
+{0, 1}dsuch that Az ?
+b.
+(2)The last line imposes constraints on the mapping be-tween roles and spans; these are motivated on lin-guistic grounds and are described next.3Uniqueness: Each role r is filled by at most onespan in St.
+This constraint can be expressed by:?r ?
+Rf ,?s?St zr,s = 1.
+(3)There are O(|Rf |) such constraints.
+Note that sinceSt contains the null span ?, non-overt roles are alsocaptured using the above constraints.
+Such a con-straint is used extensively in prior literature (Pun-yakanok et al, 2008, ?3.4.1).Overlap: SRL systems commonly constrain rolesto be filled by non-overlapping spans.
+For example,Toutanova et al (2005) used dynamic programmingover a phrase structure tree to prevent overlaps be-tween arguments, and Punyakanok et al (2008) used3Note that equality constraints a ?z = b can be transformed intodouble-side inequalities a ?
+z ?
+b and ?a ?
+z ?
+?b.210constraints in an ILP to respect this requirement.
+In-spired by the latter, we require that each input sen-tence position of x be covered by at most one argu-ment.
+For each role r ?
+Rf , we define:Gr(i) = {s | s ?
+St, s covers position i in x}.
+(4)We can define our overlap constraints in terms of Gras follows, for every sentence position i:?i ?
+{1, .
+.
+.
+, |x|},?r?Rf?s?Gr(i) zr,s ?
+1, (5)This gives us O(|x|) constraints.Pairwise ?Exclusions?
+: For many predicateclasses, there are pairs of roles forbidden to appeartogether in the analysis of a single predicate token.Consider the following two sentences:A blackberryEntity 1resembles a loganberryEntity 2.
+(6)Most berriesEntitiesresemble each other.
+(7)Consider the uninflected predicate resemble inboth sentences, evoking the same meaning.
+In exam-ple 6, two roles, which we call Entity 1 and Entity 2describe two entities that are similar to each other.In the second sentence, a phrase fulfills a third role,called Entities, that collectively denotes some ob-jects that are similar.
+It is clear that the roles Entity 1and Entities cannot be overt for the same predicateat once, because the latter already captures the func-tion of the former; a similar argument holds for theEntity 2 and Entities roles.
+We call this phenomenonthe ?excludes?
+relationship.
+Let us define a set ofpairs fromRf that have this relationship:Exclf = {(ri, rj) | ri and rj exclude each other}Using the above set, we define the constraint:?
+(ri, rj) ?
+Exclf , zri,?
++ zrj ,?
+?
+1 (8)In English: if both roles are overt in a parse, thisconstraint will be violated, and we will not respectthe ?excludes?
+relationship between the pair.
+If nei-ther or only one of the roles is overt, the constraintis satisfied.
+The total number of such constraints isO(|Exclf |), which is the number of pairwise ?ex-cludes?
+relationships of a given frame.Pairwise ?Requirements?
+: The sentence in exam-ple 6 illustrates another kind of constraint.
+The pred-icate resemble cannot have only one of Entity 1 andEntity 2 as roles in text.
+For example,* A blackberryEntity 1resembles.
+(9)Enforcing the overtness of two roles sharing this?requires?
+relationship is straightforward.
+We definethe following set for a frame f :Reqf = {(ri, rj) | ri and rj require each other}This leads to constraints of the form?
+(ri, rj) ?
+Reqf , zri,?
+?
+zrj ,?
+= 0 (10)If one role is overt (or absent), so must the otherbe.
+A related constraint has been used previouslyin the SRL literature, enforcing joint overtness re-lationships between core arguments and referentialarguments (Punyakanok et al, 2008, ?3.4.1), whichare formally similar to the example above.4Integer Linear Program and Relaxation: Plug-ging the constraints in Eqs.
+3, 5, 8 and 10 into thelast line of Eq.
+2, we have the argument identifica-tion problem expressed as an ILP, since the indica-tor variables z are binary.
+In this paper, apart fromthe ILP formulation, we will consider the follow-ing relaxation of Eq.
+2, which replaces the binaryconstraint z ?
+{0, 1}d by a unit interval constraintz ?
+[0, 1]d, yielding a linear program:maximize?r?Rf?s?St c(r, s)?
+zr,swith respect to z ?
+[0, 1]dsuch that Az ?
+b.
+(11)There are several LP and ILP solvers available,and a great deal of effort has been spent by theoptimization community to devise efficient genericsolvers.
+An example is CPLEX, a state-of-the-artsolver for mixed integer programming that we em-ploy as a baseline to solve the ILP in Eq.
+2 as wellas its LP relaxation in Eq.
+11.
+Like many of the bestimplementations, CPLEX is proprietary.4 We noticed in the annotated data, in some cases, the ?requires?constraint is violated by the FrameNet annotators.
+This hap-pens mostly when one of the required roles is absent in thesentence containing the predicate, but is rather instantiated inan earlier sentence; see Gerber and Chai (2010).
+We apply thehard constraint in Eq.
+10, though extending our algorithm toseek arguments outside the sentence is straightforward (Chenet al, 2010).2112.2 Linguistic Constraints from FrameNetAlthough enforcing the four different sets of con-straints above is intuitive from a general linguisticperspective, we ground their use in definitive lin-guistic information present in the FrameNet lexicon(Fillmore et al, 2003).
+FrameNet, along with listsof semantic frames, associated semantic roles, andpredicates that could evoke the frames, gives us asmall number of annotated sentences with frame-semantic analysis.
+From the annotated data, wegathered that only 3.6% of the time is a role instanti-ated multiple times by different spans in a sentence.This justifies the uniqueness constraint enforced byEq.
+3.
+Use of such a constraint is also consistentwith prior work in frame-semantic parsing (Johans-son and Nugues, 2007; Das et al, 2010a).
+Similarly,we found that in the annotations, no arguments over-lapped with each other for a given predicate.
+Hence,the overlap constraints in Eq.
+5 are also justified.Our third and fourth sets of constraints, presentedin Eqs.
+8 and 10, come from FrameNet, too; more-over, they are explicitly mentioned in the lexicon.Examples 6?7 are instances where the predicate re-semble evokes the SIMILARITY frame, which is de-fined in FrameNet as: ?Two or more distinct en-tities, which may be concrete or abstract objectsor types, are characterized as being similar to eachother.
+Depending on figure/ground relations, theentities may be expressed in two distinct frame el-ements and constituents, Entity 1 and Entity 2, orjointly as a single frame element and constituent,Entities.
+?For this frame, the lexicon lists several roles otherthan the three roles we have already observed, suchas Dimension (the dimension along which the enti-ties are similar), Differentiating fact (a fact that re-veals how the concerned entities are similar or dif-ferent), and so forth.
+Along with the roles, FrameNetalso declares the ?excludes?
+and ?requires?
+relation-ships noted in our discussion in Section 2.1.
+Thecase of the SIMILARITY frame is not unique; in Fig.
+1,the frame COLLABORATION, evoked by the predicatepartners, also has two roles Partner 1 and Partner 2that share the ?requires?
+relationship.
+In fact, outof 877 frames in FrameNet 1.5, the lexicon?s latestedition, 204 frames have at least a pair of roles thatshare the ?excludes?
+relationship, and 54 list at leasta pair of roles that share the ?requires?
+relationship.2.3 Constraints as Factors in a Graphical ModelThe LP in Eq.
+11 can be represented as a maxi-mum a posteriori (MAP) inference problem in anundirected graphical model.
+In the factor graph,each component of z corresponds to a binary vari-able, and each instantiation of a constraint inEqs.
+3, 5, 8 and 10 corresponds to a factor.
+Smithand Eisner (2008) and Martins et al (2010) usedsuch a representation to impose constraints in a de-pendency parsing problem; the latter discussed theequivalence of linear programs and factor graphs forrepresenting discrete optimization problems.
+Eachof our constraints take standard factor forms we candescribe using the terminology of Smith and Eisner(2008) and Martins et al (2010).
+The uniquenessconstraint in Eq.
+3 corresponds to an XOR factor,while the overlap constraint in Eq.
+5 corresponds toan ATMOSTONE factor.
+The constraints in Eq.
+8enforcing the ?excludes?
+relationship can be repre-sented with an OR factor.
+Finally, each ?requires?constraints in Eq.
+10 is equivalent to an XORWITH-OUTPUT factor.In the following section, we describe how we ar-rive at solutions for the LP in Eq.
+11 using dual de-composition, and how we adapt it to efficiently re-cover the exact solution of the ILP (Eq.
+2), withoutthe need of an off-the-shelf ILP solver.3 ?Augmented?
+Dual DecompositionDual decomposition methods address complex op-timization problems in the dual, by dividing theminto simple worker problems, which are repeat-edly solved until a consensus is reached.
+Themost simple technique relies on the subgradientalgorithm (Komodakis et al, 2007; Rush et al,2010); as an alternative, an augmented Lagrangiantechnique was proposed by Martins et al (2011a,2011b), which is more suitable when there are manysmall components?commonly the case in declara-tive constrained problems, such as the one at hand.Here, we present a brief overview of the latter, whichis called Dual Decomposition with the AlternatingDirection Method of Multipliers (AD3).Let us start by establishing some notation.
+Letm ?
+{1, .
+.
+.
+,M} index a factor, and denote by i(m)212the vector of indices of variables linked to that fac-tor.
+(Recall that each factor represents the instantia-tion of a constraint.)
+We introduce a new set of vari-ables, u ?
+Rd, called the ?witness?
+vector.
+We splitthe vector z into M overlapping pieces z1, .
+.
+.
+, zM ,where each zm ?
+[0, 1]|i(m)|, and add M constraintszm = ui(m) to impose that all the pieces must agreewith the witness (and therefore with each other).Each of the M constraints described in ?2 can beencoded with its own matrix Am and vector bm(which jointly define A and b in Eq.
+11).
+For conve-nience, we denote by c ?
+Rd the score vector, whosecomponents are c(r, s), for each r ?
+Rf and s ?
+St(Eq.
+1), and define the following scores for the mthsubproblem:cm(r, s) = ?
+(r, s)?1c(r, s), ?
+(r, s) ?
+i(m), (12)where ?
+(r, s) is the number of constraints that in-volve role r and span s. Note that according to thisdefinition, c ?
+z =?Mm=1 cm ?
+zm.
+We can rewritethe LP in Eq.
+11 in the following equivalent form:maximizeM?m=1cm ?
+zmwith respect to u ?
+Rd, zm ?
+[0, 1]i(m), ?msuch that Amzm ?
+bm, ?mzm = ui(m), ?m.
+(13)We next augment the objective with a quadraticpenalty term ?2?Mm=1 ?zm?ui(m)?2 (for some ?
+>0).
+This does not affect the solution of the problem,since the equality constraints in the last line forcethis penalty to vanish.
+However, as we will see, thispenalty will influence the workers and will lead tofaster consensus.
+Next, we introduce Lagrange mul-tipliers ?m for those equality constraints, so that theaugmented Lagrangian function becomes:L?(z,u,?)
+=M?m=1(cm + ?m) ?
+zm ?
+?m ?
+ui(m)?
+?2?zm ?
+ui(m)?2.
+(14)The AD3 algorithm seeks a saddle point of L?
+byperforming alternating maximization with respect toz and u, followed by a gradient update of ?.
+The re-sult is shown as Algorithm 1.
+Like dual decomposi-tion approaches, it repeatedly performs a broadcastoperation (the zm-updates, which can be done in pa-Algorithm 1 AD3 for Argument Identification1: input:?
+role-span matching scores c := ?c(r, s)?r,s,?
+structural constraints ?Am,bm?Mm=1,?
+penalty ?
+> 02: initialize u uniformly (i.e., u(r, s) = 0.5, ?r, s)3: initialize each ?m = 0, ?m ?
+{1, .
+.
+.
+,M}4: initialize t?
+15: repeat6: for each m = 1, .
+.
+.
+,M do7: make a zm-update by finding the best scoringanalysis for the mth constraint, with penaltiesfor deviating from the consensus u:zt+1m ?
+argmaxAmzm?bm(cm+?m)?zm?
+?2?zm?ui(m)?28: end for9: make a u-update by updating the consensus solu-tion, averaging z1, .
+.
+.
+, zm:ut+1(r, s)?1?
+(r, s)?m:(r,s)?i(m)zt+1m (r, s)10: make a ?-update:?t+1m ?
+?tm ?
+?
+(z(t+1)m ?
+u(t+1)i(m) ), ?m11: t?
+t+ 112: until convergence.13: output: relaxed primal solution u?
+and dual solution??.
+If u?
+is integer, it will encode an assignment ofspans to roles.
+Otherwise, it will provide an upperbound of the true optimum.-rallel, one constraint per ?worker?)
+and a gather op-eration (the u- and ?-updates).
+Each u-operationcan be seen as an averaged voting which takes intoconsideration each worker?s results.Like in the subgradient method, the?-updates canbe regarded as price adjustments, which will affectthe next round of zm-updates.
+The only differencewith respect to the subgradient method (Rush et al,2010) is that each subproblem involved in a zm-update also has a quadratic penalty that penalizes de-viations from the previous average voting; it is thisterm that accelerates consensus and therefore con-vergence.
+Martins et al (2011b) also provide stop-ping criteria for the iterative updates using primaland dual residuals that measure convergence; we re-fer the reader to that paper for details.A key attraction of this algorithm is all the com-ponents of the declarative specification remain intact213in the procedural form.
+Each worker correspondsexactly to one constraint in the ILP, which corre-sponds to one linguistic constraint.
+There is no needto work out when, during the procedure, each con-straint might have an effect, as in beam search.Solving the subproblems.
+In a different appli-cation, Martins et al (2011b, ?4) showed howto solve each zm-subproblem associated with theXOR, XORWITHOUTPUT and OR factors in runtimeO(|i(m)| log |i(m)|).
+The only subproblem that re-mains is that of the ATMOSTONE factor, to whichwe now turn.
+The problem can be transformed intothat of projecting a point (a1, .
+.
+.
+, ak) onto the setSm ={zm ?
+[0, 1]|i(m)|??
+?|i(m)|j=1 zm,j ?
+1}.This projection can be computed as follows:1.
+Clip each aj into the interval [0, 1] (i.e., seta?j = min{max{aj , 0}, 1}).
+If the result satisfies?kj=1 a?j ?
+1, then return (a?1, .
+.
+.
+, a?k).2.
+Otherwise project (a1, .
+.
+.
+, ak) onto the probabil-ity simplex:{zm ?
+[0, 1]|i(m)|??
+?|i(m)|j=1 zm,j = 1}.This is precisely the XOR subproblem and can besolved in time O(|i(m)| log |i(m)|).Caching.
+As mentioned by Martins et al (2011b),as the algorithm comes close to convergence, manysubproblems become unchanged and their solutionscan be cached.
+By caching the subproblems, wemanaged to reduce runtime by about 60%.Exact decoding.
+Finally, it is worth recalling thatAD3, like other dual decomposition algorithms,solves a relaxation of the actual problem.
+Althoughwe have observed that the relaxation is often tight?cf.
+?4?this is not always the case.
+Specifically, afractional solution may be obtained, which is not in-terpretable as an argument, and therefore it is de-sirable to have a strategy to recover the exact solu-tion.
+Two observations are noteworthy.
+First, theoptimal value of the relaxed problem (Eq.
+11) pro-vides an upper bound to the original problem (Eq.
+2).This is because Eq.
+2 has the additional integer con-straint on the variables.
+In particular, any feasibledual point provides an upper bound to the originalproblem?s optimal value.
+Second, during executionof the AD3 algorithm, we always keep track of a se-quence of feasible dual points.
+Therefore, each it-eration constructs tighter and tighter upper bounds.With this machinery, we have all that is necessary forimplementing a branch-and-bound search that findsthe exact solution of the ILP.
+The procedure worksrecursively as follows:1.
+Initialize L = ??
+(our best value so far).2.
+Run Algorithm 1.
+If the solution u?
+is integer, re-turn u?
+and set L to the objective value.
+If alongthe execution we obtain an upper bound less thanL, then Algorithm 1 can be safely stopped andreturn ?infeasible?
+?this is the bound part.
+Oth-erwise (if u?
+is fractional) go to step 3.3.
+Find the ?most fractional?
+component of u?
+(callit u?j ) and branch: constrain uj = 0 and go tostep 2, eventually obtaining an integer solution u?0or infeasibility; and then constrain uj = 1 and dothe same, obtaining u?1.
+Return the u?
+?
+{u?0,u?1}that yields the largest objective value.Although this procedure may have worst-case expo-nential runtime, we found it empirically to rapidlyobtain the exact solution in all test cases.4 Experiments and Results4.1 Dataset, Preprocessing, and LearningIn our experiments, we use FrameNet 1.5, whichcontains a lexicon of 877 frames and 1,068 rolelabels, and 78 documents with multiple predicate-argument annotations (a superset of the SemEvalshared task dataset; Baker et al, 2007).
+We used thesame split as Das and Smith (2011), with 55 doc-uments for training (containing 19,582 frame anno-tations) and 23 for testing (with 4,458 annotations).We randomly selected 4,462 predicates in the train-ing set as development data.
+The raw sentences in allthe training and test documents were preprocessedusing MXPOST (Ratnaparkhi, 1996) and the MSTdependency parser (McDonald et al, 2005).The state-of-the-art system for this task is SE-MAFOR, an open source tool (Das et al, 2010a)5that provides a baseline benchmark for our new al-gorithm.
+We use the components of SEMAFORas-is to define the features h and train the weights?
+used in the scoring function c. We also use its5http://www.ark.cs.cmu.edu/SEMAFOR214heuristic mechanism to find potential spans St for agiven predicate t. SEMAFOR learns weights using`2-penalized log-likelihood; we augmented its devset-tuning procedure to tune both the regularizationstrength and the AD3 penalty strength ?.
+We ini-tialize ?
+= 0.1 and follow Martins et al (2011b)in dynamically adjusting it.
+Note that we do not useSEMAFOR?s automatic frame identification compo-nent in our presented experiments, as we assume thatwe have gold frames on each predicate.
+This lets uscompare the different argument identification meth-ods in a controlled fashion.4.2 Decoding StrategiesWe compare the following algorithms:1.
+Local: this is a na?
+?ve argument identificationstrategy that selects the best span for each role r,according to the score function c(r, s).
+It ignoresall constraints except ?uniqueness.?2.
+SEMAFOR: this strategy employs greedy beamsearch to eliminate overlaps between predicted ar-guments (Das et al, 2010b, Algorithm 1).
+Notethat it does not try to respect the ?excludes?
+and?requires?
+constraints between pairs of roles.
+Thedefault size of the beam in SEMAFOR was a safe10,000; this resulted in extremely slow decodingtimes.
+We also tried beam sizes of 100 and 2(the latter being the smallest size that achieves thesame F1 score on the dev set as beam width 100.)3.
+CPLEX, LP: this uses CPLEX to solve the re-laxed LP in Eq.
+11.
+To handle fractional z, foreach role r, we choose the best span s?, such thats?
+= argmaxs?Sr zr,s, solving ties arbitrarily.4.
+CPLEX, exact: this tackles the actual ILP (Eq.
+2)with CPLEX.5.
+AD3, LP: this is the counterpart of the LP versionof CPLEX, where the relaxed problem is solvedusing AD3.
+We choose the spans for each role inthe same way as in strategy 3.6.
+AD3, exact: this couples AD3 with branch-and-bound search to get the exact integer solution.4.3 ResultsTable 1 shows performance of the different decodingstrategies on the test set.
+We report precision, recall,and F1 scores.6 Since these scores do not penal-6We use the evaluation script from SemEval 2007 shared task,modified to evaluate only the argument identification output.ize structural violations, we also report the numberof overlap, ?excludes,?
+and ?requires?
+constraintsthat were violated in the test set.
+Finally, we tab-ulate each setting?s decoding time in seconds on thewhole test set averaged over 5 runs.7 The Localmodel is very fast but suffers degradation in pre-cision and violates one constraint roughly per ninepredicates.
+SEMAFOR used a default beam size of10,000, which is extremely slow; a faster version ofbeam size 100 results in the same precision and re-call values, but is 15 times faster.
+Beam size 2 resultsin slightly worse precision and recall values, but iseven faster.
+All of these, however, result in manyconstraint violations.
+Strategies involving CPLEXand AD3 perform similarly to each other and SE-MAFOR on precision and recall, but eliminate mostor all of the constraint violations.
+SEMAFOR withbeam size 2 is 11-16 times faster than the CPLEXstrategies, but is only twice as fast than AD3, and re-sults in significantly more structural violations.
+Theexact algorithms are slower than the LP versions, butcompared to CPLEX, AD3 is significantly faster andhas a narrower gap between its exact and LP ver-sions.
+We found that relaxation was tight 99.8% ofthe time on the test examples.The example in Fig.
+1 is taken from our test set,and shows an instance where two roles, Partner 1and Partner 2 share the ?requires?
+relationship; forthis example, the beam search decoder misses thePartner 2 role, which is a violation, while our AD3decoder identifies both arguments correctly.
+Notethat beam search makes plenty of linguistic viola-tions, but has precision and recall values that aremarginally better than AD3.
+We found that beamsearch, when violating many ?requires?
+constraints,often finds one role in the pair, which increases itsrecall.
+AD3 is sometimes more conservative in suchcases, predicting neither role.
+A second issue, asnoted in footnote 4, is that the annotations some-times violate these constraints.
+Overall, we foundit interesting that imposing the constraints did nothave much effect on standard measures of accuracy.7We used a 64-bit machine with 2 2.6GHz dual-core CPUs (i.e.,4 processors in all) with a total of 8GB of RAM.
+The work-ers in AD3 were not parallelized, while CPLEX automaticallyparallelized execution.215ViolationsMethod P R F1 Overlap Requires Excludes Time in Secs.Local 67.69 59.76 63.48 441 45 15 1.26 ?
+0.01SEMAFOR (beam = 2) 70.18 59.54 64.42 0 49 0 2.74 ?
+0.10SEMAFOR (beam = 100) 70.43 59.64 64.59 0 50 1 29.00 ?
+0.25SEMAFOR (beam = 10000) 70.43 59.64 64.59 0 50 1 440.67 ?
+5.53CPLEX, LP 70.34 59.43 64.43 0 1 0 32.67 ?
+1.29CPLEX, exact 70.31 59.45 64.43 0 0 0 43.12 ?
+1.26AD3, LP 70.30 59.45 64.42 2 2 0 4.17 ?
+0.01AD3, exact 70.31 59.45 64.43 0 0 0 4.78 ?
+0.04Table 1: Comparison of decoding strategies in ?4.2.
+We evaluate in terms of precision, recall and F1 score on a testset containing 4,458 predicates.
+We also compute the number of structural violations each model makes: numberof overlapping arguments and violations of the ?requires?
+and ?excludes?
+constraints of ?2.
+Finally decoding time(without feature computation steps) on the whole test set is shown in the last column averaged over 5 runs.5 Related WorkSemantic role labeling: Most SRL systems useconventions from PropBank (Kingsbury and Palmer,2002) and NomBank (Meyers et al, 2004), whichstore information about verbal and nominal pred-icates and corresponding symbolic and meaning-specific semantic roles.
+A separate line of work,including this paper, investigates SRL systems thatuse FrameNet conventions; while less popular, thesesystems, pioneered by Gildea and Jurafsky (2002),consider predicates of a wider variety of syntacticcategories, use semantic frame abstractions, and em-ploy explicit role labels.
+A common trait in priorwork has been the use of a two-stage model thatidentifies arguments first, then labels them.
+They aretreated jointly here, unlike what has typically beendone in PropBank-style SRL (Ma`rquez et al, 2008).Dual decomposition: Rush et al (2010) proposedsubgradient-based dual decomposition as a way ofcombining models which are tractable individually,but not jointly, by solving a relaxation of the origi-nal problem.
+This was followed by work adoptingthis method for syntax and translation (Koo et al,2010; Auli and Lopez, 2011; DeNero and Macherey,2011; Rush and Collins, 2011; Chang and Collins,2011).
+Recently, Martins et al (2011b) showed thatthe success of subgradient-based dual decomposi-tion strongly relies on breaking down the originalproblem into a ?good?
+decomposition, i.e., one withfew overlapping components.
+This leaves out manydeclarative constrained problems, for which such agood decomposition is not readily available.
+Forthose, Martins et al (2011b) proposed the AD3 al-gorithm, which retains the modularity of previousmethods, but can handle thousands of small over-lapping components.Exact decoding: This paper contributes an exactbranch-and-bound technique wrapped around AD3.A related line of research is that of Rush and Collins(2011), who proposed a tightening procedure fordual decomposition, which can be seen as a cuttingplane method (another popular approach in combi-natorial optimization).6 ConclusionWe presented a novel algorithm for incorporatingdeclarative linguistic knowledge as constraints inshallow semantic parsing.
+It outperforms a na?
+?vebaseline that is oblivious to the constraints.
+Further-more, it is significantly faster than a decoder em-ploying a state-of-the-art proprietary solver, and lessthan twice as slow as beam search, which is inexactand does not respect all linguistic constraints.
+Ourmethod is easily amenable to the inclusion of moreconstraints, which would require minimal program-ming effort.
+Our implementation of AD3 withinSEMAFOR will be publicly released at http://www.ark.cs.cmu.edu/SEMAFOR.AcknowledgmentsWe thank the three anonymous reviewers for their valu-able feedback.
+This material is based upon work sup-ported by NSF grant IIS-1054319, Google?s supportof the Wordly Knowledge Project, a FCT/ICTI grantthrough the CMU-Portugal Program, and by Priberam,through the Discooperio project, contract 2011/18501 ofthe EU/FEDER program.216ReferencesM.
+Auli and A. Lopez.
+2011.
+A comparison of loopy be-lief propagation and dual decomposition for integratedccg supertagging and parsing.
+In Proc.
+of ACL.C.
+Baker, M. Ellsworth, and K. Erk.
+2007.
+SemEval-2007 Task 19: Frame semantic structure extraction.
+InProc.
+of SemEval.Y.-W. Chang and Michael Collins.
+2011.
+Exact decodingof Phrase-Based translation models through lagrangianrelaxation.
+In Proc.
+of EMNLP.
+Association for Com-putational Linguistics.D.
+Chen, N. Schneider, D. Das, and N. A. Smith.2010.
+SEMAFOR: Frame argument resolution withlog-linear models.
+In Proc.
+of SemEval.D.
+Das and N. A. Smith.
+2011.
+Semi-supervised frame-semantic parsing for unknown predicates.
+In Proc.
+ofACL.D.
+Das, N. Schneider, D. Chen, and N. A. Smith.
+2010a.Probabilistic frame-semantic parsing.
+In Proc.
+ofNAACL-HLT.D.
+Das, N. Schneider, D. Chen, and N. A. Smith.
+2010b.SEMAFOR 1.0: a probabilistic frame-semantic parser.Technical report, CMU-LTI-10-001.J.
+DeNero and K. Macherey.
+2011.
+Model-based alignercombination using dual decomposition.
+In Proc.
+ofACL.C.
+J. Fillmore, C. R. Johnson, and M. R.L.
+Petruck.
+2003.Background to FrameNet.
+International Journal ofLexicography, 16(3).C.
+J. Fillmore.
+1982.
+Frame Semantics.
+In Linguistics inthe Morning Calm.
+Hanshin.M.
+Gerber and J. Y. Chai.
+2010.
+Beyond nombank: Astudy of implicit arguments for nominal predicates.
+InACL.D.
+Gildea and D. Jurafsky.
+2002.
+Automatic labeling ofsemantic roles.
+Computational Linguistics, 28(3).R.
+Johansson and P. Nugues.
+2007.
+LTH: semantic struc-ture extraction using nonprojective dependency trees.In Proc.
+of SemEval.P.
+Kingsbury and M. Palmer.
+2002.
+From TreeBank toPropBank.
+In Proc.
+of LREC.N.
+Komodakis, N. Paragios, and G. Tziritas.
+2007.MRF optimization via dual decomposition: Message-passing revisited.
+In ICCV.T.
+Koo, A. M. Rush, M. Collins, T. Jaakkola, and D. Son-tag.
+2010.
+Dual decomposition for parsing with non-projective head automata.
+In Proc.
+of EMNLP.L.
+Ma`rquez, X. Carreras, K. C. Litkowski, and S. Steven-son.
+2008.
+Semantic role labeling: an introduction tothe special issue.
+Computational Linguistics, 34(2).A.
+F. T. Martins, N. A. Smith, E. P. Xing, M. A. T.Figueiredo, and P. M. Q. Aguiar.
+2010.
+Turbo parsers:Dependency parsing by approximate variational infer-ence.
+In EMNLP.A.
+F. T. Martins, M. A. T. Figueiredo, P. M. Q. Aguiar,N.
+A. Smith, and E. P. Xing.
+2011a.
+An augmentedLagrangian approach to constrained MAP inference.In Proc.
+of ICML.A F. T. Martins, N. A. Smith, P. M. Q. Aguiar, andM.
+A. T. Figueiredo.
+2011b.
+Dual decomposition withmany overlapping components.
+In Proc.
+of EMNLP.R.
+McDonald, K. Crammer, and F. Pereira.
+2005.
+Onlinelarge-margin training of dependency parsers.
+In Proc.of ACL.A.
+Meyers, R. Reeves, C. Macleod, R. Szekely, V. Zielin-ska, B.
+Young, and R. Grishman.
+2004.
+TheNomBank project: An interim report.
+In Proc.
+ofNAACL/HLT Workshop on Frontiers in Corpus Anno-tation.V.
+Punyakanok, D. Roth, W.-T. Yih, and D. Zimak.
+2004.Semantic role labeling via integer linear programminginference.
+In Proc.
+of COLING.V.
+Punyakanok, D. Roth, and W Yih.
+2008.
+The impor-tance of syntactic parsing and inference in semanticrole labeling.
+Computational Linguistics, 34:257?287.A.
+Ratnaparkhi.
+1996.
+A maximum entropy model forpart-of-speech tagging.
+In Proc.
+of EMNLP.A.
+M. Rush and M. Collins.
+2011.
+Exact decoding ofsyntactic translation models through lagrangian relax-ation.
+In Proc.
+of ACL.A.
+M. Rush, D. Sontag, M. Collins, and T. Jaakkola.2010.
+On dual decomposition and linear programmingrelaxations for natural language processing.
+In Pro-ceedings of EMNLP.D.
+Smith and J. Eisner.
+2008.
+Dependency parsing bybelief propagation.
+In EMNLP.K.
+Toutanova, A. Haghighi, and C. Manning.
+2005.
+Jointlearning improves semantic role labeling.
+In Proc.
+ofACL.217

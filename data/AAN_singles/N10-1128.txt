@@ -1,0 +1,372 @@
+Human Language Technologies: The 2010 Annual Conference of the North American Chapter of the ACL, pages 858?866,Los Angeles, California, June 2010. c?2010 Association for Computational LinguisticsContext-free reordering, finite-state translationChris Dyer and Philip ResnikUMIACS Laboratory for Computational Linguistics and Information ProcessingDepartment of LinguisticsUniversity of Maryland, College Park, MD 20742, USAredpony, resnik AT umd.eduAbstractWe describe a class of translation model inwhich a set of input variants encoded as acontext-free forest is translated using a finite-state translation model.
+The forest structure ofthe input is well-suited to representing wordorder alternatives, making it straightforward tomodel translation as a two step process: (1)tree-based source reordering and (2) phrasetransduction.
+By treating the reordering pro-cess as a latent variable in a probabilistic trans-lation model, we can learn a long-range sourcereordering model without example reorderedsentences, which are problematic to construct.The resulting model has state-of-the-art trans-lation performance, uses linguistically moti-vated features to effectively model long rangereordering, and is significantly smaller than acomparable hierarchical phrase-based transla-tion model.1 IntroductionTranslation models based on synchronous context-free grammars (SCFGs) have become widespread inrecent years (Wu, 1997; Chiang, 2007).
+Comparedto phrase-based models, which can be represented asfinite-state transducers (FSTs, Kumar et al (2006)),one important benefit that SCFG models have is theability to process long range reordering patterns inspace and time that is polynomial in the length ofthe displacement, whereas an FST must generallyexplore a number of states that is exponential inthis length.1 As one would expect, for language1Our interest here is the reordering made possible by varyingthe arrangement of the translation units, not the local word orderdifferences captured inside memorized phrase pairs.pairs with substantial structural differences (and thusrequiring long-range reordering during translation),SCFG models have come to outperform the best FSTmodels (Zollmann et al, 2008).In this paper, we explore a new way to take advan-tage of the computational benefits of CFGs duringtranslation.
+Rather than using a single SCFG to bothreorder and translate a source sentence into the targetlanguage, we break the translation process into a twostep pipeline where (1) the source language is re-ordered into a target-like order, with alternatives en-coded in a context-free forest, and (2) the reorderedsource is transduced into the target language usingan FST that represents phrasal correspondences.While multi-step decompositions of the transla-tion problem have been proposed before (Kumar etal., 2006), they are less practical with the rise ofSCFG models, since the context-free languages arenot closed under intersection (Hopcroft and Ullman,1979).
+However, the CFLs are closed under intersec-tion with regular languages.
+By restricting ourselvesto a finite-state phrase transducer and representingreorderings of the source in a context-free forest, ex-act inference over the composition of the two modelsis possible.The paper proceeds as follows.
+We first ex-plore reordering forests and describe how to trans-late them with an FST (?2).
+Since we would like ourreordering model to discriminate between good re-orderings of the source and bad ones, we show howto train our reordering component as a latent variablein an end-to-end translation model (?3).
+We thenpresents experimental results on language pairs re-quiring small amounts and large amounts of reorder-ing (?4).
+We conclude with a discussion of related858work (?6) and possible extensions (?7).2 Reordering forests and translationIn this section, we describe source reorderingforests, a context-free representation of source lan-guage word order alternatives.2 The basic idea isthat for the source sentence, f, that is to be trans-lated, we want to create a (monolingual) context-freegrammarF that generates strings (f?)
+of words in thesource language that are permutations of the origi-nal sentence.
+Specifically, this forest should containderivations that put the source words into an orderthat approximates how they will be ordered in thegrammar of the target language.For a concrete example, let us consider the task ofEnglish-Japanese translation.3 Our input sentenceis John ate an apple.
+Japanese is a head-final lan-guage, where the heads of phrases (such as the verbin a verb phrase) typically come last, and Englishis a head-initial language, where heads come first.As a result, the usual order for a declarative sen-tence in English is SVO (subject-verb-object), butin Japanese, it is SOV, and the desired translationis John-ga ringo-o [an apple] tabeta [ate].
+In sum-mary, when translating from English into Japanese,it is usually necessary to move verbs from their po-sition between the subject and object to the end ofthe sentence.This reordering can happen in two ways, whichwe depict in Figure 1.
+In the derivation on the left,a memorized phrase pair captures the movement ofthe verb (Koehn et al, 2003).
+In the other deriva-tion, the source is first reordered into target wordorder and then translated, using smaller translationunits.
+In addition, we have assumed that the phrasetranslations were learned from a parallel corpus thatis in the original ordering, so the reordering forest Fshould include derivations of phrase-size units in thesource order as well as the target order.2Note that forests are isomorphic to context-free grammars.For example, what is referred to as the ?parse forest?, and un-derstood to encode all derivations of a sentence s under somegrammar, can also be understood as being a context-free gram-mar itself that exactly generates s. We therefore refer to a forestas a grammar sometimes, or vice versa, depending on whichcharacterization is clearer in context.3We use English as the source language since we expect theparse structure of English sentences will be more familiar tomany readers.0 1an : ?apple : ???
+?John : ???
+?ate : ???
+[John-ga][ringo-o][tabeta]23ate : ?an : ?apple : ????
+???
+[ringo-o   tabeta]Figure 2: A fragment of a phrase-based English-Japanesetranslation model, represented as an FST.
+Japanese ro-manization is given in brackets.A minimal reordering forest that supports thederivations depicted needs to include both an SOVand SVO version of the source.
+This could be ac-complished trivially with the following grammar:S ?
+John ate an appleS ?
+John an apple ateHowever, this grammar misses the opportunity totake advantage of the regularities in the permutedstructure.
+A better alternative might be:S ?
+John VPVP ?
+ate NPVP ?
+NP ateNP ?
+an appleIn this grammar, the phrases John and an apple arefixed and only the VP contains ordering ambiguity.2.1 Reordering forests based on source parsesMany kinds of reordering forests are possible; ingeneral, the best one for a particular language pairwill be one that is easiest to create given the re-sources available in the source language.
+It willalso be the one that most compactly expresses thesource reorderings that are most likely to be use-ful for translation.
+In this paper, we consider aparticular kind of reordering forest that is inspiredby the reordering model of Yamada and Knight(2001).4 These are generated by taking a source lan-guage parse tree and ?expanding?
+each node so that it4One important difference is that our translation model is notrestricted by the structure of the source parse tree; i.e., phrasesused in transduction need not correspond to constituents in thesource reordering forest.
+However, if a phrase does cross a con-stituent boundary between constituents A and B, then transla-tions that use that phrase will have A and B adjacent.859????
+????
+??
+?John-ga      ringo-o     tabetaJohn an apple ate????
+????
+??
+?John-ga      ringo-o     tabetaJohn ate an appleJohn ate an appleJohn ate an appleff'eFigure 1: Two possible derivations of a Japanese translation of an English source sentence.rewrites with different permutations of its children.5For an illustration using our example sentence, re-fer to Figure 3 for the forest representation and Fig-ure 4 for its isomorphic CFG representation.
+It iseasy to see that this forest generates the two ?good?order variants from Figure 1; however, the forest in-cludes many other derivations that will probably notlead to good translations.
+For this reason, it is help-ful to associate the edges in the forest (that is, therules in the CFG) with weights reflecting how likelythat rule is to lead to a good translation.
+We discusshow these weights can be learned automatically in?3.2.2 Translating reordering forests with FSTsHaving described how to construct a context-free re-ordering forest for the source sentence, we now turnto the problem of how to translate the source forestinto the target language using a phrase-based trans-lation model encoded as an FST, e.g.
+Figure 2.
+Theprocess is quite similar to the one used when trans-lating a source sentence with an SCFG, but with atwist: rather than representing the translation modelas a grammar and parsing the source sentence, werepresent the source sentence as a grammar (i.e.
+itsreordering forest), and we use it to ?parse?
+the trans-lation model (i.e.
+the FST representation of thephrase-based model).
+The end result (either way!
+)is a translation forest containing all possible target-language translations of the source.Parsing can be understood as a means of comput-ing the intersection of an FSA and a CFG (Grune andJacobs, 2008).
+Since we are dealing with FSTs thatdefine binary relations over strings, not FSAs defin-ing strings, this operation is more properly compo-sition.
+However, since CFG/FSA intersection is less5For computational tractability, we only consider all permu-tations only when the number of children is less than 5, other-wise we exclude permutations where a child moves more than4 positions away from where it starts.cumbersome to describe, we present the algorithmin terms of intersection.To compute the composition of a reordering for-est, G, with an FSA, F , we will make use of a variantof Earley?s algorithm (Earley, 1970).
+Let weightedfinite-state automaton F = ?
+?, Q, q0, qfinal, ?, w?.?
+is a finite alphabet; Q is a set of states; q0 andqfinal ?
+Q are start and accept states, respectively,6 ?is the transition function Q?
+??
+2Q, and w is thetransition cost function Q ?
+Q ?
+R. We use vari-ables that refer to states in the FSA with the lettersq, r, and s. We use x to represent a variable that isan element of ?.
+Variables u and v represent costs.X and Y are non-terminals.
+Lowercase Greek let-ters are strings of terminals and non-terminals.
+Thefunction ?
+(q, x) returns the state(s) that are reach-able from state q by taking a transition labeled withx in the FSA.Figure 5 provides the inference rules for atop-down intersection algorithm in the form of aweighted logic program; the three inference rulescorrespond to Earley?s SCAN, PREDICT, and COM-PLETE, respectively.3 Reordering and translation modelAs pointed out in ?2.1, our reordering forests maycontain many paths, some of which when translatedwill lead to good translations and others that will bebad.
+We would like a model to distinguish the two.If we had a parallel corpus of source languagesentences paired with ?reference reorderings?, sucha model could be learned directly as a supervisedlearning task.
+However, creating the optimal target-language reordering f?
+for some f is a nontrivialtask.7 Instead of trying to solve this problem, weopt to treat the reordered from of the source, f?, as a6Other FSA definitions permit sets of start and final states.We use the more restricted definition for simplicity and becausein our FSTs q0 = qfinal.7For a discussion of methods for generating reference re-860Original parse:Reordering forest:SV DT NNVPNPsubjNPobjJohn atean apple1 11111222222SV DT NNVPNPsubjNPobjJohn atean apple1 11222Figure 3: Example of a reordering forest.
+Linearizationorder of non-terminals is indicated by the index at the tailof each edge.
+The isomorphic CFG is shown in Figure 4;dashed edges correspond to reordering-specific rules.latent variable in a probabilistic translation model.By doing this, we only require a parallel corpus oftranslations to learn the reordering model.
+Not onlydoes this make our lives easier, since ?reference re-orderings?
+are not necessary, but it is also intuitivelysatisfying because from a task perspective, we arenot concerned with values of f?, but only with pro-ducing a good translation e.3.1 A probabilistic translation model with alatent reordering variableThe translation model we use is a two phase process.First, source sentence f is reordered into a target-like word order f?
+according to a reordering modelr(f?|f).
+The reordered source is then transduced intothe target language according to a translation modelt(e|f?).
+We require that r(f?|f) can be represented byorderings from word aligned parallel corpora, refer to Trombleand Eisner (2009).Original parse grammar: S?
+NPsubj VPVP?
+V NPobj NPobj ?
+DT NNNPsubj ?
+John V?
+ateDT?
+an NN?
+appleAdditional reordering grammar rules:S?
+VP NPsubjVP?
+NPobj VNPobj ?
+NN DTFigure 4: Context-free grammar representation of the for-est in Figure 3.
+The reordering grammar contains theparse grammar, plus the reordering-specific rules.Initialization:[S?
+?
+?S, q0, q0] : 1Inference rules:[X ?
+?
+?
+x?, q, r] : u[X ?
+?x ?
+?, q, ?
+(r, x)] : u?
+w(?
+(r, x))[X ?
+?
+?
+Y ?, q, r][Y ?
+?
+?, r, r] : uYu??
+?
+?
+G[X ?
+?
+?
+Y ?, q, s] : u [Y ?
+?
+?, s, r] : v[X ?
+?Y ?
+?, q, r] : u?
+vGoal state:[S?
+?
+S?, q0, qfinal]Figure 5: Weighted logic program for computing the in-tersection of a weighted FSA and a weighted CFG.a recursion-free probabilistic context-free grammar,i.e.
+a forest as in ?2.1, and that t(e|f?)
+is representedby a (cyclic) finite-state transducer, as in Figure 2.Since the reordering forest may define multiplederivations a from f to a particular f?, and the trans-ducer may define multiple derivations d from f?
+toa particular translation e, we marginalize over thesenuisance variables as follows to define the probabil-ity of a translation given the source:p(e|f) =?d?f?t(e,d|f?
+)?ar(f?, a|f) (1)Crucially, since we have restricted r(f?|f) to havethe form of a weighted CFG and t(e|f?)
+to be an861FST, the quantity (1), which sums over all reorder-ings (and derivations), can be computed in polyno-mial time with dynamic programming composition,as described in ?2.2.3.2 Conditional trainingWhile it is straightforward to use expectation maxi-mization to optimize the joint likelihood of the paral-lel training data with a latent variable model, insteadwe use a log-linear parameterization and maximizeconditional likelihood (Blunsom et al, 2008; Petrovand Klein, 2008).
+This enables us to employ a richset of (possibly overlapping, non-independent) fea-tures to discriminate among translations.
+The proba-bility of a derivation from source to reordered sourceto target is thus written in terms of model parameters?
+= {?i} as:p(e,d, f?, a|f; ?)
+=exp?i ?i ?Hi(e,d, f?, a, f)Z(f; ?
+)where Hi(e,d, f?, a, f) =?r?dhi(f?, r) +?s?ahi(f, s)The derivation probability is globally normalized bythe partition Z(f; ?
+), which is just the sum of thenumerator for all derivations of f (corresponding toany e).
+The Hi (written below without their argu-ments) are real-valued feature functions that maybe overlapping and non-independent.
+For compu-tational tractability, we assume that the feature func-tions Hi decompose with the derivations of f?
+and ein terms of local feature functions hi.
+We also de-fineZ(e, f;?)
+to be the sum of the numerator over allderivations that yield the sentence pair ?e, f?.
+Ratherthan training purely to optimize conditional likeli-hood, we also make use of a spherical Gaussian prioron the value of ?
+with mean 0 and variance ?2,which helps prevent overfitting of the model (Chenand Rosenfeld, 1998).
+Our objective is thus to select?
+minimizing:L = ?
+log?
+?e,f?p(e|f; ?
+)?||?||22?2= ???e,f?
+[logZ(e, f; ?)?
+logZ(f; ?
+)]?||?||22?2The gradient of Lwith respect to the feature weightshas a parallel form; it is the difference in feature ex-pectations under the reference distribution and thetranslation distribution with a penalty term due tothe prior:?L??i=??e,f?Ep(d,a|e,f;?)[hi]?
+Ep(e,d,a|f;?)[hi]?
+?i?2The form of the objective and gradient are quite sim-ilar to the traditional fully observed training scenariofor CRFs (Sha and Pereira, 2003).
+However, ratherthan matching the feature expectations in the modelto an observable feature value, we have to sum overthe latent structure that remains after observing ourtarget e, which makes the form of the first summandan expectation rather than just a feature functionvalue.3.2.1 Computing the objective and gradientThe objective and gradient that were just introducedcan be computed in two steps.
+Given a training pair?e, f?, we generate the forest of reorderings F from fas described in ?2.1.
+We then compose this grammarwith T , the FST representing the translation model,which yields F ?T , a translation forest that containsall possible translations of f into the target language,as described in ?2.2.
+Running the inside algorithmon the translation forest computes Z(f; ?
+), the firstterm in the objective, and the inside-outside algo-rithm can be used to compute Ep(e,d,a|f)[hi].
+Next,to compute Z(e, f; ?)
+and the first expectation in thegradient, we need to find the subset of the transla-tion forest F ?
+T that exactly derives the referencetranslation e. To do this, we again rely on the factthat F ?
+T is a forest and therefore itself a context-free grammar.
+So, we use this grammar to parsethe target reference string e. The resulting forest,F ?T ?e, contains all and only derivations that yieldthe pair ?e, f?.
+Here, the inside algorithm computesZ(e, f; ?)
+and the inside-outside algorithm can beused to compute Ep(e,d,a|f)[hi].Once we have an objective and gradient, we canapply any first-order numerical optimization tech-nique.8 Although the conditional likelihood surfaceof this model is non-convex (on account of the la-tent variables), we did not find a significant initial-ization effect.
+For the experiments below, we ini-tialized ?
+= 0 and set ?2 = 1.
+Training generallyconverged in fewer than 1500 function evaluations.8For our experiments we used L-BFGS (Liu and Nocedal,1989).8624 Experimental setupWe now turn to an experimental validation of themodels we have introduced.
+We define three con-ditions: a small data scenario consisting of a trans-lation task based on the BTEC Chinese-English cor-pus (Takezawa et al, 2002), a large data Chinese-English condition designed to be more comparableto conditions in a NIST MT evaluation, and a largedata Arabic-English task.For each condition, phrase tables were extractedas described in Koehn et al (2003) with a maxi-mum phrase size of 5.
+The parallel training datawas aligned using the Giza++ implementation ofIBM Model 4 (Och and Ney, 2003).
+The Chinesetext was segmented using a CRF-based word seg-menter (Tseng et al, 2005).
+The Arabic text wassegmented using the technique described in Lee etal.
+(2003).
+The Stanford parser was used to generatesource parses for all conditions, and these were thenused to generate the reordering forests as describedin ?2.1.Table 1 summarizes statistics about the cor-pora used.
+The reachability statistic indicateswhat percentage of sentence pairs in the train-ing data could be regenerated using our reorder-ing/translation model.9 To train the reorderingmodel, we used all of the reachable sentence pairsfrom BTEC, 20% of the reachable set in theChinese-English condition, and all reachable sen-tence pairs under 40 words (source) in length in theArabic-English condition.Error analysis indicates that a substantial portionof unreachable sentence pairs are due to alignment(word or sentence) or parse errors; however, in somecases the reordering forests did not contain an ad-equate source reordering to produce the necessarytarget.
+For example, in Arabic, which is a VSO lan-guage, the treebank annotation is to place the sub-ject NP as the ?middle child?
+between the V and theobject constituent.
+This can be reordered into an En-glish SVO order using our child-permutation rules;however, if the source VP is modified by a modalparticle, the parser makes the particle the parent ofthe VP, and it is no longer possible to move the sub-ject to the first position in the sentence.
+Richer re-ordering rules are needed to address this problem.9Only sentences that can be generated by the model can beused in training.Other solutions to the reachability problem includetargeting reachable oracles instead of the referencetranslation (Li and Khudanpur, 2009) or making useof alternative training criteria, such as minimum risktraining (Li and Eisner, 2009).4.1 FeaturesWe briefly describe the feature functions we usedin our model.
+These include the typical dense fea-tures used in translation: relative phrase translationfrequencies p(e|f) and p(f |e), ?lexically smoothed?translation probabilities plex(e|f) and plex(f |e), anda phrase count feature.
+For the reordering model, weused a binary feature for each kind of rule used, forexample ?VP?V NP(a) would fire once for each timethe rule VP ?
+V NP was used in a derivation, a.For the Arabic-English condition, we observed thatthe parse trees tended to be quite flat, with many re-peated non-terminal types in one rule, so we aug-mented the non-terminal types with an index indi-cating where they were located in the original parsetree.
+This resulted in a total of 6.7k features forIWSLT, 18k features for the large Chinese-Englishcondition, and 516k features for Arabic-English.10A target language model was not used during thetraining of the source reordering model, but it wasused during the translation experiments (see below).4.2 Qualitative assessment of reordering modelBefore looking at the translation results, we exam-ine what the model learns during training.
+Figure 6lists the 10 most highly weighted reordering featureslearned by the BTEC model (above) and shows anexample reordering using this model (below), withthe most English-like reordering indicated with astar.11 Keep in mind, we expect these features toreflect what the best English-like order of the inputshould be.
+All are almost surprisingly intuitive, butthis is not terribly surprising since Chinese and En-glish have very similar large-scale structures (bothare head initial, both have adjectives and quanti-fiers that precede nouns).
+However, we see two en-tries in the list (starred) that correspond to an En-10The large number of features in the Arabic system was dueto the relative flatness of the Arabic parse trees.11The italicized symbols in the English gloss are functionalelements with no precise translation.
+Q is an interrogative parti-cle, and DE marks a variety of attributive roles and is used hereas the head of a relative clause.863Table 1: Corpus statisticsCondition Sentences Source words Target words ReachabilityBTEC 44k 0.33M 0.36M 81%Chinese-English 400k 9.4M 10.9M 25%Arabic-English 120k 3.3M 3.6M 66%glish word order that is ungrammatical in Chinese:PP modifiers in Chinese typically precede the VPsthey modify, and CPs (relative clauses) also typi-cally precede the nouns they modify.
+In English, thereverse is true, and we see that the model has indeedlearned to prefer this ordering.
+It was not necessarythat this be the case: since our model makes useof phrases memorized from a non-reordered trainingset, it could hav relied on those for all its reordering.Yet these results provide evidence that it is learninglarge-scale reordering successfully.Feature ?
+noteVP?
+VE NP 0.995VP?
+VV VP 0.939 modal + VPVP?
+VV NP 0.895VP?
+VP PP?
+0.803 PP modifier of VPVP?
+VV NP IP 0.763PP?
+P NP 0.753IP?
+NP VP PU 0.728 PU = punctuationVP?
+VC NP 0.598NP?
+DP NP 0.538NP?
+NP CP?
+0.537 rel.
+clauses follow?
+?
+??
+?
+???
+??
+?
+??
+?
+?I    CAN  CATCH  [NP[CPGO   HILTON  HOTEL  DE]   BUS]   Q   ?I  CAN  CATCH  [NPBUS [CPGO  HILTON  HOTEL  DE]]  Q  ?I  CAN  CATCH  [NPBUS [CPDE  GO  HILTON  HOTEL]]  Q  ?I  CAN  CATCH  [NPBUS [CPGO  HOTEL  HILTON  DE]]  Q  ?I  CAN  CATCH  [NPBUS [CPDE  GO  HOTEL  HILTON]]  Q  ?I  CATCH  [NPBUS [CPGO  HILTON  HOTEL  DE]]  CAN  Q  ?Input:5-best reordering:(Can I catch a bus that goes to the Hilton Hotel ?
+)Figure 6: (Above) The 10 most highly-weighted featuresin a Chinese-English reordering model.
+(Below) Exam-ple reordering of a Chinese sentence (with English gloss,translation, and partial syntactic information).5 Translation experimentsWe now consider how to apply this model to a trans-lation task.
+The training we described in ?3.2 issuboptimal for state-of-the-art translation systems,since (1) it optimizes likelihood rather than an MTmetric and (2) it does not include a language model.We describe how we addressed these problems here,and then present our results in the three conditionsdefined above.5.1 Training for Viterbi decodingA language model was incorporated using cubepruning (Huang and Chiang, 2007), using a 200-best limit at each node during LM integration.
+Toimprove the ability of the phrase model to matchreordered phrases, we extracted the 1-best reorder-ing of the training data under the learned reorderingmodel and generated the phrase translation model sothat it contained phrases from both the original orderand the 1-best reordering.To be competitive with other state-of-the-art sys-tems, we would like to use Och?s minimum errortraining algorithm for training; however, we can-not tune the model as described with it, since it hasfar too many features.
+To address this, we con-verted the coefficients on the reordering features intoa single reordering feature which then had a coef-ficient assigned to it.
+This technique is similar towhat is done with logarithmic opinion pools, onlythe learned model is not a probability distribution(Smith et al, 2005).
+Once we collapsed the reorder-ing weights into a single feature, we used the tech-niques described by Kumar et al (2009) to optimizethe feature weights to maximize corpus BLEU on aheld-out development set.5.2 Translation resultsScores on a held-out test set are reported in Table 2using case-insensitive BLEU with 4 reference trans-lations (16 for BTEC) using the original definitionof the brevity penalty.
+We report the results of our864model along with three baseline conditions, one withno-reordering at all (mono), the performance of aphrase-based translation model with distance-baseddistortion, the performance of our implementation ofa hierarchical phrase-based translation model (Chi-ang, 2007), and then our model.Table 2: Translation results (BLEU)Condition Mono PB Hiero ForestBTEC 47.4 51.8 52.4 54.1Chinese-Eng.
+29.0 30.9 32.1 32.4Arabic-Eng.
+41.2 45.8 46.6 44.96 Related workA variety of translation processes can be formalizedas the composition of a finite-state representation ofinput (typically just a sentence, but often a morecomplex structure, like a word lattice) with an SCFG(Wu, 1997; Chiang, 2007; Zollmann and Venugopal,2006).
+Like these, our work uses parsing algorithmsto perform the composition operation.
+But this is thefirst time that the input to a finite-state transducer hasa context-free structure.12 Although not describedin terms of operations over formal languages, themodel of Yamada and Knight (2001) can be under-stood as an instance of our class of models with aspecific input forest and phrases restricted to matchsyntactic constituents.In terms of formal similarity, Mi et al (2008) useforests as input to a tree-to-string transducer pro-cess, but the forests are used to recover from 1-best parsing errors (as such, all derivations yieldthe same source string).
+Iglesias et al (2009) usea SCFG-based translation model, but implement itusing FSTs, although they use non-regular exten-sions that make FSTs equivalent to recursive tran-sition networks.
+Galley and Manning (2008) usea context-free reordering model to score a phrase-based (exponential) search space.Syntax-based preprocessing approaches that haverelied on hand-written rules to restructure sourcetrees for particular translation tasks have been quitewidely used (Collins et al, 2005; Wang et al, 2007;Xu et al, 2009; Chang et al, 2009).
+Discrimina-tively trained reordering models have been exten-sively explored.
+A widely used approach has been to12Satta (submitted) discusses the theoretical possibility ofthis sort of model but provides no experimental results.use a classifier to predict the orientation of phrasesduring decoding (Zens and Ney, 2006; Chang et al,2009).
+These classifiers must be trained indepen-dently from the translation model using training ex-amples extracted from the training data.
+A more am-bitious approach is described by Tromble and Eisner(2009), who build a global reordering model that islearned automatically from reordered training data.The latent variable discriminative training ap-proach we describe is similar to the one originallyproposed by Blunsom et al (2008).7 Discussion and conclusionWe have described a new model of translation thattakes advantage of the strengths of context-freemodeling, but splits reordering and phrase transduc-tion into two separate models.
+This lets the context-free part handle what it does well, mid-to-long rangereordering, and lets the finite-state part handle lo-cal phrasal correspondences.
+We have further shownthat the reordering component can be trained effec-tively as a latent variable in a discriminative transla-tion model using only conventional parallel trainingdata.This model holds considerable promise for fu-ture improvement.
+Not only does it already achievequite reasonable performance (performing particu-larly well in Chinese-English, where mid-range re-ordering is often required), but we have only begunto scratch the surface in terms of the kinds of fea-tures that can be included to predict reordering, aswell as the kinds of reordering forests used.
+Fur-thermore, by reintroducing the concept of a cascadeof transducers into the context-free model space, itshould be possible to develop new and more effec-tive rescoring mechanisms.
+Finally, unlike SCFGand phrase-based models, our model does not im-pose any distortion limits.AcknowledgementsThe authors gratefully acknowledge partial support fromthe GALE program of the Defense Advanced ResearchProjects Agency, Contract No.
+HR0011-06-2-001.
+Anyopinions, findings, conclusions or recommendations ex-pressed in this paper are those of the authors and do notnecessarily reflect the views of the sponsors.
+Thanksto Hendra Setiawan, Vlad Eidelman, Zhifei Li, ChrisCallison-Burch, Brian Dillon and the anonymous review-ers for insightful comments.865ReferencesP.
+Blunsom, T. Cohn, and M. Osborne.
+2008.
+A discrim-inative latent variable model for statistical machinetranslation.
+In Proceedings of ACL-HLT.P.-C. Chang, D. Jurafsky, and C. D. Manning.
+2009.
+Dis-ambiguating ?DE?
+for Chinese-English machine trans-lation,.
+In Proc.
+WMT.S.
+F. Chen and R. Rosenfeld.
+1998.
+A Gaussian priorfor smoothing maximum entropy models.
+TechnicalReport TR-10-98, Computer Science Group, HarvardUniversity.D.
+Chiang.
+2007.
+Hierarchical phrase-based translation.Computational Linguistics, 33(2):201?228.M.
+Collins, P. Koehn, and I. Kucerova.
+2005.
+Clause re-structuring for statistical machine translation.
+In Pro-ceedings of ACL 2005.J.
+Earley.
+1970.
+An efficient context-free parsing algo-rithm.
+Communications of the Association for Com-puting Machinery, 13(2):94?102.M.
+Galley and C. D. Manning.
+2008.
+A simple and ef-fective hierarchical phrase reordering model.
+In Proc.EMNLP.D.
+Grune and C. J. H. Jacobs.
+2008.
+Parsing as intersec-tion.
+In D. Gries and F. B. Schneider, editors, ParsingTechniques, pages 425?442.
+Springer, New York.J.
+E. Hopcroft and J. D. Ullman.
+1979.
+Introduc-tion to Automata Theory, Languages and Computa-tion.
+Addison-Wesley.L.
+Huang and D. Chiang.
+2007.
+Forest rescoring: Fasterdecoding with integrated language models.
+In ACL.G.
+Iglesias, A. de Gispert, E. R. Banga, and W. Byrne.2009.
+Hierarchical phrase-based translation withweighted finite state transducers.
+In Proc.
+NAACL.P.
+Koehn, F. Och, and D. Marcu.
+2003.
+Statistical phrase-based translation.
+In Proc.
+of NAACL, pages 48?54.S.
+Kumar, Y. Deng, and W. Byrne.
+2006.
+A weighted fi-nite state transducer translation template model for sta-tistical machine translation.
+Journal of Natural Lan-guage Engineering, 12(1):35?75.S.
+Kumar, W. Macherey, C. Dyer, and F. Och.
+2009.Efficient minimum error rate training and minimumBayes-risk decoding for translation hypergraphs andlattices.
+In Proc.
+ACL.Y.-S. Lee, K. Papineni, S. Roukos, O. Emam, and H. Has-san.
+2003.
+Language model based Arabic word seg-mentation.
+In Proc.
+ACL.Z.
+Li and J. Eisner.
+2009.
+First- and second-order ex-pectation semirings with applications to minimum-risktraining on translation forests.
+In Proc.
+EMNLP.Z.
+Li and S. Khudanpur.
+2009.
+Efficient extraction oforacle-best translations from hypergraphs.
+In Proc.NAACL.D.
+C. Liu and J. Nocedal.
+1989.
+On the limited memoryBFGS method for large scale optimization.
+Mathemat-ical Programming B, 45(3):503?528.H.
+Mi, L. Huang, and Q. Liu.
+2008.
+Forest-based transla-tion.
+In Proceedings of ACL-08: HLT, pages 192?199,Columbus, Ohio, June.
+Association for ComputationalLinguistics.F.
+Och and H. Ney.
+2003.
+A systematic comparison ofvarious statistical alignment models.
+ComputationalLinguistics, 29(1):19?51.S.
+Petrov and D. Klein.
+2008.
+Discriminative log-lineargrammars with latent variables.
+In Advances in Neu-ral Information Processing Systems 20 (NIPS), pages1153?1160.G.
+Satta.
+submitted.
+Translation algorithms by means oflanguage intersection.F.
+Sha and F. Pereira.
+2003.
+Shallow parsing with condi-tional random fields.
+In Proceedings of HLT-NAACL,pages 213?220.A.
+Smith, T. Cohn, and M. Osborne.
+2005.
+Logarithmicopinion pools for conditional random fields.
+In Proc.ACL.T.
+Takezawa, E. Sumita, F. Sugaya, H. Yamamoto, andS.
+Yamamoto.
+2002.
+Toward a broad-coverage bilin-gual corpus for speech translation of travel conversa-tions in the real world.
+In Proceedings of LREC 2002,pages 147?152, Las Palmas, Spain.R.
+Tromble and J. Eisner.
+2009.
+Learning linear or-der problems for better translation.
+In Proceedings ofEMNLP 2009.H.
+Tseng, P. Chang, G. Andrew, D. Jurafsky, and C. Man-ning.
+2005.
+A conditional random field word seg-menter.
+In Fourth SIGHAN Workshop on Chinese Lan-guage Processing.C.
+Wang, M. Collins, and P. Koehn.
+2007.
+Chinese syn-tactic reordering for statistical machine translation.
+InProc.
+EMNLP.D.
+Wu.
+1997.
+Stochastic inversion transduction gram-mars and bilingual parsing of parallel corpora.
+Com-putational Linguistics, 23(3):377?404.P.
+Xu, J. Kang, M. Ringgaard, and F. Och.
+2009.
+Using adependency parser to improve SMT for subject-object-verb languages.
+In Proc.
+NAACL, pages 245?253.K.
+Yamada and K. Knight.
+2001.
+A syntax-based statis-tical translation model.
+In Proc.
+ACL.R.
+Zens and H. Ney.
+2006.
+Discriminative reorderingmodels for statistical machine translation.
+In Proc.
+ofthe Workshop on SMT.A.
+Zollmann and A. Venugopal.
+2006.
+Syntax aug-mented machine translation via chart parsing.
+In Proc.of the Workshop on SMT.A.
+Zollmann, A. Venugopal, F. Och, and J. Ponte.
+2008.A systematic comparison of phrase-based, hierarchicaland syntax-augmented statistical MT.
+In Proc.
+Coling.866
