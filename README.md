@@ -1,5 +1,6 @@
 # ReportSummaryDistance
 Code repository for TMA4500 Industriell matematikk, fordjupingsprosjekt. 
+
 This code creates document embeddings for documents, and calculates document distance between them. 
 The objective is to measure quality of summaries for reports. 
 
