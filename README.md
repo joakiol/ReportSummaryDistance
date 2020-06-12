@@ -12,6 +12,6 @@ A few elements from nltk must be downloaded manually. This is done by adding the
 
 `analysis.py` contains the functionality for analysing the data. 
 
-`TFIDFModel`, `LSAModel`, `LDAModel`, `Word2vecModel`, `Doc2vecModel` and `BertModel` contains the models. Implementations from gensim and sentence-bert are used. These files contain funtionality to make them easier to work with. 
+`TFIDFModel.py`, `LSAModel.py`, `LDAModel.py`, `Word2vecModel.py`, `Doc2vecModel.py` and `BertModel.py` contains the models. Implementations from gensim and sentence-bert are used. These files contain funtionality to make them easier to work with. 
 
 The `data` folder contains the data (except the Vendu data, which will not be uploaded). This includes the SciSummNet-2019 data, the Concept-Project Matching data and the ACL Anthology Network corpus. The data is structured as one file per document, with one sentence per line in the files. Reports and summaries are treated as independent documents. 
