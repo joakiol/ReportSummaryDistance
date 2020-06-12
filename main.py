@@ -8,6 +8,7 @@ from BertModel import BertModel
 from data import ScisummData, AANData, CPMData, VenduData
 from analysis import ScisummAnalysis, CPMAnalysis, VenduAnalysis, plot_correlation
 import pandas as pd
+from pathlib import Path
 
 # Configurations for TF-IDF for each of the datasets
 def TFIDF(analysis):
@@ -253,6 +254,9 @@ def correlation_Vendu():
     plot_correlation(distances)
 
 if __name__ == '__main__':
+
+    # Plot folder must be made (This can be deleted after first run)
+    Path('plot').mkdir(parents=True, exist_ok=True)
 
     # Which analysis should be performed? 'SSN', 'CPM/AAN', 'CPM/CPM'.
     # 'Vendu' can't be run since the data will not be uploaded to GitHub.
